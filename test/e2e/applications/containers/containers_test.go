@@ -5,6 +5,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -73,8 +74,10 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 
 		By("Verifying the container is running and the application is deployed as expected")
 		harness.VerifyContainerRunning("nginx")
-		harness.WaitForApplicationRunningStatus(deviceId, containerAppName)
-		harness.WaitForApplicationsSummaryStatus(deviceId, v1beta1.ApplicationsSummaryStatusHealthy)
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationSummary(deviceId, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
+		Expect(err).ToNot(HaveOccurred())
 		harness.VerifyQuadletApplicationFolderExists(containerAppName)
 
 		By("Verifying the container is listening on the mapped port")
@@ -93,7 +96,8 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying application status becomes Error due to low memory limit")
-		harness.WaitForApplicationStatusByName(deviceId, containerAppName, v1beta1.ApplicationStatusError)
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusError, testutil.TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Restoring normal memory limit")
 		err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
@@ -103,8 +107,10 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying application recovers to Running status with Healthy summary")
-		harness.WaitForApplicationRunningStatus(deviceId, containerAppName)
-		harness.WaitForApplicationsSummaryStatus(deviceId, v1beta1.ApplicationsSummaryStatusHealthy)
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationSummary(deviceId, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Adding a second container application alongside the first")
 		err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
@@ -114,7 +120,7 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying both applications are running")
-		harness.WaitForRunningApplicationsCount(deviceId, 2)
+		harness.WaitForApplicationsCount(deviceId, 2, v1beta1.ApplicationStatusRunning)
 
 		By("Verifying both containers are running")
 		err = harness.VerifyContainerCount(2)

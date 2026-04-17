@@ -31,7 +31,7 @@ type Config struct {
 	Auth                *authConfig                `json:"auth,omitempty"`
 	Metrics             *metricsConfig             `json:"metrics,omitempty"`
 	CA                  *ca.Config                 `json:"ca,omitempty"`
-	Tracing             *tracingConfig             `json:"tracing,omitempty"`
+	Tracing             *TracingConfig             `json:"tracing,omitempty"`
 	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
 	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic            *periodicConfig            `json:"periodic,omitempty"`
@@ -164,18 +164,34 @@ type ImageBuilderServiceConfig struct {
 	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
 }
 
+// serviceImageConfig holds image and skip-TLS settings for a single builder image (podman or bootc-image-builder).
+type serviceImageConfig struct {
+	Image         string `json:"image,omitempty"`
+	SkipTLSVerify bool   `json:"skipTlsVerify,omitempty"`
+}
+
+// serviceImagesConfig holds per-service builder image overrides.
+type serviceImagesConfig struct {
+	Podman            *serviceImageConfig `json:"podman,omitempty"`
+	BootcImageBuilder *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
+}
+
+const (
+	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
+	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+)
+
 type imageBuilderWorkerConfig struct {
-	LogLevel                 string        `json:"logLevel,omitempty"`
-	MaxConcurrentBuilds      int           `json:"maxConcurrentBuilds,omitempty"`
-	DefaultTTL               util.Duration `json:"defaultTTL,omitempty"`
-	PodmanImage              string        `json:"podmanImage,omitempty"`
-	BootcImageBuilderImage   string        `json:"bootcImageBuilderImage,omitempty"`
-	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
-	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
-	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
-	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
-	RPMRepoAdd               *bool         `json:"rpmRepoAdd,omitempty"`
-	RPMRepoEnable            string        `json:"rpmRepoEnable,omitempty"`
+	LogLevel                 string               `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds      int                  `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL               util.Duration        `json:"defaultTTL,omitempty"`
+	ServiceImages            *serviceImagesConfig `json:"serviceImages,omitempty"`
+	LastSeenUpdateInterval   util.Duration        `json:"lastSeenUpdateInterval,omitempty"`
+	ImageBuilderTimeout      util.Duration        `json:"imageBuilderTimeout,omitempty"`
+	TimeoutCheckTaskInterval util.Duration        `json:"timeoutCheckTaskInterval,omitempty"`
+	RPMRepoURL               string               `json:"rpmRepoUrl,omitempty"`
+	RPMRepoAdd               *bool                `json:"rpmRepoAdd,omitempty"`
+	RPMRepoEnable            string               `json:"rpmRepoEnable,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
@@ -184,13 +200,38 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		LogLevel:                 "info",
 		MaxConcurrentBuilds:      2,
 		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
-		PodmanImage:              "quay.io/podman/stable:v5.7.1",
-		BootcImageBuilderImage:   "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		ServiceImages:            &serviceImagesConfig{Podman: &serviceImageConfig{Image: defaultPodmanImage}, BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage}},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
 	}
+}
+
+// EffectivePodmanImage returns the podman builder image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectivePodmanImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.Podman != nil && c.ServiceImages.Podman.Image != "" {
+		return c.ServiceImages.Podman.Image
+	}
+	return defaultPodmanImage
+}
+
+// EffectivePodmanSkipTLSVerify returns whether to skip TLS verification when pulling the podman image.
+func (c *imageBuilderWorkerConfig) EffectivePodmanSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.Podman != nil && c.ServiceImages.Podman.SkipTLSVerify
+}
+
+// EffectiveBootcImageBuilderImage returns the bootc-image-builder image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.Image != "" {
+		return c.ServiceImages.BootcImageBuilder.Image
+	}
+	return defaultBootcImageBuilderImage
+}
+
+// EffectiveBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the bootc-image-builder image.
+func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.SkipTLSVerify
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
@@ -363,7 +404,7 @@ type workerCollectorConfig struct {
 	collectorConfig
 }
 
-type tracingConfig struct {
+type TracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"`
@@ -434,7 +475,7 @@ type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
 	return func(c *Config) {
-		c.Tracing = &tracingConfig{
+		c.Tracing = &TracingConfig{
 			Enabled: true,
 		}
 	}
@@ -1048,21 +1089,18 @@ func (cfg *Config) sanitizeForLogging() *Config {
 
 	// Redact client secrets in all auth providers
 	if sanitized.Auth != nil {
-		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.OIDC.ClientSecret = &redacted
+		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != "" {
+			sanitized.Auth.OIDC.ClientSecret = "[REDACTED]"
 		}
-		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.OAuth2.ClientSecret = &redacted
+		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != "" {
+			sanitized.Auth.OAuth2.ClientSecret = "[REDACTED]"
 		}
 		if sanitized.Auth.OpenShift != nil && sanitized.Auth.OpenShift.ClientSecret != nil {
 			redacted := "[REDACTED]"
 			sanitized.Auth.OpenShift.ClientSecret = &redacted
 		}
-		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.AAP.ClientSecret = &redacted
+		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != "" {
+			sanitized.Auth.AAP.ClientSecret = "[REDACTED]"
 		}
 		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
 			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"

@@ -63,7 +63,7 @@ func createBasicOAuth2Spec() api.OAuth2ProviderSpec {
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            "https://oauth2.example.com/userinfo",
 		ClientId:               "test-client-id",
-		ClientSecret:           lo.ToPtr("test-client-secret"),
+		ClientSecret:           "test-client-secret",
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -140,7 +140,7 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
 				spec := createBasicOAuth2Spec()
-				spec.ClientSecret = nil
+				spec.ClientSecret = ""
 				return spec
 			}(),
 			expectError: true,
@@ -640,7 +640,7 @@ func TestOAuth2Auth_GetIdentity_FiltersFlightctlAdmin_NotCreatedBySuperAdmin(t *
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            userinfoServer.URL,
 		ClientId:               "test-client-id",
-		ClientSecret:           lo.ToPtr("test-client-secret"),
+		ClientSecret:           "test-client-secret",
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -732,7 +732,7 @@ func TestOAuth2Auth_GetIdentity_AllowsFlightctlAdmin_CreatedBySuperAdmin(t *test
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            userinfoServer.URL,
 		ClientId:               "test-client-id",
-		ClientSecret:           lo.ToPtr("test-client-secret"),
+		ClientSecret:           "test-client-secret",
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -1007,7 +1007,7 @@ func TestOAuth2Auth_GetAuthConfig(t *testing.T) {
 	assert.Equal(t, spec.ClientId, oauth2Spec.ClientId)
 	assert.Equal(t, spec.AuthorizationUrl, oauth2Spec.AuthorizationUrl)
 	// Note: Client secret is present in the struct but would be masked during JSON marshaling
-	assert.NotNil(t, oauth2Spec.ClientSecret, "client secret is present in struct")
+	assert.NotEmpty(t, oauth2Spec.ClientSecret, "client secret is present in struct")
 }
 
 func TestOAuth2Auth_TLSConfig(t *testing.T) {

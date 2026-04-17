@@ -123,6 +123,47 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]] && [[ -z "$NAMESPACE" ]]; then
     usage
 fi
 
+# Detect K8s CLI early (needed for restoring existing secrets before generation)
+K8S_CLI=""
+if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
+    if command -v oc &> /dev/null; then
+        K8S_CLI="oc"
+    elif command -v kubectl &> /dev/null; then
+        K8S_CLI="kubectl"
+    else
+        echo "Error: Neither 'oc' nor 'kubectl' found in PATH"
+        exit 1
+    fi
+fi
+
+# Helper function to restore a TLS secret from K8s into cert/key files on disk
+restore_tls_secret() {
+    local secret_name="$1"
+    local cert_path="$2"
+    local key_path="$3"
+
+    # Check if the secret exists; skip silently if not (fresh install)
+    if ! $K8S_CLI get secret "$secret_name" -n "$NAMESPACE" &>/dev/null; then
+        return 0
+    fi
+
+    # Secret exists — fetch without suppressing errors so transient
+    # failures (network, RBAC) surface instead of causing CA regeneration
+    local tls_crt tls_key
+    tls_crt=$($K8S_CLI get secret "$secret_name" -n "$NAMESPACE" \
+        -o jsonpath='{.data.tls\.crt}')
+    tls_key=$($K8S_CLI get secret "$secret_name" -n "$NAMESPACE" \
+        -o jsonpath='{.data.tls\.key}')
+
+    if [[ -n "$tls_crt" ]] && [[ -n "$tls_key" ]]; then
+        mkdir -p "$(dirname "$cert_path")"
+        echo "$tls_crt" | base64 -d > "$cert_path"
+        echo "$tls_key" | base64 -d > "$key_path"
+        chmod 600 "$key_path"
+        echo "  Restored: $secret_name"
+    fi
+}
+
 # Helper function to generate SAN extension
 generate_san_config() {
     local sans=("$@")
@@ -230,6 +271,43 @@ ${san_config}"
 
     rm -f "$csr_path"
 }
+
+# Restore existing certificates from K8s secrets so that
+# the "skip if exists" checks below preserve them on upgrade
+if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
+    echo "=== Restoring existing certificates from K8s secrets ==="
+    mkdir -p "$CERT_DIR"
+
+    restore_tls_secret "flightctl-ca" \
+        "$CERT_DIR/ca.crt" "$CERT_DIR/ca.key"
+    restore_tls_secret "flightctl-client-signer-ca" \
+        "$CERT_DIR/flightctl-api/client-signer.crt" "$CERT_DIR/flightctl-api/client-signer.key"
+    restore_tls_secret "flightctl-api-server-tls" \
+        "$CERT_DIR/flightctl-api/server.crt" "$CERT_DIR/flightctl-api/server.key"
+    restore_tls_secret "flightctl-telemetry-gateway-server-tls" \
+        "$CERT_DIR/flightctl-telemetry-gateway/server.crt" "$CERT_DIR/flightctl-telemetry-gateway/server.key"
+    restore_tls_secret "flightctl-alertmanager-proxy-server-tls" \
+        "$CERT_DIR/flightctl-alertmanager-proxy/server.crt" "$CERT_DIR/flightctl-alertmanager-proxy/server.key"
+    restore_tls_secret "flightctl-imagebuilder-api-server-tls" \
+        "$CERT_DIR/flightctl-imagebuilder-api/server.crt" "$CERT_DIR/flightctl-imagebuilder-api/server.key"
+    restore_tls_secret "flightctl-ui-server-tls" \
+        "$CERT_DIR/flightctl-ui/server.crt" "$CERT_DIR/flightctl-ui/server.key"
+    restore_tls_secret "flightctl-cli-artifacts-server-tls" \
+        "$CERT_DIR/flightctl-cli-artifacts/server.crt" "$CERT_DIR/flightctl-cli-artifacts/server.key"
+
+    # Restore CA bundle (generic secret, not TLS)
+    if $K8S_CLI get secret "flightctl-ca-bundle" -n "$NAMESPACE" &>/dev/null; then
+        ca_bundle_data=$($K8S_CLI get secret "flightctl-ca-bundle" -n "$NAMESPACE" \
+            -o jsonpath='{.data.ca-bundle\.crt}')
+        if [[ -n "${ca_bundle_data:-}" ]]; then
+            echo "$ca_bundle_data" | base64 -d > "$CERT_DIR/ca-bundle.crt"
+            echo "  Restored: flightctl-ca-bundle"
+        fi
+    fi
+
+    echo "=== Secret restoration complete ==="
+    echo ""
+fi
 
 echo "=== Generating Flight Control Certificates in $CERT_DIR ==="
 
@@ -498,17 +576,6 @@ echo ""
 # Create Kubernetes secrets if requested
 if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
     echo "=== Creating Kubernetes Secrets ==="
-
-    # Determine which CLI to use (oc or kubectl)
-    if command -v oc &> /dev/null; then
-        K8S_CLI="oc"
-    elif command -v kubectl &> /dev/null; then
-        K8S_CLI="kubectl"
-    else
-        echo "Error: Neither 'oc' nor 'kubectl' found in PATH"
-        exit 1
-    fi
-
     echo "Using CLI: $K8S_CLI"
     echo "Namespace: $NAMESPACE"
     echo ""
@@ -564,6 +631,26 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
             --namespace="$NAMESPACE" \
             --cert="$IMAGEBUILDER_API_CERT" \
             --key="$IMAGEBUILDER_API_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
+    # Create flightctl-ui-server-tls secret (only if certificate was generated)
+    if [[ ${#UI_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-ui-server-tls"
+        $K8S_CLI create secret tls flightctl-ui-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$UI_CERT" \
+            --key="$UI_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
+    # Create flightctl-cli-artifacts-server-tls secret (only if certificate was generated)
+    if [[ ${#CLI_ARTIFACTS_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-cli-artifacts-server-tls"
+        $K8S_CLI create secret tls flightctl-cli-artifacts-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$CLI_ARTIFACTS_CERT" \
+            --key="$CLI_ARTIFACTS_KEY" \
             --dry-run=client -o yaml | $K8S_CLI apply -f -
     fi
 

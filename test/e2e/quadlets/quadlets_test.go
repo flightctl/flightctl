@@ -14,7 +14,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,7 +46,6 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -61,7 +59,8 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 			Expect(harness.UpdateDeviceWithQuadletInline(deviceID, quadletAppName, []string{"test.container"}, []string{containerContent})).ToNot(HaveOccurred())
 
 			By("Checking application status shows Running")
-			Expect(harness.WaitForApplicationStatus(deviceID, quadletAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+			err := harness.WaitForApplicationStatus(deviceID, quadletAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Checking quadlet files and labels on device")
 			names, err := harness.RunPodmanPsContainerNames(false)
@@ -214,7 +213,8 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 			Expect(harness.UpdateDeviceWithQuadletInline(deviceID, quadletAppNameCrash, []string{"test.container"}, []string{containerContent})).ToNot(HaveOccurred())
 
 			By("Checking application general status is Degraded (or Error)")
-			Expect(harness.WaitForApplicationSummaryDegradedOrError(deviceID, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+			err := harness.WaitForApplicationSummary(deviceID, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusDegraded, v1beta1.ApplicationsSummaryStatusError)
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 })

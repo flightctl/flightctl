@@ -19,9 +19,10 @@ type OAuth2 struct {
 	Username           string
 	Password           string
 	Web                bool
+	NoBrowser          bool
 }
 
-func NewOAuth2Config(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) *OAuth2 {
+func NewOAuth2Config(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web, noBrowser bool) *OAuth2 {
 	return &OAuth2{
 		Metadata:           metadata,
 		Spec:               spec,
@@ -32,6 +33,7 @@ func NewOAuth2Config(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, caFil
 		Username:           username,
 		Password:           password,
 		Web:                web,
+		NoBrowser:          noBrowser,
 	}
 }
 
@@ -87,7 +89,7 @@ func (o *OAuth2) Auth() (AuthInfo, error) {
 		return o.authPasswordFlow()
 	}
 	// Default to auth code flow
-	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort)
+	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort, o.NoBrowser)
 	if err != nil {
 		return AuthInfo{}, err
 	}

@@ -15,6 +15,11 @@ global:
   # - builtin: Generate required certificates using Helm's builtin library functions.
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
+  # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
+  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
+  # - true: always use externalCertificate.
+  # - false: never use externalCertificate (rely on default router cert).
+  routeExternalCertificate: "auto"
   # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
@@ -47,14 +52,27 @@ global:
     oidc:
       # -- OIDC Client ID
       clientId: "flightctl-client"
+      # -- List of OIDC scopes to request (e.g. openid, profile, email, roles, offline_access)
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+        - "roles"
+        - "offline_access"
       # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
       issuer: ""
       # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- OIDC client secret (optional; prefer mounting from a secret)
+      clientSecret: ""
       # -- Organization assignment configuration
       organizationAssignment:
         type: "static"
         organizationName: "default"
+        # -- JSON path to the claim for dynamic assignment (when type: dynamic)
+        # claimPath: []
+        # organizationNamePrefix: ""
+        # organizationNameSuffix: ""
       # -- Username claim to extract from OIDC token (default: "preferred_username")
       usernameClaim:
         - "preferred_username"
@@ -63,11 +81,29 @@ global:
         type: "dynamic"
         claimPath:
           - "groups"
+        # -- Separator for org:role format (default ":")
+        # separator: ":"
+        # -- Static list of role names (when type: static)
+        # roles: []
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
       # -- The URL of the AAP Gateway API endpoint that is reachable by clients
       externalApiUrl: ""
+      # -- OAuth2 authorization endpoint URL
+      authorizationUrl: ""
+      # -- OAuth2 token endpoint URL
+      tokenUrl: ""
+      # -- OAuth2 client ID
+      clientId: ""
+      # -- OAuth2 client secret (prefer mounting from a secret)
+      clientSecret: ""
+      # -- Whether the AAP provider is enabled
+      enabled: true
+      # -- List of OAuth2 scopes to request
+      scopes:
+        - "read"
+        - "write"
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
@@ -203,7 +239,7 @@ alertmanager:
 api:
   image:
     # -- API server container image
-    image: quay.io/flightctl/flightctl-api
+    image: quay.io/flightctl/flightctl-api-el9
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -240,7 +276,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: quay.io/flightctl/flightctl-cli-artifacts
+    image: quay.io/flightctl/flightctl-cli-artifacts-el9
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -252,7 +288,7 @@ cliArtifacts:
 worker:
   image:
     # -- Worker container image
-    image: quay.io/flightctl/flightctl-worker
+    image: quay.io/flightctl/flightctl-worker-el9
     # -- Worker image tag
     tag: ""
     # -- Image pull policy for worker container
@@ -264,7 +300,7 @@ worker:
 periodic:
   image:
     # -- Periodic container image
-    image: quay.io/flightctl/flightctl-periodic
+    image: quay.io/flightctl/flightctl-periodic-el9
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -278,7 +314,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: quay.io/flightctl/flightctl-alert-exporter
+    image: quay.io/flightctl/flightctl-alert-exporter-el9
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -290,7 +326,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    image: quay.io/flightctl/flightctl-alertmanager-proxy-el9
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -302,7 +338,7 @@ imageBuilderApi:
   enabled: true
   image:
     # -- ImageBuilder API container image
-    image: quay.io/flightctl/flightctl-imagebuilder-api
+    image: quay.io/flightctl/flightctl-imagebuilder-api-el9
     # -- ImageBuilder API image tag
     tag: ""
     # -- Image pull policy for ImageBuilder API container
@@ -316,7 +352,7 @@ imageBuilderWorker:
   replicas: 1
   image:
     # -- ImageBuilder Worker container image
-    image: quay.io/flightctl/flightctl-imagebuilder-worker
+    image: quay.io/flightctl/flightctl-imagebuilder-worker-el9
     # -- ImageBuilder Worker image tag
     tag: ""
     # -- Image pull policy for ImageBuilder Worker container
@@ -335,13 +371,25 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
+  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  serviceImages:
+    podman:
+      # -- Podman builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Podman builder image.
+      skipTlsVerify: false
+    bootcImageBuilder:
+      # -- bootc-image-builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
+      skipTlsVerify: false
   # -- Resource requests and limits
   resources: {}
 
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
-    image: quay.io/flightctl/flightctl-telemetry-gateway
+    image: quay.io/flightctl/flightctl-telemetry-gateway-el9
     # -- Telemetry gateway image tag
     tag: ""
     # -- Image pull policy for Telemetry gateway container
@@ -354,9 +402,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: quay.io/flightctl/flightctl-ui
+    image: quay.io/flightctl/flightctl-ui-el9
     # -- UI Plugin container image
-    pluginImage: quay.io/flightctl/flightctl-ocp-ui
+    pluginImage: quay.io/flightctl/flightctl-ocp-ui-el9
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -366,6 +414,13 @@ ui:
     insecureSkipTlsVerify: false
     # -- A custom CA cert for Auth TLS.
     caCert: ""
+  # -- When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect
+  # validation (required when TLS terminates at an ingress). Disable if the UI is reached directly
+  # without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs.
+  trustXForwardedHeaders: true
+  # -- Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod
+  # network). Empty means any client when trustXForwardedHeaders is true.
+  trustedProxyCidrs: ""
   # -- Additional labels for UI routes.
   additionalRouteLabels: null
 
@@ -383,7 +438,7 @@ clusterCli:
 dbSetup:
   image:
     # -- Database setup container image
-    image: quay.io/flightctl/flightctl-db-setup
+    image: quay.io/flightctl/flightctl-db-setup-el9
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container

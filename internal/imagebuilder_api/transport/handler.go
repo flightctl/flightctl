@@ -103,9 +103,8 @@ func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Requ
 
 // DeleteImageBuild handles DELETE /api/v1/imagebuilds/{name}
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	domainBody, domainStatus := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
-	h.SetResponse(w, apiBody, domainStatus)
+	domainStatus := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	h.SetResponse(w, nil, domainStatus)
 }
 
 // CancelImageBuild handles POST /api/v1/imagebuilds/{name}/cancel
@@ -246,9 +245,8 @@ func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request
 
 // DeleteImageExport handles DELETE /api/v1/imageexports/{name}
 func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	domainBody, domainStatus := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	apiBody := h.converter.ImageExport().FromDomain(domainBody)
-	h.SetResponse(w, apiBody, domainStatus)
+	domainStatus := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	h.SetResponse(w, nil, domainStatus)
 }
 
 // CancelImageExport handles POST /api/v1/imageexports/{name}/cancel

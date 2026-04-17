@@ -24,8 +24,10 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite.
 - **Integration tests:** `make integration-test` (starts DB/KV/alertmanager via deploy targets).
 - **E2E tests:** `make e2e-test` or `make in-cluster-e2e-test`; see [test/AGENTS.md](test/AGENTS.md).
-- **Lint:** `make lint` (do not invoke golangci-lint directly; `make lint` installs and configures it automatically), `make lint-openapi`, `make lint-docs`, `make lint-helm`.
+- **Lint:** `make lint` (do not invoke golangci-lint directly; `make lint` installs and configures it automatically), `make lint-openapi`, `make lint-docs`, `make lint-helm`, `make rpmlint`, `make lint-diagrams`.
+- **Documentation checks:** `make spellcheck-docs` to check spelling, `make fix-spelling` for interactive fixing.
 - **Code formatting:** Format Go imports with `gci write --skip-generated -s standard -s default .` (required for `make lint` to pass). Import order: standard library, then all other imports.
+- **Dependency management:** `make tidy` to tidy go.mod files after adding/removing dependencies.
 - **Cleanup:** `make clean` (containers and volumes), `make clean-all` (full cleanup including `bin/`).
 
 ## Running locally
@@ -38,15 +40,18 @@ Flight Control is a service for declarative management of fleets of edge devices
 ## Key conventions
 
 - **Go:** Standard Go layout; avoid unnecessary dependencies; prefer existing patterns. Agent code follows strict rules—see [internal/agent/AGENTS.md](internal/agent/AGENTS.md).
+- **Testing:** Use table-driven tests. Name test cases with "When ... it should ..." format for clarity.
 - **API changes:** Edit OpenAPI YAML and hand-maintained types (e.g. `api/core/v1beta1/types.go`), then `make generate`. Do not edit `*.gen.go` by hand.
 - **Documentation:** User docs under `docs/user/`, developer docs under `docs/developer/`. Run `make lint-docs` and `make spellcheck-docs` for user docs.
+- **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `EDM-1234: Description`) or `NO-ISSUE:` for trivial changes.
 
 ## Before committing
 
 1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run `make lint-docs` (and `make spellcheck-docs` for user docs).
 2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
-3. **Run lint** – Run `make lint` before committing and fix any issues.
-4. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they start DB/KV/Alertmanager automatically). Fix any failures before pushing.
+3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying go.mod files.
+4. **Run lint** – Run `make lint` before committing and fix any issues.
+5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they start DB/KV/Alertmanager automatically). Fix any failures before pushing.
 
 ## Pointers to area-specific guidance
 

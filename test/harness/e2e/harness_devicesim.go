@@ -13,6 +13,7 @@ import (
 
 	"github.com/flightctl/flightctl/test/util"
 	ginkgo "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
@@ -294,4 +295,90 @@ func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedD
 	}
 
 	return nil
+}
+
+// LoginFunc is a function that logs in a user on the given harness.
+type LoginFunc func(h *Harness) error
+
+// StartLabeledSimulator starts a device simulator with the given test-id label, user prefix,
+// initial device index, and device count. Returns the running command.
+func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int) (*exec.Cmd, error) {
+	if testID == "" {
+		return nil, fmt.Errorf("testID is empty")
+	}
+	if deviceCount <= 0 {
+		return nil, fmt.Errorf("deviceCount must be > 0")
+	}
+	args := []string{
+		"--count", fmt.Sprintf("%d", deviceCount),
+		"--initial-device-index", fmt.Sprintf("%d", initialIndex),
+		"--label", fmt.Sprintf("test-id=%s", testID),
+		"--label", fmt.Sprintf("user=%s", userPrefix),
+	}
+	return h.RunDeviceSimulator(ctx, args...)
+}
+
+// StopAllSimulators stops all running simulator commands, logging warnings on failure.
+func (h *Harness) StopAllSimulators(cmds []*exec.Cmd, timeout time.Duration) {
+	for i, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		if err := h.StopDeviceSimulator(cmd, timeout); err != nil {
+			logrus.Warnf("Failed to stop simulator %d: %v", i, err)
+		}
+	}
+}
+
+// CountDevicesByLabel returns the number of devices matching the given test-id label.
+func (h *Harness) CountDevicesByLabel(testID string) int {
+	if testID == "" {
+		return 0
+	}
+	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	return len(lines)
+}
+
+// EnrollDeviceForDecommissionTest starts a labeled simulator as the given user, waits for
+// at least one device to enroll, and returns the name of the first enrolled device.
+func (h *Harness) EnrollDeviceForDecommissionTest(loginFn LoginFunc, deviceCount int, enrollTimeout time.Duration) (string, *exec.Cmd, error) {
+	if loginFn == nil {
+		return "", nil, fmt.Errorf("loginFn is nil")
+	}
+	if err := loginFn(h); err != nil {
+		return "", nil, fmt.Errorf("login failed: %w", err)
+	}
+
+	testID := h.GetTestIDFromContext()
+
+	cmd, err := h.StartLabeledSimulator(h.Context, testID, "decommission-test", 0, deviceCount)
+	if err != nil {
+		return "", nil, fmt.Errorf("starting simulator: %w", err)
+	}
+
+	Eventually(func() int {
+		return h.CountDevicesByLabel(testID)
+	}, enrollTimeout, 2*time.Second).Should(BeNumerically(">=", 1),
+		fmt.Sprintf("Expected at least 1 device to enroll within %s", enrollTimeout))
+
+	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil {
+		return "", cmd, fmt.Errorf("listing devices: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return "", cmd, fmt.Errorf("no devices found after enrollment")
+	}
+	parts := strings.SplitN(lines[0], "/", 2)
+	var deviceName string
+	if len(parts) == 2 {
+		deviceName = parts[1]
+	} else {
+		deviceName = parts[0]
+	}
+	return deviceName, cmd, nil
 }

@@ -437,6 +437,12 @@ const (
 	ResourceSyncCompleted ResourceSyncCompletedDetailsDetailType = "ResourceSyncCompleted"
 )
 
+// Defines values for ResourceSyncType.
+const (
+	ResourceSyncTypeCatalog ResourceSyncType = "catalog"
+	ResourceSyncTypeFleet   ResourceSyncType = "fleet"
+)
+
 // Defines values for ResourceUpdatedDetailsDetailType.
 const (
 	ResourceUpdated ResourceUpdatedDetailsDetailType = "ResourceUpdated"
@@ -539,7 +545,7 @@ type AapProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2127,7 +2133,7 @@ type K8sProviderSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
@@ -2136,7 +2142,7 @@ type K8sProviderSpec struct {
 	RbacNs *string `json:"rbacNs,omitempty"`
 
 	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+	RoleAssignment *AuthRoleAssignment `json:"roleAssignment,omitempty"`
 
 	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
 	RoleSuffix *string `json:"roleSuffix,omitempty"`
@@ -2240,7 +2246,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2285,7 +2291,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2686,6 +2692,9 @@ type ResourceSyncSpec struct {
 
 	// TargetRevision The desired revision in the repository.
 	TargetRevision string `json:"targetRevision"`
+
+	// Type The type of resources this ResourceSync manages. Defaults to fleet if not specified.
+	Type *ResourceSyncType `json:"type,omitempty"`
 }
 
 // ResourceSyncStatus ResourceSyncStatus represents information about the status of a ResourceSync.
@@ -2699,6 +2708,9 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceSyncType The type of resources this ResourceSync manages. Defaults to fleet if not specified.
+type ResourceSyncType string
 
 // ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
 type ResourceUpdatedDetails struct {

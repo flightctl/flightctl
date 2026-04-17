@@ -15,6 +15,11 @@ global:
   # - builtin: Generate required certificates using Helm's builtin library functions.
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
+  # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
+  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
+  # - true: always use externalCertificate.
+  # - false: never use externalCertificate (rely on default router cert).
+  routeExternalCertificate: "auto"
   # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
@@ -47,14 +52,27 @@ global:
     oidc:
       # -- OIDC Client ID
       clientId: "flightctl-client"
+      # -- List of OIDC scopes to request (e.g. openid, profile, email, roles, offline_access)
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+        - "roles"
+        - "offline_access"
       # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
       issuer: ""
       # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- OIDC client secret (optional; prefer mounting from a secret)
+      clientSecret: ""
       # -- Organization assignment configuration
       organizationAssignment:
         type: "static"
         organizationName: "default"
+        # -- JSON path to the claim for dynamic assignment (when type: dynamic)
+        # claimPath: []
+        # organizationNamePrefix: ""
+        # organizationNameSuffix: ""
       # -- Username claim to extract from OIDC token (default: "preferred_username")
       usernameClaim:
         - "preferred_username"
@@ -63,11 +81,29 @@ global:
         type: "dynamic"
         claimPath:
           - "groups"
+        # -- Separator for org:role format (default ":")
+        # separator: ":"
+        # -- Static list of role names (when type: static)
+        # roles: []
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
       # -- The URL of the AAP Gateway API endpoint that is reachable by clients
       externalApiUrl: ""
+      # -- OAuth2 authorization endpoint URL
+      authorizationUrl: ""
+      # -- OAuth2 token endpoint URL
+      tokenUrl: ""
+      # -- OAuth2 client ID
+      clientId: ""
+      # -- OAuth2 client secret (prefer mounting from a secret)
+      clientSecret: ""
+      # -- Whether the AAP provider is enabled
+      enabled: true
+      # -- List of OAuth2 scopes to request
+      scopes:
+        - "read"
+        - "write"
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
@@ -335,6 +371,18 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
+  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  serviceImages:
+    podman:
+      # -- Podman builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Podman builder image.
+      skipTlsVerify: false
+    bootcImageBuilder:
+      # -- bootc-image-builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
+      skipTlsVerify: false
   # -- Resource requests and limits
   resources: {}
 
@@ -366,6 +414,13 @@ ui:
     insecureSkipTlsVerify: false
     # -- A custom CA cert for Auth TLS.
     caCert: ""
+  # -- When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect
+  # validation (required when TLS terminates at an ingress). Disable if the UI is reached directly
+  # without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs.
+  trustXForwardedHeaders: true
+  # -- Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod
+  # network). Empty means any client when trustXForwardedHeaders is true.
+  trustedProxyCidrs: ""
   # -- Additional labels for UI routes.
   additionalRouteLabels: null
 

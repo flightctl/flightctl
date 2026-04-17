@@ -1,73 +1,25 @@
-# This file contains all available configuration options
-# with their default values.
+version: "2"
 
-# options for analysis running
 run:
-  # default concurrency is a available CPU number
   concurrency: 4
-
-  # timeout for analysis, e.g. 30s, 5m, default is 1m
-  timeout: 10m
-
-  # exit code when at least one issue was found, default is 1
-  issues-exit-code: 1
-
-  # include test files or not, default is true
   tests: true
 
-# output configuration options
 output:
-  # colored-line-number|line-number|json|tab|checkstyle|code-climate, default is "colored-line-number"
   formats:
-  - format: colored-line-number
-
-  # print lines of code with issue, default is true
-  print-issued-lines: true
-
-  # print linter name in the end of issue text, default is true
-  print-linter-name: true
-
-  # make issues output unique by line, default is true
-  uniq-by-line: true
+    text:
+      print-issued-lines: true
+      print-linter-name: true
 
 issues:
-  # List of regexps of issue texts to exclude.
-  #
-  # But independently of this option we use default exclude patterns,
-  # it can be disabled by `exclude-use-default: false`.
-  # To list all excluded by default patterns execute `golangci-lint run --help`
-  #
-  # Default: https://golangci-lint.run/usage/false-positives/#default-exclusions
-  exclude:
-    - 'declaration of "err" shadows declaration at'
-
-  # Which dirs to exclude: issues from them won't be reported.
-  # Can use regexp here: `generated.*`, regexp is applied on full path,
-  # including the path prefix if one is set.
-  # Default dirs are skipped independently of this option's value (see exclude-dirs-use-default).
-  # "/" will be replaced by current OS file path separator to properly work on Windows.
-  # Default: []
-  exclude-dirs:
-    - bin
-    - deploy
-    - docs
-    - examples
-    - hack
-    - packaging
-    - reports
-    - internal/auth/issuer/pam
+  uniq-by-line: true
 
 linters:
   enable:
     - copyloopvar
     - depguard
     - errcheck
-    - gci
     - gocyclo
-    - gofmt
-    - goimports
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - misspell
@@ -76,75 +28,134 @@ linters:
     - unconvert
     - unused
 
-linters-settings:
-  enable:
-    - shadow
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"
+        - "-ST*"
 
-  depguard:
+    govet:
+      settings:
+        printf:
+          funcs:
+            - Infof
+            - Warnf
+            - Errorf
+            - Fatalf
+
+    gosec:
+      excludes:
+        - G101
+        - G104
+        - G115
+        - G117
+        - G118
+        - G120
+        - G122
+        - G301
+        - G302
+        - G602
+        - G703
+        - G704
+        - G705
+
+    nolintlint:
+      allow-unused: true
+
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: "math/rand$"
+              desc: "Use math/rand/v2 instead"
+
+        service-no-api:
+          list-mode: lax
+          files:
+            - "**/internal/service/**"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/api$"
+              desc: "Use internal/domain instead of api/ in service layer"
+            - pkg: "github.com/flightctl/flightctl/api/"
+              desc: "Use internal/domain instead of api/ in service layer"
+
+        store-no-api:
+          list-mode: lax
+          files:
+            - "**/internal/store/**"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/api$"
+              desc: "Use internal/domain instead of api/ in store layer"
+            - pkg: "github.com/flightctl/flightctl/api/"
+              desc: "Use internal/domain instead of api/ in store layer"
+
+        imagebuilder-service-no-api:
+          list-mode: lax
+          files:
+            - "**/internal/imagebuilder_api/service/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/api$"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
+            - pkg: "github.com/flightctl/flightctl/api/"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
+
+        imagebuilder-store-no-api:
+          list-mode: lax
+          files:
+            - "**/internal/imagebuilder_api/store/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/api$"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
+            - pkg: "github.com/flightctl/flightctl/api/"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
+
+        imagebuilder-worker-no-api:
+          list-mode: lax
+          files:
+            - "**/internal/imagebuilder_worker/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/api$"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
+            - pkg: "github.com/flightctl/flightctl/api/"
+              desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
+
+        test-no-k8s-client:
+          list-mode: lax
+          files:
+            - "**/test/**"
+            - "!**/test/e2e/infra/k8s/**"
+          deny:
+            - pkg: "k8s.io/client-go/"
+              desc: "K8s client-go only in test/e2e/infra/k8s; use infra providers from tests"
+
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives
+      - legacy
     rules:
-      main:
-        deny:
-          - pkg: "math/rand$"
-            desc: "Use math/rand/v2 instead"
+      - text: 'declaration of "err" shadows declaration at'
+        linters:
+          - govet
+      - text: "non-constant format string in call to"
+        linters:
+          - govet
+    paths:
+      - bin
+      - deploy
+      - docs
+      - examples
+      - hack
+      - packaging
+      - reports
+      - internal/auth/issuer/pam
 
-      service-no-api:
-        list-mode: lax
-        files:
-          - "**/internal/service/**"
-        deny:
-          - pkg: "github.com/flightctl/flightctl/api$"
-            desc: "Use internal/domain instead of api/ in service layer"
-          - pkg: "github.com/flightctl/flightctl/api/"
-            desc: "Use internal/domain instead of api/ in service layer"
-
-      store-no-api:
-        list-mode: lax
-        files:
-          - "**/internal/store/**"
-        deny:
-          - pkg: "github.com/flightctl/flightctl/api$"
-            desc: "Use internal/domain instead of api/ in store layer"
-          - pkg: "github.com/flightctl/flightctl/api/"
-            desc: "Use internal/domain instead of api/ in store layer"
-
-      imagebuilder-service-no-api:
-        list-mode: lax
-        files:
-          - "**/internal/imagebuilder_api/service/**"
-          - "!**/*_test.go"
-        deny:
-          - pkg: "github.com/flightctl/flightctl/api$"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
-          - pkg: "github.com/flightctl/flightctl/api/"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
-
-      imagebuilder-store-no-api:
-        list-mode: lax
-        files:
-          - "**/internal/imagebuilder_api/store/**"
-          - "!**/*_test.go"
-        deny:
-          - pkg: "github.com/flightctl/flightctl/api$"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
-          - pkg: "github.com/flightctl/flightctl/api/"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
-
-      imagebuilder-worker-no-api:
-        list-mode: lax
-        files:
-          - "**/internal/imagebuilder_worker/**"
-          - "!**/*_test.go"
-        deny:
-          - pkg: "github.com/flightctl/flightctl/api$"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
-          - pkg: "github.com/flightctl/flightctl/api/"
-            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
-
-  govet:
-    settings:
-      printf:
-        funcs:
-          - Infof
-          - Warnf
-          - Errorf
-          - Fatalf
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports

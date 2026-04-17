@@ -1,26 +1,35 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/sirupsen/logrus"
 )
 
 const (
 	promQueryEndpointPath    = "/api/v1/query"
-	promBackendProbeQuery    = "1"
+	promBackendProbeQuery    = "vector(1)"
 	promBackendProbeTimeout  = 10 * time.Second
 	promBackendProbeInterval = 250 * time.Millisecond
+	portForwardDialTimeout   = 200 * time.Millisecond
+	portForwardPollInterval  = 100 * time.Millisecond
+	portForwardStopTimeout   = time.Second
 )
 
 type ServiceAccessBackend struct {
@@ -29,28 +38,6 @@ type ServiceAccessBackend struct {
 	Port        int
 	UseTLS      bool
 	RequireAuth bool
-}
-
-// StartPortForwardWithCleanup starts port-forwarding and returns a cleanup function.
-func (h *Harness) StartPortForwardWithCleanup(namespace, target string, localPort, remotePort int) (func(), error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd, done, err := h.StartPortForward(ctx, namespace, target, localPort, remotePort)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	cleanup := func() {
-		cancel()
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		select {
-		case <-done:
-		case <-time.After(fiveSecondTimeout):
-		}
-	}
-	return cleanup, nil
 }
 
 // MetricsBody returns a closure to fetch metrics for Eventually.
@@ -144,7 +131,17 @@ func (h *Harness) PromQuery(baseURL, query string) (PromQueryResponse, error) {
 
 // PromQueryWithToken executes a Prometheus query against a base URL with optional bearer token.
 func (h *Harness) PromQueryWithToken(baseURL, query, bearerToken string) (PromQueryResponse, error) {
+	client := &http.Client{Timeout: fiveSecondTimeout}
+	return h.PromQueryWithClientToken(client, baseURL, query, bearerToken)
+}
+
+// PromQueryWithClientToken executes a Prometheus query against a base URL with optional bearer token,
+// using the provided HTTP client.
+func (h *Harness) PromQueryWithClientToken(client *http.Client, baseURL, query, bearerToken string) (PromQueryResponse, error) {
 	var parsed PromQueryResponse
+	if client == nil {
+		return parsed, fmt.Errorf("http client is nil")
+	}
 	if baseURL == "" {
 		return parsed, fmt.Errorf("baseURL cannot be empty")
 	}
@@ -152,7 +149,6 @@ func (h *Harness) PromQueryWithToken(baseURL, query, bearerToken string) (PromQu
 		return parsed, fmt.Errorf("query cannot be empty")
 	}
 
-	client := &http.Client{Timeout: fiveSecondTimeout}
 	req, err := http.NewRequest(http.MethodGet, baseURL+promQueryEndpointPath, nil)
 	if err != nil {
 		return parsed, err
@@ -332,44 +328,27 @@ func labelsMatch(labels map[string]string, exact map[string]string, required []s
 	return true
 }
 
-// VerifyServiceExists verifies a Kubernetes service exists.
-func (h *Harness) VerifyServiceExists(namespace, name string) error {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	out, err := exec.Command("kubectl", "get", "svc", "-n", namespace, name).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("kubectl get svc %s/%s: %w: %s", namespace, name, err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// StartServiceAccess resolves, port-forwards and returns an HTTP client to a service.
+// StartServiceAccess exposes a service and returns URL/client/cleanup.
+// For known flightctl services it uses infra ExposeService; for non-mapped services
+// it falls back to kubectl port-forward across provided namespaces.
 func (h *Harness) StartServiceAccess(serviceName string, namespaces []string, remotePort int, useTLS bool, timeout time.Duration) (string, *http.Client, func(), error) {
 	if h == nil {
 		return "", nil, nil, fmt.Errorf("harness is nil")
 	}
-	if serviceName == "" {
+	if strings.TrimSpace(serviceName) == "" {
 		return "", nil, nil, fmt.Errorf("service name is empty")
 	}
 	if remotePort <= 0 {
-		return "", nil, nil, fmt.Errorf("invalid remote port: %d", remotePort)
+		return "", nil, nil, fmt.Errorf("remote port must be positive")
+	}
+	providers := setup.GetDefaultProviders()
+	if providers == nil {
+		return "", nil, nil, fmt.Errorf("default providers are not initialized")
 	}
 
-	namespace, err := h.ResolveServiceNamespace(serviceName, namespaces)
-	if err != nil {
-		return "", nil, nil, err
+	if timeout <= 0 {
+		timeout = fiveSecondTimeout
 	}
-
-	localPort, err := h.GetFreeLocalPort()
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to allocate local port: %w", err)
-	}
-
-	target := "svc/" + serviceName
-	cleanup, err := h.StartPortForwardWithCleanup(namespace, target, localPort, remotePort)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to start port-forward for %s in namespace %s: %w", target, namespace, err)
-	}
-
 	scheme := "http"
 	transport := &http.Transport{}
 	if useTLS {
@@ -379,26 +358,60 @@ func (h *Harness) StartServiceAccess(serviceName string, namespaces []string, re
 			MinVersion:         tls.VersionTLS12,
 		}
 	}
-	if timeout <= 0 {
-		timeout = fiveSecondTimeout
+	client := &http.Client{Timeout: timeout, Transport: transport}
+
+	// Known flightctl services are exposed via infra abstraction.
+	if svc, ok := infra.ServiceNameFromDeploymentName(serviceName); ok {
+		baseURL, cleanup, err := providers.Infra.ExposeService(svc, scheme)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		baseURL, err = normalizeServiceURL(baseURL, scheme)
+		if err != nil {
+			cleanup()
+			return "", nil, nil, fmt.Errorf("invalid service URL for %q: %w", serviceName, err)
+		}
+		return baseURL, client, cleanup, nil
 	}
-	baseURL := fmt.Sprintf("%s://127.0.0.1:%d", scheme, localPort)
-	client := &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
+
+	localPort, err := h.GetFreeLocalPort()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to allocate local port: %w", err)
 	}
-	return baseURL, client, cleanup, nil
+	for _, ns := range namespaces {
+		cleanup, pfErr := startServicePortForward(ns, serviceName, localPort, remotePort, timeout)
+		if pfErr != nil {
+			logrus.Debugf("port-forward candidate failed for %s/%s: %v", ns, serviceName, pfErr)
+			continue
+		}
+		baseURL := fmt.Sprintf("%s://127.0.0.1:%d", scheme, localPort)
+		return baseURL, client, cleanup, nil
+	}
+	return "", nil, nil, fmt.Errorf("unable to expose backend service %q in namespaces %v", serviceName, namespaces)
 }
 
 // StartFirstAvailableBackendAccess starts access to the first available backend from a candidate list.
-// If a backend requires auth, an OpenShift token is returned.
+// If a backend requires auth, a cluster token is returned.
 func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBackend, timeout time.Duration) (string, *http.Client, string, func(), ServiceAccessBackend, error) {
+	return h.StartFirstAvailableBackendAccessWithQuery(backends, promBackendProbeQuery, timeout)
+}
+
+// StartFirstAvailableBackendAccessWithQuery starts access to the first available backend from a candidate list.
+// Backend readiness is validated by running the provided Prometheus query.
+func (h *Harness) StartFirstAvailableBackendAccessWithQuery(backends []ServiceAccessBackend, query string, timeout time.Duration) (string, *http.Client, string, func(), ServiceAccessBackend, error) {
 	var selected ServiceAccessBackend
 	if h == nil {
 		return "", nil, "", nil, selected, fmt.Errorf("harness is nil")
 	}
 	if len(backends) == 0 {
 		return "", nil, "", nil, selected, fmt.Errorf("no backend candidates provided")
+	}
+	if strings.TrimSpace(query) == "" {
+		return "", nil, "", nil, selected, fmt.Errorf("backend readiness query cannot be empty")
+	}
+	providers := setup.GetDefaultProviders()
+	if providers == nil {
+		return "", nil, "", nil, selected, fmt.Errorf("default providers are not initialized")
 	}
 
 	var lookupErrors []string
@@ -411,26 +424,139 @@ func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBacke
 
 		token := ""
 		if backend.RequireAuth {
-			token, err = h.GetOpenShiftToken()
+			token, err = providers.Infra.GetAPILoginToken()
 			if err != nil {
 				cleanup()
-				return "", nil, "", nil, selected, fmt.Errorf("failed to resolve OpenShift token for backend %s: %w", backend.ServiceName, err)
+				lookupErrors = append(lookupErrors, fmt.Sprintf("%s: token: %v", backend.ServiceName, err))
+				continue
 			}
 		}
 
-		if err := h.waitForPrometheusBackendReady(baseURL, token); err != nil {
-			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", backend.ServiceName, err))
-			cleanup()
-			continue
+		deadline := time.Now().Add(timeout)
+		var lastErr error
+		for time.Now().Before(deadline) {
+			_, lastErr = h.PromQueryWithClientToken(client, baseURL, query, token)
+			if lastErr == nil {
+				return baseURL, client, token, cleanup, backend, nil
+			}
+			time.Sleep(promBackendProbeInterval)
 		}
-
-		return baseURL, client, token, cleanup, backend, nil
+		lookupErrors = append(lookupErrors, fmt.Sprintf("%s: readiness probe timeout: %v", backend.ServiceName, lastErr))
+		cleanup()
 	}
 
 	return "", nil, "", nil, selected, fmt.Errorf("unable to resolve backend from known candidates: %v", lookupErrors)
 }
 
-func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error {
+func normalizeServiceURL(rawURL, fallbackScheme string) (string, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", fmt.Errorf("service URL is empty")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse service URL %q: %w", rawURL, err)
+	}
+	if parsed.Scheme == "" {
+		if strings.TrimSpace(fallbackScheme) != "" {
+			parsed.Scheme = fallbackScheme
+		} else {
+			parsed.Scheme = "http"
+		}
+	}
+	if parsed.Host == "" {
+		// Handle values like "127.0.0.1:12345" parsed as Path when scheme is missing.
+		if parsed.Path != "" && !strings.HasPrefix(parsed.Path, "/") {
+			parsed.Host = parsed.Path
+			parsed.Path = ""
+		}
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("service URL %q has empty host", rawURL)
+	}
+	return parsed.String(), nil
+}
+
+func startServicePortForward(namespace, serviceName string, localPort, remotePort int, startupTimeout time.Duration) (func(), error) {
+	if strings.TrimSpace(namespace) == "" {
+		return nil, fmt.Errorf("namespace is empty for service %q", serviceName)
+	}
+	if strings.TrimSpace(serviceName) == "" {
+		return nil, fmt.Errorf("service name is empty")
+	}
+	if localPort <= 0 || remotePort <= 0 {
+		return nil, fmt.Errorf("invalid port mapping %d:%d", localPort, remotePort)
+	}
+	if startupTimeout <= 0 {
+		startupTimeout = fiveSecondTimeout
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// #nosec G204 -- e2e harness command args are constrained to validated test inputs/service metadata.
+	cmd := exec.CommandContext(
+		ctx,
+		"kubectl",
+		"-n", namespace,
+		"port-forward",
+		"svc/"+serviceName,
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+	)
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start port-forward %s/%s: %w", namespace, serviceName, err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	deadline := time.Now().Add(startupTimeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), portForwardDialTimeout)
+		if err == nil {
+			_ = conn.Close()
+			return func() {
+				cancel()
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				select {
+				case <-done:
+				case <-time.After(portForwardStopTimeout):
+				}
+			}, nil
+		}
+
+		select {
+		case err := <-done:
+			cancel()
+			if err == nil {
+				err = fmt.Errorf("port-forward exited unexpectedly")
+			}
+			return nil, fmt.Errorf("port-forward %s/%s failed: %w (output: %s)", namespace, serviceName, err, strings.TrimSpace(out.String()))
+		default:
+		}
+		time.Sleep(portForwardPollInterval)
+	}
+
+	cancel()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	select {
+	case <-done:
+	case <-time.After(portForwardStopTimeout):
+	}
+	return nil, fmt.Errorf("timed out waiting for port-forward %s/%s", namespace, serviceName)
+}
+
+// waitForPrometheusBackendReady is kept for potential future use (e.g. backend health before queries).
+func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error { //nolint:unused
 	if h == nil {
 		return fmt.Errorf("harness is nil")
 	}

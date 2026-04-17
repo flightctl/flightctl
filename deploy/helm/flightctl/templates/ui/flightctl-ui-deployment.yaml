@@ -27,6 +27,8 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      initContainers:
+      {{- include "flightctl.apiWaitInitContainer" (dict "context" .) | nindent 6 }}
       containers:
         - env:
           - name: API_PORT
@@ -75,6 +77,16 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: BASE_UI_URL
+          - name: TRUST_X_FORWARDED_HEADERS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: TRUST_X_FORWARDED_HEADERS
+          - name: TRUSTED_PROXY_CIDRS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: TRUSTED_PROXY_CIDRS
           - name: AUTH_INSECURE_SKIP_VERIFY
             valueFrom:
               configMapKeyRef:
@@ -86,9 +98,9 @@ spec:
                 name: flightctl-ui
                 key: IS_RHEM
           {{- if eq $enableMulticlusterExtensions "true" }}
-          image: {{ .Values.ui.image.pluginImage }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          image: {{ include "flightctl.ensureOsQualifiedImage" .Values.ui.image.pluginImage }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
           {{- else }}
-          image: {{ .Values.ui.image.image }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          image: {{ include "flightctl.ensureOsQualifiedImage" .Values.ui.image.image }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
           {{- end }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.ui.image.pullPolicy }}
           name: flightctl-ui
@@ -106,7 +118,7 @@ spec:
             {{- end }}
             {{- if eq $enableMulticlusterExtensions "true" }}
             - mountPath: /app/serving-cert
-              name: flightctl-ui-serving-cert
+              name: flightctl-ui-server-tls
             {{- end }}
       restartPolicy: Always
       volumes:
@@ -119,9 +131,9 @@ spec:
             secretName: flightctl-ui-certs
         {{- end }}
         {{- if eq $enableMulticlusterExtensions "true" }}
-        - name: flightctl-ui-serving-cert
+        - name: flightctl-ui-server-tls
           secret:
-            secretName: flightctl-ui-serving-cert
+            secretName: flightctl-ui-server-tls
             defaultMode: 420
         {{- end }}
 {{ end }}

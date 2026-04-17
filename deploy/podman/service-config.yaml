@@ -19,6 +19,9 @@ global:
       tokenUrl:
       clientId:
       clientSecret:
+      token:
+      appName:
+      organizationId:
       scopes:
         - read
         - write
@@ -28,6 +31,12 @@ global:
       enabled: true
       issuer:
       externalOidcAuthority:
+      # scopes:
+      #   - openid
+      #   - profile
+      #   - email
+      #   - roles
+      #   - offline_access
       organizationAssignment:
         type: dynamic
         claimPath:
@@ -52,6 +61,13 @@ global:
         - roles
         - offline_access
       pamService: flightctl
+  ui:
+    # Whether flightctl-ui trusts X-Forwarded-* headers from trusted proxies.
+    # Set to true when the UI sits behind a trusted reverse proxy or ingress (TLS termination).
+    trustXForwardedHeaders: false
+    # Optional comma-separated CIDRs of trusted proxy sources for forwarded headers.
+    # Leave empty to keep default behavior.
+    trustedProxyCidrs:
 
 db:
   name: flightctl
@@ -73,7 +89,6 @@ service:
 grafana:
   oauth:
     enabled:
-    providerType:
     authUrl:
     tokenUrl:
     apiUrl:
@@ -81,12 +96,27 @@ grafana:
     clientId:
   localAdminUser:
   localAdminPassword:
-  rootUrl:
   insecureSkipTlsVerify:
   protocol: https
   allowedUnsignedPlugins:
 
 prometheus:
+
+# ImageBuilder Worker (optional). Uncomment and set when using custom builder images or skip-TLS.
+# imagebuilderWorker:
+#   logLevel: info
+#   maxConcurrentBuilds: 2
+#   defaultTTL: 168h
+#   rpmRepoUrl: ""
+#   rpmRepoAdd: true
+#   rpmRepoEnable: ""
+#   serviceImages:
+#     podman:
+#       image: ""           # Override Podman builder image (optional)
+#       skipTlsVerify: false  # Set to true to skip TLS verification
+#     bootcImageBuilder:
+#       image: ""           # Override bootc-image-builder image (optional)
+#       skipTlsVerify: false  # Set to true to skip TLS verification
 
 telemetryGateway:
   forward:

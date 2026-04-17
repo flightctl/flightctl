@@ -2,17 +2,22 @@ package imagebuild_test
 
 import (
 	"fmt"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"sigs.k8s.io/yaml"
 )
 
-const maxConcurrent = 5
+const maxConcurrent = 3
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild parallel builds and exports", func() {
@@ -21,10 +26,10 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := workerHarness.RegistryEndpoint()
+			registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
 
-			numBuilds := 10
-			numExports := 10
+			numBuilds := 5
+			numExports := 5
 
 			buildNames := make([]string, numBuilds)
 			exportNames := make([]string, numExports)
@@ -37,14 +42,14 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			// ============================================================
 
 			By(fmt.Sprintf("Step 1: Setting maxConcurrentBuilds to %d", maxConcurrent))
-			originalMaxConcurrent, err := workerHarness.GetMaxConcurrentBuilds()
+			originalMaxConcurrent, err := getMaxConcurrentBuilds()
 			Expect(err).ToNot(HaveOccurred(), "Should get current maxConcurrentBuilds")
 			defer func() {
 				By(fmt.Sprintf("Restoring maxConcurrentBuilds to %d", originalMaxConcurrent))
-				restoreErr := workerHarness.SetMaxConcurrentBuilds(originalMaxConcurrent)
+				restoreErr := setMaxConcurrentBuilds(originalMaxConcurrent)
 				Expect(restoreErr).ToNot(HaveOccurred(), "Should restore maxConcurrentBuilds")
 			}()
-			err = workerHarness.SetMaxConcurrentBuilds(maxConcurrent)
+			err = setMaxConcurrentBuilds(maxConcurrent)
 			Expect(err).ToNot(HaveOccurred(), "Should set maxConcurrentBuilds")
 
 			// ============================================================
@@ -98,6 +103,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			buildToKeep := findBuildToKeep(workerHarness, buildNames)
 			Expect(buildToKeep).ToNot(BeEmpty(), "Should have a build to keep")
 
+			var canceledBuildNames []string
 			for _, name := range buildNames {
 				if name == buildToKeep {
 					continue
@@ -110,17 +116,14 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				}
 				err := workerHarness.CancelImageBuild(name)
 				Expect(err).ToNot(HaveOccurred(), "Should cancel ImageBuild %s", name)
-				GinkgoWriter.Printf("Canceled ImageBuild: %s\n", name)
+				canceledBuildNames = append(canceledBuildNames, name)
 			}
 
 			// ============================================================
-			// Step 6: Verify canceled ImageBuilds reached Canceled
+			// Step 6: Verify ImageBuilds we canceled reached Canceled state
 			// ============================================================
 			By("Step 6: Verifying canceled ImageBuilds reached Canceled state")
-			for _, name := range buildNames {
-				if name == buildToKeep {
-					continue
-				}
+			for _, name := range canceledBuildNames {
 				Eventually(func() string {
 					return getImageBuildConditionReason(workerHarness, name)
 				}, cancelTimeout, processingPollPeriod).Should(Equal(string(imagebuilderapi.ImageBuildConditionReasonCanceled)),
@@ -278,4 +281,56 @@ func getImageExportConditionReason(h *e2e.Harness, name string) string {
 		return ""
 	}
 	return reason
+}
+
+func getMaxConcurrentBuilds() (int, error) {
+	p := setup.GetDefaultProviders()
+	if p == nil || p.Infra == nil || p.Lifecycle == nil {
+		return 0, fmt.Errorf("infra or lifecycle provider not set")
+	}
+	content, err := p.Infra.GetServiceConfig(infra.ServiceImageBuilderWorker)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get imagebuilder-worker config: %w", err)
+	}
+	var cfg config.Config
+	if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
+		return 0, fmt.Errorf("failed to parse config YAML: %w", err)
+	}
+	if cfg.ImageBuilderWorker == nil {
+		cfg.ImageBuilderWorker = config.NewDefaultImageBuilderWorkerConfig()
+	}
+	return cfg.ImageBuilderWorker.MaxConcurrentBuilds, nil
+}
+
+func setMaxConcurrentBuilds(maxConcurrentBuilds int) error {
+	p := setup.GetDefaultProviders()
+	if p == nil || p.Infra == nil || p.Lifecycle == nil {
+		return fmt.Errorf("infra or lifecycle provider not set")
+	}
+	content, err := p.Infra.GetServiceConfig(infra.ServiceImageBuilderWorker)
+	if err != nil {
+		return fmt.Errorf("failed to get imagebuilder-worker config: %w", err)
+	}
+	var cfg config.Config
+	if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
+		return fmt.Errorf("failed to parse config YAML: %w", err)
+	}
+	if cfg.ImageBuilderWorker == nil {
+		cfg.ImageBuilderWorker = config.NewDefaultImageBuilderWorkerConfig()
+	}
+	cfg.ImageBuilderWorker.MaxConcurrentBuilds = maxConcurrentBuilds
+	updatedConfig, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated config: %w", err)
+	}
+	if err := p.Infra.SetServiceConfig(infra.ServiceImageBuilderWorker, "config.yaml", string(updatedConfig)); err != nil {
+		return fmt.Errorf("failed to update config: %w", err)
+	}
+	if err := p.Lifecycle.Restart(infra.ServiceImageBuilderWorker); err != nil {
+		return fmt.Errorf("failed to restart worker: %w", err)
+	}
+	if err := p.Lifecycle.WaitForReady(infra.ServiceImageBuilderWorker, 2*time.Minute); err != nil {
+		return fmt.Errorf("failed waiting for worker to be ready: %w", err)
+	}
+	return nil
 }

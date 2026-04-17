@@ -1,0 +1,16 @@
+# Global image settings (can be overridden per deployment)
+image:
+  repository: quay.io/flightctl-tests/alpine
+  tag: v1
+  pullPolicy: IfNotPresent
+
+# List of deployments to create. Each deployment can be independently configured.
+# - failOnStart: if true, the pod will exit with code 1
+# - delayBeforeFail: seconds to sleep before exiting (allows helm to see pod as ready initially)
+deployments:
+  - name: main
+    replicaCount: 1
+    message: "hello v1"
+    failOnStart: false
+    delayBeforeFail: 0
+    resources: {}

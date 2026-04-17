@@ -22,6 +22,61 @@ Flight Control uses the following standard roles for authorization:
 - **`flightctl-viewer`** - Read-only access to all resources; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer`** - Access to get and approve enrollmentrequests, manage certificate signing requests; view imagebuilds and imageexports; download imageexports
 
+To create these roles in AAP and assign them to users, see [Creating roles in AAP](#creating-roles-in-aap) and [Assigning roles to users](#assigning-roles-to-users).
+
+### Creating roles in AAP
+
+Flight Control recognizes roles by name only. You must create custom role definitions in AAP with names that exactly match the Flight Control role names listed above.
+
+To create a Flight Control role in AAP:
+
+1. Log into the AAP Gateway web interface.
+2. Navigate to **Access Management** → **Roles**.
+3. Click **Create Role**.
+4. Configure the role:
+   - **Name**: Enter the exact Flight Control role name, for example `flightctl-viewer`. The name is case-sensitive and must match exactly.
+   - **Description**: Optional. Use this for your own reference, for example "Flight Control read-only access".
+   - **Content Type**: Select **Organization**. AAP requires a content type for role definitions, but Flight Control does not use this value. Any valid selection works.
+   - **Permissions**: Select **View Organization**. AAP requires at least one permission, but Flight Control does not use this value. Any valid selection works.
+5. Click **Create Role** to save.
+6. Repeat for each Flight Control role you need.
+
+**Note:** The content type and permissions fields are AAP requirements for creating role definitions. Flight Control authorization is based solely on the role name and ignores these fields entirely.
+
+**Important:**
+
+- Do not create a role named `flightctl-admin`. This role is automatically assigned to AAP super admins and cannot be used as a custom role.
+- The `flightctl-viewer` role is automatically assigned to AAP platform auditors across all organizations, in addition to being available as a custom role for other users.
+
+### Assigning roles to users
+
+After creating the role definitions, assign them to users for specific organizations. Role assignment must be done from within an organization in the AAP UI. Using Teams is the recommended approach because it simplifies management as your user base grows.
+
+#### Using Teams (recommended)
+
+Assign roles through Teams for group-based access:
+
+1. Navigate to **Access Management** → **Organizations** and select the target organization.
+2. Go to the **Teams** tab.
+3. Select the team you want to assign the role to, or create a new team and add users to it.
+4. Click **Add Roles**.
+5. Select the Team and Flight Control role combination (for example `flightctl-viewer`).
+6. Click **Save**.
+
+All users in the team inherit the assigned role for that organization.
+
+#### Direct user assignment
+
+You can also assign roles directly to individual users within an organization:
+
+1. Navigate to **Access Management** → **Organizations** and select the target organization.
+2. Go to the **Users** tab and select the user.
+3. Click **Manage Roles**.
+4. Select the Flight Control role (for example `flightctl-viewer`).
+5. Click **Save**.
+
+**Note:** Role and organization changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
+
 ## Organization Mapping
 
 Flight Control automatically maps AAP organizations to Flight Control organizations:
@@ -44,28 +99,168 @@ Flight Control uses role-based authorization with organization-scoped access:
 
 ## Configuration
 
-### Static Configuration
+### Prerequisites
 
-AAP authentication is configured via configuration files.
+Before configuring AAP authentication, ensure you have:
 
-Configuration values need to be set in `config.yaml`:
+1. AAP Gateway Access: Administrative credentials and API access to our AAP gateway instance.  Flight Control must have network access to your AAP Gateway
+2. AAP Permissions: You must have an admin user with OAuth application creation permissions in AAP Gateway
+
+### TLS Certs
+
+If your AAP Gateway uses a custom CA or self-signed certificates, place the CA certificate at `/etc/flightctl/pki/auth/ca.crt`. This allows Flight Control to verify the TLS connection to your AAP Gateway.
+
+### Option 1: Automated OAuth application creation
+
+The automated approach uses the `flightctl-api-init.service` systemd service to automatically create OAuth applications during Flight Control deployment or service startup.
+
+#### Step 1: Obtain an OAuth token
+
+Prerequisites are access to AAP Gateway and the ability for your user to provision OAuth tokens and create OAuth applications.
+
+1. Log into your AAP Gateway web interface
+2. Navigate to **Access Management** -> **Users** -> Select your user with OAuth application creation permissions -> **Tokens**
+3. Click **Create Token**, leave the OAuth application field blank and select Write scope.
+4. Copy the token for use in the configuration described below
+
+#### Step 2: Configure AAP credentials in service config
+
+Configure the AAP settings in your service configuration file (`/etc/flightctl/service-config.yaml`):
+
+```yaml
+auth:
+  type: aap
+  aap:
+    enabled: true
+    apiUrl: https://aap-gateway.example.com
+    # clientId will be populated automatically during service initialization
+    # and placed in a file at /etc/flightctl/pki/aap-client-id
+    authorizationUrl: https://aap-gateway.example.com/o/authorize/
+    tokenUrl: https://aap-gateway.example.com/o/token/
+    displayName: "AAP Provider"
+    # token should be the OAuth token you provisioned above
+    token: <oauth_token>
+    # Optional: name for the OAuth application in AAP
+    # OAuth app names must be unique within a given AAP organization
+    # Defaults to "Flight Control"
+    appName:
+    # Optional: set an AAP organization ID to own the OAuth application in AAP
+    # Defaults to 1, which maps to the system default org in AAP
+    organizationId:
+```
+
+#### Step 3: Deploy or restart Flight Control services
+
+For new installations, deploy Flight Control:
+
+```bash
+sudo systemctl start flightctl.target
+```
+
+For existing installations, restart the services to trigger the initialization:
+
+```bash
+sudo systemctl restart flightctl.target
+```
+
+#### Step 4: Verify automatic configuration update
+
+The `flightctl-api-init.service` automatically creates the OAuth application and writes the client ID to the filesystem:
+
+```bash
+# Check that the initialization service ran successfully
+sudo systemctl status flightctl-api-init.service
+
+# View initialization service logs
+sudo journalctl -u flightctl-api-init.service
+
+# Verify the client ID was generated
+sudo cat /etc/flightctl/pki/aap-client-id
+```
+
+The service safely handles multiple runs, although you can remove the `token` from the `service-config.yaml` after the OAuth application is created.
+
+### Option 2: Manual OAuth application creation
+
+#### Step 1: Access AAP Gateway Applications
+
+1. Log into your AAP Gateway web interface
+2. Navigate to **Access Management** → **OAuth Applications**
+3. Click **Create OAuth application** to create a new application
+
+#### Step 2: Create new OAuth Application
+
+Configure the OAuth application with these settings:
+
+- **Name:** `Flight Control` (or your preferred application name)
+- **URL:** You can set this to your Flight Control UI URL to provide a link from within AAP to Flight Control.
+- **Organization:** `Default`
+- **Authorization grant type:** `Authorization code`
+- **Client type:** `Public`
+- **Redirect URIs:** Set to:
+
+  ```bash
+  https://your-flightctl-base-domain:443/callback http://127.0.0.1/callback
+  ```
+
+Note: The redirect URIs should be a space delimited list. Two URIs are required:
+
+- A URL to your UI with a /callback path appended. The default base domain and port combo is `https://your-flightctl-base-domain:443/callback`, but if you have different routing configured you will need to update the URL accordingly. Make sure to replace your-flightctl-base-domain with your actual domain.
+- A URL to `http://127.0.0.1/callback` to ensure login sessions using the CLI work
+
+#### Step 4: Obtain client credentials
+
+After creating the application:
+
+1. Copy the **Client ID** from the application details
+
+#### Step 5: Update Flight Control configuration
+
+Update your service configuration file (`/etc/flightctl/service-config.yaml`):
 
 ```yaml
 auth:
   type: aap
   aap:
     apiUrl: https://aap-gateway.example.com
+    clientId: your-copied-client-id
     authorizationUrl: https://aap-gateway.example.com/o/authorize/
     tokenUrl: https://aap-gateway.example.com/o/token/
-    clientId: your-client-id
-    clientSecret: your-client-secret  # Optional
-    displayName: "AAP Provider"  # Optional
-    enabled: true  # Optional, defaults to true
+    displayName: "AAP Provider"
+    enabled: true
 ```
+
+Then start or restart the Flight Control services:
+
+```bash
+# Start
+sudo systemctl start flightctl.target
+# Restart
+sudo systemctl restart flightctl.target
+```
+
+### Configuration parameters
+
+The following parameters are supported for AAP authentication configuration:
+
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `enabled` | Enable AAP authentication | No | true |
+| `apiUrl` | AAP Gateway API base URL | Yes | None |
+| `authorizationUrl` | OAuth authorization endpoint | Yes | `{apiUrl}/o/authorize/` |
+| `tokenUrl` | OAuth token endpoint | Yes | `{apiUrl}/o/token/` |
+| `clientId` | OAuth client identifier | Yes | None |
+| `clientSecret` | OAuth client secret | No | None |
+| `displayName` | Provider display name in UI | No | "AAP Provider" |
+| `token` | Admin token for app creation | No | None |
+| `appName` | Name for the OAuth application in AAP. Must be a unique value within a given AAP organization. | No | "Flight Control" |
+| `organizationId` | AAP organization ID for the OAuth application | No | 1 |
+
+**Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
 
 ### Single Provider
 
-One AAP Gateway per Flight Control deployment. Changes to authentication configuration require service restart.
+Flight Control supports one AAP Gateway per deployment. Changes to authentication configuration require restarting the Flight Control services.
 
 ## When to Use AAP Authentication
 

@@ -42,10 +42,10 @@ func NewAccessTokenRefresher(config *Config, configFilePath string, callbackPort
 }
 
 func CreateAuthProvider(authInfo AuthInfo, insecure bool, apiServerURL string, callbackPort int) (login.AuthProvider, error) {
-	return CreateAuthProviderWithCredentials(authInfo, insecure, apiServerURL, callbackPort, "", "", false)
+	return CreateAuthProviderWithCredentials(authInfo, insecure, apiServerURL, callbackPort, "", "", false, false)
 }
 
-func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) (login.AuthProvider, error) {
+func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServerURL string, callbackPort int, username, password string, web, noBrowser bool) (login.AuthProvider, error) {
 	if authInfo.AuthProvider == nil {
 		return nil, fmt.Errorf("no auth provider defined (try logging in again)")
 	}
@@ -66,28 +66,28 @@ func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServ
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 		}
-		return login.NewOIDCConfig(provider.Metadata, oidcSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+		return login.NewOIDCConfig(provider.Metadata, oidcSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web, noBrowser), nil
 
 	case string(api.Oauth2):
 		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
 		}
-		return login.NewOAuth2Config(provider.Metadata, oauth2Spec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+		return login.NewOAuth2Config(provider.Metadata, oauth2Spec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web, noBrowser), nil
 
 	case string(api.Openshift):
 		openshiftSpec, err := provider.Spec.AsOpenShiftProviderSpec()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse OpenShift provider spec: %w", err)
 		}
-		return login.NewOpenShiftConfig(provider.Metadata, openshiftSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+		return login.NewOpenShiftConfig(provider.Metadata, openshiftSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web, noBrowser), nil
 
 	case string(api.Aap):
 		aapSpec, err := provider.Spec.AsAapProviderSpec()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse AAP provider spec: %w", err)
 		}
-		return login.NewAAPOAuth2Config(provider.Metadata, aapSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+		return login.NewAAPOAuth2Config(provider.Metadata, aapSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web, noBrowser), nil
 
 	case string(api.K8s):
 		return nil, fmt.Errorf("k8s auth requires providing --token flag")

@@ -215,8 +215,13 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentUIEndpoint = ""
 	m.enrollmentClient = nil
 	m.enrollmentCSR = nil
-	// delete desired.json current.json rollback.json
-	errs = m.deleteSpec(errs)
+
+	// Delete all files in the data directory
+	m.log.Warn("Deleting all files in data directory during decommissioning")
+	if err := m.deleteAllDataDirFiles(); err != nil {
+		m.log.Errorf("Failed to delete all data directory files: %v", err)
+		errs = append(errs, fmt.Errorf("failed to delete all data directory files: %w", err))
+	}
 
 	// TODO: incorporate before-reboot hooks
 	if err := m.systemdClient.Reboot(ctx); err != nil {
@@ -228,20 +233,33 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	return nil
 }
 
-func (m *LifecycleManager) deleteSpec(errs []error) []error {
-	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "desired.json")); err != nil {
-		m.log.Errorf("Failed to delete desired.json: %v", err)
-		errs = append(errs, fmt.Errorf("failed to delete desired.json: %w", err))
+// deleteAllDataDirFiles removes all files in the data directory recursively
+func (m *LifecycleManager) deleteAllDataDirFiles() error {
+	m.log.Infof("Deleting all files in data directory: %s", m.dataDir)
+
+	// Read all top-level entries in the data directory
+	entries, err := m.deviceReadWriter.ReadDir(m.dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to read data directory: %w", err)
 	}
-	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "current.json")); err != nil {
-		m.log.Errorf("Failed to delete current.json: %v", err)
-		errs = append(errs, fmt.Errorf("failed to delete current.json: %w", err))
+
+	// Delete each entry (RemoveAll will recursively delete directories)
+	var errs []error
+	for _, entry := range entries {
+		path := filepath.Join(m.dataDir, entry.Name())
+		m.log.Debugf("Removing: %s", path)
+		if err := m.deviceReadWriter.RemoveAll(path); err != nil {
+			m.log.Warnf("Failed to remove %s: %v", path, err)
+			errs = append(errs, err)
+		}
 	}
-	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "rollback.json")); err != nil {
-		m.log.Errorf("Failed to delete rollback.json: %v", err)
-		errs = append(errs, fmt.Errorf("failed to delete rollback.json: %w", err))
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to delete some files in data directory: %w", errors.Join(errs...))
 	}
-	return errs
+
+	m.log.Infof("Successfully deleted all files in data directory")
+	return nil
 }
 
 func (m *LifecycleManager) IsInitialized() bool {

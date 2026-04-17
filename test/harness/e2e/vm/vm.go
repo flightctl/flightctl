@@ -2,18 +2,25 @@ package vm
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh"
 )
 
-const sshWaitTimeout time.Duration = 60 * time.Second
+// SSH timeout increased from 60s to 180s for nested VM environments (OCP)
+// where boot time + SSH startup can exceed 60s under resource contention
+const sshWaitTimeout time.Duration = 180 * time.Second
+
+// sshProbeAttemptTimeout caps a single RunSSH readiness probe so one hung ssh(1)
+// cannot exceed the overall WaitForSSHToBeReady deadline by blocking forever.
+const sshProbeAttemptTimeout = 10 * time.Second
 
 type TestVM struct {
 	TestDir           string
@@ -25,7 +32,7 @@ type TestVM struct {
 	NoCredentials     bool
 	CloudInitData     bool
 	SSHPassword       string
-	SSHPrivateKeyPath string // Path to SSH private key for key-based auth (alternative to SSHPassword)
+	SSHPrivateKeyPath util.SSHPrivateKeyPath // Path to SSH private key for key-based auth (alternative to SSHPassword)
 	SSHPort           int
 	Cmd               []string
 	RemoveVm          bool
@@ -35,6 +42,10 @@ type TestVM struct {
 	MemoryFilePath    string // Path for external snapshot memory file
 	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
 	DiskSizeGB        int
+	TPMDevice         string // Host TPM device path for passthrough (e.g., /dev/tpmrm0); empty uses swtpm emulator
+	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (180s).
+	// Use a longer value for first-boot VMs (e.g. imagebuild workflow) where cloud-init or sshd may start late.
+	SSHWaitTimeout time.Duration
 }
 
 type TestVMInterface interface {
@@ -74,57 +85,47 @@ type JournalOpts struct {
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
-	elapsed := 0 * time.Second
-
-	authMethods, err := v.getSSHAuthMethods()
-	if err != nil {
-		return fmt.Errorf("failed to get SSH auth methods: %w", err)
+	timeout := v.SSHWaitTimeout
+	if timeout <= 0 {
+		timeout = sshWaitTimeout
 	}
-
-	config := &ssh.ClientConfig{
-		User: v.VMUser,
-		Auth: authMethods,
-		//nolint:gosec
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         1 * time.Second,
-	}
-
-	logrus.Infof("Waiting for VM SSH to be ready on localhost:%d", v.SSHPort)
-
-	for elapsed < sshWaitTimeout {
-		client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", "localhost", v.SSHPort), config)
-		if err != nil {
-			logrus.Debugf("failed to connect to SSH server: %s", err)
-			time.Sleep(1 * time.Second)
-			elapsed += 1 * time.Second
-		} else {
-			client.Close()
-			return nil
+	deadline := time.Now().Add(timeout)
+	sshAddr := fmt.Sprintf("127.0.0.1:%d", v.SSHPort)
+	logrus.Infof("Waiting for VM SSH to be ready via RunSSH on %s (timeout %s)", sshAddr, timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
 		}
-	}
-
-	return fmt.Errorf("SSH did not become ready in %s seconds", sshWaitTimeout)
-}
-
-// getSSHAuthMethods returns the appropriate SSH authentication methods based on configuration.
-// If SSHPrivateKeyPath is set, it uses key-based authentication; otherwise, password authentication.
-func (v *TestVM) getSSHAuthMethods() ([]ssh.AuthMethod, error) {
-	if v.SSHPrivateKeyPath != "" {
-		key, err := os.ReadFile(v.SSHPrivateKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read SSH private key: %w", err)
+		probeTimeout := sshProbeAttemptTimeout
+		if remaining < probeTimeout {
+			probeTimeout = remaining
 		}
-		signer, err := ssh.ParsePrivateKey(key)
+		probeCtx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		_, err := v.runSSHWithUserContext(probeCtx, []string{"true"}, nil, v.VMUser)
+		cancel()
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
+			lastErr = err
+			logrus.Debugf("RunSSH probe failed: %v", err)
+			time.Sleep(time.Second)
+			continue
 		}
-		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+		return nil
 	}
-	return []ssh.AuthMethod{ssh.Password(v.SSHPassword)}, nil
+	if lastErr != nil {
+		return fmt.Errorf("SSH did not become ready in %s: %w", timeout, lastErr)
+	}
+	return fmt.Errorf("SSH did not become ready in %s", timeout)
 }
 
 func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
-	sshDestination := user + "@localhost"
+	return v.sshCommandWithUserContext(context.Background(), inputArgs, user)
+}
+
+func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []string, user string) *exec.Cmd {
+	// Use 127.0.0.1 to match WaitForSSHToBeReady (localhost can cause connection closed during handshake).
+	sshDestination := user + "@127.0.0.1"
 	port := strconv.Itoa(v.SSHPort)
 
 	// Common SSH args
@@ -137,12 +138,12 @@ func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 	var cmd *exec.Cmd
 	if v.SSHPrivateKeyPath != "" {
 		// Key-based authentication
-		sshArgs = append([]string{"-i", v.SSHPrivateKeyPath, "-o", "PasswordAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
+		sshArgs = append([]string{"-i", string(v.SSHPrivateKeyPath), "-o", "PasswordAuthentication=no"}, sshArgs...)
+		cmd = exec.CommandContext(ctx, "ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
 		// Password-based authentication with sshpass
 		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
 	}
 
 	if len(inputArgs) == 0 {
@@ -160,7 +161,11 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 }
 
 func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
-	cmd := v.SSHCommandWithUser(inputArgs, user)
+	return v.runSSHWithUserContext(context.Background(), inputArgs, stdin, user)
+}
+
+func (v *TestVM) runSSHWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
+	cmd := v.sshCommandWithUserContext(ctx, inputArgs, user)
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	cmd.Stderr = &stderr
@@ -171,6 +176,9 @@ func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user st
 	cmd.Stdout = &stdout
 	err := cmd.Run()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = errors.Join(context.DeadlineExceeded, err)
+		}
 		return nil, fmt.Errorf("failed to run ssh command: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
 	}
 

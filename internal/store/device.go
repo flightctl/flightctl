@@ -64,12 +64,13 @@ type Device interface {
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
+	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error)
-	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
+	GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -396,8 +397,8 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*d
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
-func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-	return s.getWithTimestamp(ctx, orgId, name, model.WithoutServiceConditions())
+func (s *DeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+	return s.getWithTimestamp(ctx, orgId, name)
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error) {
@@ -1126,6 +1127,84 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	return retryUpdate(func() (bool, error) {
 		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
 	})
+}
+
+func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (retry bool, device *domain.Device, err error) {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.getDB(ctx).Take(&existingRecord)
+	if result.Error != nil {
+		return false, nil, ErrorFromGormError(result.Error)
+	}
+
+	// Convert to API resource to check precondition
+	existingDevice, err := existingRecord.ToApiResource()
+	if err != nil {
+		return false, nil, err
+	}
+
+	// Check precondition: device must not already be decommissioning
+	if existingDevice.Spec != nil && existingDevice.Spec.Decommissioning != nil {
+		return false, nil, flterrors.ErrResourceVersionConflict
+	}
+
+	// Capture old device with deep copy for callback
+	var oldDevice domain.Device
+	var devices []domain.Device
+	devices = append(devices, *existingDevice)
+	oldDevice = devices[0]
+
+	// Apply decommissioning changes to the model
+	if existingRecord.Spec == nil {
+		existingRecord.Spec = model.MakeJSONField(domain.DeviceSpec{})
+	}
+	existingRecord.Spec.Data.Decommissioning = &decom
+
+	// Update status
+	if existingRecord.Status == nil {
+		existingRecord.Status = model.MakeJSONField(domain.NewDeviceStatus())
+	}
+	existingRecord.Status.Data.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
+
+	// These fields must be un-set so that device is no longer associated with any fleet
+	existingRecord.Owner = nil
+	existingRecord.Labels = nil
+
+	// Update using optimistic locking
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"spec":             existingRecord.Spec,
+		"status":           existingRecord.Status,
+		"owner":            nil,
+		"labels":           nil,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	err = ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), nil, err
+	}
+	if result.RowsAffected == 0 {
+		return true, nil, flterrors.ErrNoRowsUpdated
+	}
+
+	// Convert updated record to API resource for return and callback
+	updatedDevice, err := existingRecord.ToApiResource()
+	if err != nil {
+		return false, nil, err
+	}
+
+	// Call event callback
+	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, updatedDevice, false, nil)
+
+	return false, updatedDevice, nil
+}
+
+func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (*domain.Device, error) {
+	var device *domain.Device
+	err := retryUpdate(func() (bool, error) {
+		retry, dev, err := s.decommissionDevice(ctx, orgId, name, decom, eventCallback)
+		device = dev
+		return retry, err
+	})
+	return device, err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

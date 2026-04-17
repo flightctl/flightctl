@@ -311,6 +311,10 @@ func ValidateBearerToken(token *string, path string) []error {
 }
 
 func ValidateCSRUsages(u *[]string) []error {
+	usages := []string{}
+	if u != nil {
+		usages = *u
+	}
 	errs := field.ErrorList{}
 	requiredAllOf := map[string]struct{}{
 		"clientAuth": {},
@@ -318,7 +322,7 @@ func ValidateCSRUsages(u *[]string) []error {
 	}
 	notAllowed := map[string]struct{}{}
 
-	for _, usage := range *u {
+	for _, usage := range usages {
 		if _, exists := notAllowed[usage]; exists {
 			err := fmt.Sprintf("usage not allowed: %s\n", usage)
 			errs = append(errs, field.Invalid(fieldPathFor("spec.usages"), u, err))

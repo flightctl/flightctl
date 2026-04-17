@@ -7,8 +7,19 @@ GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
+# Integration-only: run the integration gotestsum invocation this many times (each with go test -count=1).
+# Stops on first failure. Ginkgo suites reject go test -count>1, so repeats are implemented as a shell loop.
+INTEGRATION_TEST_COUNT ?= 1
+# Optional Ginkgo focus regex for suites under test/integration that use Ginkgo (e.g. imagebuilder_worker, agent).
+INTEGRATION_GINKGO_FOCUS ?=
+
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
-GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) $(if $(TESTS),-run $(TESTS)) -coverprofile=$(REPORTS)/integration-coverage.out
+# Always -count=1 so Ginkgo-based integration packages are valid; use INTEGRATION_TEST_COUNT to repeat the whole run.
+GO_INTEGRATIONTEST_FLAGS = -race $(GO_BUILD_FLAGS) -count=1 -p 1 \
+	$(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) \
+	$(if $(TESTS),-run $(TESTS)) \
+	$(if $(strip $(INTEGRATION_GINKGO_FOCUS)),-ginkgo.focus="$(INTEGRATION_GINKGO_FOCUS)") \
+	-coverprofile=$(REPORTS)/integration-coverage.out
 
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
@@ -26,7 +37,21 @@ KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 TEMP_SWTPM_CERT_DIR := bin/tmp/swtpm-certs
 
 _integration_test: $(REPORTS)
-	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
+	@bash -euo pipefail -c '\
+	  run_integration() { \
+	    go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT); \
+	  }; \
+	  count="$(INTEGRATION_TEST_COUNT)"; \
+	  if [ "$${count:-1}" -gt 1 ] 2>/dev/null; then \
+	    i=1; \
+	    while [ "$$i" -le "$$count" ]; do \
+	      echo "========== integration run $$i / $$count =========="; \
+	      run_integration || { $(MAKE) _collect_junit; exit 1; }; \
+	      i=$$((i+1)); \
+	    done; \
+	  else \
+	    run_integration || { $(MAKE) _collect_junit; exit 1; }; \
+	  fi'
 	$(MAKE) _collect_junit
 
 _e2e_test: $(REPORTS)
@@ -114,11 +139,16 @@ _run_template_migration:
     test/scripts/run_migration.sh \
 	'
 
-deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
-	test/scripts/deploy_e2e_extras_with_helm.sh
+# DEPRECATED: deploy-e2e-extras is no longer used
+# E2E infrastructure (registry, git-server, prometheus) is now managed by testcontainers
+# in test/e2e/infra/ package. The containers start automatically when tests run.
+deploy-e2e-extras:
+	@echo "WARNING: deploy-e2e-extras is deprecated. Testcontainers now manage E2E infrastructure."
+	@echo "See test/e2e/infra/ for the new implementation."
 
+deploy-e2e-ocp-test-vm: VM_DISK_SIZE_INC := $(or $(VM_DISK_SIZE_INC),50)
 deploy-e2e-ocp-test-vm:
-	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
+	sudo VM_DISK_SIZE_INC=$(VM_DISK_SIZE_INC) --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh $(KUBECONFIG_PATH)
 
 deploy-quadlets-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD --preserve-env=GIT_VERSION --preserve-env=BREW_BUILD_URL test/scripts/deploy_quadlets_rhel.sh
@@ -138,18 +168,16 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
+# Note: deploy-e2e-extras and push-e2e-agent-images removed
+# Testcontainers now handle registry/git-server/prometheus AND image uploading at test runtime
+# SSH keys and certs are still needed for git server authentication
+prepare-e2e-test: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem build-e2e-containers prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
-build-e2e-containers: e2e-agent-images git-server-container
+# Note: git-server container is now built at test runtime by testcontainers
+build-e2e-containers: e2e-agent-images
 	@echo "Building E2E containers with Docker caching..."
-
-# Ensure git-server container is built with proper caching
-git-server-container: bin/e2e-certs/ca.pem
-	@echo "Building git-server container with Docker caching..."
-	test/scripts/prepare_git_server.sh
-	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
 # Build E2E agent images with proper caching (offline build – no cert generation)
 # Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
@@ -170,6 +198,7 @@ e2e-test: deploy prepare-e2e-qcow-config
 # Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
+# Set GINKGO_KEEP_GOING=true to run all suites even when one fails (default: stop after first suite failure).
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
@@ -198,7 +227,7 @@ clean-swtpm-certs:
 clean-e2e-certs:
 	rm -rf bin/e2e-certs bin/.ssh
 
-.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images clean-e2e-certs
+.PHONY: test run-test e2e-agent-images push-e2e-agent-images clean-e2e-certs
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)
@@ -210,4 +239,58 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
+start-registry: bin/e2e-certs/ca.pem
+	go run ./cmd/aux-service start registry
+
+stop-registry:
+	go run ./cmd/aux-service stop registry
+
+start-git-server: bin/e2e-certs/ca.pem
+	go run ./cmd/aux-service start git-server
+
+stop-git-server:
+	go run ./cmd/aux-service stop git-server
+
+start-prometheus:
+	go run ./cmd/aux-service start prometheus
+
+stop-prometheus:
+	go run ./cmd/aux-service stop prometheus
+
+start-tracing:
+	go run ./cmd/aux-service start tracing
+
+stop-tracing:
+	go run ./cmd/aux-service stop tracing
+
+start-keycloak:
+	go run ./cmd/aux-service start keycloak
+
+stop-keycloak:
+	go run ./cmd/aux-service stop keycloak
+
+start-aux: bin/e2e-certs/ca.pem
+	go run ./cmd/aux-service start all
+
+stop-aux:
+	go run ./cmd/aux-service stop all
+
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
+
+# Schemathesis API testing
+SCHEMATHESIS_IMAGE ?= flightctl-schemathesis:latest
+
+.PHONY: schemathesis-image test-api clean-schemathesis
+
+schemathesis-image:
+	echo "Building Schemathesis container image..."; \
+	podman build -f test/api/Containerfile \
+		-t $(SCHEMATHESIS_IMAGE) test/api/; \
+
+test-api: schemathesis-image
+	SCHEMATHESIS_IMAGE=$(SCHEMATHESIS_IMAGE) SCHEMATHESIS_SUITES=$(SCHEMATHESIS_SUITES) test/api/run_tests.sh
+
+clean-schemathesis:
+	-podman rmi $(SCHEMATHESIS_IMAGE) 2>/dev/null || true
+	-rm -rf $(REPORTS)/schemathesis

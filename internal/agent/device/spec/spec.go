@@ -36,6 +36,14 @@ var defaultSpecPollConfig = func() poll.Config {
 	}
 }()
 
+// RollbackInfo contains the desired version and spec hash from the rollback
+// spec. These identify the spec we were upgrading to when the rollback was
+// created.
+type RollbackInfo struct {
+	Version  string
+	SpecHash string
+}
+
 // Watcher provides a way to watch for device spec updates.
 type Watcher interface {
 	// Pop blocks until a device is available or returns error if closed
@@ -62,7 +70,9 @@ type Manager interface {
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
 	// SetUpgradeFailed marks the desired rendered spec as failed.
-	SetUpgradeFailed(version string) error
+	// The specHash parameter allows tracking failed specs by content hash,
+	// enabling detection of console-only changes on failed specs.
+	SetUpgradeFailed(version string, specHash string) error
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
 	IsUpgrading() bool
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
@@ -78,6 +88,10 @@ type Manager interface {
 	CreateRollback(ctx context.Context) error
 	// ClearRollback clears the rollback rendered spec.
 	ClearRollback() error
+	// GetRollbackInfo returns the desired version and spec hash stored in
+	// rollback.json. These identify the spec we were upgrading to when the
+	// rollback was created.
+	GetRollbackInfo() (RollbackInfo, error)
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.
@@ -96,10 +110,10 @@ type PriorityQueue interface {
 	Next(ctx context.Context) (*v1beta1.Device, bool)
 	// Remove removes a spec from the scheduler
 	Remove(version int64)
-	// SetFailed marks a rendered spec version as failed
-	SetFailed(version int64)
-	// IsFailed returns true if a version is marked as failed
-	IsFailed(version int64) bool
+	// SetFailed marks a rendered spec version and/or spec hash as failed.
+	SetFailed(version int64, specHash string)
+	// IsFailed returns true if the version or spec hash is marked as failed.
+	IsFailed(version int64, specHash string) bool
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 }
@@ -107,6 +121,7 @@ type PriorityQueue interface {
 type cacheData struct {
 	renderedVersion string
 	osVersion       string
+	specHash        string
 }
 
 // cache stores the current, desired and rollback rendered cacheData in memory.
@@ -140,16 +155,20 @@ func (c *cache) update(specType Type, device *v1beta1.Device) {
 	}
 
 	renderedVersion := device.Version()
+	specHash := device.SpecHash()
 	switch specType {
 	case Current:
 		c.current.renderedVersion = renderedVersion
 		c.current.osVersion = osImage
+		c.current.specHash = specHash
 	case Desired:
 		c.desired.renderedVersion = renderedVersion
 		c.desired.osVersion = osImage
+		c.desired.specHash = specHash
 	case Rollback:
 		c.rollback.renderedVersion = renderedVersion
 		c.rollback.osVersion = osImage
+		c.rollback.specHash = specHash
 	}
 }
 
@@ -183,14 +202,36 @@ func (c *cache) getOSVersion(specType Type) string {
 	}
 }
 
+func (c *cache) getSpecHash(specType Type) string {
+	switch specType {
+	case Current:
+		return c.current.specHash
+	case Desired:
+		return c.desired.specHash
+	case Rollback:
+		return c.rollback.specHash
+	default:
+		c.log.Errorf("Invalid spec type: %s", specType)
+		return ""
+	}
+}
+
 func newVersionedDevice(version string) *v1beta1.Device {
-	deice := &v1beta1.Device{
+	return newVersionedDeviceWithHash(version, "")
+}
+
+func newVersionedDeviceWithHash(version, specHash string) *v1beta1.Device {
+	annotations := map[string]string{
+		v1beta1.DeviceAnnotationRenderedVersion: version,
+	}
+	if specHash != "" {
+		annotations[v1beta1.DeviceAnnotationRenderedSpecHash] = specHash
+	}
+	device := &v1beta1.Device{
 		Metadata: v1beta1.ObjectMeta{
-			Annotations: lo.ToPtr(map[string]string{
-				v1beta1.DeviceAnnotationRenderedVersion: version,
-			}),
+			Annotations: lo.ToPtr(annotations),
 		},
 	}
-	deice.Spec = &v1beta1.DeviceSpec{}
-	return deice
+	device.Spec = &v1beta1.DeviceSpec{}
+	return device
 }

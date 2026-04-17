@@ -27,7 +27,8 @@ var _ = Describe("Agent System Info", func() {
 
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		harness.SetTestContext(ctx)
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 		deviceId = harness.StartVMAndEnroll()
 	})
 

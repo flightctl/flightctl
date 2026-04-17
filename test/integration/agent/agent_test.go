@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -38,6 +39,12 @@ import (
 const (
 	TIMEOUT = "60s"
 	POLLING = "250ms"
+
+	// Harness uses 2s for StatusUpdateInterval and SpecFetchInterval (test_harness.go).
+	// After ConflictPaused the agent invalidates lastStatus; the next status sync runs within one interval.
+	// Allow several cycles so the test is stable under load (GitHub runners often need >10s).
+	CONFLICT_PAUSED_STATUS_WAIT_TIMEOUT  = "45s"
+	CONFLICT_PAUSED_STATUS_POLL_INTERVAL = "500ms"
 )
 
 var (
@@ -191,6 +198,111 @@ var _ = Describe("Device Agent behavior", func() {
 
 				// wait for the agent to retrieve the agent certificate from the EnrollmentRequest
 				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+			})
+		})
+
+		When("GetRenderedDevice returns ConflictPaused", func() {
+			It("agent invalidates lastStatus and pushes status on next sync", func() {
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+				deviceName := *dev.Metadata.Name
+				orgID := org.DefaultID
+
+				createMinimalRenderedConfig := func(contents string) (string, error) {
+					provider := v1beta1.ConfigProviderSpec{}
+					// Use an explicit file path under the agent root; empty Path makes path.Join(root, "") = root (a directory) and triggers "provided path is a directory".
+					// Set User/Group to current process so chown succeeds in test (agent runs as same user); otherwise default is root and chown fails with "operation not permitted".
+					uid, gid := os.Getuid(), os.Getgid()
+					files := []v1beta1.FileSpec{{
+						Path: "config-v1.txt", Content: contents,
+						User:  v1beta1.Username(strconv.Itoa(uid)),
+						Group: strconv.Itoa(gid),
+					}}
+					if err := provider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{Inline: files}); err != nil {
+						return "", err
+					}
+					providers := &[]v1beta1.ConfigProviderSpec{provider}
+					b, err := json.Marshal(providers)
+					if err != nil {
+						return "", err
+					}
+					return string(b), nil
+				}
+
+				// Wait for rollout to complete and agent to report a rendered version (avoids racing with worker: we need store to have a version before we bump it).
+				Eventually(func() string {
+					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					Expect(st.Code).To(BeEquivalentTo(200))
+					if d.Status != nil && d.Status.Config.RenderedVersion != "" {
+						return d.Status.Config.RenderedVersion
+					}
+					return ""
+				}, TIMEOUT, POLLING).ShouldNot(BeEmpty())
+
+				// Update rendered once via the service so the rendered bus is notified (agent will see new version).
+				cfg, err := createMinimalRenderedConfig("config-v1")
+				Expect(err).ToNot(HaveOccurred())
+				st := h.ServiceHandler.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1")
+				Expect(st.Code).To(BeEquivalentTo(200))
+				renderedDev, getErr := (*h.Store).Device().GetRendered(h.Context, orgID, deviceName, nil, "")
+				Expect(getErr).ToNot(HaveOccurred())
+				renderedVersion := renderedDev.Version()
+				Expect(renderedVersion).ToNot(BeEmpty())
+
+				// Wait for agent to poll and report that version.
+				Eventually(func() string {
+					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					Expect(st.Code).To(BeEquivalentTo(200))
+					if d.Status != nil && d.Status.Config.RenderedVersion != "" {
+						return d.Status.Config.RenderedVersion
+					}
+					return ""
+				}, TIMEOUT, POLLING).Should(Equal(renderedVersion))
+
+				// Record original agent-reported status (e.g. OS) so we can verify the agent restores it after we overwrite.
+				devBefore, _ := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+				Expect(devBefore.Status).ToNot(BeNil())
+				originalOsImage := devBefore.Status.Os.Image
+				GinkgoWriter.Printf("ConflictPaused test: recorded original Os.Image=%q (renderedVersion=%s)\n", originalOsImage, renderedVersion)
+
+				// Manually overwrite reported status so we can verify the agent pushes and restores the real one.
+				overwrittenDevice := *devBefore
+				overwrittenDevice.Status.Os.Image = "fake-os-overwritten-by-test"
+				_, replaceSt := h.ServiceHandler.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice)
+				Expect(replaceSt.Code).To(BeEquivalentTo(200))
+				GinkgoWriter.Printf("ConflictPaused test: overwrote device status Os.Image to fake value\n")
+
+				// "Restore" scenario: set annotation to a lower version so device (renderedVersion) > service -> ConflictPaused.
+				// Do not call UpdateRendered again; only set annotations.
+				ver, err := strconv.ParseInt(renderedVersion, 10, 64)
+				Expect(err).ToNot(HaveOccurred())
+				serviceVersion := strconv.FormatInt(ver-1, 10)
+
+				err = (*h.Store).Device().UpdateAnnotations(h.Context, orgID, deviceName, map[string]string{
+					v1beta1.DeviceAnnotationAwaitingReconnect: "true",
+					v1beta1.DeviceAnnotationRenderedVersion:   serviceVersion,
+				}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				awaitKey := kvstore.AwaitingReconnectionKey{OrgID: orgID, DeviceName: deviceName}
+				_, err = h.KVStore.SetNX(h.Context, awaitKey.ComposeKey(), []byte("true"))
+				Expect(err).ToNot(HaveOccurred())
+
+				renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", orgID, deviceName)
+				_, err = h.KVStore.GetOrSetNX(h.Context, renderedKey, []byte(renderedVersion))
+				Expect(err).ToNot(HaveOccurred())
+				GinkgoWriter.Printf("ConflictPaused test: set AwaitingReconnect, KV keys (serviceVersion=%s); waiting for agent to restore Os.Image to %q\n", serviceVersion, originalOsImage)
+
+				// Agent's next GetRenderedDevice(knownVersion=renderedVersion) will get 200 + ConflictPaused, invalidate lastStatus, and push on next sync.
+				// Verify that the agent's status overwrites our fake value and restores the original (e.g. OS image).
+				Eventually(func() string {
+					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					Expect(st.Code).To(BeEquivalentTo(200))
+					if d.Status == nil {
+						return ""
+					}
+					return d.Status.Os.Image
+				}, CONFLICT_PAUSED_STATUS_WAIT_TIMEOUT, CONFLICT_PAUSED_STATUS_POLL_INTERVAL).Should(Equal(originalOsImage),
+					"after ConflictPaused the agent should push status and restore original Os.Image (not fake-os-overwritten-by-test)")
 			})
 		})
 
@@ -387,6 +499,89 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 		})
 
+	})
+
+	Context("decommissioning", func() {
+		It("should delete all files in data directory during decommissioning", func() {
+			// Enroll the device first
+			dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+			deviceName := lo.FromPtr(dev.Metadata.Name)
+
+			// Create test files in the data directory to verify they get deleted
+			dataDir := filepath.Join(h.TestDirPath, "var", "lib", "flightctl")
+			testFiles := []string{
+				filepath.Join(dataDir, "test-file-1.txt"),
+				filepath.Join(dataDir, "subdir", "test-file-2.txt"),
+				filepath.Join(dataDir, "another-dir", "nested", "test-file-3.txt"),
+			}
+
+			for _, testFile := range testFiles {
+				Expect(os.MkdirAll(filepath.Dir(testFile), 0o755)).To(Succeed())
+				Expect(os.WriteFile(testFile, []byte("test content"), 0o600)).To(Succeed())
+				GinkgoWriter.Printf("Created test file: %s\n", testFile)
+			}
+
+			// Verify files exist before decommissioning
+			for _, testFile := range testFiles {
+				_, err := os.Stat(testFile)
+				Expect(err).ToNot(HaveOccurred(), "Test file should exist before decommissioning")
+			}
+
+			// Ensure device is not already decommissioning (race condition in CI)
+			Eventually(func() bool {
+				currentDev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				// Fail fast on server errors (404, 500, etc) instead of retrying and masking them
+				Expect(status.Code).To(Equal(int32(200)), "GetDevice should return 200 OK")
+				return currentDev.Spec == nil || currentDev.Spec.Decommissioning == nil
+			}, TIMEOUT, POLLING).Should(BeTrue(), "Device should not already be in decommissioning state")
+
+			// Trigger decommissioning with Unenroll target
+			GinkgoWriter.Printf("Triggering decommissioning for device: %s\n", deviceName)
+			decommissionRequest := v1beta1.DeviceDecommission{
+				Target: v1beta1.DeviceDecommissionTargetTypeUnenroll,
+			}
+			_, status := h.ServiceHandler.DecommissionDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, decommissionRequest)
+			if status.Code != http.StatusOK {
+				GinkgoWriter.Printf("DecommissionDevice failed with status %d: %v\n", status.Code, status)
+			}
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), "DecommissionDevice should return 200 OK")
+
+			// Wait for decommissioning to complete - check that files are deleted
+			Eventually(func() bool {
+				// Check if any of the test files still exist
+				for _, testFile := range testFiles {
+					_, err := os.Stat(testFile)
+					if err == nil {
+						// File still exists
+						GinkgoWriter.Printf("File still exists: %s\n", testFile)
+						return false
+					}
+					if !os.IsNotExist(err) {
+						// Some other error occurred (not "file doesn't exist")
+						GinkgoWriter.Printf("Error checking file %s: %v\n", testFile, err)
+						return false
+					}
+					// File doesn't exist - this is what we want
+				}
+				GinkgoWriter.Println("All test files have been deleted")
+				return true
+			}, TIMEOUT, POLLING).Should(BeTrue(), "All files in data directory should be deleted during decommissioning")
+
+			// Verify the data directory itself still exists but is empty (or only contains subdirs that are empty)
+			entries, err := os.ReadDir(dataDir)
+			Expect(err).ToNot(HaveOccurred(), "Data directory must exist after decommissioning")
+
+			// Directory should be empty or only contain empty subdirectories
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subEntries, subErr := os.ReadDir(filepath.Join(dataDir, entry.Name()))
+					Expect(subErr).ToNot(HaveOccurred())
+					Expect(subEntries).To(BeEmpty(), "Subdirectory should be empty after decommissioning")
+				} else {
+					Fail(fmt.Sprintf("Found unexpected file after decommissioning: %s", entry.Name()))
+				}
+			}
+		})
 	})
 })
 

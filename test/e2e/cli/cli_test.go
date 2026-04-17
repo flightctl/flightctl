@@ -46,14 +46,8 @@ type fleetTestManager struct {
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
-	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
-		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
-	})
-
 	Context("apply/fleet", func() {
-		It("Resources creation validations work well", Label("77667", "sanity"), func() {
+		It("Resources creation validations work well", Label("77667", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -89,7 +83,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("certificate generation per user", func() {
-		It("should have worked, and we can have a certificate", Label("75865", "sanity"), func() {
+		It("should have worked, and we can have a certificate", Label("75865", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -107,7 +101,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
-		It("Should let you list resources by plural names", Label("80453"), func() {
+		It("Should let you list resources by plural names", Label("80453", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -127,7 +121,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Enrollment Request reapplication validation", func() {
-		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity"), func() {
+		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -167,7 +161,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Resources lifecycle for", func() {
-		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity"), func() {
+		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -342,7 +336,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("should verify that `flightctl get kind NAME' works", Label("85509", "sanity"), func() {
+		It("should verify that `flightctl get kind NAME' works", Label("85509", "sanity", "client"), func() {
 			harness := e2e.GetWorkerHarness()
 			testID := harness.GetTestIDFromContext()
 
@@ -382,10 +376,28 @@ var _ = Describe("cli operation", func() {
 				"no-slash JSON must deep-equal with-slash")
 		})
 
+		It("Should show last-seen with proper flag", Label("85014", "sanity", "client"), func() {
+			harness := e2e.GetWorkerHarness()
+			_, device := harness.EnrollAndWaitForOnlineStatus()
+			deviceName := *device.Metadata.Name
+
+			By("Get device and confirm no last seen")
+			output, err := harness.RunGetDevices(deviceName)
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s failed", deviceName)
+
+			Expect(strings.ToLower(collapse(output))).ToNot(ContainSubstring("last seen"))
+
+			output, err = harness.RunGetDevices(deviceName, "--last-seen")
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s --last-seen failed", deviceName)
+
+			Expect(collapse(output)).To(ContainSubstring("LAST SEEN"))
+			Expect(output).To(MatchRegexp(`<never>|\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ`))
+		})
+
 	})
 
 	Context("CLI Multi-Device Delete", func() {
-		It("should delete multiple devices", Label("75506", "sanity"), func() {
+		It("should delete multiple devices", Label("75506", "sanity", "client"), func() {
 			By("Creating multiple test devices")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
@@ -435,7 +447,7 @@ var _ = Describe("cli operation", func() {
 			Expect(dev2.JSON404).ToNot(BeNil(), "second device should not exist after deletion")
 		})
 
-		It("Validation works when trying to delete resources without names", Label("82540", "sanity"), func() {
+		It("Validation works when trying to delete resources without names", Label("82540", "sanity", "client"), func() {
 			By("Creating multiple test resources")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
@@ -503,7 +515,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Flightctl Version Checks", func() {
-		It("should show matching client and server versions", Label("79621", "sanity", "rpm-sanity"), func() {
+		It("should show matching client and server versions", Label("79621", "sanity", "rpm-sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -523,7 +535,7 @@ var _ = Describe("cli operation", func() {
 			Expect(agentVersion).To(Equal(serverVersion), "agent and server versions should match")
 		})
 
-		It("should show FIPS runtime compliance", Label("rpm-sanity", "84648"), func() {
+		It("should show FIPS runtime compliance", Label("rpm-sanity", "84648", "client"), func() {
 			// Skip test if neither BREW_BUILD_URL nor RPM_COPR is set since it applies only to RPM builds
 			brewBuildURL := os.Getenv("BREW_BUILD_URL")
 			rpmCopr := os.Getenv("RPM_COPR")
@@ -556,7 +568,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Verify fleet check shows devices", func() {
-		It("Show number of devices associated with each fleet", Label("84266", "sanity"), func() {
+		It("Show number of devices associated with each fleet", Label("84266", "sanity", "client"), func() {
 			harness := e2e.GetWorkerHarness()
 			testID := harness.GetTestIDFromContext()
 			fleetDevicesCount := map[string]int64{}
@@ -615,7 +627,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Verify fleet check shows aggregated device status", func() {
-		It("Show aggregated device status for each fleet", Label("84270", "sanity"), func() {
+		It("Show aggregated device status for each fleet", Label("84270", "sanity", "client"), func() {
 			harness := e2e.GetWorkerHarness()
 			testID := harness.GetTestIDFromContext()
 
@@ -684,7 +696,7 @@ var _ = Describe("cli login", func() {
 
 	Context("login validation", func() {
 
-		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
+		It("Validations work when logging into flightctl CLI", Label("78748", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -727,7 +739,7 @@ var _ = Describe("cli login", func() {
 			}
 		})
 
-		It("Should refresh token when expiration is reached", Label("81481"), func() {
+		It("Should refresh token when expiration is reached", Label("81481", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -735,11 +747,13 @@ var _ = Describe("cli login", func() {
 			By("Login to the service")
 			// We need to ensure that the login mechanism was user/pass otherwise the refresh flow isn't
 			// active.
-			if login.LoginToAPIWithToken(harness) != login.AuthUsernamePassword {
+			method, err := login.LoginToAPIWithToken(harness)
+			Expect(err).ToNot(HaveOccurred())
+			if method != login.AuthUsernamePassword {
 				Skip("This test requires authentication with username/password to be enabled")
 			}
 			By("Ensure actions can be taken")
-			_, err := harness.RunGetDevices()
+			_, err = harness.RunGetDevices()
 			Expect(err).ToNot(HaveOccurred(), "Failed to get device info")
 
 			By("Read the current access token")
@@ -797,11 +811,12 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.AccessToken).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 
-		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity"),
+		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity", "client"),
 			func() {
 
 				harness := e2e.GetWorkerHarness()
-				login.LoginToAPIWithToken(harness)
+				_, err := login.LoginToAPIWithToken(harness)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("CertificateSigningRequest: Resources lifecycle")
 				// Prepare a unique CSR YAML and ensure cleanup
@@ -891,9 +906,10 @@ var _ = Describe("cli login", func() {
 
 	})
 
-	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301"), func() {
+	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301", "client"), func() {
 		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 
 		By("creating a unique Device from template")
 		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
@@ -982,9 +998,10 @@ var _ = Describe("cli login", func() {
 		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
 	})
 
-	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470"), func() {
+	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470", "client"), func() {
 		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 
 		type shellCase struct {
 			name      string

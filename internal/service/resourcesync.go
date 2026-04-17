@@ -51,8 +51,10 @@ func (h *ServiceHandler) GetResourceSync(ctx context.Context, orgId uuid.UUID, n
 
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	// don't overwrite fields that are managed by the service
-	rs.Status = nil
-	NilOutManagedObjectMetaProperties(&rs.Metadata)
+	if !IsInternalRequest(ctx) {
+		rs.Status = nil
+		NilOutManagedObjectMetaProperties(&rs.Metadata)
+	}
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -66,6 +68,12 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+		if err := h.store.Catalog().UnsetItemOwner(ctx, tx, orgId, owner); err != nil {
+			return err
+		}
+		if err := h.store.Catalog().UnsetOwner(ctx, tx, orgId, owner); err != nil {
+			return err
+		}
 		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
 	}
 

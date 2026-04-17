@@ -16,21 +16,16 @@ type CatalogItemList = v1alpha1.CatalogItemList
 type CatalogItemSpec = v1alpha1.CatalogItemSpec
 type CatalogItemVersion = v1alpha1.CatalogItemVersion
 type CatalogItemConfigurable = v1alpha1.CatalogItemConfigurable
-type CatalogItemReference = v1alpha1.CatalogItemReference
 type CatalogItemArtifact = v1alpha1.CatalogItemArtifact
 type CatalogItemDeprecation = v1alpha1.CatalogItemDeprecation
 
 type CatalogItemCategory = v1alpha1.CatalogItemCategory
-type CatalogItemVisibility = v1alpha1.CatalogItemVisibility
 type CatalogItemType = v1alpha1.CatalogItemType
 type CatalogItemArtifactType = v1alpha1.CatalogItemArtifactType
 
 const (
 	CatalogItemCategorySystem      = v1alpha1.CatalogItemCategorySystem
 	CatalogItemCategoryApplication = v1alpha1.CatalogItemCategoryApplication
-
-	CatalogItemVisibilityDraft     = v1alpha1.CatalogItemVisibilityDraft
-	CatalogItemVisibilityPublished = v1alpha1.CatalogItemVisibilityPublished
 
 	CatalogItemTypeOS        = v1alpha1.CatalogItemTypeOS
 	CatalogItemTypeFirmware  = v1alpha1.CatalogItemTypeFirmware

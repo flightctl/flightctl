@@ -1,11 +1,15 @@
 package quadlets_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,8 +30,9 @@ func TestQuadlets(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	auxiliary.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = BeforeEach(func() {
@@ -35,12 +40,15 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
+
 	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with VM from pool\n", workerID)
 
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	err = harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)

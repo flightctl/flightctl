@@ -51,10 +51,14 @@ const (
 	POLLING      = time.Second
 	LONG_POLLING = 10 * time.Second
 
-	DURATION_TIMEOUT = 5 * time.Minute
-	SHORT_POLLING    = "250ms"
-	TIMEOUT_5M       = "5m"
-	LONGTIMEOUT      = "10m"
+	DURATION_TIMEOUT       = 5 * time.Minute
+	EVENTUALLY_POLLING_250 = 250 * time.Millisecond // Used by Ginkgo SetDefaultEventuallyPollingInterval (e.g. quadlets, rootless)
+	REBOOT_WAIT_INTERVAL   = 15 * time.Second       // Interval between reboot attempts in RebootVMAndWaitForSSH (e.g. quadlets, rootless)
+	REBOOT_MAX_ATTEMPTS    = 5                      // Max attempts in RebootVMAndWaitForSSH (e.g. quadlets, rootless)
+	SHORT_POLLING          = "250ms"
+	SPECK_UPDATE_DELAY     = 10 * time.Second // Delay between back-to-back spec updates to avoid TCP port TIME_WAIT / bind race (EDM-3451)
+	TIMEOUT_5M             = "5m"
+	LONGTIMEOUT            = "10m"
 
 	HTTP_403_ERROR = 403
 	HTTP_404_ERROR = 404
@@ -93,6 +97,7 @@ const E2E_NAMESPACE = "flightctl-e2e"
 const E2E_REGISTRY_NAME = "registry"
 const KIND = "KIND"
 const OCP = "OCP"
+const QUADLET = "QUADLET"
 const FLIGHTCTL_AGENT_SERVICE = "flightctl-agent"
 
 // Define a type for messages.

@@ -20,17 +20,15 @@ const (
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
-		deviceId string
-		device   *v1beta1.Device
+		deviceId     string
+		device       *v1beta1.Device
+		registryHost string
+		registryPort string
 	)
 
 	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
-
-		// Use the shared harness from the suite test
-		// The harness is already set up with VM from pool and agent started
-		// We just need to enroll the device
+		registryHost, registryPort = auxSvcs.Registry.Host, auxSvcs.Registry.Port
 		deviceId, device = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -48,7 +46,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
-			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
+			imageName := harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V1)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{
@@ -76,7 +74,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the reported application running status in the device")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check the general device application status")
 			// Re-fetch the device to get the current status after the application is running
@@ -94,7 +93,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update an application image tag")
 
-			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
+			imageName = harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V2)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				applicationVars := map[string]string{
@@ -122,7 +121,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the application running status")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the new application containers are running")
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
@@ -149,13 +149,13 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("Should handle application volumes from images correctly", Label("83000"), func() {
+		It("Should handle application volumes from images correctly", Label("83000", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
 			By("Update the application to include artifact volumes")
 
-			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V3).String()
+			imageName := harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V3)
 
 			err := harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				volumeConfig := v1beta1.ApplicationVolume{
@@ -189,7 +189,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the application running status")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the new application containers are running")
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
@@ -203,7 +204,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("downgrading to v2 we should not have the mount anymore")
-			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
+			imageName = harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V2)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{
@@ -221,7 +222,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
 			Expect(err).ToNot(HaveOccurred())
@@ -234,7 +236,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
+		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -270,7 +272,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(stdout.String()).To(ContainSubstring(inlineAppComposeYaml))
 
 			By("Wait for the inline app to report running status")
-			harness.WaitForApplicationRunningStatus(deviceId, inlineAppName)
+			err = harness.WaitForApplicationStatus(deviceId, inlineAppName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By(fmt.Sprintf("Ensure %d/%d containers are up", containerAmount, containerAmount))
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Image}}\""}, nil)
@@ -356,7 +359,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}, TIMEOUT).Should(Equal(envVarValue))
 		})
 
-		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998"), func() {
+		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

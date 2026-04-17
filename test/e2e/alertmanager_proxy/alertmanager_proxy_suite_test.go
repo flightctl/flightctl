@@ -1,9 +1,13 @@
 package alertmanagerproxy_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -15,6 +19,8 @@ func TestAlertmanagerProxy(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	auxiliary.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -23,6 +29,9 @@ var _ = BeforeEach(func() {
 	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test\n", workerID)
 
@@ -39,7 +48,11 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	err := harness.CleanUpAllTestResources()
+	// Always restore admin context before cleanup in case a spec switched users.
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())
 
 	harness.SetTestContext(suiteCtx)

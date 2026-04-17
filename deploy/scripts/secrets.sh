@@ -8,12 +8,6 @@ generate_password() {
     echo "$(dd bs=512 if=/dev/urandom count=1 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd '-')"
 }
 
-# Ensure all required secrets exist
-ensure_secrets() {
-    ensure_postgres_secrets
-    ensure_kv_secrets
-}
-
 # Ensure PostgreSQL secrets exist
 ensure_postgres_secrets() {
     echo "Ensuring secrets for PostgreSQL"

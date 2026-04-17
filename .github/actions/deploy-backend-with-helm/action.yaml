@@ -53,15 +53,18 @@ runs:
     - name: Set git tag
       id: compute-tags
       shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        COMPUTED_TAG: ${{ steps.compute-tags-git.outputs.git_tag }}
       run: |
         set -euo pipefail
-        
-        if [ -n "${{ inputs.tag }}" ]; then
-          echo "Using provided tag: ${{ inputs.tag }}"
-          echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+        if [ -n "${INPUT_TAG}" ]; then
+          echo "Using provided tag: ${INPUT_TAG}"
+          echo "git_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
         else
-          echo "Using computed git_tag: ${{ steps.compute-tags-git.outputs.git_tag }}"
-          echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
+          echo "Using computed git_tag: ${COMPUTED_TAG}"
+          echo "git_tag=${COMPUTED_TAG}" >> "$GITHUB_OUTPUT"
         fi
 
     # ========== DOWNLOAD BACKEND ARTIFACTS ==========
@@ -92,10 +95,27 @@ runs:
         chmod +x bin/flightctl
         echo "CLI binary ready at bin/flightctl"
 
+    - name: Download restore binary
+      uses: actions/download-artifact@v4
+      with:
+        name: flightctl-restore-linux-amd64-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Setup restore binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p bin
+        mv artifacts/flightctl-restore-linux-amd64 bin/flightctl-restore
+        chmod +x bin/flightctl-restore
+        echo "Restore binary ready at bin/flightctl-restore"
+
     # ========== INITIALIZE KIND CLUSTER ==========
     - name: Create kind cluster
       shell: bash
-      run: kind create cluster --config ${{ inputs.kind-config }}
+      env:
+        KIND_CONFIG: ${{ inputs.kind-config }}
+      run: kind create cluster --config "${KIND_CONFIG}"
 
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind

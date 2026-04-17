@@ -6,17 +6,12 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+OS="${OS:-el9}"
+
 echo "Starting Deployment"
 
 # Render quadlet files
-bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
-
-echo "Ensuring secrets are available..."
-# Always ensure secrets exist before starting services
-if ! "${CONFIG_READONLY_DIR}/init_host.sh"; then
-    echo "Error: Failed to initialize secrets"
-    exit 1
-fi
+bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 
 echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
@@ -57,10 +52,19 @@ timeout --foreground 120s bash -c '
 # Wait for key-value service
 timeout --foreground 60s bash -c '
     while true; do
-        if podman ps --quiet --filter "name=flightctl-kv" | grep -q . && \
-           podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
-            echo "Key-value service is ready"
-            break
+        if podman ps --quiet --filter "name=flightctl-kv" | grep -q .; then
+            # Determine which CLI to use based on the OS
+            if [[ "${OS}" == "el10" ]]; then
+                if podman exec flightctl-kv valkey-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Valkey) is ready"
+                    break
+                fi
+            else
+                if podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Redis) is ready"
+                    break
+                fi
+            fi
         fi
         echo "Waiting for key-value service..."
         sleep 2
@@ -108,6 +112,23 @@ while true; do
 
     sleep 3
 done
+
+# Create default PAM user for local development
+PAM_USER="${PAM_USER:-admin}"
+PAM_PASSWORD="${PAM_PASSWORD:-flightctl}"
+
+echo "Creating default PAM user '${PAM_USER}'..."
+# Create the flightctl-admin group (ignore if exists)
+podman exec flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+# Create the user (skip if already exists)
+if podman exec flightctl-pam-issuer id "$PAM_USER" >/dev/null 2>&1; then
+    echo "User '${PAM_USER}' already exists, skipping creation"
+else
+    podman exec flightctl-pam-issuer adduser "$PAM_USER"
+    podman exec flightctl-pam-issuer sh -c "echo '${PAM_USER}:${PAM_PASSWORD}' | chpasswd"
+    podman exec flightctl-pam-issuer usermod -aG flightctl-admin "$PAM_USER"
+    echo "PAM user '${PAM_USER}' created with admin role"
+fi
 
 echo "Deployment completed successfully!"
 echo ""

@@ -32,9 +32,6 @@ Requires: openssl
 
 %global flightctl_target flightctl.target
 
-# --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service flightctl-imagebuilder-worker.service flightctl-telemetry-gateway.service
-
 
 %description
 # Main package is empty and not created.
@@ -52,10 +49,6 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
-# Pin the greenboot package to 0.15.z until the following issue is resolved:
-# https://github.com/fedora-iot/greenboot-rs/issues/141
-Requires: greenboot >= 0.15.0
-Requires: greenboot < 0.16.0
 Requires: sudo
 
 %description agent
@@ -163,13 +156,22 @@ Prometheus for metric storage and Grafana for visualization.
 
 
 %pre observability
-# This script runs BEFORE the files are installed onto the system.
 echo "Preparing to install Flight Control Observability Stack..."
 echo "Note: Observability stack can be installed independently of other Flight Control services."
+# Workaround: save observability state before upgrade so %%posttrans can restore it.
+# Needed because older versions' %%preun unconditionally stops services on upgrade.
+# Can be removed once all deployments have upgraded past this version.
+if [ "$1" -eq 2 ]; then
+    if /usr/bin/systemctl is-active --quiet flightctl-observability.target 2>/dev/null; then
+        touch /run/flightctl-observability-was-active
+    fi
+fi
 
 
 %post observability
-# This script runs AFTER the files have been installed onto the system.
+# On initial install: apply preset policy to enable/disable services based on system defaults
+%systemd_post flightctl-observability.target
+
 echo "Running post-install actions for Flight Control Observability Stack..."
 
 # Set ownership for persistent data directories
@@ -195,51 +197,56 @@ chown 472:472 /var/lib/grafana
 echo "Reloading systemd daemon..."
 /usr/bin/systemctl daemon-reload
 
-echo "Flight Control Observability Stack services installed. Services are configured but not started."
-echo "Configuration templates are rendered at service start time."
-echo "To start services: sudo systemctl start flightctl-observability.target"
-echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
+# On upgrade: mark the observability target for restart so PartOf= services restart
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units flightctl-observability.target || :
+fi
 
 
 
 
 %preun observability
 echo "Running pre-uninstall actions for Flight Control Observability Stack..."
-# Stop and disable the target and all services
-/usr/bin/systemctl stop flightctl-observability.target >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-observability.target >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-grafana.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-grafana.service >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-prometheus.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-prometheus.service >/dev/null 2>&1 || :
+# On package removal: stop and disable all services (PartOf= propagates to all services)
+%systemd_preun flightctl-observability.target
 
 
 %postun observability
-echo "Running post-uninstall actions for Flight Control Observability Stack..."
-# Clean up Podman containers associated with the services
-/usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
-/usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
-/usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
+# On upgrade: mark services for restart after transaction
+%systemd_postun_with_restart flightctl-observability.target
 
-# Note: Podman secrets are managed by the telemetry-gateway package
-# and will be cleaned up when that package is uninstalled
+if [ $1 -eq 0 ]; then
+    # Clean up Podman containers associated with the services
+    /usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
+    /usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
+    /usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
 
-# Remove SELinux fcontext rules added by this package
-/usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-grafana(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+    # Note: Podman secrets are managed by the telemetry-gateway package
+    # and will be cleaned up when that package is uninstalled
 
-# Restore default SELinux contexts for affected directories
-/usr/sbin/restorecon -RvF /etc/flightctl/flightctl-grafana >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /etc/flightctl/flightctl-prometheus >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+    # Remove SELinux fcontext rules added by this package
+    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-grafana(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
 
-/usr/bin/systemctl daemon-reload
-echo "Flight Control Observability Stack uninstalled."
+    # Restore default SELinux contexts for affected directories
+    /usr/sbin/restorecon -RvF /etc/flightctl/flightctl-grafana >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /etc/flightctl/flightctl-prometheus >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+
+    /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+fi
+
+%posttrans observability
+# Workaround: restore observability services if they were running before upgrade.
+# Needed because older versions' %%preun unconditionally stops services on upgrade.
+# Can be removed once all deployments have upgraded past this version.
+if [ -f /run/flightctl-observability-was-active ]; then
+    rm -f /run/flightctl-observability-was-active
+    /usr/bin/systemctl start flightctl-observability.target >/dev/null 2>&1 || :
+fi
 
 %prep
 %goprep -A
@@ -332,8 +339,13 @@ echo "Flight Control Observability Stack uninstalled."
     else
         APPLY_UI_OVERRIDE=""
     fi
+    %if 0%{?rhel} == 10
+    IMAGES_CONFIG=packaging/images/el10/images.yaml
+    %else
+    IMAGES_CONFIG=packaging/images/el9/images.yaml
+    %endif
     bin/flightctl-standalone render quadlets \
-        --config deploy/podman/images.yaml \
+        --config "${IMAGES_CONFIG}" \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
@@ -439,6 +451,13 @@ fi
     /etc/sudoers.d/*
 
 %post agent
+# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
+# Must be unconditional: greenboot's own %%systemd_post preset removes greenboot-success.target
+# (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
+# `systemctl enable` recreates it via the Also= directive.
+# See: https://github.com/fedora-iot/greenboot-rs/issues/171
+# See: https://github.com/openshift/microshift/pull/5530
+systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
@@ -469,7 +488,8 @@ rm -rf /usr/share/sosreport
 id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 # This enables lingering for the user with a fallback when building in an env without an active systemd.
 loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
-mkdir -p ~flightctl/{.config,.local}
+mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
+mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 %files selinux
@@ -526,10 +546,12 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %if 0%{?rhel} == 10
+    %{_datadir}/flightctl/flightctl-kv/valkey.conf
+    %else
     %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %endif
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
@@ -549,7 +571,7 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
-    %{_datadir}/containers/systemd/flightctl-api*.container
+    %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
@@ -569,7 +591,8 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %{_datadir}/containers/systemd/flightctl.network
 
     # Handle permissions for scripts setting host config
-    %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_db.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_kv.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_certs.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
@@ -582,6 +605,7 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
     /usr/lib/systemd/system/flightctl-certs-init.service
+    /usr/lib/systemd/system/flightctl-api-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
@@ -615,6 +639,13 @@ fi
 
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+# On upgrade: mark the target for restart so all PartOf= services restart.
+# The OLD package's %%postun may not mark the target (older versions marked
+# individual services with an incomplete list). Marking is idempotent.
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units %{flightctl_target} || :
+fi
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
@@ -658,8 +689,7 @@ fi
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
-%systemd_postun_with_restart %{flightctl_services_restart}
-%systemd_postun %{flightctl_target}
+%systemd_postun_with_restart %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.
 

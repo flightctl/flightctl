@@ -9,7 +9,11 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-kv
 data:
+  {{- if contains "valkey" .Values.kv.image.image }}
+  valkey.conf: |-
+  {{- else }}
   redis.conf: |-
+  {{- end }}
     bind 0.0.0.0 ::
     protected-mode yes
     port 6379
@@ -62,20 +66,36 @@ spec:
             - name: kv
               containerPort: 6379
           env:
+            {{- if contains "valkey" .Values.kv.image.image }}
+            - name: VALKEY_PASSWORD
+            {{- else }}
             - name: REDIS_PASSWORD
+            {{- end }}
               valueFrom:
                 secretKeyRef:
                   name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
           command:
+            {{- if contains "valkey" .Values.kv.image.image }}
+            - "valkey-server"
+            - "/etc/valkey/valkey.conf"
+            - "--requirepass"
+            - "$(VALKEY_PASSWORD)"
+            {{- else }}
             - "redis-server"
             - "/etc/redis/redis.conf"
             - "--requirepass"
             - "$(REDIS_PASSWORD)"
+            {{- end }}
           volumeMounts:
             - name: flightctl-kv-config
+              {{- if contains "valkey" .Values.kv.image.image }}
+              mountPath: /etc/valkey/valkey.conf
+              subPath: valkey.conf
+              {{- else }}
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
+              {{- end }}
           resources:
             requests:
               cpu: "1000m"

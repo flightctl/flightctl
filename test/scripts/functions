@@ -62,15 +62,22 @@ kind_load_image() {
 }
 
 function registry_address() {
-
-    KUBECONTEXT=${KUBECONTEXT:-$(kubectl config current-context)}
-
-    if [[ $KUBECONTEXT == *"kind"* ]]; then
-        REPOADDR=$(get_ext_ip):5000
-    else
-        REPOADDR="e2eregistry.$(kubectl get ingresses.config/cluster -o jsonpath={.spec.domain})"
+    # E2E_AUX_HOST overrides for both Quadlet and K8s (e.g. test host IP on OCP NIC)
+    if [[ -n "${E2E_AUX_HOST:-}" ]]; then
+        echo "${E2E_AUX_HOST}:5000"
+        return
     fi
-    echo $REPOADDR
+
+    # Quadlet: registry on test host
+    if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
+       { ! kubectl config current-context &>/dev/null && \
+         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+        echo "$(get_ext_ip):5000"
+        return
+    fi
+
+    # K8s (kind or other): registry on test host via testcontainers
+    echo "$(get_ext_ip):5000"
 }
 
 
@@ -140,20 +147,39 @@ function find_route_name() {
 }
 
 function get_endpoints() {
-  # Dynamically discover route names, fallback to common variations if not found
-  # For API route: find routes with "flightctl-api" but exclude those with "agent"
-  local api_route=$(find_route_name "flightctl-api" "agent")
-  local agent_route=$(find_route_name "agent")
-  local ui_route=$(find_route_name "flightctl-ui")
+  # Check if running in Quadlet/standalone mode
+  if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
+     [[ -n "${E2E_SSH_HOST:-}" ]] || \
+     { ! kubectl config current-context &>/dev/null && \
+       (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+    # Quadlet/standalone mode - use E2E_SSH_HOST when set (remote Quadlet), else hostname (VM will have /etc/hosts entry injected)
+    local QUADLET_HOST
+    if [[ -n "${E2E_SSH_HOST:-}" ]]; then
+      QUADLET_HOST="${E2E_SSH_HOST}"
+    else
+      QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+    fi
+    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_HOST}:3443}
+    export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://${QUADLET_HOST}:7443}
+    export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://${QUADLET_HOST}:9001}
+    echo "Using Quadlet endpoints: API=${FLIGHTCTL_API_ENDPOINT}, Agent=${FLIGHTCTL_AGENT_ENDPOINT}"
+  else
+    # K8s mode - use routes/ingress
+    # Dynamically discover route names, fallback to common variations if not found
+    # For API route: find routes with "flightctl-api" but exclude those with "agent"
+    local api_route=$(find_route_name "flightctl-api" "agent")
+    local agent_route=$(find_route_name "agent")
+    local ui_route=$(find_route_name "flightctl-ui")
 
-  # Fallback to hardcoded names if dynamic discovery fails (for kind or other non-route environments)
-  api_route=${api_route:-flightctl-api}
-  agent_route=${agent_route:-flightctl-api-agent}
-  ui_route=${ui_route:-flightctl-ui}
+    # Fallback to hardcoded names if dynamic discovery fails (for kind or other non-route environments)
+    api_route=${api_route:-flightctl-api}
+    agent_route=${agent_route:-flightctl-api-agent}
+    ui_route=${ui_route:-flightctl-ui}
 
-  export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "${api_route}")}
-  export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "${agent_route}")}
-  export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "${ui_route}")}
+    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "${api_route}")}
+    export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "${agent_route}")}
+    export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "${ui_route}")}
+  fi
 }
 
 function get_token() {
@@ -167,6 +193,101 @@ function get_token() {
   fi
 }
 
+# Run a command on the Quadlet host: locally, or via SSH when E2E_SSH_HOST points at a remote VM.
+# Quote argv for one remote shell word, then pass as the sole argument to bash -lc (otherwise ssh
+# runs sh -c 'bash -lc sudo podman ...' and splits after -c so only "sudo" runs).
+#
+# Scripts that use run_on_quadlet should run `exec 3>&2` after sourcing this file (see e2e_startup.sh,
+# prepare_agent_config.sh, deploy_with_helm.sh). Trace lines go to fd 3 so they still appear when a
+# wrapper uses 2>/dev/null on the whole run_on_quadlet invocation. If fd 3 is not open, trace is skipped.
+function run_on_quadlet() {
+  local ssh_user="${E2E_SSH_USER:-$USER}"
+  local inner remote_lc_cmd
+  inner="$(printf '%q ' "$@")"
+  inner="${inner% }"
+  remote_lc_cmd="$(printf 'bash -lc %q' "${inner}")"
+
+  if { : >&3; } 2>/dev/null; then
+    if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+      if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: SSHPASS=<redacted> sshpass -e ssh -o StrictHostKeyChecking=no ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i $(printf '%q' "${E2E_SSH_KEY_PATH}") ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      else
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      fi
+    else
+      printf '%s\n' "🔄 [Startup] run_on_quadlet: ${inner}" >&3
+    fi
+  fi
+
+  if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+    if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
+      SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    else
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    fi
+    return
+  fi
+  "$@"
+}
+
+# Sets up the PAM admin user for Quadlet/standalone deployments
+# This creates the flightctl-admin group and admin user if they don't exist
+# Following the documentation at docs/user/installing/configuring-auth/auth-pam.md
+function setup_pam_admin_user() {
+  local pam_user="${E2E_PAM_USER:-admin}"
+  local pam_pass="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
+
+  echo "Setting up PAM admin user '${pam_user}' for Quadlet E2E tests..."
+
+  local pam_names=""
+  if ! pam_names=$(run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null); then
+    pam_names=""
+  fi
+  if ! echo "${pam_names}" | grep -q '^flightctl-pam-issuer$'; then
+    echo "Warning: flightctl-pam-issuer container is not running (on Quadlet host)" >&2
+    return 1
+  fi
+
+  # Create the flightctl-admin group if it doesn't exist
+  echo "Creating flightctl-admin group..."
+  run_on_quadlet sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+
+  # Check if user already exists
+  if run_on_quadlet sudo podman exec flightctl-pam-issuer id "${pam_user}" &>/dev/null; then
+    echo "User '${pam_user}' already exists in PAM issuer"
+  else
+    # Create the user
+    echo "Creating user '${pam_user}'..."
+    run_on_quadlet sudo podman exec flightctl-pam-issuer adduser "${pam_user}" 2>/dev/null || true
+  fi
+
+  # Set the password (always update to ensure it matches expected value)
+  echo "Setting password for '${pam_user}'..."
+  if ! run_on_quadlet sudo podman exec -i flightctl-pam-issuer sh -c "echo '${pam_user}:${pam_pass}' | chpasswd"; then
+    echo "Warning: failed to set password for '${pam_user}' in PAM issuer" >&2
+    return 1
+  fi
+
+  # Add user to flightctl-admin group
+  echo "Adding '${pam_user}' to flightctl-admin group..."
+  run_on_quadlet sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${pam_user}" 2>/dev/null || true
+
+  # Verify the setup
+  echo "Verifying user setup..."
+  local groups
+  groups=$(run_on_quadlet sudo podman exec flightctl-pam-issuer groups "${pam_user}" 2>/dev/null || echo "")
+  if echo "$groups" | grep -q "flightctl-admin"; then
+    echo "PAM admin user '${pam_user}' is ready (groups: ${groups})"
+    return 0
+  fi
+  echo "Warning: User '${pam_user}' may not have flightctl-admin role" >&2
+  return 1
+}
+
 function try_login() {
   # if we can list devices, we are good
   bin/flightctl get devices 2>/dev/null && return 0
@@ -176,25 +297,44 @@ function try_login() {
     echo "Trying token login"
     TOKEN=""
 
-    # For kind clusters, use kubectl to create service account token
-    if in_kind; then
-      echo "Kind cluster detected, using kubectl to create token"
-      TOKEN=$(kubectl -n "${FLIGHTCTL_NS}" create token flightctl-admin --duration=8h 2>/dev/null || true)
+    # Check if we're in Quadlet/standalone mode
+    local is_quadlet=false
+    if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
+       { ! kubectl config current-context &>/dev/null && \
+         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+      is_quadlet=true
+    fi
+
+    if [[ "$is_quadlet" == "true" ]]; then
+      # For Quadlet/standalone, try PAM authentication
+      echo "Quadlet mode detected, trying PAM login"
+
+      # Set up PAM admin user if it doesn't exist
+      setup_pam_admin_user
+
+      # Try with E2E_PAM_USER/E2E_PAM_PASSWORD if set, otherwise use default admin user
+      local pam_user="${E2E_PAM_USER:-admin}"
+      local pam_pass="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
+
+      if bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify -u "${pam_user}" -p "${pam_pass}" 2>/dev/null; then
+        return 0
+      fi
+      echo "Warning: Quadlet PAM login failed for user '${pam_user}'" >&2
     else
-      # For OpenShift, use oc/KUBEADMIN_PASS
-      TOKEN=$(get_token 2>/dev/null || true)
-    fi
+        # For kind clusters, use kubectl to create service account token
+        if in_kind; then
+          echo "Kind cluster detected, using kubectl to create token"
+          TOKEN=$(kubectl -n "${FLIGHTCTL_NS}" create token flightctl-admin --duration=8h 2>/dev/null || true)
+        else
+          # For OpenShift, use oc/KUBEADMIN_PASS
+          TOKEN=$(get_token 2>/dev/null || true)
+        fi
 
-    if [ -n "${TOKEN}" ] && bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}" 2>/dev/null; then
-      return 0
-    fi
+        if [ -n "${TOKEN}" ] && bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}" 2>/dev/null; then
+          return 0
+        fi
 
-    echo "Trying standalone login"
-    PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json 2>/dev/null | jq -r '.data.password' | base64 -d 2>/dev/null || true)
-    if [ -n "${PASS}" ]; then
-      bin/flightctl login -k "${FLIGHTCTL_API_ENDPOINT}" -u demouser -p ${PASS} 2>/dev/null
-      return 0
-    fi
+     fi
 
     echo "Warning: All login attempts failed" >&2
     return 1
@@ -351,6 +491,9 @@ download_brew_rpms() {
 # Function to ensure an organization is selected in the CLI context
 # If no organization is currently set, it will automatically select the first available one
 function ensure_organization_set() {
+    # First ensure we're logged in
+    try_login || echo "Warning: try_login failed, continuing anyway"
+
     local output
     output=$(./bin/flightctl config current-organization 2>/dev/null)
 
@@ -374,4 +517,28 @@ function ensure_organization_set() {
         echo "Organization already set to: $current_org"
     fi
     return 0
+}
+
+# check_registry waits for a registry to become available
+# Arguments:
+#   $1 - registry endpoint (host:port)
+#   $2 - timeout in seconds (default: 30)
+function check_registry() {
+    local endpoint="$1"
+    local timeout="${2:-30}"
+
+    echo "Checking registry availability at ${endpoint}..."
+    local CURL_ARGS="-f --connect-timeout 5 --insecure"
+
+    for ((i=0; i<timeout; i++)); do
+        echo "Attempting connection... (${i}s/${timeout}s)"
+        if curl ${CURL_ARGS} "https://${endpoint}/v2/" 2>&1; then
+            echo "Registry is available"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "Error: Registry unavailable after ${timeout}s"
+    return 1
 }

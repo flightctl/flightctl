@@ -1,0 +1,64 @@
+# quay.io/flightctl/flightctl-device:v12
+#
+# Image built on top of base image which includes upstream microshift (OKD)
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+ARG MICROSHIFT_TAG=4.21.0_g29f429c21_4.21.0_okd_scos.ec.15
+
+# Upstream microshift contains scripts for installing microshift on a machine that is currently running. The following
+# are extracted from the install scripts (defering to the scripts when possible).
+
+# Download microshift RPMs and install using upstream scripts (unique id to avoid race conditions in parallel builds)
+RUN --mount=type=cache,target=/var/cache/dnf,id=v12-dnf-cache \
+    --mount=type=cache,target=/var/lib/dnf,id=v12-dnf-lib \
+    set -ex && \
+    # Download RPMs
+    mkdir -p /tmp/microshift-rpms && \
+    curl -L -s --retry 5 \
+        "https://github.com/microshift-io/microshift/releases/download/${MICROSHIFT_TAG}/microshift-rpms-$(uname -m).tgz" | \
+        tar zxf - -C /tmp/microshift-rpms && \
+    # Download and run create_repos.sh to set up repos
+    curl -fSsL --retry 5 \
+        "https://github.com/microshift-io/microshift/raw/${MICROSHIFT_TAG}/src/rpm/create_repos.sh" \
+        -o /tmp/create_repos.sh && chmod +x /tmp/create_repos.sh && \
+    /tmp/create_repos.sh -create /tmp/microshift-rpms && \
+    # Install packages (disable weak deps to avoid microshift-networking)
+    dnf install -y --setopt=install_weak_deps=False \
+        microshift microshift-kindnet microshift-topolvm helm && \
+    # Download and run postinstall.sh (firewall config + systemctl enable)
+    curl -fSsL --retry 5 \
+        "https://github.com/microshift-io/microshift/raw/${MICROSHIFT_TAG}/src/rpm/postinstall.sh" \
+        -o /tmp/postinstall.sh && chmod +x /tmp/postinstall.sh && \
+    /tmp/postinstall.sh && \
+    # Clean up repos and temp files
+    /tmp/create_repos.sh -delete && \
+    rm -rf /tmp/microshift-rpms /tmp/*.sh
+
+# Create the required directory structure in /var/crio instead of /opt/crio
+RUN mkdir -p /var/crio && \
+    rm -rf /opt && ln -s /var /opt && \
+    ln -snf /run /var/run
+
+# Prepare LVM for topolvm persistent volume provisioning
+# Based on prepare_lvm_disk() and setup_lvm_service() from upstream quickrpm.sh
+# Creates a systemd drop-in that initializes a 1GB loopback disk and volume group
+# (myvg1) on first boot before microshift starts. The disk image must be created
+# at runtime since /var contents don't persist from container build in bootc images.
+# On subsequent boots, the existing image is reattached and VG activated.
+RUN mkdir -p /etc/systemd/system/microshift.service.d && \
+    printf '%s\n' \
+        '[Service]' \
+        "ExecStartPre=/bin/bash -c 'mkdir -p /var/lib/microshift-okd && [ -f /var/lib/microshift-okd/lvmdisk.image ] || truncate --size=1G /var/lib/microshift-okd/lvmdisk.image'" \
+        "ExecStartPre=/bin/bash -c 'losetup -j /var/lib/microshift-okd/lvmdisk.image | grep -q . || losetup --find --show --nooverlap /var/lib/microshift-okd/lvmdisk.image'" \
+        "ExecStartPre=/bin/bash -c 'vgs myvg1 2>/dev/null && vgchange -ay myvg1 || vgcreate -f -y myvg1 \"\$(losetup -j /var/lib/microshift-okd/lvmdisk.image | cut -d: -f1)\"'" \
+        > /etc/systemd/system/microshift.service.d/99-lvm-config.conf
+
+# Additional firewall rules for external access
+RUN firewall-offline-cmd --zone=public --add-port=22/tcp && \
+    firewall-offline-cmd --zone=public --add-port=80/tcp && \
+    firewall-offline-cmd --zone=public --add-port=443/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/udp

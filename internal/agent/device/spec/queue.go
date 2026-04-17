@@ -31,11 +31,19 @@ type requeueState struct {
 }
 
 type queueManager struct {
-	queue          *queue
-	policyManager  policy.Manager
+	queue         *queue
+	policyManager policy.Manager
+	// failedVersions tracks rendered versions that have permanently failed.
+	// Once a version fails, it will not be retried.
 	failedVersions map[int64]struct{}
-	requeueLookup  map[int64]*requeueState
-	specCache      *cache
+	// failedSpecHashes tracks spec content hashes that have permanently failed.
+	// This is necessary because console sessions can be added to a failed spec,
+	// which bumps the rendered version but keeps the same spec hash. Without
+	// tracking failed hashes, the agent would repeatedly attempt to apply the
+	// same failed spec content (e.g., a bad OS image) each time a console is added.
+	failedSpecHashes map[string]struct{}
+	requeueLookup    map[int64]*requeueState
+	specCache        *cache
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
@@ -55,14 +63,15 @@ func newQueueManager(
 	log *log.PrefixLogger,
 ) PriorityQueue {
 	return &queueManager{
-		queue:          newQueue(log, maxSize),
-		policyManager:  policyManager,
-		specCache:      specCache,
-		failedVersions: make(map[int64]struct{}),
-		requeueLookup:  make(map[int64]*requeueState),
-		maxRetries:     maxRetries,
-		pollConfig:     pollConfig,
-		log:            log,
+		queue:            newQueue(log, maxSize),
+		policyManager:    policyManager,
+		specCache:        specCache,
+		failedVersions:   make(map[int64]struct{}),
+		failedSpecHashes: make(map[string]struct{}),
+		requeueLookup:    make(map[int64]*requeueState),
+		maxRetries:       maxRetries,
+		pollConfig:       pollConfig,
+		log:              log,
 	}
 }
 
@@ -86,6 +95,18 @@ func (m *queueManager) Add(ctx context.Context, device *v1beta1.Device) {
 		m.log.Debugf("Skipping adding failed template version: %d", proposedVersion)
 		return
 	}
+
+	// Check if the spec content hash has previously failed. This catches the case
+	// where a console session is added to a failed spec: the rendered version
+	// increments but the spec hash remains the same, so we can detect that the
+	// underlying spec content has already failed.
+	specHash := device.SpecHash()
+	if specHash != "" {
+		if _, failed := m.failedSpecHashes[specHash]; failed {
+			m.log.Debugf("Skipping spec with failed hash: %s (version %d)", specHash, proposedVersion)
+			return
+		}
+	}
 	currentRenderedVersion, err := stringToInt64(m.specCache.current.renderedVersion)
 	if err != nil {
 		m.log.Errorf("Failed to parse device version: %s error: %v", device.Version(), err)
@@ -104,7 +125,7 @@ func (m *queueManager) Add(ctx context.Context, device *v1beta1.Device) {
 	}
 
 	if m.hasExceededMaxRetries(state, proposedVersion) {
-		m.setFailed(proposedVersion)
+		m.setFailed(proposedVersion, specHash)
 		return
 	}
 
@@ -181,19 +202,35 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	}
 }
 
-func (m *queueManager) SetFailed(version int64) {
-	m.setFailed(version)
+// SetFailed marks a spec as permanently failed by both version and content hash.
+// Both are tracked because console additions can bump the version while keeping
+// the same spec content - tracking the hash prevents retrying the same failed content.
+func (m *queueManager) SetFailed(version int64, specHash string) {
+	m.setFailed(version, specHash)
 }
 
-func (m *queueManager) setFailed(version int64) {
+func (m *queueManager) setFailed(version int64, specHash string) {
 	m.failedVersions[version] = struct{}{}
+	if specHash != "" {
+		m.failedSpecHashes[specHash] = struct{}{}
+	}
 	delete(m.requeueLookup, version)
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) IsFailed(version int64) bool {
-	_, ok := m.failedVersions[version]
-	return ok
+// IsFailed returns true if either the version or the spec hash has been marked
+// as failed. Checking both is necessary because a new version with the same
+// content hash should still be considered failed.
+func (m *queueManager) IsFailed(version int64, specHash string) bool {
+	if _, ok := m.failedVersions[version]; ok {
+		return true
+	}
+	if specHash != "" {
+		if _, ok := m.failedSpecHashes[specHash]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int64) *requeueState {

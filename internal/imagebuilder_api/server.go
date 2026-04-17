@@ -3,6 +3,7 @@ package imagebuilder_api
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -17,6 +18,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
+	ibconvert "github.com/flightctl/flightctl/internal/imagebuilder_api/convert/v1alpha1"
+	ibdomain "github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/transport"
@@ -81,8 +84,24 @@ func New(
 	}, nil
 }
 
+var ibCommon = ibconvert.NewCommonConverter()
+
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	domainStatus := ibdomain.Status{
+		Code:    int32(statusCode), // #nosec G115 -- safe: HTTP status codes fit in int32
+		Message: fmt.Sprintf("API Error: %s", message),
+		Reason:  http.StatusText(statusCode),
+		Status:  "Failure",
+	}
+	apiStatus := ibCommon.StatusFromDomain(domainStatus)
+	resp, err := json.Marshal(apiStatus)
+	if err != nil {
+		http.Error(w, message, statusCode)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(resp)
 }
 
 // Run starts the ImageBuilder API server
@@ -143,10 +162,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Create identity mapping middleware (same as api_server)
 	identityMapper := internalservice.NewIdentityMapper(s.mainStore, s.log)
-	go func() {
-		identityMapper.Start(ctx)
-		s.log.Warn("Identity mapper stopped unexpectedly")
-	}()
+	identityMapper.Start()
+	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 
 	// Create organization extraction and validation middleware
@@ -187,7 +204,12 @@ func (s *Server) Run(ctx context.Context) error {
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
 		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
-			server.HandlerFromMux(transportHandler, r)
+			server.HandlerWithOptions(transportHandler, server.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 
@@ -263,7 +285,6 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		identityMapper.Stop()
 		s.kvStore.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()

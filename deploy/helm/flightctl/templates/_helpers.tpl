@@ -335,7 +335,7 @@ Parameters:
 {{- $sleep := .sleep | default $context.Values.dbSetup.wait.sleep | default 2 | int }}
 {{- $connectionTimeout := .connectionTimeout | default $context.Values.dbSetup.wait.connectionTimeout | default 3 | int }}
 - name: wait-for-database-{{ $userType }}
-  image: "{{ $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
+  image: "{{ include "flightctl.ensureOsQualifiedImage" $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
   imagePullPolicy: {{ default $context.Values.global.imagePullPolicy $context.Values.dbSetup.image.pullPolicy }}
   command:
   - /app/deploy/scripts/wait-for-database.sh
@@ -486,6 +486,51 @@ Parameters:
     done
 {{- end }}
 
+{{/*
+API wait init container template.
+Waits for the flightctl-api service to respond on its readiness endpoint before starting the main container.
+Usage: {{- include "flightctl.apiWaitInitContainer" (dict "context" .) | nindent 6 }}
+Parameters:
+- context: The root template context (.)
+- timeout: Optional timeout in seconds (default: 300)
+*/}}
+{{- define "flightctl.apiWaitInitContainer" }}
+{{- $ctx := .context }}
+{{- $timeout := .timeout | default 300 | int }}
+- name: wait-for-api
+  image: "{{ $ctx.Values.clusterCli.image.image }}:{{ $ctx.Values.clusterCli.image.tag }}"
+  imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.clusterCli.image.pullPolicy }}
+  command:
+  - /bin/bash
+  - -c
+  - |
+    set -euo pipefail
+
+    API_URL="https://flightctl-api.{{ $ctx.Release.Namespace }}.svc:3443/readyz"
+    TIMEOUT={{ $timeout }}
+
+    echo "Waiting for API at $API_URL (timeout ${TIMEOUT}s)"
+    start=$(date +%s)
+
+    while true; do
+      elapsed=$(( $(date +%s) - start ))
+
+      if [ $elapsed -ge $TIMEOUT ]; then
+        echo "Timeout waiting for API after ${TIMEOUT}s"
+        exit 1
+      fi
+
+      HTTP_CODE=$(curl -sk --max-time 5 -o /dev/null -w "%{http_code}" "$API_URL" || true)
+      if [ "$HTTP_CODE" = "200" ]; then
+        echo "API is ready"
+        exit 0
+      fi
+
+      echo "API not ready yet (HTTP $HTTP_CODE, ${elapsed}s elapsed), retrying in 5s..."
+      sleep 5
+    done
+{{- end }}
+
 {{- /*
 SSL certificate volume mounts for database connections.
 Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
@@ -543,6 +588,37 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- else }}
   {{- default "flightctl-db-migration-secret" .Values.db.builtin.migrationUserSecretName }}
 {{- end }}
+{{- end }}
+
+{{- /*
+Determine whether to use externalCertificate on edge-terminated routes.
+Returns: "true" or "false"
+- "auto" (default): use on fresh install; on upgrade, preserve existing behavior
+  by checking whether the specified route already has externalCertificate set.
+- "true": always use
+- "false": never use
+Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui") }}
+*/}}
+{{- define "flightctl.useRouteExternalCertificate" }}
+  {{- $root := .root }}
+  {{- $routeName := .routeName }}
+  {{- $val := $root.Values.global.routeExternalCertificate | default "auto" | toString }}
+  {{- if eq $val "true" }}
+    {{- print "true" }}
+  {{- else if eq $val "false" }}
+    {{- print "false" }}
+  {{- else }}
+    {{- if $root.Release.IsInstall }}
+      {{- print "true" }}
+    {{- else }}
+      {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
+      {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+        {{- print "true" }}
+      {{- else }}
+        {{- print "false" }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
 {{- end }}
 
 {{- /*
@@ -607,6 +683,34 @@ Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJs
 {{- end }}
 
 {{- /*
+Get DNS SANs for UI server certificate
+Usage: {{- $result := include "flightctl.getUiDNSSans" . | fromJson }}{{ $uiDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getUiDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "ui.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-ui" }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for CLI artifacts server certificate
+Usage: {{- $result := include "flightctl.getCliArtifactsDNSSans" . | fromJson }}{{ $cliArtifactsDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getCliArtifactsDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "cli-artifacts.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-cli-artifacts" }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
 Get DNS SANs for imagebuilder-api server certificate
 Usage: {{- $result := include "flightctl.getImagebuilderApiDNSSans" . | fromJson }}{{ $imagebuilderApiDNSSans := $result.sans }}
 */}}
@@ -650,15 +754,37 @@ auth:
     aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
         externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
+        {{- if .Values.global.auth.aap.authorizationUrl }}
+        authorizationUrl: {{ .Values.global.auth.aap.authorizationUrl }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.tokenUrl }}
+        tokenUrl: {{ .Values.global.auth.aap.tokenUrl }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.clientId }}
+        clientId: {{ .Values.global.auth.aap.clientId }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.clientSecret }}
+        clientSecret: {{ .Values.global.auth.aap.clientSecret }}
+        {{- end }}
+        enabled: {{ .Values.global.auth.aap.enabled }}
+        {{- if .Values.global.auth.aap.scopes }}
+        scopes: {{ .Values.global.auth.aap.scopes | toYaml | nindent 12 }}
+        {{- end }}
     {{- else }}
     oidc:
         oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
         clientId: {{ .Values.global.auth.oidc.clientId }}
+        {{- if .Values.global.auth.oidc.clientSecret }}
+        clientSecret: {{ .Values.global.auth.oidc.clientSecret }}
+        {{- end }}
         {{- if .Values.global.auth.oidc.enabled }}
         enabled: {{ .Values.global.auth.oidc.enabled }}
         {{- end }}
         issuer: {{ .Values.global.auth.oidc.issuer }}
         externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+        {{- if .Values.global.auth.oidc.scopes }}
+        scopes: {{ .Values.global.auth.oidc.scopes | toYaml | nindent 12 }}
+        {{- end }}
         {{- if .Values.global.auth.oidc.organizationAssignment }}
         organizationAssignment: {{ .Values.global.auth.oidc.organizationAssignment | toYaml | nindent 12 }}
         {{- end }}
@@ -691,3 +817,22 @@ auth:
   {{- end }}
   {{- $caCrt }}
 {{- end }}
+
+{{- /*
+Ensure image names are OS-qualified for backward compatibility during helm upgrades.
+This helper migrates non-OS-qualified image names (from main branch) to OS-qualified names (PR branch).
+For example: quay.io/flightctl/flightctl-api -> quay.io/flightctl/flightctl-api-el9
+
+Usage: {{ include "flightctl.ensureOsQualifiedImage" .Values.api.image.image }}
+*/}}
+{{- define "flightctl.ensureOsQualifiedImage" -}}
+  {{- $imageName := . -}}
+  {{- /* Check if image already has OS suffix (-el9, -el10, -cs9, -cs10) */ -}}
+  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) -}}
+    {{- /* Image already has OS suffix, use as-is */ -}}
+    {{- $imageName -}}
+  {{- else -}}
+    {{- /* Image lacks OS suffix, add default -el9 for backward compatibility */ -}}
+    {{- printf "%s-el9" $imageName -}}
+  {{- end -}}
+{{- end -}}

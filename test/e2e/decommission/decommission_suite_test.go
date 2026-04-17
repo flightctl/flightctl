@@ -1,15 +1,16 @@
 package decommission_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-const SUITE_TIMEOUT = "2m"
 
 const (
 	TIMEOUT        = "5m"
@@ -17,24 +18,13 @@ const (
 	POLLING        = "5s"
 )
 
-// Agent data directory paths
+// Agent filesystem paths verified during decommission tests
 const (
-	AgentDataDir  = "/var/lib/flightctl"
-	AgentCertsDir = AgentDataDir + "/certs"
-)
-
-// Agent credential paths that should be wiped after decommission
-const (
-	AgentCertPath = AgentCertsDir + "/agent.crt"
-	AgentKeyPath  = AgentCertsDir + "/agent.key"
-	AgentCSRPath  = AgentCertsDir + "/agent.csr"
-)
-
-// Agent spec files that should be deleted after decommission
-const (
-	DesiredSpecPath  = AgentDataDir + "/desired.json"
-	CurrentSpecPath  = AgentDataDir + "/current.json"
-	RollbackSpecPath = AgentDataDir + "/rollback.json"
+	agentDataDir     = "/var/lib/flightctl"
+	AgentCertPath    = agentDataDir + "/certs/agent.crt"
+	DesiredSpecPath  = agentDataDir + "/desired.json"
+	CurrentSpecPath  = agentDataDir + "/current.json"
+	RollbackSpecPath = agentDataDir + "/rollback.json"
 )
 
 func TestCLIDecommission(t *testing.T) {
@@ -43,47 +33,38 @@ func TestCLIDecommission(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	auxiliary.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = BeforeEach(func() {
-	// Get the harness and context directly - no package-level variables
 	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
 
-	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
-
-	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
 
 var _ = AfterEach(func() {
 	workerID := GinkgoParallelProcess()
-	GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
+	GinkgoWriter.Printf("[AfterEach] Worker %d: Cleaning up test resources\n", workerID)
 
-	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	// Clean up test resources BEFORE switching back to suite context
-	// This ensures we use the correct test ID for resource cleanup
 	err := harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())
 
-	// Now restore suite context for any remaining cleanup operations
 	harness.SetTestContext(suiteCtx)
 
-	GinkgoWriter.Printf("✅ [AfterEach] Worker %d: Test cleanup completed\n", workerID)
+	GinkgoWriter.Printf("[AfterEach] Worker %d: Test cleanup completed\n", workerID)
 })

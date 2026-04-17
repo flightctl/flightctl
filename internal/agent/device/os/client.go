@@ -51,6 +51,10 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	return b.client.Switch(ctx, image)
 }
 
+func (b *bootc) Rollback(ctx context.Context) error {
+	return b.client.Rollback(ctx)
+}
+
 func (b *bootc) Apply(ctx context.Context) error {
 	return b.client.Apply(ctx)
 }
@@ -77,6 +81,10 @@ func (r *rpmOSTree) Switch(ctx context.Context, image string) error {
 	return r.client.Switch(ctx, image)
 }
 
+func (r *rpmOSTree) Rollback(ctx context.Context) error {
+	return r.client.Rollback(ctx)
+}
+
 func (r *rpmOSTree) Apply(ctx context.Context) error {
 	return r.client.Apply(ctx)
 }
@@ -98,6 +106,11 @@ func (d *dummy) Status(ctx context.Context) (*Status, error) {
 
 func (d *dummy) Switch(ctx context.Context, image string) error {
 	d.log.Warnf("Ignoring switch to image %s from dummy client for unsupported OS", image)
+	return nil
+}
+
+func (d *dummy) Rollback(ctx context.Context) error {
+	d.log.Warnf("Ignoring rollback and reboot from dummy client for unsupported OS")
 	return nil
 }
 

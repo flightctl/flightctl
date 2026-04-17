@@ -44,8 +44,7 @@ func (d *Device) IsRebooting() bool {
 	return updatingCondition.Status == ConditionStatusTrue && updatingCondition.Reason == string(UpdateStateRebooting)
 }
 
-// IsUpdatedToDeviceSpec() is true if the device's current rendered version matches its spec's rendered version.
-func (d *Device) IsUpdatedToDeviceSpec() bool {
+func (d *Device) isRenderedVersionUpdated() bool {
 	if d == nil || d.Metadata.Annotations == nil {
 		// devices without a rendered version cannot be out-of-date
 		return true
@@ -60,6 +59,29 @@ func (d *Device) IsUpdatedToDeviceSpec() bool {
 		return true
 	}
 	return d.Status.Config.RenderedVersion == renderedVersionString
+}
+
+func (d *Device) isSpecValidConditionUpdated() bool {
+	if d == nil {
+		// devices without a valid spec cannot be out-of-date
+		return true
+	}
+	if d.Status == nil {
+		// devices without status cannot be up to date
+		return false
+	}
+	specValidCondition := FindStatusCondition(d.Status.Conditions, ConditionTypeDeviceSpecValid)
+	if specValidCondition == nil {
+		// devices without a DeviceSpecValid condition cannot be out-of-date
+		return true
+	}
+	return specValidCondition.Status == ConditionStatusTrue
+}
+
+// IsUpdatedToDeviceSpec() is true if the device's current rendered version matches its spec's rendered version and
+// its DeviceSpecValid condition is true, indicating that the device is up to date with its own spec.
+func (d *Device) IsUpdatedToDeviceSpec() bool {
+	return d.isRenderedVersionUpdated() && d.isSpecValidConditionUpdated()
 }
 
 // IsUpdatedToFleetSpec() is true if the IsUpdatedToDeviceSpec() and
@@ -92,6 +114,20 @@ func (d *Device) Version() string {
 		return ""
 	}
 	return deviceVersion
+}
+
+// SpecHash returns the rendered spec hash from the device annotations.
+// This hash represents the substantive spec content and does not change
+// when only console sessions are added.
+func (d *Device) SpecHash() string {
+	if d == nil || d.Metadata.Annotations == nil {
+		return ""
+	}
+	hash, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedSpecHash]
+	if !ok {
+		return ""
+	}
+	return hash
 }
 
 // IsDecomStarted() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Started' Reason.
@@ -166,4 +202,13 @@ func (f *Fleet) IsRolloutBatchCompleted(oldFleet *Fleet) (bool, *RolloutBatchCom
 	}
 
 	return true, &report
+}
+
+func (c ConditionType) IsServiceConditionType() bool {
+	switch c {
+	case ConditionTypeDeviceMultipleOwners, ConditionTypeDeviceSpecValid:
+		return true
+	default:
+		return false
+	}
 }

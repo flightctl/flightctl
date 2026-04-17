@@ -185,6 +185,21 @@ func (mr *MockManagerMockRecorder) GetDesired(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx)
 }
 
+// GetRollbackInfo mocks base method.
+func (m *MockManager) GetRollbackInfo() (RollbackInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRollbackInfo")
+	ret0, _ := ret[0].(RollbackInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRollbackInfo indicates an expected call of GetRollbackInfo.
+func (mr *MockManagerMockRecorder) GetRollbackInfo() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRollbackInfo", reflect.TypeOf((*MockManager)(nil).GetRollbackInfo))
+}
+
 // Initialize mocks base method.
 func (m *MockManager) Initialize(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -332,17 +347,17 @@ func (mr *MockManagerMockRecorder) SetClient(client any) *gomock.Call {
 }
 
 // SetUpgradeFailed mocks base method.
-func (m *MockManager) SetUpgradeFailed(version string) error {
+func (m *MockManager) SetUpgradeFailed(version, specHash string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUpgradeFailed", version)
+	ret := m.ctrl.Call(m, "SetUpgradeFailed", version, specHash)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetUpgradeFailed indicates an expected call of SetUpgradeFailed.
-func (mr *MockManagerMockRecorder) SetUpgradeFailed(version any) *gomock.Call {
+func (mr *MockManagerMockRecorder) SetUpgradeFailed(version, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version, specHash)
 }
 
 // Status mocks base method.
@@ -428,17 +443,17 @@ func (mr *MockPriorityQueueMockRecorder) CheckPolicy(ctx, policyType, version an
 }
 
 // IsFailed mocks base method.
-func (m *MockPriorityQueue) IsFailed(version int64) bool {
+func (m *MockPriorityQueue) IsFailed(version int64, specHash string) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsFailed", version)
+	ret := m.ctrl.Call(m, "IsFailed", version, specHash)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // IsFailed indicates an expected call of IsFailed.
-func (mr *MockPriorityQueueMockRecorder) IsFailed(version any) *gomock.Call {
+func (mr *MockPriorityQueueMockRecorder) IsFailed(version, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsFailed", reflect.TypeOf((*MockPriorityQueue)(nil).IsFailed), version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsFailed", reflect.TypeOf((*MockPriorityQueue)(nil).IsFailed), version, specHash)
 }
 
 // Next mocks base method.
@@ -469,13 +484,13 @@ func (mr *MockPriorityQueueMockRecorder) Remove(version any) *gomock.Call {
 }
 
 // SetFailed mocks base method.
-func (m *MockPriorityQueue) SetFailed(version int64) {
+func (m *MockPriorityQueue) SetFailed(version int64, specHash string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetFailed", version)
+	m.ctrl.Call(m, "SetFailed", version, specHash)
 }
 
 // SetFailed indicates an expected call of SetFailed.
-func (mr *MockPriorityQueueMockRecorder) SetFailed(version any) *gomock.Call {
+func (mr *MockPriorityQueueMockRecorder) SetFailed(version, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFailed", reflect.TypeOf((*MockPriorityQueue)(nil).SetFailed), version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFailed", reflect.TypeOf((*MockPriorityQueue)(nil).SetFailed), version, specHash)
 }

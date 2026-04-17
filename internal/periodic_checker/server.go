@@ -79,10 +79,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		s.log.Warn("Organization cache stopped unexpectedly")
-	}()
+	orgCache.Start()
 	defer orgCache.Stop()
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))

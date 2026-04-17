@@ -41,6 +41,11 @@
           "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.",
           "default": "flightctl-api-server-tls"
         },
+        "routeExternalCertificate": {
+          "type": "string",
+          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses on fresh install and preserves existing behavior on upgrade. 'true' always uses. 'false' never uses (rely on default router cert).",
+          "enum": ["auto", "true", "false"]
+        },
         "storageClassName": {
           "type": "string",
           "description": "Storage class name for PVCs. Empty to use default."
@@ -99,6 +104,15 @@
               "additionalProperties": false,
               "properties": {
                 "clientId": { "type": "string", "description": "OIDC Client ID" },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "OIDC client secret (optional; prefer mounting from a secret)"
+                },
+                "scopes": {
+                  "type": "array",
+                  "description": "List of OIDC scopes to request (e.g. openid, profile, email)",
+                  "items": { "type": "string" }
+                },
                 "issuer": {
                   "type": "string",
                   "description": "OIDC provider base URL reachable by services"
@@ -113,7 +127,14 @@
                   "additionalProperties": false,
                   "properties": {
                     "type": { "type": "string", "enum": ["static", "dynamic"] },
-                    "organizationName": { "type": "string" }
+                    "organizationName": { "type": "string" },
+                    "claimPath": {
+                      "type": "array",
+                      "description": "JSON path to the claim for dynamic assignment",
+                      "items": { "type": "string" }
+                    },
+                    "organizationNamePrefix": { "type": "string", "description": "Prefix for organization name (dynamic)" },
+                    "organizationNameSuffix": { "type": "string", "description": "Suffix for organization name (dynamic)" }
                   }
                 },
                 "usernameClaim": {
@@ -130,6 +151,15 @@
                     "claimPath": {
                       "type": "array",
                       "items": { "type": "string" }
+                    },
+                    "separator": {
+                      "type": "string",
+                      "description": "Separator for org:role format in dynamic assignment (default ':')"
+                    },
+                    "roles": {
+                      "type": "array",
+                      "description": "Static list of role names (for type: static)",
+                      "items": { "type": "string" }
                     }
                   }
                 }
@@ -140,7 +170,17 @@
               "additionalProperties": false,
               "properties": {
                 "apiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint" },
-                "externalApiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint that is reachable by clients" }
+                "externalApiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint that is reachable by clients" },
+                "authorizationUrl": { "type": "string", "description": "OAuth2 authorization endpoint URL" },
+                "tokenUrl": { "type": "string", "description": "OAuth2 token endpoint URL" },
+                "clientId": { "type": "string", "description": "OAuth2 client ID" },
+                "clientSecret": { "type": "string", "description": "OAuth2 client secret (prefer mounting from a secret)" },
+                "enabled": { "type": "boolean", "description": "Whether the AAP provider is enabled" },
+                "scopes": {
+                  "type": "array",
+                  "description": "List of OAuth2 scopes to request",
+                  "items": { "type": "string" }
+                }
               }
             },
             "openshift": {
@@ -547,6 +587,26 @@
         "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
         "rhsmCaSecretName": { "type": "string", "description": "Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
+        "serviceImages": {
+          "type": "object",
+          "description": "Builder images (podman, bootc-image-builder) and skip-TLS options",
+          "properties": {
+            "podman": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "Podman builder image (leave empty to use default)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Podman builder image" }
+              }
+            },
+            "bootcImageBuilder": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "bootc-image-builder image (leave empty to use default)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the bootc-image-builder image" }
+              }
+            }
+          }
+        },
         "resources": { "type": "object", "description": "Resource requests and limits" }
       }
     },
@@ -593,6 +653,14 @@
             "insecureSkipTlsVerify": { "type": "boolean", "description": "Set to true if auth TLS certificate validation should be skipped." },
             "caCert": { "type": "string", "description": "A custom CA cert for Auth TLS." }
           }
+        },
+        "trustXForwardedHeaders": {
+          "type": "boolean",
+          "description": "When true, the UI trusts X-Forwarded-* headers for redirect/cookie scheme resolution."
+        },
+        "trustedProxyCidrs": {
+          "type": "string",
+          "description": "Optional comma-separated CIDR list of trusted proxy source addresses for forwarded headers."
         },
         "additionalRouteLabels": {
           "type": ["object", "null"],

@@ -54,11 +54,17 @@ func getTlsConfig(cfg *config.Config) *tls.Config {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
 	}
-	if cfg.Auth.CACert != "" {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
-		tlsConfig.RootCAs = caCertPool
+	if cfg.Auth.CACert == "" {
+		return tlsConfig
 	}
+	// Append configured CA PEMs to the system trust store so outbound TLS (e.g. OIDC
+	// discovery to public IdPs) still verifies while custom/internal roots are trusted.
+	caCertPool, err := x509.SystemCertPool()
+	if err != nil || caCertPool == nil {
+		caCertPool = x509.NewCertPool()
+	}
+	caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
+	tlsConfig.RootCAs = caCertPool
 	return tlsConfig
 }
 

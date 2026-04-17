@@ -35,8 +35,10 @@ jobs:
     steps:
       - name: Generate node matrix
         id: generate
+        env:
+          GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
         run: |
-          nodes=$(seq 1 ${{ inputs.ginkgo_total_nodes }} | jq -R . | jq -s -c .)
+          nodes=$(seq 1 "${GINKGO_TOTAL_NODES}" | jq -R . | jq -s -c .)
           echo "nodes=${nodes}" >> "$GITHUB_OUTPUT"
           echo "Generated nodes matrix: ${nodes}"
 
@@ -99,6 +101,8 @@ jobs:
           merge-multiple: true
 
       - name: Stage test artifacts
+        env:
+          OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
           echo "Downloaded test artifacts:"
@@ -106,12 +110,12 @@ jobs:
 
           # Stage agent bundle
           mkdir -p bin/agent-artifacts
-          if [ ! -f "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
+          if [ ! -f "test-artifacts/agent-images-bundle-${OS_ID}.tar" ]; then
             echo "ERROR: Agent bundle not found"
             exit 1
           fi
-          mv "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
-          echo "✓ Agent bundle: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar"
+          mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
+          echo "Agent bundle: bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
 
           # Stage qcow2
           mkdir -p bin/output/qcow2
@@ -160,10 +164,12 @@ jobs:
 
       - name: Compute label filter hash
         id: compute-hash
+        env:
+          GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
         run: |
-          HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s' "${GINKGO_LABEL_FILTER}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
-          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
+          echo "Label filter: ${GINKGO_LABEL_FILTER}"
           echo "Hash: ${HASH}"
 
       - name: Download test discovery
@@ -181,9 +187,10 @@ jobs:
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
+          RUNNER_DEBUG: ${{ runner.debug }}
         run: |
-          if [[ "${{ runner.debug }}" == "1" ]]; then
-            echo "🐛 Debug mode enabled"
+          if [[ "${RUNNER_DEBUG}" == "1" ]]; then
+            echo "Debug mode enabled"
             export DEBUG_VM_CONSOLE=1
             export VERBOSE=true
           else

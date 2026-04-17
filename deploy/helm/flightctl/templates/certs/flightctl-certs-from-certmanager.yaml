@@ -201,6 +201,72 @@ spec:
     kind: Issuer
     group: cert-manager.io
 
+{{- if .Values.cliArtifacts.enabled }}
+---
+# CLI Artifacts Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-cli-artifacts-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-cli-artifacts-server-tls
+  commonName: flightctl-cli-artifacts
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $cliArtifactsDNSSansResult := include "flightctl.getCliArtifactsDNSSans" . | fromJson }}
+    {{- range $cliArtifactsDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
+
+{{- if and .Values.ui.enabled (eq (include "flightctl.enableMulticlusterExtensions" .) "false") }}
+---
+# UI Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-ui-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-ui-server-tls
+  commonName: flightctl-ui
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $uiDNSSansResult := include "flightctl.getUiDNSSans" . | fromJson }}
+    {{- range $uiDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
+
 ---
 # Job to create CA Bundle ConfigMap after cert-manager issues certificates
 apiVersion: batch/v1

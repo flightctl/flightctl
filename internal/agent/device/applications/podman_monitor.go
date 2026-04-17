@@ -557,6 +557,16 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
+	if status == StatusExited {
+		m.mu.Lock()
+		container, exists := app.Workload(event.Name)
+		wasStopped := exists && container.Status == StatusStop
+		m.mu.Unlock()
+		if wasStopped {
+			status = StatusType(event.Status)
+		}
+	}
+
 	m.updateApplicationStatus(app, event, status, restarts)
 }
 
@@ -587,10 +597,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			// By not returning StatusExited, a container that exits with code 0 will remain in a "died" state.
-			// This will cause the application to report an "Error" status, which is more
-			// accurate for a manually stopped service than "Completed".
-			return initialStatus
+			return StatusExited
 		}
 	}
 	return initialStatus

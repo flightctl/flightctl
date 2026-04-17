@@ -267,6 +267,20 @@ func (mr *MockBootcMockRecorder) Apply(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockBootc)(nil).Apply), ctx)
 }
 
+// Rollback mocks base method.
+func (m *MockBootc) Rollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rollback indicates an expected call of Rollback.
+func (mr *MockBootcMockRecorder) Rollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockBootc)(nil).Rollback), ctx)
+}
+
 // Status mocks base method.
 func (m *MockBootc) Status(ctx context.Context) (*container.BootcHost, error) {
 	m.ctrl.T.Helper()

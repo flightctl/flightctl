@@ -1,13 +1,18 @@
 package parametrisabletemplates
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var auxSvcs *auxiliary.Services
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
@@ -19,9 +24,16 @@ func TestParametrisableTemplates(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	auxSvcs = auxiliary.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if auxSvcs != nil {
+		auxSvcs.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {
@@ -52,6 +64,8 @@ var _ = AfterEach(func() {
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	harness.PrintAgentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

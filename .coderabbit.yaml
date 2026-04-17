@@ -1,3 +1,4 @@
+inheritance: true
 reviews:
   auto_review:
     # Draft PRs are excluded from automatic reviews.

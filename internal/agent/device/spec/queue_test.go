@@ -110,12 +110,13 @@ func TestRequeueThreshold(t *testing.T) {
 	maxSize := 1
 	maxRetries := 0
 	q := &queueManager{
-		queue:          newQueue(log, maxSize),
-		policyManager:  mockPolicyManager,
-		specCache:      newCache(log),
-		failedVersions: make(map[int64]struct{}),
-		requeueLookup:  make(map[int64]*requeueState),
-		maxRetries:     maxRetries,
+		queue:            newQueue(log, maxSize),
+		policyManager:    mockPolicyManager,
+		specCache:        newCache(log),
+		failedVersions:   make(map[int64]struct{}),
+		failedSpecHashes: make(map[string]struct{}),
+		requeueLookup:    make(map[int64]*requeueState),
+		maxRetries:       maxRetries,
 		pollConfig: poll.Config{
 			BaseDelay: baseDelay,
 			Factor:    backoffFactor,
@@ -186,12 +187,13 @@ func TestRequeueRollback(t *testing.T) {
 	maxSize := 1
 	maxRetries := 0
 	q := &queueManager{
-		queue:          newQueue(log, maxSize),
-		specCache:      newCache(log),
-		policyManager:  mockPolicyManager,
-		failedVersions: make(map[int64]struct{}),
-		requeueLookup:  make(map[int64]*requeueState),
-		maxRetries:     maxRetries,
+		queue:            newQueue(log, maxSize),
+		specCache:        newCache(log),
+		policyManager:    mockPolicyManager,
+		failedVersions:   make(map[int64]struct{}),
+		failedSpecHashes: make(map[string]struct{}),
+		requeueLookup:    make(map[int64]*requeueState),
+		maxRetries:       maxRetries,
 		pollConfig: poll.Config{
 			BaseDelay: baseDelay,
 			Factor:    backoffFactor,
@@ -343,12 +345,13 @@ func TestPolicy(t *testing.T) {
 			maxSize := 1
 			maxRetries := 0
 			q := &queueManager{
-				queue:          newQueue(log, maxSize),
-				specCache:      newCache(log),
-				policyManager:  mockPolicyManager,
-				failedVersions: make(map[int64]struct{}),
-				requeueLookup:  make(map[int64]*requeueState),
-				maxRetries:     maxRetries,
+				queue:            newQueue(log, maxSize),
+				specCache:        newCache(log),
+				policyManager:    mockPolicyManager,
+				failedVersions:   make(map[int64]struct{}),
+				failedSpecHashes: make(map[string]struct{}),
+				requeueLookup:    make(map[int64]*requeueState),
+				maxRetries:       maxRetries,
 				pollConfig: poll.Config{
 					BaseDelay: 1 * time.Second,
 					Factor:    2.0,
@@ -397,6 +400,220 @@ func TestCalculateBackoffDelay(t *testing.T) {
 	require.Equal(500*time.Millisecond, q.calculateBackoffDelay(5), "Fifth try should remain at max delay")
 }
 
+func TestIsFailed(t *testing.T) {
+	testCases := []struct {
+		name             string
+		failedVersions   []int64
+		failedSpecHashes []string
+		checkVersion     int64
+		checkSpecHash    string
+		expectFailed     bool
+	}{
+		{
+			name:             "failed by version match",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{},
+			checkVersion:     5,
+			checkSpecHash:    "",
+			expectFailed:     true,
+		},
+		{
+			name:             "failed by version match ignores different hash",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{},
+			checkVersion:     5,
+			checkSpecHash:    "differenthash",
+			expectFailed:     true,
+		},
+		{
+			name:             "failed by spec hash match with different version",
+			failedVersions:   []int64{},
+			failedSpecHashes: []string{"hash123"},
+			checkVersion:     999,
+			checkSpecHash:    "hash123",
+			expectFailed:     true,
+		},
+		{
+			name:             "not failed when version and hash do not match",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{"hash123"},
+			checkVersion:     999,
+			checkSpecHash:    "unknownhash",
+			expectFailed:     false,
+		},
+		{
+			name:             "not failed with empty hash and non-matching version",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{"hash123"},
+			checkVersion:     888,
+			checkSpecHash:    "",
+			expectFailed:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+
+			q := &queueManager{
+				failedVersions:   make(map[int64]struct{}),
+				failedSpecHashes: make(map[string]struct{}),
+				log:              log,
+			}
+
+			for _, v := range tc.failedVersions {
+				q.failedVersions[v] = struct{}{}
+			}
+			for _, h := range tc.failedSpecHashes {
+				q.failedSpecHashes[h] = struct{}{}
+			}
+
+			result := q.IsFailed(tc.checkVersion, tc.checkSpecHash)
+			require.Equal(tc.expectFailed, result)
+		})
+	}
+}
+
+func TestSetFailed(t *testing.T) {
+	testCases := []struct {
+		name                string
+		version             int64
+		specHash            string
+		expectVersionInMap  bool
+		expectSpecHashInMap bool
+	}{
+		{
+			name:                "stores both version and spec hash",
+			version:             5,
+			specHash:            "hash123",
+			expectVersionInMap:  true,
+			expectSpecHashInMap: true,
+		},
+		{
+			name:                "stores version only when hash is empty",
+			version:             10,
+			specHash:            "",
+			expectVersionInMap:  true,
+			expectSpecHashInMap: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+
+			q := &queueManager{
+				queue:            newQueue(log, 10),
+				failedVersions:   make(map[int64]struct{}),
+				failedSpecHashes: make(map[string]struct{}),
+				requeueLookup:    make(map[int64]*requeueState),
+				log:              log,
+			}
+
+			q.SetFailed(tc.version, tc.specHash)
+
+			_, versionFailed := q.failedVersions[tc.version]
+			require.Equal(tc.expectVersionInMap, versionFailed)
+
+			if tc.specHash != "" {
+				_, hashFailed := q.failedSpecHashes[tc.specHash]
+				require.Equal(tc.expectSpecHashInMap, hashFailed)
+			} else {
+				_, emptyHashPresent := q.failedSpecHashes[""]
+				require.False(emptyHashPresent, "empty string should never be added to failedSpecHashes")
+			}
+		})
+	}
+}
+
+func TestAddRejectsFailedSpecs(t *testing.T) {
+	testCases := []struct {
+		name             string
+		failedVersions   []int64
+		failedSpecHashes []string
+		addVersion       string
+		addSpecHash      string
+		expectInQueue    bool
+	}{
+		{
+			name:             "rejects spec with failed version",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{},
+			addVersion:       "5",
+			addSpecHash:      "",
+			expectInQueue:    false,
+		},
+		{
+			name:             "rejects spec with failed spec hash",
+			failedVersions:   []int64{},
+			failedSpecHashes: []string{"hash123"},
+			addVersion:       "10",
+			addSpecHash:      "hash123",
+			expectInQueue:    false,
+		},
+		{
+			name:             "accepts spec with non-failed version and hash",
+			failedVersions:   []int64{5},
+			failedSpecHashes: []string{"hash123"},
+			addVersion:       "20",
+			addSpecHash:      "newhash",
+			expectInQueue:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctx := context.Background()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockPolicyManager := policy.NewMockManager(ctrl)
+			mockPolicyManager.EXPECT().IsReady(gomock.Any(), gomock.Any()).Return(true).AnyTimes()
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			cache := newCache(log)
+			cache.current.renderedVersion = "1"
+
+			q := &queueManager{
+				queue:            newQueue(log, 10),
+				policyManager:    mockPolicyManager,
+				specCache:        cache,
+				failedVersions:   make(map[int64]struct{}),
+				failedSpecHashes: make(map[string]struct{}),
+				requeueLookup:    make(map[int64]*requeueState),
+				maxRetries:       0,
+				pollConfig: poll.Config{
+					BaseDelay: time.Second,
+					Factor:    2.0,
+					MaxDelay:  5 * time.Second,
+				},
+				log: log,
+			}
+
+			for _, v := range tc.failedVersions {
+				q.failedVersions[v] = struct{}{}
+			}
+			for _, h := range tc.failedSpecHashes {
+				q.failedSpecHashes[h] = struct{}{}
+			}
+
+			device := newVersionedDeviceWithHash(tc.addVersion, tc.addSpecHash)
+			q.Add(ctx, device)
+
+			result, exists := q.Next(ctx)
+			require.Equal(tc.expectInQueue, exists)
+			if tc.expectInQueue {
+				require.Equal(tc.addVersion, result.Version())
+			}
+		})
+	}
+}
+
 func TestRejectOldVersions(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -413,12 +630,13 @@ func TestRejectOldVersions(t *testing.T) {
 	cache.current.renderedVersion = "5"
 
 	q := &queueManager{
-		queue:          newQueue(log, 10),
-		policyManager:  mockPolicyManager,
-		specCache:      cache,
-		failedVersions: make(map[int64]struct{}),
-		requeueLookup:  make(map[int64]*requeueState),
-		maxRetries:     0,
+		queue:            newQueue(log, 10),
+		policyManager:    mockPolicyManager,
+		specCache:        cache,
+		failedVersions:   make(map[int64]struct{}),
+		failedSpecHashes: make(map[string]struct{}),
+		requeueLookup:    make(map[int64]*requeueState),
+		maxRetries:       0,
 		pollConfig: poll.Config{
 			BaseDelay: time.Second,
 			Factor:    2.0,

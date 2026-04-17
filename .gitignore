@@ -1,6 +1,7 @@
 /bin/
 /rpmbuild/
 /reports/
+deploy/helm/charttmpl
 test/e2e/cli/*.crt
 test/e2e/cli/*.key
 /packaging/rpm/flightctl-*.tar.gz
@@ -10,9 +11,12 @@ flightctl-*.rpm
 *.tar
 /packaging/rpm/flightctl-*/
 **/*.test
+__pycache__/
+.venv/
 
 # All temporary files should be created here
 /.output/
+/output/
 
 # AI and IDE configurations
 /.claude/

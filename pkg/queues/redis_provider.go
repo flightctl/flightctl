@@ -660,8 +660,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 			return nil // idle
 		}
 		if err != nil {
-			// Check if this is a NOGROUP error (consumer group doesn't exist yet)
+			// Check if this is a NOGROUP error (consumer group/stream missing, e.g. after Redis restart)
 			if strings.Contains(err.Error(), "NOGROUP") {
+				if errGroup := r.ensureConsumerGroup(ctx); errGroup == nil {
+					// Stream and group recreated; retry read
+					continue
+				}
 				if attempt < maxRetries-1 {
 					r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
 					// Use exponential backoff for retries to allow group creation to propagate

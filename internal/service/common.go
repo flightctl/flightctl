@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
@@ -25,6 +26,13 @@ const (
 
 func IsInternalRequest(ctx context.Context) bool {
 	if internal, ok := ctx.Value(consts.InternalRequestCtxKey).(bool); ok && internal {
+		return true
+	}
+	return false
+}
+
+func IsResourceSyncRequest(ctx context.Context) bool {
+	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
 		return true
 	}
 	return false
@@ -52,8 +60,11 @@ func NilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
 	om.DeletionTimestamp = nil
 }
 
-func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) error {
-	swagger, err := domain.GetSwagger()
+// SwaggerGetter is a function that returns a parsed OpenAPI spec.
+type SwaggerGetter func() (*openapi3.T, error)
+
+func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getSwagger SwaggerGetter) error {
+	swagger, err := getSwagger()
 	if err != nil {
 		return err
 	}
@@ -84,11 +95,12 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) erro
 		Request:    httpReq,
 		PathParams: pathParams,
 		Route:      route,
+		Options:    &openapi3filter.Options{ExcludeReadOnlyValidations: true},
 	}
 	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }
 
-func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest domain.PatchRequest, objPath string) error {
+func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest domain.PatchRequest, objPath string, getSwagger ...SwaggerGetter) error {
 	patch, err := json.Marshal(patchRequest)
 	if err != nil {
 		return err
@@ -107,8 +119,11 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest do
 		return err
 	}
 
-	//validate the new object against OpenAPI schema
-	err = validateAgainstSchema(ctx, newJSON, objPath)
+	swaggerFn := SwaggerGetter(domain.GetSwagger)
+	if len(getSwagger) > 0 && getSwagger[0] != nil {
+		swaggerFn = getSwagger[0]
+	}
+	err = validateAgainstSchema(ctx, newJSON, objPath, swaggerFn)
 	if err != nil {
 		return err
 	}
@@ -129,6 +144,7 @@ var badRequestErrors = map[error]bool{
 	flterrors.ErrLabelSelectorParseFailed:      true,
 	flterrors.ErrAnnotationSelectorSyntax:      true,
 	flterrors.ErrAnnotationSelectorParseFailed: true,
+	flterrors.ErrUnsupportedUnicode:            true,
 }
 
 var conflictErrors = map[error]bool{

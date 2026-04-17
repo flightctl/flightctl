@@ -227,3 +227,44 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	event, _ := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
 }
+
+func TestResourceSyncReplaceAllowsRepositoryUpdate(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	testOrgID := uuid.New()
+
+	testStore := &TestStore{}
+	serviceHandler := ServiceHandler{
+		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
+		store:        testStore,
+		log:          logrus.New(),
+	}
+
+	resourceSync := domain.ResourceSync{
+		ApiVersion: "v1beta1",
+		Kind:       "ResourceSync",
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr("catalog-mixed-sync"),
+		},
+		Spec: domain.ResourceSyncSpec{
+			Repository:     "catalog-mixed-test",
+			TargetRevision: "master",
+			Path:           "/",
+		},
+	}
+
+	created, status := serviceHandler.CreateResourceSync(ctx, testOrgID, resourceSync)
+	require.Equal(statusCreatedCode, status.Code)
+
+	// Simulate the object having status set by controllers before a replace call.
+	created.Status = &domain.ResourceSyncStatus{
+		Conditions: []domain.Condition{},
+	}
+	_, err := serviceHandler.store.ResourceSync().UpdateStatus(ctx, testOrgID, created, serviceHandler.callbackResourceSyncUpdated)
+	require.NoError(err)
+
+	resourceSync.Spec.Repository = "catalog-mixed-test-1774364233"
+	replaced, status := serviceHandler.ReplaceResourceSync(ctx, testOrgID, "catalog-mixed-sync", resourceSync)
+	require.Equal(statusSuccessCode, status.Code)
+	require.Equal("catalog-mixed-test-1774364233", replaced.Spec.Repository)
+}

@@ -27,6 +27,14 @@ const (
 	nvReadChunkSize = uint16(1024) // Maximum chunk size for NVRead operations
 	ekRSANVIndex    = gotpmclient.EKCertNVIndexRSA
 	ekECCNVIndex    = gotpmclient.EKCertNVIndexECC
+
+	// TCG EK Credential Profile v2.6, Section 2.2.1.4 — NV indices for manufacturer EK templates.
+	ekRSATemplateNVIndex uint32 = 0x01C00004
+	ekECCTemplateNVIndex uint32 = 0x01C0000C
+
+	// Reserved persistent handles for EKs from "TCG TPM v2.0 Provisioning Guidance" v1r1, Table 2.
+	ekRSAPersistentHandle = tpm2.TPMHandle(gotpmclient.EKReservedHandle)
+	ekECCPersistentHandle = tpm2.TPMHandle(gotpmclient.EKECCReservedHandle)
 )
 
 // tpmSession implements the Session interface
@@ -97,7 +105,7 @@ func (s *tpmSession) initialize() error {
 		return fmt.Errorf("setting up storage auth: %w", err)
 	}
 
-	// create/load SRK
+	s.log.Debug("Creating/loading Storage Root Key (SRK)")
 	srkHandle, err := s.ensureSRK()
 	if err != nil {
 		return fmt.Errorf("ensuring SRK: %w", err)
@@ -112,10 +120,12 @@ func (s *tpmSession) initialize() error {
 		}
 	}()
 
+	s.log.Debug("Loading existing TPM keys (LDevID, LAK)")
 	if err := s.loadExistingKeys(); err != nil {
 		return fmt.Errorf("loading existing keys: %w", err)
 	}
 
+	s.log.Debug("TPM session initialized successfully")
 	return nil
 }
 
@@ -574,6 +584,95 @@ func (s *tpmSession) detectEKAlgorithm() (KeyAlgorithm, error) {
 	return "", fmt.Errorf("no EK certificate found in NVRAM")
 }
 
+// ekPersistentHandle returns the conventional persistent handle for the given algorithm.
+func ekPersistentHandle(algo KeyAlgorithm) tpm2.TPMHandle {
+	if algo == ECDSA {
+		return ekECCPersistentHandle
+	}
+	return ekRSAPersistentHandle
+}
+
+// ekTemplateNVIndex returns the NV index for the manufacturer EK template
+// corresponding to the given algorithm.
+func ekTemplateNVIndex(algo KeyAlgorithm) uint32 {
+	if algo == ECDSA {
+		return ekECCTemplateNVIndex
+	}
+	return ekRSATemplateNVIndex
+}
+
+// loadEK loads the endorsement key, returning a named handle and a cleanup function.
+// It first checks for a manufacturer-provisioned persistent EK handle, which is the
+// most reliable source since it exactly matches the EK certificate. If no persistent
+// handle exists, it falls back to CreatePrimary with the best available template.
+func (s *tpmSession) loadEK() (*tpm2.NamedHandle, func(), error) {
+	ekAlgo, err := s.detectEKAlgorithm()
+	if err != nil {
+		return nil, nil, fmt.Errorf("detecting EK algorithm: %w", err)
+	}
+
+	persistHandle := ekPersistentHandle(ekAlgo)
+	handle, err := s.readPersistentEK(persistHandle)
+	if err == nil {
+		s.log.Debugf("Loaded EK from persistent handle 0x%08X", persistHandle)
+		return handle, func() {}, nil
+	}
+	s.log.Debugf("Persistent EK handle 0x%08X not available: %v, trying CreatePrimary", persistHandle, err)
+
+	template := s.resolveEKTemplate(ekAlgo)
+	cmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      template,
+	}
+
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating primary: %w", err)
+	}
+
+	handle = &tpm2.NamedHandle{Handle: resp.ObjectHandle, Name: resp.Name}
+	cleanup := func() { _ = s.flushHandle(handle.Handle) }
+	return handle, cleanup, nil
+}
+
+// readPersistentEK reads the public area of a persistent EK handle to obtain its name.
+func (s *tpmSession) readPersistentEK(handle tpm2.TPMHandle) (*tpm2.NamedHandle, error) {
+	readPublic := tpm2.ReadPublic{
+		ObjectHandle: handle,
+	}
+	resp, err := readPublic.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, fmt.Errorf("reading public area of handle 0x%08X: %w", handle, err)
+	}
+	return &tpm2.NamedHandle{Handle: handle, Name: resp.Name}, nil
+}
+
+// resolveEKTemplate returns the EK template for the given algorithm. It first checks
+// if the TPM manufacturer has provisioned a template at the well-known NV index
+// (per TCG EK Credential Profile). If not found, it falls back to the go-tpm standard template.
+func (s *tpmSession) resolveEKTemplate(algo KeyAlgorithm) tpm2.TPM2BPublic {
+	nvIndex := ekTemplateNVIndex(algo)
+	if s.isEKCertPresent(nvIndex) {
+		data, err := s.readEKCertFromNVRAM(nvIndex)
+		if err == nil {
+			parsed, err := tpm2.Unmarshal[tpm2.TPMTPublic](data)
+			if err == nil {
+				s.log.Debugf("Using manufacturer EK template from NV index 0x%08X", nvIndex)
+				return tpm2.New2B(*parsed)
+			}
+			s.log.Warnf("Failed to unmarshal manufacturer EK template from NV 0x%08X: %v", nvIndex, err)
+		} else {
+			s.log.Debugf("Failed to read manufacturer EK template from NV 0x%08X: %v", nvIndex, err)
+		}
+	}
+
+	s.log.Debugf("Using standard go-tpm EK template for %s", algo)
+	if algo == ECDSA {
+		return tpm2.New2B(tpm2.ECCEKTemplate)
+	}
+	return tpm2.New2B(tpm2.RSAEKTemplate)
+}
+
 // endorsementKeyCert reads endorsement key certificate from TPM NVRAM using direct commands
 func (s *tpmSession) endorsementKeyCert() ([]byte, error) {
 	if s.conn == nil {
@@ -925,36 +1024,11 @@ func ekPolicy(t transport.TPM, handle tpm2.TPMISHPolicy, nonceTPM tpm2.TPM2BNonc
 }
 
 func (s *tpmSession) GenerateChallenge(secret []byte) ([]byte, []byte, error) {
-	ekAlgo, err := s.detectEKAlgorithm()
+	ekHandle, cleanup, err := s.loadEK()
 	if err != nil {
-		return nil, nil, fmt.Errorf("detecting EK algorithm: %w", err)
+		return nil, nil, fmt.Errorf("loading EK: %w", err)
 	}
-
-	var template tpm2.TPMTPublic
-	switch ekAlgo {
-	case ECDSA:
-		template = tpm2.ECCEKTemplate
-	case RSA:
-		template = tpm2.RSAEKTemplate
-	default:
-		return nil, nil, fmt.Errorf("unsupported key algorithm for EK: %s", ekAlgo)
-	}
-
-	cmd := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHEndorsement,
-		InPublic:      tpm2.New2B(template),
-	}
-
-	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating EK primary: %w", err)
-	}
-
-	ekHandle := &tpm2.NamedHandle{
-		Handle: resp.ObjectHandle,
-		Name:   resp.Name,
-	}
-	defer func() { _ = s.flushHandle(ekHandle.Handle) }()
+	defer cleanup()
 
 	lakHandle, err := s.LoadKey(LAK)
 	if err != nil {
@@ -983,36 +1057,11 @@ func (s *tpmSession) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]b
 		return nil, fmt.Errorf("encrypted secret is empty")
 	}
 
-	ekAlgo, err := s.detectEKAlgorithm()
+	ekHandle, cleanup, err := s.loadEK()
 	if err != nil {
-		return nil, fmt.Errorf("detecting EK algorithm: %w", err)
+		return nil, fmt.Errorf("loading EK: %w", err)
 	}
-
-	var template tpm2.TPMTPublic
-	switch ekAlgo {
-	case ECDSA:
-		template = tpm2.ECCEKTemplate
-	case RSA:
-		template = tpm2.RSAEKTemplate
-	default:
-		return nil, fmt.Errorf("unsupported key algorithm for EK: %s", ekAlgo)
-	}
-
-	cmd := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHEndorsement,
-		InPublic:      tpm2.New2B(template),
-	}
-
-	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
-	if err != nil {
-		return nil, fmt.Errorf("creating EK primary: %w", err)
-	}
-
-	ekHandle := &tpm2.NamedHandle{
-		Handle: resp.ObjectHandle,
-		Name:   resp.Name,
-	}
-	defer func() { _ = s.flushHandle(ekHandle.Handle) }()
+	defer cleanup()
 
 	lakHandle, err := s.LoadKey(LAK)
 	if err != nil {

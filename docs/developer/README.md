@@ -23,6 +23,37 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
+### Container image building
+
+Flight Control supports building containers for multiple Enterprise Linux versions using OS-qualified image naming. The build system uses an `OS` variable to specify the target Enterprise Linux version:
+
+```bash
+# Build containers for Enterprise Linux 9 (default)
+make build-containers OS=el9
+
+# Build containers for Enterprise Linux 10
+make build-containers OS=el10
+```
+
+**OS-Qualified Image Names:**
+
+All Flight Control service containers use OS-qualified naming with the format `flightctl-{service}-{OS}:latest`:
+
+- **EL9**: `flightctl-api-el9:latest`, `flightctl-worker-el9:latest`, etc.
+- **EL10**: `flightctl-api-el10:latest`, `flightctl-worker-el10:latest`, etc.
+
+This naming scheme prevents conflicts when building and deploying containers across different Enterprise Linux versions.
+
+**Available Make Targets:**
+
+- `make build-containers` - Build all service containers (defaults to `OS=el9`)
+- `make clean-containers` - Remove containers for the current OS
+- `make bundle-containers` - Bundle containers for distribution
+
+**Registry Image Naming:**
+
+Registry images follow the same pattern: `quay.io/flightctl/flightctl-{service}-{OS}:{version}`
+
 ## Running
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
@@ -35,6 +66,14 @@ podman login registry.redhat.io
 The service can be deployed locally in kind with the following command:
 ```
 make deploy
+```
+
+Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
+
+```bash
+VIRBR0_SUBNET=`ip a | grep 'virbr0:' -A 2 | tail -1 | awk '{print $2}'`
+sudo firewall-cmd --zone=libvirt --add-rich-rule="rule family=\"ipv4\" source address=\"$VIRBR0_SUBNET\" accept" --permanent
+sudo firewall-cmd --reload
 ```
 
 ### Deployment using Quadlets
@@ -59,13 +98,6 @@ bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 Use an agent VM to test a device interaction, an image is automatically created from
 hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently
 this only works on a Linux host.
-
-Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
-
-```bash
-sudo firewall-cmd --zone=libvirt --add-rich-rule='rule family="ipv4" source address="<virbr0s subnet here>" accept' --permanent
-sudo firewall-cmd --reload
-```
 
 You can deploy a DB container of different sizes using a DB_VERSION variable for make command:
 * e2e (default) - minimal footprint for e2e testing
@@ -137,10 +169,6 @@ bin/devicesimulator --count=100
 
 ## Metrics
 
-Start the observability stack:
+The observability stack (Prometheus) is managed by **testcontainers** in [test/e2e/infra/](../../test/e2e/infra/) and starts automatically when you run E2E tests.
 
-```
-make deploy-e2e-extras
-```
-
-The Prometheus web UI is then accessible on `http://localhost:9090`
+To use the Prometheus UI, run the E2E test suite (e.g. `make e2e-test` or `make in-cluster-e2e-test`). While tests run, the stack is up and the Prometheus web UI is typically accessible at `http://localhost:9090` (see `test/e2e/infra/auxiliary/` for details).

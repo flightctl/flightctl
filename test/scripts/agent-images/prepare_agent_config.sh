@@ -4,6 +4,10 @@ set -e -x -o pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
+# Dup stderr to fd 3 so run_on_quadlet trace lines (test/scripts/functions) are printed, including
+# when stderr is redirected (e.g. 2>/dev/null on a command substitution). Same as e2e_startup.sh.
+exec 3>&2
+
 mkdir -p bin/agent/etc/flightctl/certs
 
 echo Requesting enrollment enrollment certificate/key and config for agent =====

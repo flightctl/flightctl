@@ -256,6 +256,9 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 	if name != *incomingDevice.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
+	if incomingDevice.Status == nil {
+		return nil, domain.StatusBadRequest("device status is required")
+	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
 		if h.agentGate.Acquire(ctx, 1) == nil {
@@ -266,7 +269,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	originalDevice, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	originalDevice, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -325,10 +328,11 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID,
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	var (
-		isNew             bool
-		kvRenderedVersion string
-		err               error
-		isAgent           bool
+		isNew                 bool
+		kvRenderedVersion     string
+		err                   error
+		isAgent               bool
+		movedToConflictPaused bool
 	)
 
 	if _, isAgent = ctx.Value(consts.AgentCtxKey).(string); isAgent {
@@ -338,10 +342,10 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 		}
 
 		// Process awaiting reconnect annotation if present and KV store contains the awaiting reconnection key
-		h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
+		movedToConflictPaused = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
 	}
 
-	if params.KnownRenderedVersion != nil {
+	if params.KnownRenderedVersion != nil && !movedToConflictPaused {
 		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
 			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
@@ -351,6 +355,7 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 			return nil, domain.StatusNoContent()
 		}
 	}
+	// When movedToConflictPaused we skip WaitForNewVersion and return the current device (200) so the agent sees ConflictPaused and invalidates lastStatus.
 
 	if isAgent {
 		if h.agentGate.Acquire(ctx, 1) == nil {
@@ -420,7 +425,7 @@ func (h *ServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owne
 }
 
 func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	device, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return err
 	}
@@ -435,23 +440,7 @@ func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	deviceObj, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-	}
-	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
-		return nil, domain.StatusConflict("device already has decommissioning requested")
-	}
-
-	deviceObj.Status.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
-	deviceObj.Spec.Decommissioning = &decom
-
-	// these fields must be un-set so that device is no longer associated with any fleet
-	deviceObj.Metadata.Owner = nil
-	deviceObj.Metadata.Labels = nil
-
-	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, h.callbackDeviceDecommission)
+	result, err := h.store.Device().DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -655,9 +644,9 @@ func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind
 	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
-// processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key
-func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) {
-
+// processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key.
+// Returns true if the device was moved to ConflictPaused state, false otherwise.
+func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) bool {
 	// Check if KV store contains the awaiting reconnection key
 	key := kvstore.AwaitingReconnectionKey{
 		OrgID:      orgId,
@@ -668,7 +657,7 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 	if err != nil {
 		h.log.WithError(err).Warnf("failed to check awaiting reconnection key for device %s", deviceName)
 		// Don't fail the request, just log the warning
-		return
+		return false
 	}
 
 	if kvValue != nil && string(kvValue) == "true" {
@@ -682,29 +671,30 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 		if err != nil {
 			h.log.WithError(err).Warnf("failed to process awaiting reconnect annotation for device %s", deviceName)
 			// Don't fail the request, just log the warning
+			return false
+		}
+		h.log.Infof("Successfully processed awaiting reconnect annotation for device %s, wasConflictPaused: %t", deviceName, wasConflictPaused)
+		// Successfully processed the annotation, now remove the key from KV store
+		if err := h.kvStore.DeleteKeysForTemplateVersion(ctx, keyStr); err != nil {
+			h.log.WithError(err).Warnf("failed to remove awaiting reconnection key for device %s", deviceName)
+			// Don't fail the request, just log the warning
 		} else {
-			h.log.Infof("Successfully processed awaiting reconnect annotation for device %s, wasConflictPaused: %t", deviceName, wasConflictPaused)
-			// Successfully processed the annotation, now remove the key from KV store
-			if err := h.kvStore.DeleteKeysForTemplateVersion(ctx, keyStr); err != nil {
-				h.log.WithError(err).Warnf("failed to remove awaiting reconnection key for device %s", deviceName)
-				// Don't fail the request, just log the warning
-			} else {
-				h.log.Infof("Successfully removed awaiting reconnection key for device %s", deviceName)
-			}
+			h.log.Infof("Successfully removed awaiting reconnection key for device %s", deviceName)
+		}
 
-			// Create event if device was moved to conflict paused state
-			if wasConflictPaused && h.eventHandler != nil {
-				h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
-				event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
-				if event != nil {
-					h.eventHandler.CreateEvent(ctx, orgId, event)
-					h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
-				} else {
-					h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
-				}
+		// Create event if device was moved to conflict paused state
+		if wasConflictPaused && h.eventHandler != nil {
+			h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
+			event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
+			if event != nil {
+				h.eventHandler.CreateEvent(ctx, orgId, event)
+				h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
+			} else {
+				h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
 			}
 		}
-	} else {
-		h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
+		return wasConflictPaused
 	}
+	h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
+	return false
 }

@@ -27,6 +27,7 @@ func NewStandaloneCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewRenderCommand())
+	cmd.AddCommand(NewAAPCommand())
 
 	return cmd
 }

@@ -1,0 +1,31 @@
+# Container with two versions -- simple patch upgrade.
+#
+# Cincinnati model:
+#   2.7.6 (stable) <- 2.8.4 (stable, candidate)
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: caddy
+  catalog: infrastructure
+  labels:
+    category: networking
+spec:
+  type: container
+  displayName: Caddy Web Server
+  shortDescription: Fast, multi-platform web server with automatic HTTPS
+  artifacts:
+    - type: container
+      uri: docker.io/library/caddy
+  versions:
+    - version: "2.7.6"
+      references:
+        container: "v2.7.6"
+      channels:
+        - stable
+    - version: "2.8.4"
+      references:
+        container: "v2.8.4"
+      channels:
+        - stable
+        - candidate
+      replaces: "2.7.6"

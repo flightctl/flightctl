@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/redis"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
@@ -18,11 +19,6 @@ const (
 
 var _ = Describe("Redis Restart Tests", func() {
 
-	var (
-		context   string // KIND, OCP, or "podman"
-		namespace string // Redis namespace (detected dynamically)
-	)
-
 	BeforeEach(func() {
 		workerID := GinkgoParallelProcess()
 		harness := e2e.GetWorkerHarness()
@@ -32,26 +28,11 @@ var _ = Describe("Redis Restart Tests", func() {
 
 		ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 		harness.SetTestContext(ctx)
-
-		ctxStr, err := e2e.GetContext()
-		if err != nil || (ctxStr != util.KIND && ctxStr != util.OCP) {
-			context = ""
-			namespace = ""
-		} else {
-			context = ctxStr
-			namespace = util.DetectRedisNamespace()
-		}
-		if context == "" {
-			GinkgoWriter.Printf("Detected deployment context: podman (not Kubernetes)\n")
-		} else {
-			GinkgoWriter.Printf("Detected deployment context: %s (Kubernetes), Redis namespace: %s\n", context, namespace)
-		}
-
 	})
 
 	It("should recover and continue processing tasks after Redis restart", Label("84786", "sanity"), func() {
 		By("verifying initial system state")
-		Eventually(func() bool { return util.IsRedisRunning(context) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should be running")
+		Eventually(func() bool { return redis.IsRedisRunning() }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should be running")
 
 		harness := e2e.GetWorkerHarness()
 		testID := harness.GetTestIDFromContext()
@@ -65,16 +46,16 @@ var _ = Describe("Redis Restart Tests", func() {
 			fleetNames, err := resources.CreateFleets(harness, 1, "test-fleet-redis-restart", defaultImage, labels)
 			Expect(err).ToNot(HaveOccurred(), "should create fleet")
 
-			util.WaitForQueueAccessible(context, TIMEOUT, POLLING, "before restart")
-			GinkgoWriter.Printf("Queue state before restart: %+v\n", util.CheckQueueState(context))
+			redis.WaitForQueueAccessible(TIMEOUT, POLLING, "before restart")
+			GinkgoWriter.Printf("Queue state before restart: %+v\n", redis.CheckQueueState())
 
 			By("restarting Redis and verifying recovery")
-			Expect(util.RestartRedis(context, namespace)).To(Succeed(), "should restart Redis")
-			Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
+			Expect(redis.RestartRedis()).To(Succeed(), "should restart Redis")
+			Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
 
 			By("verifying queue initialized after restart")
 			basicFleetName := fmt.Sprintf("test-fleet-post-restart-basic-%s", testID)
-			util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+			redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 				func() error {
 					_, err := resources.CreateFleet(harness, basicFleetName, defaultImage, labels)
 					return err
@@ -86,7 +67,7 @@ var _ = Describe("Redis Restart Tests", func() {
 			)
 
 			By("verifying resources created before restart remain accessible")
-			util.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
+			redis.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
 				for _, name := range repoNames {
 					if _, err := resources.GetByName(harness, resources.Repositories, name); err != nil {
 						return false
@@ -100,7 +81,7 @@ var _ = Describe("Redis Restart Tests", func() {
 				return true
 			}, "after restart")
 
-			state, err := util.VerifyQueueHealthy(context)
+			state, err := redis.VerifyQueueHealthy()
 			GinkgoWriter.Printf("Queue state after basic restart: %+v\n", state)
 			Expect(err).ToNot(HaveOccurred(), "Queue should be healthy after basic restart")
 			GinkgoWriter.Printf("Basic Redis restart completed successfully\n")
@@ -115,10 +96,10 @@ var _ = Describe("Redis Restart Tests", func() {
 			Expect(err).ToNot(HaveOccurred(), "should create fleets")
 
 			By("checking queue state before restart")
-			var state util.QueueState
+			var state redis.QueueState
 			var hasActivity bool
 			Eventually(func() bool {
-				state, hasActivity = util.HasQueueActivity(context)
+				state, hasActivity = redis.HasQueueActivity()
 				return hasActivity
 			}, 2*LONG_POLLING, 200*time.Millisecond).Should(Or(BeTrue(), BeFalse()))
 			if hasActivity {
@@ -128,11 +109,11 @@ var _ = Describe("Redis Restart Tests", func() {
 			}
 
 			By("restarting Redis during active processing")
-			Expect(util.RestartRedis(context, namespace)).To(Succeed(), "should restart Redis")
-			Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
+			Expect(redis.RestartRedis()).To(Succeed(), "should restart Redis")
+			Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
 
 			checkpointFleetName := fmt.Sprintf("test-fleet-post-restart-checkpoint-%s", testID)
-			util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+			redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 				func() error {
 					_, err := resources.CreateFleet(harness, checkpointFleetName, defaultImage, labels)
 					return err
@@ -144,12 +125,12 @@ var _ = Describe("Redis Restart Tests", func() {
 			)
 
 			By("verifying queue state after restart")
-			state, err = util.VerifyQueueHealthy(context)
+			state, err = redis.VerifyQueueHealthy()
 			GinkgoWriter.Printf("Queue state after checkpoint restart: %+v\n", state)
 			Expect(err).ToNot(HaveOccurred(), "Queue should be healthy after checkpoint restart")
 
 			By("verifying all resources are processed after restart")
-			util.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
+			redis.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
 				for _, name := range repoNames {
 					if _, err := resources.GetByName(harness, resources.Repositories, name); err != nil {
 						return false
@@ -177,12 +158,12 @@ var _ = Describe("Redis Restart Tests", func() {
 			for i := 1; i <= numRestarts; i++ {
 				GinkgoWriter.Printf("Performing restart #%d\n", i)
 
-				util.WaitForQueueAccessible(context, TIMEOUT, POLLING, fmt.Sprintf("before restart #%d", i))
-				Expect(util.RestartRedis(context, namespace)).To(Succeed(), "should restart Redis #%d", i)
-				Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover from restart #%d", i)
+				redis.WaitForQueueAccessible(TIMEOUT, POLLING, fmt.Sprintf("before restart #%d", i))
+				Expect(redis.RestartRedis()).To(Succeed(), "should restart Redis #%d", i)
+				Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover from restart #%d", i)
 
 				rapidFleetName := fmt.Sprintf("test-fleet-post-restart-rapid-%d-%s", i, testID)
-				util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+				redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 					func() error {
 						_, err := resources.CreateFleet(harness, rapidFleetName, defaultImage, labels)
 						return err
@@ -193,13 +174,13 @@ var _ = Describe("Redis Restart Tests", func() {
 					},
 				)
 
-				restartState, restartErr := util.VerifyQueueHealthy(context)
+				restartState, restartErr := redis.VerifyQueueHealthy()
 				GinkgoWriter.Printf("Queue state after restart #%d: %+v\n", i, restartState)
 				Expect(restartErr).ToNot(HaveOccurred(), "Queue should be healthy after restart #%d", i)
 			}
 
 			By("verifying all resources are processed after rapid restarts")
-			util.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
+			redis.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
 				for _, name := range repoNames {
 					if _, err := resources.GetByName(harness, resources.Repositories, name); err != nil {
 						return false
@@ -214,7 +195,7 @@ var _ = Describe("Redis Restart Tests", func() {
 
 	It("should handle Redis stop and restart during active operations and maintain data consistency", Label("84787"), func() {
 		By("verifying initial system state")
-		Eventually(func() bool { return util.IsRedisRunning(context) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should be running")
+		Eventually(func() bool { return redis.IsRedisRunning() }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should be running")
 
 		harness := e2e.GetWorkerHarness()
 		testID := harness.GetTestIDFromContext()
@@ -226,20 +207,20 @@ var _ = Describe("Redis Restart Tests", func() {
 		fleetNames, err := resources.CreateFleets(harness, 1, "test-fleet-redis-stop", defaultImage, labels)
 		Expect(err).ToNot(HaveOccurred(), "should create fleet")
 
-		util.WaitForQueueAccessible(context, TIMEOUT, POLLING, "before stop")
-		GinkgoWriter.Printf("Queue state before stop: %+v\n", util.CheckQueueState(context))
+		redis.WaitForQueueAccessible(TIMEOUT, POLLING, "before stop")
+		GinkgoWriter.Printf("Queue state before stop: %+v\n", redis.CheckQueueState())
 
 		By("stopping Redis and verifying it's stopped")
-		Expect(util.StopRedis(context, namespace)).To(Succeed(), "should stop Redis")
-		Eventually(func() bool { return !util.IsRedisRunning(context) }, TIMEOUT, POLLING).Should(BeTrue(), "Redis should be stopped")
-		Expect(util.CheckQueueState(context).Accessible).To(BeFalse(), "Queue should not be accessible while Redis is stopped")
+		Expect(redis.StopRedis()).To(Succeed(), "should stop Redis")
+		Eventually(func() bool { return !redis.IsRedisRunning() }, TIMEOUT, POLLING).Should(BeTrue(), "Redis should be stopped")
+		Expect(redis.CheckQueueState().Accessible).To(BeFalse(), "Queue should not be accessible while Redis is stopped")
 
 		By("starting Redis and verifying recovery")
-		Expect(util.StartRedis(context, namespace)).To(Succeed(), "should start Redis")
-		Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
+		Expect(redis.StartRedis()).To(Succeed(), "should start Redis")
+		Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
 
 		stopStartFleetName := fmt.Sprintf("test-fleet-post-restart-stop-start-%s", testID)
-		util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+		redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 			func() error {
 				_, err := resources.CreateFleet(harness, stopStartFleetName, defaultImage, labels)
 				return err
@@ -251,12 +232,12 @@ var _ = Describe("Redis Restart Tests", func() {
 		)
 
 		By("performing second restart to verify multiple restarts")
-		util.WaitForQueueAccessible(context, TIMEOUT, POLLING, "before second restart")
-		Expect(util.RestartRedis(context, namespace)).To(Succeed(), "should restart Redis")
-		Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
+		redis.WaitForQueueAccessible(TIMEOUT, POLLING, "before second restart")
+		Expect(redis.RestartRedis()).To(Succeed(), "should restart Redis")
+		Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
 
 		secondRestartFleetName := fmt.Sprintf("test-fleet-post-restart-second-%s", testID)
-		util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+		redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 			func() error {
 				_, err := resources.CreateFleet(harness, secondRestartFleetName, defaultImage, labels)
 				return err
@@ -268,8 +249,8 @@ var _ = Describe("Redis Restart Tests", func() {
 		)
 
 		By("testing operations during Redis downtime")
-		Expect(util.StopRedis(context, namespace)).To(Succeed(), "should stop Redis")
-		Eventually(func() bool { return !util.IsRedisRunning(context) }, TIMEOUT, POLLING).Should(BeTrue(), "Redis should be stopped")
+		Expect(redis.StopRedis()).To(Succeed(), "should stop Redis")
+		Eventually(func() bool { return !redis.IsRedisRunning() }, TIMEOUT, POLLING).Should(BeTrue(), "Redis should be stopped")
 
 		repoNameDown := fmt.Sprintf("test-repo-redis-down-%s", testID)
 		_, createErr := resources.CreateRepository(harness, repoNameDown, testRepoURL, labels)
@@ -282,11 +263,11 @@ var _ = Describe("Redis Restart Tests", func() {
 		defer func() { _, _ = resources.Delete(harness, util.Repository, repoNameDown) }()
 
 		By("starting Redis and verifying all resources are processed")
-		Expect(util.StartRedis(context, namespace)).To(Succeed(), "should start Redis")
-		Eventually(func() bool { return util.VerifyRedisRecovery(context, namespace) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
+		Expect(redis.StartRedis()).To(Succeed(), "should start Redis")
+		Eventually(func() bool { return redis.VerifyRedisRecovery(2 * time.Minute) }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should recover")
 
 		afterDowntimeFleetName := fmt.Sprintf("test-fleet-post-restart-after-downtime-%s", testID)
-		util.WaitForQueueInitializedAfterRestart(context, TIMEOUT, POLLING,
+		redis.WaitForQueueInitializedAfterRestart(TIMEOUT, POLLING,
 			func() error {
 				_, err := resources.CreateFleet(harness, afterDowntimeFleetName, defaultImage, labels)
 				return err
@@ -298,7 +279,7 @@ var _ = Describe("Redis Restart Tests", func() {
 		)
 
 		By("verifying all resources remain accessible after multiple restarts")
-		util.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
+		redis.WaitForResourcesAccessible(TIMEOUT, LONG_POLLING, func() bool {
 			for _, name := range repoNames {
 				if _, err := resources.GetByName(harness, resources.Repositories, name); err != nil {
 					return false
@@ -324,7 +305,7 @@ var _ = Describe("Redis Restart Tests", func() {
 			GinkgoWriter.Printf("Repository creation that failed during downtime was retried successfully\n")
 		}
 
-		finalState, finalErr := util.VerifyQueueHealthy(context)
+		finalState, finalErr := redis.VerifyQueueHealthy()
 		GinkgoWriter.Printf("Queue state final: %+v\n", finalState)
 		Expect(finalErr).ToNot(HaveOccurred(), "Queue should be healthy in final state")
 	})

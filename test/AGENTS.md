@@ -7,7 +7,7 @@ This directory contains unit, integration, and e2e tests for Flight Control. Use
 | Layer | Location | How to run | Notes |
 |-------|----------|------------|--------|
 | **Unit** | `internal/...`, `api/...`, `pkg/...` (Go `*_test.go`) | `make unit-test` | No external services. Uses `./internal/... ./api/... ./pkg/...`. |
-| **Integration** | `test/integration/...` | `make integration-test` | Starts DB, KV, Alertmanager (via `make deploy-db deploy-kv deploy-alertmanager`), then runs tests. Use `TEST_DIR` or `TESTS` to narrow. |
+| **Integration** | `test/integration/...` | `make integration-test` | Starts DB, KV, Alertmanager (via `make deploy-db deploy-kv deploy-alertmanager`), then runs tests. Use `TEST_DIR`, `TESTS`, `INTEGRATION_TEST_COUNT`, `INTEGRATION_GINKGO_FOCUS` to narrow or stress (see below). |
 | **E2E** | `test/e2e/...` | `make e2e-test` or `make in-cluster-e2e-test` | Full cluster (kind), agent images, qcow2; Ginkgo. Use `GO_E2E_DIRS` and `GINKGO_FOCUS` to filter. |
 
 Defined in **test/test.mk** (included from root Makefile). Coverage reports go to `reports/` (e.g. `unit-coverage.out`, `integration-coverage.out`).
@@ -15,7 +15,7 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 ## Running tests
 
 - **Unit:** `make unit-test` (optionally `VERBOSE=true`, or pass `TEST`).
-- **Integration:** `make integration-test`. Requires Podman (DB/KV/Alertmanager). Optional: `TEST_DIR=./test/integration/...`, `TESTS=<regex>`, `FLIGHTCTL_TEST_DB_STRATEGY=local|template`.
+- **Integration:** `make integration-test`. Requires Podman (DB/KV/Alertmanager). Optional: `TEST_DIR=./test/integration/...`, `TESTS=<regex>` (passed to `go test -run`, usually the top-level `Test...` name), `FLIGHTCTL_TEST_DB_STRATEGY=local|template`, `INTEGRATION_TEST_COUNT=N` (default `1`; runs the integration test invocation **N** times with `go test -count=1` each time—required because **Ginkgo forbids `go test -count>1`**—stops on first failure), `INTEGRATION_GINKGO_FOCUS=<substring>` (Ginkgo `-ginkgo.focus` for suites that use Ginkgo under that `Test*`). If DB/KV/alertmanager are already up, you can run only tests with `make run-integration-test` and the same variables (no container deploy).
 - **E2E:**  
   - **Full flow (deploy + e2e):** `make e2e-test` – deploys cluster, builds e2e agent images, prepares qcow2, runs e2e.  
   - **Cluster already up:** `make in-cluster-e2e-test` – skips deploy, runs e2e.  
@@ -34,7 +34,8 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 
 - **Unit/integration:** Prefer table-driven tests; use `testify/require`; for agent code use gomock with `defer ctrl.Finish()`. See [internal/agent/AGENTS.md](../internal/agent/AGENTS.md) for agent-specific testing standards.
 - **E2E:** Use the existing harness; add new helpers in `test/harness/e2e/` when reusable. Document suite-specific requirements in a `README.md` in the suite dir (e.g. quadlets, TPM).
-- **Env vars:** Integration tests expect DB/KV passwords via env (set in test.mk). E2E may need `FLIGHTCTL_NS`, `KUBEADMIN_PASS`, etc.; export before `make` or set in CI.
+- **Kubectl / K8s client:** Do not use `exec` kubectl or the raw Kubernetes client outside `test/e2e/infra/k8s/`. Any such need must be implemented in infra (k8s, and quadlet with equivalent behaviour when relevant for both deployment types) and exposed via infra interfaces; see package infra.
+- **Env vars:** Integration tests expect DB/KV passwords via env (set in test.mk). E2E may need `FLIGHTCTL_NS`, `KUBEADMIN_PASS`, etc.; export before `make` or set in CI. For OCP with shared network (test VM and cluster on same network), optional `E2E_AUX_HOST` is the VM IP on the cluster network when the VM has multiple NICs (see test/README.md).
 
 ## Prerequisites
 

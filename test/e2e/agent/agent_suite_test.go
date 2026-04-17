@@ -1,10 +1,14 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -12,6 +16,7 @@ import (
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
+const LONGPOLLING = "500ms"
 const LONGTIMEOUT = "10m"
 const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
@@ -38,10 +43,19 @@ func TestAgent(t *testing.T) {
 	RunSpecs(t, "Agent E2E Suite")
 }
 
+var auxSvcs *auxiliary.Services
+
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	auxSvcs = auxiliary.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if auxSvcs != nil {
+		auxSvcs.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {
@@ -49,6 +63,9 @@ var _ = BeforeEach(func() {
 	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
 
@@ -59,7 +76,7 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	err = harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

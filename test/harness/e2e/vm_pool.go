@@ -12,6 +12,11 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 )
 
+const (
+	greenbootTimeout      = 2 * time.Minute
+	greenbootPollInterval = 1 * time.Second
+)
+
 // VMPool manages VMs across all test suites
 type VMPool struct {
 	vms             map[int]vm.TestVMInterface // Regular VMs with snapshots
@@ -192,7 +197,13 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 	fmt.Printf("✅ [VMPool] Worker %d: VM struct created\n", workerID)
 
-	// Start the VM and wait for SSH to be ready
+	// Between e2e packages the libvirt domain may still exist with a dirty guest (e.g. bootc
+	// switch). Revert pristine here (no SSH) before the first SSH wait; BeforeEach revert runs too late.
+	fmt.Printf("🔄 [VMPool] Worker %d: Pristine revert if reusing existing domain (before SSH)\n", workerID)
+	if err := newVM.RevertPristineForPoolBootstrap(); err != nil {
+		return nil, fmt.Errorf("pool bootstrap pristine revert: %w", err)
+	}
+
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting VM and waiting for SSH\n", workerID)
 	if err := newVM.RunAndWaitForSSH(); err != nil {
 		return nil, fmt.Errorf("failed to start VM: %w", err)
@@ -210,6 +221,13 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating pristine snapshot\n", workerID)
+
+	// Wait for greenboot-healthcheck to finish while the agent is still running.
+	// If the agent is stopped before the healthcheck completes, the snapshot may
+	// capture a pending reboot.
+	if err := waitForGreenbootHealthcheck(newVM); err != nil {
+		return nil, fmt.Errorf("greenboot-healthcheck failed before snapshot: %w", err)
+	}
 
 	// Stop the agent before cleaning files to ensure it's not writing to /var/lib/flightctl
 	fmt.Printf("🔄 [VMPool] Worker %d: Stopping flightctl-agent before cleanup\n", workerID)
@@ -246,13 +264,46 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	return newVM, nil
 }
 
-// createFreshVMForWorker creates a fresh VM without snapshot support.
-// Unlike regular VMs, fresh VMs:
-// - Use the original base disk as backing file (not the shared intermediate copy)
-// - Do NOT create a "pristine" snapshot
-// - Start with the agent running (ready for immediate enrollment)
-// Both regular and fresh VMs use qcow2 overlays for efficient disk usage.
-func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
+// waitForGreenbootHealthcheck polls greenboot-healthcheck.service until it
+// reaches a terminal state. It returns nil when the service completed
+// successfully or is not installed, and an error if the service failed,
+// timed out, or could not be queried.
+func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
+	deadline := time.Now().Add(greenbootTimeout)
+	for time.Now().Before(deadline) {
+		stdout, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "ActiveState", "--value", "greenboot-healthcheck.service"}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query greenboot-healthcheck ActiveState: %w", err)
+		}
+		state := strings.TrimSpace(stdout.String())
+		if state == "activating" || state == "reloading" {
+			time.Sleep(greenbootPollInterval)
+			continue
+		}
+
+		if state == "failed" {
+			return fmt.Errorf("greenboot-healthcheck entered failed state")
+		}
+
+		resultOut, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "Result", "--value", "greenboot-healthcheck.service"}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query greenboot-healthcheck Result: %w", err)
+		}
+		result := strings.TrimSpace(resultOut.String())
+		if result == "success" || result == "" {
+			return nil
+		}
+
+		return fmt.Errorf("greenboot-healthcheck completed with state=%q result=%q", state, result)
+	}
+	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", greenbootTimeout)
+}
+
+// createFreshVMBase creates a fresh VM with an overlay disk, starts it, waits for SSH,
+// stops the agent, and cleans agent state. The returned VM has the agent stopped and
+// a clean /var/lib/flightctl directory.
+// If tpmDevice is non-empty, it is passed through to the VM instead of using the swtpm emulator.
+func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInterface, error) {
 	vmName := fmt.Sprintf("flightctl-e2e-fresh-%d", workerID)
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating fresh VM %s (no snapshots)\n", workerID, vmName)
@@ -303,6 +354,7 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		SSHPassword:   "user",
 		SSHPort:       p.config.SSHPortBase + workerID,
 		MemoryMiB:     memoryMiB,
+		TPMDevice:     tpmDevice,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
@@ -340,6 +392,14 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		return nil, fmt.Errorf("failed to start VM after %d attempts: %w", maxRetries, lastErr)
 	}
 
+	// Wait for greenboot-healthcheck to finish while the agent is still running.
+	// If the agent is stopped before the healthcheck completes, greenboot may
+	// detect an unhealthy state and trigger a reboot.
+	if err := waitForGreenbootHealthcheck(newVM); err != nil {
+		_ = newVM.ForceDelete()
+		return nil, fmt.Errorf("greenboot-healthcheck failed before agent cleanup: %w", err)
+	}
+
 	// Clean up any existing agent state from the base disk
 	fmt.Printf("🔄 [VMPool] Worker %d: Cleaning agent state\n", workerID)
 	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil); err != nil {
@@ -355,15 +415,88 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to rotate logs: %v\n", workerID, err)
 	}
 
-	// Start the agent fresh
+	return newVM, nil
+}
+
+// createFreshVMForWorker creates a fresh VM without snapshot support.
+// Unlike regular VMs, fresh VMs:
+// - Use the original base disk as backing file (not the shared intermediate copy)
+// - Do NOT create a "pristine" snapshot
+// - Start with the agent running (ready for immediate enrollment)
+// Both regular and fresh VMs use qcow2 overlays for efficient disk usage.
+func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
+	newVM, err := p.createFreshVMBase(workerID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// Start the agent fresh with retry logic for systemd transaction conflicts and cancellations
+	// During VM boot, swap.target may conflict with service start, or systemd may cancel
+	// the operation due to resource contention - retry to resolve
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting flightctl-agent\n", workerID)
-	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
+	maxStartRetries := 5
+	startTimeout := 30 * time.Second
+	var startErr error
+	for attempt := 1; attempt <= maxStartRetries; attempt++ {
+		// Run systemctl start with a timeout to prevent indefinite hangs
+		done := make(chan error, 1)
+		go func() {
+			_, err := newVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+			done <- err
+		}()
+
+		select {
+		case startErr = <-done:
+			// Command completed
+		case <-time.After(startTimeout):
+			startErr = fmt.Errorf("timeout after %v waiting for agent to start", startTimeout)
+		}
+
+		if startErr == nil {
+			break
+		}
+
+		// Retry on transaction conflicts, cancellations, or timeouts
+		errStr := startErr.Error()
+		isRetryableError := strings.Contains(errStr, "Transaction") ||
+			strings.Contains(errStr, "canceled") ||
+			strings.Contains(errStr, "timeout")
+
+		if isRetryableError && attempt < maxStartRetries {
+			fmt.Printf("⚠️  [VMPool] Worker %d: Agent start failed (%s), retrying %d/%d in 5s...\n",
+				workerID, errStr, attempt, maxStartRetries)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		// Other errors or final retry - fail immediately
+		break
+	}
+	if startErr != nil {
 		_ = newVM.ForceDelete()
-		return nil, fmt.Errorf("failed to start agent: %w", err)
+		return nil, fmt.Errorf("failed to start agent after %d attempts: %w", maxStartRetries, startErr)
 	}
 
 	fmt.Printf("✅ [VMPool] Worker %d: Fresh VM ready with agent running (no snapshots)\n", workerID)
 	return newVM, nil
+}
+
+// CreateFreshVMWithTPM creates a fresh VM with TPM device passthrough.
+// The VM is returned with the agent stopped so TPM configuration can be applied before starting.
+// Unlike regular fresh VMs, TPM passthrough VMs are not cached in the pool since they depend
+// on external hardware state.
+func CreateFreshVMWithTPM(workerID int, tempDir string, sshPortBase int, tpmDevice string) (vm.TestVMInterface, error) {
+	baseDiskPath, err := GetBaseDiskPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get base disk path: %w", err)
+	}
+
+	vmPool := GetOrCreateVMPool(VMPoolConfig{
+		BaseDiskPath: baseDiskPath,
+		TempDir:      tempDir,
+		SSHPortBase:  sshPortBase,
+	})
+
+	return vmPool.createFreshVMBase(workerID, tpmDevice)
 }
 
 // cleanupWorkerDirectory removes the entire worker directory and all its contents

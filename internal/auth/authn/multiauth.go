@@ -380,11 +380,7 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			m.log.Debugf("Provider %s: changed (OIDC ClientId: existing=%q, new=%q)", providerName, existingOidcSpec.ClientId, newOidcSpec.ClientId)
 			return true, nil
 		}
-		if (existingOidcSpec.ClientSecret == nil) != (newOidcSpec.ClientSecret == nil) {
-			m.log.Debugf("Provider %s: changed (OIDC ClientSecret)", providerName)
-			return true, nil
-		}
-		if existingOidcSpec.ClientSecret != nil && newOidcSpec.ClientSecret != nil && *existingOidcSpec.ClientSecret != *newOidcSpec.ClientSecret {
+		if existingOidcSpec.ClientSecret != newOidcSpec.ClientSecret {
 			m.log.Debugf("Provider %s: changed (OIDC ClientSecret)", providerName)
 			return true, nil
 		}
@@ -468,10 +464,7 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			m.log.Debugf("Provider %s: changed (OAuth2 ClientId: existing=%q, new=%q)", providerName, existingOauth2Spec.ClientId, newOauth2Spec.ClientId)
 			return true, nil
 		}
-		if (existingOauth2Spec.ClientSecret == nil) != (newOauth2Spec.ClientSecret == nil) {
-			return true, nil
-		}
-		if existingOauth2Spec.ClientSecret != nil && newOauth2Spec.ClientSecret != nil && *existingOauth2Spec.ClientSecret != *newOauth2Spec.ClientSecret {
+		if existingOauth2Spec.ClientSecret != newOauth2Spec.ClientSecret {
 			return true, nil
 		}
 		if existingOauth2Spec.ProviderType != newOauth2Spec.ProviderType {

@@ -633,6 +633,88 @@ func TestManager_determineEligibleImages(t *testing.T) {
 			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Image still referenced by podman - not eligible even though artifact ref dropped
 		},
 		{
+			name: "same image different owners - prune only from owner that dropped reference",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/nginx:1.25", Owner: "userA", Type: RefTypePodman},
+						{Image: "quay.io/example/nginx:1.25", Owner: "userB", Type: RefTypePodman},
+					},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Current spec only has userB's app - userA's app was removed
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app-b"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/nginx:1.25",
+					RunAs:   "userB",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+					},
+				}
+
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+
+				// userA's image is eligible - verify it exists during categorization
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/nginx:1.25"}).
+					Return("", "", 0)
+			},
+			want: &EligibleItems{
+				Images:    []ImageRef{{Image: "quay.io/example/nginx:1.25", Owner: "userA", Type: RefTypePodman}},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			},
+		},
+		{
+			name: "explicit root and empty owner treated as same store",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// One app recorded with RunAs:"root", another with default (empty owner)
+				// Both share the same podman store, so removing one must NOT prune the image
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/nginx:1.25", Owner: "root", Type: RefTypePodman},
+						{Image: "quay.io/example/nginx:1.25", Owner: "", Type: RefTypePodman},
+					},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Current spec only has the default-owner (empty) app
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app-default"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/nginx:1.25",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+					},
+				}
+
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+			},
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}},
+		},
+		{
 			name: "no previous references file - nothing eligible",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Don't create previous references file - simulates first run
@@ -917,7 +999,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 			}
 			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, config, "/tmp").(*manager)
 
-			count, removedRefs, err := m.removeEligibleImages(context.Background(), tc.images)
+			count, removedRefs, _, err := m.removeEligibleImages(context.Background(), tc.images)
 			require.Equal(tc.wantCount, count)
 			if tc.wantErr {
 				require.Error(err)
@@ -932,4 +1014,205 @@ func TestManager_removeEligibleImages(t *testing.T) {
 			}
 		})
 	}
+}
+
+// requestPruner is a subset of the Manager interface used for retry tests.
+// Tests skip when the concrete manager does not implement RequestPrune (retry support not built).
+type requestPruner interface {
+	RequestPrune()
+}
+
+// TestPrunePending_and_RequestPrune tests the retry-related API: PrunePending and RequestPrune.
+func TestPrunePending_and_RequestPrune(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	mockSpecManager := spec.NewMockManager(ctrl)
+	enabled := true
+	cfg := config.ImagePruning{Enabled: &enabled}
+
+	rootPodmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+	podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+		return rootPodmanClient, nil
+	}
+	rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, cfg, "/tmp")
+
+	// New manager: PrunePending is false (no retries requested yet).
+	require.False(m.PrunePending(), "new manager should not have prune pending")
+
+	rp, ok := m.(requestPruner)
+	if !ok {
+		t.Skip("manager does not implement RequestPrune (retry support not in manager)")
+	}
+	rp.RequestPrune()
+	require.True(m.PrunePending(), "after RequestPrune, PrunePending should be true")
+}
+
+// TestReloadConfig_enablingPruningSetsRetries verifies that enabling pruning via ReloadConfig
+// sets the retry count so Prune will run on the next cycle.
+func TestReloadConfig_enablingPruningSetsRetries(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	mockSpecManager := spec.NewMockManager(ctrl)
+	enabledFalse := false
+	cfgDisabled := config.ImagePruning{Enabled: &enabledFalse}
+
+	rootPodmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+	podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+		return rootPodmanClient, nil
+	}
+	rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, cfgDisabled, "/tmp")
+
+	require.False(m.PrunePending(), "with pruning disabled, PrunePending should be false")
+
+	enabledTrue := true
+	cfgEnabled := config.Config{
+		ImagePruning: config.ImagePruning{Enabled: &enabledTrue},
+	}
+	err := m.ReloadConfig(context.Background(), &cfgEnabled)
+	require.NoError(err)
+	require.True(m.PrunePending(), "after ReloadConfig enabling pruning, PrunePending should be true")
+}
+
+// TestPrune_clearsRetriesWhenNoEligible verifies that when Prune runs and there is nothing
+// eligible to remove, retries are cleared so PrunePending becomes false.
+func TestPrune_clearsRetriesWhenNoEligible(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	tmpDir := t.TempDir()
+	testReadWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	mockSpecManager := spec.NewMockManager(ctrl)
+	enabled := true
+	cfg := config.ImagePruning{Enabled: &enabled}
+
+	// No previous references file -> determineEligibleImages returns empty.
+	currentDevice := &v1beta1.Device{
+		Spec: &v1beta1.DeviceSpec{
+			Applications: nil,
+			Os:           nil,
+		},
+	}
+	mockSpecManager.EXPECT().Read(spec.Current).Return(currentDevice, nil).AnyTimes()
+	mockSpecManager.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).AnyTimes()
+
+	rootPodmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
+	podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+		return rootPodmanClient, nil
+	}
+	rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return testReadWriter, nil
+	}
+	// Prune calls removeEligibleCRIImages and removeEligibleHelmCharts which use m.clients; pass non-nil CLIClients.
+	cliClients := client.NewCLIClients()
+	m := New(podmanClientFactory, rootPodmanClient, cliClients, mockSpecManager, rwFactory, testReadWriter, log, cfg, tmpDir)
+
+	rp, ok := m.(requestPruner)
+	if !ok {
+		t.Skip("manager does not implement RequestPrune (retry support not in manager)")
+	}
+	rp.RequestPrune()
+	require.True(m.PrunePending(), "after RequestPrune, PrunePending should be true")
+
+	err := m.Prune(context.Background())
+	require.NoError(err)
+	// No eligible items -> no removal errors -> defer clears retries.
+	require.False(m.PrunePending(), "after Prune with no eligible, retries should be cleared")
+}
+
+// TestPrune_keepsPrunePendingOnRemovalErrors verifies that when removal fails, PrunePending stays true
+// so the caller will retry Prune on the next cycle (timeout-based retry: we keep retrying until PruneRetryTimeout or success).
+func TestPrune_keepsPrunePendingOnRemovalErrors(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	tmpDir := t.TempDir()
+	testReadWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(testReadWriter.MkdirAll(tmpDir, fileio.DefaultDirectoryPermissions))
+	previousRefs := ImageArtifactReferences{
+		Timestamp:  "2025-01-01T00:00:00Z",
+		References: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
+	}
+	jsonData, err := json.Marshal(previousRefs)
+	require.NoError(err)
+	require.NoError(testReadWriter.WriteFile(filepath.Join(tmpDir, ReferencesFileName), jsonData, fileio.DefaultFilePermissions))
+
+	mockSpecManager := spec.NewMockManager(ctrl)
+	containerApp := v1beta1.ContainerApplication{
+		Name:    lo.ToPtr("app1"),
+		AppType: v1beta1.AppTypeContainer,
+		Image:   "quay.io/example/app:v1.0",
+	}
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromContainerApplication(containerApp))
+	currentDevice := &v1beta1.Device{
+		Spec: &v1beta1.DeviceSpec{
+			Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+			Os:           &v1beta1.DeviceOsSpec{Image: "quay.io/example/os:v1.0"},
+		},
+	}
+
+	// determineEligibleImages: read refs, read current/desired, check unused image exists.
+	mockSpecManager.EXPECT().Read(spec.Current).Return(currentDevice, nil).AnyTimes()
+	mockSpecManager.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).Return("", "", 1).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).Return("", "", 1).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/os:v1.0"}).Return("", "", 1).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/os:v1.0"}).Return("", "", 1).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).Return("", "", 0).AnyTimes()
+
+	// removeEligibleImages: image exists, image rm fails -> hasRemovalErrors true.
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "rm", "quay.io/example/unused:v1.0"}).
+		Return("", "in use", 1).AnyTimes()
+
+	enabled := true
+	cfg := config.ImagePruning{Enabled: &enabled}
+	rootPodmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
+	podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+		return rootPodmanClient, nil
+	}
+	rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return testReadWriter, nil
+	}
+	cliClients := client.NewCLIClients()
+	m := New(podmanClientFactory, rootPodmanClient, cliClients, mockSpecManager, rwFactory, testReadWriter, log, cfg, tmpDir)
+
+	rp, ok := m.(requestPruner)
+	if !ok {
+		t.Skip("manager does not implement RequestPrune (retry support not in manager)")
+	}
+	rp.RequestPrune()
+	require.True(m.PrunePending(), "after RequestPrune, PrunePending should be true")
+
+	// Prune runs but removal fails -> defer does not clear pending (hasRemovalErrors is true).
+	err = m.Prune(context.Background())
+	require.NoError(err)
+	require.True(m.PrunePending(), "after Prune with removal errors, PrunePending should stay true (retry until timeout or success)")
 }

@@ -27,6 +27,15 @@ var ImageNames = imageNames{
 	SleepApp: "sleep-app",
 }
 
+// DeviceImageRegistryPath is the path segment used when pushing/pulling the device image
+// to/from a local registry (e.g. auxiliary). Same as "flightctl/flightctl-device";
+// full ref is registryHost:port/DeviceImageRegistryPath:tag.
+const DeviceImageRegistryPath = "flightctl/flightctl-device"
+
+// SleepAppRegistryPath is the path segment for the sleep-app image in a local registry
+// (e.g. auxiliary). Full ref is registryHost:port/SleepAppRegistryPath:tag.
+const SleepAppRegistryPath = "flightctl/sleep-app"
+
 type versionTags struct {
 	V1   string
 	V2   string
@@ -39,6 +48,7 @@ type versionTags struct {
 	V9   string
 	V10  string
 	V11  string
+	V12  string
 	Base string
 }
 
@@ -54,6 +64,7 @@ var DeviceTags = versionTags{
 	V9:   "v9",
 	V10:  "v10",
 	V11:  "v11",
+	V12:  "v12",
 	Base: "base",
 }
 
