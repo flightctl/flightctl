@@ -141,8 +141,11 @@ func TestClientConfig(t *testing.T) {
 			require.NoError(err)
 
 			// write client config to disk
-			bundle, err := ca.GetCABundle()
+
+			bundle, err := ca.GetServerCABundle()
+
 			require.NoError(err)
+
 			err = WriteConfig(configFile, tt.server, tt.serverName, bundle, clientCert)
 			require.NoError(err)
 
