@@ -463,8 +463,12 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		// update existing container
-		container.Status = status
+		// A manually stopped container (StatusStop) should not be overwritten
+		// by StatusExited from the subsequent "die" event with exit code 0.
+		// Preserving StatusStop ensures the app reports Error, not Completed.
+		if !(container.Status == StatusStop && status == StatusExited) {
+			container.Status = status
+		}
 		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts

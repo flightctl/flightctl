@@ -47,6 +47,7 @@ func TestListenForEvents(t *testing.T) {
 		expectedStatus   v1beta1.ApplicationStatusType
 		expectedSummary  v1beta1.ApplicationsSummaryStatusType
 		events           []client.PodmanEvent
+		inspect          *[]client.PodmanInspect
 	}{
 		{
 			name:     "single app start",
@@ -183,6 +184,58 @@ func TestListenForEvents(t *testing.T) {
 			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
+		{
+			name:     "When all containers are manually stopped then die with exit 0 it should report error not completed",
+			appNames: []string{"app1"},
+			inspect:  &[]client.PodmanInspect{{Restarts: 0, State: client.PodmanContainerState{ExitCode: 0, FinishedAt: "2025-01-01T00:00:00Z"}}},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
+			},
+			expectedReady:   "0/2",
+			expectedStatus:  v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name:     "When one container is manually stopped then dies with exit 0 it should report running degraded",
+			appNames: []string{"app1"},
+			inspect:  &[]client.PodmanInspect{{Restarts: 0, State: client.PodmanContainerState{ExitCode: 0, FinishedAt: "2025-01-01T00:00:00Z"}}},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
+			},
+			expectedReady:   "1/2",
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name:     "When container exits naturally with exit 0 it should report completed",
+			appNames: []string{"app1"},
+			inspect:  &[]client.PodmanInspect{{Restarts: 0, State: client.PodmanContainerState{ExitCode: 0, FinishedAt: "2025-01-01T00:00:00Z"}}},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+			},
+			expectedReady:   "0/1",
+			expectedStatus:  v1beta1.ApplicationStatusCompleted,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,8 +258,12 @@ func TestListenForEvents(t *testing.T) {
 			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			var testInspect []client.PodmanInspect
-			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			if tc.inspect != nil {
+				testInspect = *tc.inspect
+			} else {
+				restartsPerContainer := 3
+				testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			}
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 

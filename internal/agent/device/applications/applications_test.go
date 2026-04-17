@@ -224,6 +224,50 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "When all workloads are manually stopped it should report error status",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStop,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStop,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "When single workload is manually stopped it should report error status",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStop,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "When one workload is stopped and one is running it should report running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStop,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
 	}
 
 	for _, tt := range tests {
