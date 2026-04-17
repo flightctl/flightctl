@@ -325,6 +325,73 @@ jobs:
           
           ./bin-pr/flightctl get dev 
 
+      - name: "[HEAD] Helm uninstall"
+        run: |
+          helm uninstall flightctl \
+            --namespace flightctl-external \
+            --wait \
+            --debug
+
+      - name: "[HEAD] Verify no resources left after uninstall"
+        run: |
+          set -euo pipefail
+
+          NAMESPACES="flightctl-external flightctl-internal"
+          FAILED=false
+
+          for NS in $NAMESPACES; do
+            echo "=== Checking namespace: $NS ==="
+
+            PODS=$(kubectl get pods -n "$NS" --no-headers 2>/dev/null | wc -l)
+            if [ "$PODS" -ne 0 ]; then
+              echo "FAIL: $PODS pod(s) still exist in $NS:"
+              kubectl get pods -n "$NS"
+              FAILED=true
+            else
+              echo "✓ No pods in $NS"
+            fi
+
+            JOBS=$(kubectl get jobs -n "$NS" --no-headers 2>/dev/null | wc -l)
+            if [ "$JOBS" -ne 0 ]; then
+              echo "FAIL: $JOBS job(s) still exist in $NS:"
+              kubectl get jobs -n "$NS"
+              FAILED=true
+            else
+              echo "✓ No jobs in $NS"
+            fi
+
+            PVCS=$(kubectl get pvc -n "$NS" --no-headers 2>/dev/null | wc -l)
+            if [ "$PVCS" -ne 0 ]; then
+              echo "FAIL: $PVCS PVC(s) still exist in $NS:"
+              kubectl get pvc -n "$NS"
+              FAILED=true
+            else
+              echo "✓ No PVCs in $NS"
+            fi
+
+            echo ""
+          done
+
+          # Check for orphaned PVs that were bound to flightctl claims
+          ORPHANED_PVS=$(kubectl get pv --no-headers 2>/dev/null \
+            | { grep -E "flightctl-(external|internal)" || true; } | wc -l)
+          if [ "$ORPHANED_PVS" -ne 0 ]; then
+            echo "FAIL: $ORPHANED_PVS PV(s) referencing flightctl namespaces still exist:"
+            kubectl get pv | grep -E "flightctl-(external|internal)"
+            FAILED=true
+          else
+            echo "✓ No orphaned PVs referencing flightctl namespaces"
+          fi
+
+          if [ "$FAILED" = "true" ]; then
+            echo ""
+            echo "FAIL: Resources are still present after helm uninstall!"
+            exit 1
+          fi
+
+          echo ""
+          echo "✓ All resources cleaned up successfully after helm uninstall"
+
       - name: Collect and Upload Logs
         if: always()
         uses: ./.github/actions/collect-logs
