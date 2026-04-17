@@ -2447,7 +2447,12 @@ func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
 		// Regular file handling
 		stdout, err := vm.RunSSH([]string{"sudo", "cat", filePath}, nil)
 		if err != nil {
-			fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+			// Missing agent state files are expected before the agent is started.
+			if strings.Contains(err.Error(), "No such file or directory") {
+				fmt.Printf("✅ [%s] %s is absent (expected before agent start)\n", context, fileType)
+			} else {
+				fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+			}
 		} else {
 			content := stdout.String()
 			if content == "" {
