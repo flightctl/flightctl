@@ -4836,6 +4836,7 @@ components:
         - apiVersion
         - kind
         - metadata
+      additionalProperties: false
       description: Device represents a physical device.
       example:
         apiVersion: flightctl.io/v1beta1
@@ -5622,6 +5623,7 @@ components:
           x-go-json-ignore: true
         lifecycle:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
+      additionalProperties: false
     DeviceLastSeen:
       type: object
       description: DeviceLastSeen represents the last seen timestamp of a device.
@@ -6351,6 +6353,7 @@ components:
         - kind
         - metadata
         - spec
+      additionalProperties: false
       description: Fleet represents a set of devices.
     FleetList:
       type: object
@@ -6477,8 +6480,10 @@ components:
               $ref: '#/components/schemas/DeviceSpec'
           required:
             - spec
+          additionalProperties: false
       required:
         - template
+      additionalProperties: false
     DeviceSpec:
       type: object
       description: DeviceSpec describes a device.
@@ -6509,6 +6514,7 @@ components:
                 description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
                 pattern: '^[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?$' # SystemD unit pattern supports all allowed formats for unit files and glob searches including templated services
                 maxLength: 256
+          additionalProperties: false
         resources:
           type: array
           description: 'Array of resource monitor configurations.'
@@ -6521,6 +6527,9 @@ components:
             $ref: '#/components/schemas/DeviceConsole'
         decommissioning:
           $ref: '#/components/schemas/DeviceDecommission'
+      # Note: No additionalProperties: false here because this schema is used in allOf compositions
+      # (e.g., TemplateVersionStatus) where other schemas add their own properties. Setting
+      # additionalProperties: false would prevent the composition from working properly.
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
@@ -6543,6 +6552,7 @@ components:
           $ref: '#/components/schemas/DevicesSummary'
       required:
         - conditions
+      additionalProperties: false
     DevicesSummary:
       type: object
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
@@ -6711,6 +6721,7 @@ components:
           x-oapi-codegen-extra-tags:
             form: redirect_uri,omitempty
       description: OAuth2 token request
+      additionalProperties: false
     TokenResponse:
       type: object
       properties:
@@ -6737,6 +6748,7 @@ components:
           type: string
           description: OAuth2 error description.
       description: OAuth2 token response
+      additionalProperties: false
     UserInfoResponse:
       type: object
       properties:
@@ -6758,6 +6770,7 @@ components:
           type: string
           description: Error code.
       description: OIDC UserInfo response
+      additionalProperties: false
     ListMeta:
       type: object
       properties:

@@ -455,6 +455,7 @@ components:
           nullable: true
           description: OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
       description: OAuth2 token request
+      additionalProperties: false
     TokenResponse:
       type: object
       required:
@@ -478,6 +479,7 @@ components:
           type: integer
           description: Token expiration time in seconds.
       description: OAuth2 successful token response
+      additionalProperties: true  # Allow additional OIDC/OAuth2 fields like scope, session_state
     OAuth2Error:
       type: object
       required:
@@ -527,6 +529,7 @@ components:
             type: string
           description: User organizations.
       description: OIDC UserInfo response
+      additionalProperties: true  # Allow arbitrary OIDC claims as per specification
     JWKSResponse:
       type: object
       properties:

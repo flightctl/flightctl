@@ -1153,6 +1153,7 @@ components:
         - kind
         - metadata
         - spec
+      additionalProperties: false
       example:
         apiVersion: flightctl.io/v1alpha1
         kind: Catalog
@@ -1179,6 +1180,7 @@ components:
         support:
           type: string
           description: Link to support resources or documentation for getting help.
+      additionalProperties: false
     CatalogStatus:
       type: object
       description: CatalogStatus represents the current status of a catalog source.
@@ -1190,6 +1192,7 @@ components:
             $ref: '../v1beta1/openapi.yaml#/components/schemas/Condition'
       required:
         - conditions
+      additionalProperties: false
     CatalogList:
       type: object
       description: CatalogList is a list of Catalogs.
@@ -1211,6 +1214,7 @@ components:
         - kind
         - metadata
         - items
+      additionalProperties: false
     CatalogItemMeta:
       type: object
       description: 'Metadata for CatalogItem resources. Extends ObjectMeta with catalog scoping.'
@@ -1224,6 +1228,9 @@ components:
               example: edge-apps
           required:
             - catalog
+          additionalProperties: false
+      # Note: additionalProperties: false moved to the second allOf branch to only apply to the new properties,
+      # not the entire composed schema which would reject valid ObjectMeta fields
     CatalogItem:
       type: object
       description: CatalogItem represents an application template from a catalog. It provides default configuration values that can be customized when adding the application to a fleet.
@@ -1242,6 +1249,7 @@ components:
         - kind
         - metadata
         - spec
+      additionalProperties: false
     CatalogItemArtifact:
       type: object
       description: 'An artifact reference. The type field is the discriminator and must be unique within the artifacts list.'
@@ -1260,6 +1268,7 @@ components:
       required:
         - type
         - uri
+      additionalProperties: false
     CatalogItemArtifactType:
       type: string
       description: 'Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.'
@@ -1304,6 +1313,9 @@ components:
         readme:
           type: string
           description: 'Detailed documentation, preferably in markdown format.'
+      # Note: No additionalProperties: false here because this schema is used in allOf compositions
+      # (e.g., CatalogItemVersion) where other schemas add their own properties. Setting
+      # additionalProperties: false would prevent the composition from working properly.
     CatalogItemSpec:
       type: object
       description: CatalogItemSpec defines the configuration for a catalog item.
@@ -1367,6 +1379,7 @@ components:
         - type
         - artifacts
         - versions
+      additionalProperties: false
     CatalogItemVersion:
       type: object
       description: |
@@ -1442,6 +1455,7 @@ components:
         - kind
         - metadata
         - items
+      additionalProperties: false
     CatalogItemCategory:
       type: string
       description: 'Category of a catalog item.'
@@ -1489,6 +1503,7 @@ components:
           example: nginx-plus
       required:
         - message
+      additionalProperties: false
     Status:
       type: object
       properties:
@@ -1518,3 +1533,4 @@ components:
         - code
         - reason
         - message
+      additionalProperties: false

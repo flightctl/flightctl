@@ -952,6 +952,7 @@ components:
             imageTag: v1.0.0
           binding:
             type: late
+      additionalProperties: false
 
     ImageBuildList:
       type: object
@@ -991,6 +992,7 @@ components:
         - source
         - destination
         - binding
+      additionalProperties: false
 
     ImageBuildSource:
       type: object
@@ -1187,6 +1189,7 @@ components:
             type: imageBuild
             imageBuildRef: centos-bootc-stream9-build
           format: qcow2
+      additionalProperties: false
 
     ImageExportList:
       type: object
@@ -1221,6 +1224,7 @@ components:
       required:
         - source
         - format
+      additionalProperties: false
 
     ImageExportSource:
       description: ImageExportSource specifies the source image for the export.

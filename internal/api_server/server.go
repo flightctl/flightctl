@@ -91,7 +91,8 @@ func New(
 // that one.
 var pathRegex = regexp.MustCompile(`Error at \"/(.*)\":`)
 
-func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
+// OapiMultiErrorHandler handles multiple OpenAPI validation errors by selecting the most relevant one
+func OapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 	if len(errs) == 0 {
 		return http.StatusInternalServerError, nil
 	}
@@ -236,7 +237,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapimiddleware.Options{
 		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Beta1),
-		MultiErrorHandler:     oapiMultiErrorHandler,
+		MultiErrorHandler:     OapiMultiErrorHandler,
 		SilenceServersWarning: true, // Suppress Host header mismatch warnings
 	})
 
@@ -259,7 +260,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1alpha1Swagger, &oapimiddleware.Options{
 		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Alpha1),
-		MultiErrorHandler:     oapiMultiErrorHandler,
+		MultiErrorHandler:     OapiMultiErrorHandler,
 		SilenceServersWarning: true,
 	})
 
