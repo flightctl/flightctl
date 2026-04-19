@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
+	"github.com/flightctl/flightctl/internal/agent/device/compliance"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -349,6 +350,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create compliance checker for bootc timer
+	bootcChecker := compliance.NewBootcChecker(exec, rootReadWriter, a.log)
+
 	// register status exporters
 	statusManager.RegisterStatusExporter(applicationsManager)
 	statusManager.RegisterStatusExporter(rootSystemdManager)
@@ -356,6 +360,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
+	statusManager.RegisterStatusExporter(bootcChecker)
 
 	// create config controller
 	configController := config.NewController(
