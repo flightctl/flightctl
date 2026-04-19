@@ -232,6 +232,8 @@ func getListEventsParams(newerThan string) domain.ListEventsParams {
 		domain.EventReasonDeviceApplicationDegraded,
 		domain.EventReasonDeviceApplicationError,
 		domain.EventReasonDeviceApplicationHealthy,
+		domain.EventReasonDeviceBootcTimerCompliant,
+		domain.EventReasonDeviceBootcTimerNonCompliant,
 		domain.EventReasonDeviceCPUCritical,
 		domain.EventReasonDeviceCPUNormal,
 		domain.EventReasonDeviceCPUWarning,
@@ -309,6 +311,11 @@ func (c *CheckpointContext) processEvent(event domain.Event, orgID uuid.UUID) {
 		c.setAlert(event, string(domain.EventReasonDeviceDisconnected), nil, orgID)
 	case domain.EventReasonDeviceConnected:
 		c.clearAlertGroup(event, []string{string(domain.EventReasonDeviceDisconnected)}, orgID)
+	// Bootc timer compliance
+	case domain.EventReasonDeviceBootcTimerNonCompliant:
+		c.setAlert(event, string(domain.EventReasonDeviceBootcTimerNonCompliant), nil, orgID)
+	case domain.EventReasonDeviceBootcTimerCompliant:
+		c.clearAlertGroup(event, []string{string(domain.EventReasonDeviceBootcTimerNonCompliant)}, orgID)
 	}
 }
 
