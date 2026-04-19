@@ -141,6 +141,10 @@ func (s *TestStore) Organization() store.Organization {
 	return s.organizations
 }
 
+func (s *TestStore) VulnerabilityFinding() store.VulnerabilityFinding {
+	return nil
+}
+
 // --------------------------------------> Event
 
 func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {

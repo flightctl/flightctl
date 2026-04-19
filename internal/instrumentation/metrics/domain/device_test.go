@@ -69,6 +69,10 @@ func (m *MockStore) Catalog() store.Catalog {
 	return nil
 }
 
+func (m *MockStore) VulnerabilityFinding() store.VulnerabilityFinding {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }

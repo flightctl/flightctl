@@ -32,6 +32,7 @@ type Store interface {
 	Checkpoint() Checkpoint
 	Organization() Organization
 	AuthProvider() AuthProvider
+	VulnerabilityFinding() VulnerabilityFinding
 	RunMigrations(context.Context) error
 	CheckHealth(context.Context) error
 	Close() error
@@ -50,6 +51,7 @@ type DataStore struct {
 	checkpoint                Checkpoint
 	organization              Organization
 	authProvider              AuthProvider
+	vulnerabilityFinding      VulnerabilityFinding
 
 	db *gorm.DB
 }
@@ -68,6 +70,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		checkpoint:                NewCheckpoint(db, log),
 		organization:              NewOrganization(db),
 		authProvider:              NewAuthProvider(db, log),
+		vulnerabilityFinding:      NewVulnerabilityFinding(db, log),
 		db:                        db,
 	}
 }
@@ -118,6 +121,10 @@ func (s *DataStore) Organization() Organization {
 
 func (s *DataStore) AuthProvider() AuthProvider {
 	return s.authProvider
+}
+
+func (s *DataStore) VulnerabilityFinding() VulnerabilityFinding {
+	return s.vulnerabilityFinding
 }
 
 // CheckHealth verifies database connectivity and ensures the instance is not in recovery.
@@ -199,6 +206,9 @@ func (s *DataStore) RunMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.AuthProvider().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.VulnerabilityFinding().InitialMigration(ctx); err != nil {
 		return err
 	}
 	return s.customizeMigration(ctx)

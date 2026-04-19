@@ -170,6 +170,10 @@ func (m *MockFleetStoreWrapper) Catalog() store.Catalog {
 	return nil
 }
 
+func (m *MockFleetStoreWrapper) VulnerabilityFinding() store.VulnerabilityFinding {
+	return nil
+}
+
 func (m *MockFleetStoreWrapper) RunMigrations(context.Context) error {
 	return nil
 }
