@@ -37,6 +37,8 @@ const (
 	EventReasonDeviceApplicationDegraded       = v1beta1.EventReasonDeviceApplicationDegraded
 	EventReasonDeviceApplicationError          = v1beta1.EventReasonDeviceApplicationError
 	EventReasonDeviceApplicationHealthy        = v1beta1.EventReasonDeviceApplicationHealthy
+	EventReasonDeviceBootcTimerCompliant       = v1beta1.EventReasonDeviceBootcTimerCompliant
+	EventReasonDeviceBootcTimerNonCompliant    = v1beta1.EventReasonDeviceBootcTimerNonCompliant
 	EventReasonDeviceCPUCritical               = v1beta1.EventReasonDeviceCPUCritical
 	EventReasonDeviceCPUNormal                 = v1beta1.EventReasonDeviceCPUNormal
 	EventReasonDeviceCPUWarning                = v1beta1.EventReasonDeviceCPUWarning
@@ -137,6 +139,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonEnrollmentRequestApprovalFailed: {},
 	EventReasonDeviceApplicationDegraded:       {},
 	EventReasonDeviceApplicationError:          {},
+	EventReasonDeviceBootcTimerNonCompliant:    {},
 	EventReasonDeviceCPUCritical:               {},
 	EventReasonDeviceCPUWarning:                {},
 	EventReasonDeviceMemoryCritical:            {},

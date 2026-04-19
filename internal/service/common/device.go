@@ -544,3 +544,39 @@ func EmitSpecValidEvents(ctx context.Context, device *domain.Device, oldConditio
 		createEvent(ctx, getDeviceSpecInvalidEvent(ctx, deviceName, message))
 	}
 }
+
+// EmitBootcTimerComplianceEvents emits events for BootcTimerCompliant condition changes
+func EmitBootcTimerComplianceEvents(ctx context.Context, device *domain.Device, oldCondition, newCondition *domain.Condition,
+	createEvent func(context.Context, *domain.Event),
+	getDeviceBootcTimerCompliantEvent func(ctx context.Context, deviceName string) *domain.Event,
+	getDeviceBootcTimerNonCompliantEvent func(ctx context.Context, deviceName string, message string) *domain.Event,
+	log logrus.FieldLogger,
+) {
+
+	deviceName := *device.Metadata.Name
+	wasCompliant := oldCondition != nil && oldCondition.Status == domain.ConditionStatusTrue
+	isCompliant := newCondition != nil && newCondition.Status == domain.ConditionStatusTrue
+
+	log.Infof("Device %s: BootcTimerCompliant transition: was=%v, is=%v", deviceName, wasCompliant, isCompliant)
+
+	// No event when transitioning from nil to True (initial compliant state)
+	if oldCondition == nil && isCompliant {
+		log.Infof("Device %s: No event for initial compliant state", deviceName)
+		return
+	}
+
+	if !wasCompliant && isCompliant {
+		// Timer became compliant (was non-compliant before)
+		log.Infof("Device %s: Emitting DeviceBootcTimerCompliantEvent", deviceName)
+		createEvent(ctx, getDeviceBootcTimerCompliantEvent(ctx, deviceName))
+	} else if (wasCompliant && !isCompliant) || (oldCondition == nil && !isCompliant) {
+		// Timer became non-compliant (was compliant before) or initial non-compliant state
+		log.Infof("Device %s: Emitting DeviceBootcTimerNonCompliantEvent", deviceName)
+		// Get the message from the new condition if available
+		message := "device may auto-update outside Flight Control management"
+		if newCondition != nil && newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		createEvent(ctx, getDeviceBootcTimerNonCompliantEvent(ctx, deviceName, message))
+	}
+}

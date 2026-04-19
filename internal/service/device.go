@@ -512,6 +512,20 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId u
 			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)
 	}
+
+	// Track condition changes for BootcTimerCompliant
+	oldBootcTimerCondition := domain.FindStatusCondition(oldConditions, "BootcTimerCompliant")
+	newBootcTimerCondition := domain.FindStatusCondition(newConditions, "BootcTimerCompliant")
+
+	// Check if BootcTimerCompliant condition changed
+	bootcTimerConditionChanged := hasConditionChanged(oldBootcTimerCondition, newBootcTimerCondition)
+
+	if bootcTimerConditionChanged {
+		createEvent := func(c context.Context, e *domain.Event) { h.CreateEvent(c, orgId, e) }
+		common.EmitBootcTimerComplianceEvents(ctx, device, oldBootcTimerCondition, newBootcTimerCondition,
+			createEvent, common.GetDeviceBootcTimerCompliantEvent, common.GetDeviceBootcTimerNonCompliantEvent,
+			h.log)
+	}
 }
 
 // hasConditionChanged checks if a condition actually changed between old and new

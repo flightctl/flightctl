@@ -284,6 +284,30 @@ func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message s
 	})
 }
 
+// GetDeviceBootcTimerCompliantEvent creates an event for bootc timer becoming compliant
+func GetDeviceBootcTimerCompliantEvent(ctx context.Context, deviceName string) *domain.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonDeviceBootcTimerCompliant,
+		message:      "bootc-fetch-apply-updates.timer is properly masked.",
+		details:      nil,
+	})
+}
+
+// GetDeviceBootcTimerNonCompliantEvent creates an event for bootc timer becoming non-compliant
+func GetDeviceBootcTimerNonCompliantEvent(ctx context.Context, deviceName string, message string) *domain.Event {
+	msg := fmt.Sprintf("bootc-fetch-apply-updates.timer is not masked: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonDeviceBootcTimerNonCompliant,
+		message:      msg,
+		details:      nil,
+	})
+}
+
 // GetDeviceConflictResolvedEvent creates an event for device conflict being resolved
 func GetDeviceConflictResolvedEvent(ctx context.Context, deviceName string) *domain.Event {
 	return getBaseEvent(ctx, resourceEvent{
