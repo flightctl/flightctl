@@ -6952,6 +6952,7 @@ components:
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
+      - 'BootcTimerCompliant'   # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - EnrollmentRequestTPMVerified
@@ -6969,6 +6970,7 @@ components:
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning
+      - DeviceBootcTimerCompliant
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
@@ -7128,6 +7130,8 @@ components:
             - DeviceApplicationError
             - DeviceApplicationDegraded
             - DeviceApplicationHealthy
+            - DeviceBootcTimerCompliant
+            - DeviceBootcTimerNonCompliant
             - DeviceDisconnected
             - DeviceIsRebooting
             - DeviceConflictPaused
