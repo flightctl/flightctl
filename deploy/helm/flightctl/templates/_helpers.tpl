@@ -783,7 +783,7 @@ Usage: {{ include "flightctl.ensureOsQualifiedImage" .Values.api.image.image }}
 {{- define "flightctl.ensureOsQualifiedImage" -}}
   {{- $imageName := . -}}
   {{- /* Check if image already has OS suffix (-el9, -el10, -cs9, -cs10) */ -}}
-  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) -}}
+  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) (hasSuffix "-rhel9" $imageName) (hasSuffix "-rhel10" $imageName) -}}
     {{- /* Image already has OS suffix, use as-is */ -}}
     {{- $imageName -}}
   {{- else -}}
