@@ -565,6 +565,12 @@ func EmitBootcTimerComplianceEvents(ctx context.Context, device *domain.Device, 
 		return
 	}
 
+	// Guard against spurious events when both conditions are nil
+	if newCondition == nil {
+		log.Infof("Device %s: No event - newCondition is nil", deviceName)
+		return
+	}
+
 	if !wasCompliant && isCompliant {
 		// Timer became compliant (was non-compliant before)
 		log.Infof("Device %s: Emitting DeviceBootcTimerCompliantEvent", deviceName)
@@ -572,9 +578,9 @@ func EmitBootcTimerComplianceEvents(ctx context.Context, device *domain.Device, 
 	} else if (wasCompliant && !isCompliant) || (oldCondition == nil && !isCompliant) {
 		// Timer became non-compliant (was compliant before) or initial non-compliant state
 		log.Infof("Device %s: Emitting DeviceBootcTimerNonCompliantEvent", deviceName)
-		// Get the message from the new condition if available
-		message := "device may auto-update outside Flight Control management"
-		if newCondition != nil && newCondition.Message != "" {
+		// Get the message from the condition
+		message := "device may auto-update"
+		if newCondition.Message != "" {
 			message = newCondition.Message
 		}
 		createEvent(ctx, getDeviceBootcTimerNonCompliantEvent(ctx, deviceName, message))

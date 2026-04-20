@@ -121,31 +121,36 @@ var _ = Describe("Bootc timer compliance", func() {
 				true,
 				10*time.Second,
 			)
-			if err == nil {
-				defer cleanup()
+			Expect(err).ToNot(HaveOccurred(), "Alertmanager proxy should be accessible in kind/ocp environment")
+			defer cleanup()
 
-				authToken, err := harness.GetClientAccessToken()
-				Expect(err).ToNot(HaveOccurred())
+			authToken, err := harness.GetClientAccessToken()
+			Expect(err).ToNot(HaveOccurred())
 
-				alertsPath := fmt.Sprintf("%s?filter=org_id=%s&filter=alertname=%s&filter=resource=%s",
-					alertmanagerAlertsPath, orgID, alertNameBootcTimerNonCompliant, deviceName)
+			alertsPath := fmt.Sprintf("%s?filter=org_id=%s&filter=alertname=%s&filter=resource=%s",
+				alertmanagerAlertsPath, orgID, alertNameBootcTimerNonCompliant, deviceName)
 
-				Eventually(func() bool {
-					statusCode, body, err := harness.HTTPGet(client, baseURL, alertsPath, authToken)
-					if err != nil || statusCode != http.StatusOK {
-						return false
+			Eventually(func() bool {
+				statusCode, body, err := harness.HTTPGet(client, baseURL, alertsPath, authToken)
+				if err != nil || statusCode != http.StatusOK {
+					return false
+				}
+
+				var alerts []map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &alerts); err != nil {
+					return false
+				}
+
+				// Check for firing alerts
+				for _, alert := range alerts {
+					if status, ok := alert["status"].(map[string]interface{}); ok {
+						if state, ok := status["state"].(string); ok && state == "firing" {
+							return true
+						}
 					}
-
-					var alerts []map[string]interface{}
-					if err := json.Unmarshal([]byte(body), &alerts); err != nil {
-						return false
-					}
-
-					return len(alerts) > 0
-				}, TIMEOUT, POLLING).Should(BeTrue(), "DeviceBootcTimerNonCompliant alert should exist")
-			} else {
-				GinkgoWriter.Printf("Skipping alert check: alertmanager proxy not accessible (%v)\n", err)
-			}
+				}
+				return false
+			}, TIMEOUT, POLLING).Should(BeTrue(), "DeviceBootcTimerNonCompliant alert should be firing")
 		}
 
 		By("Re-masking the bootc timer")
@@ -193,48 +198,49 @@ var _ = Describe("Bootc timer compliance", func() {
 				true,
 				10*time.Second,
 			)
-			if err == nil {
-				defer cleanup()
+			Expect(err).ToNot(HaveOccurred(), "Alertmanager proxy should be accessible in kind/ocp environment")
+			defer cleanup()
 
-				authToken, err := harness.GetClientAccessToken()
-				Expect(err).ToNot(HaveOccurred())
+			authToken, err := harness.GetClientAccessToken()
+			Expect(err).ToNot(HaveOccurred())
 
-				orgID, err := harness.GetOrganizationID()
-				Expect(err).ToNot(HaveOccurred())
+			orgID, err := harness.GetOrganizationID()
+			Expect(err).ToNot(HaveOccurred())
 
-				alertsPath := fmt.Sprintf("%s?filter=org_id=%s&filter=alertname=%s&filter=resource=%s",
-					alertmanagerAlertsPath, orgID, alertNameBootcTimerNonCompliant, deviceName)
+			alertsPath := fmt.Sprintf("%s?filter=org_id=%s&filter=alertname=%s&filter=resource=%s",
+				alertmanagerAlertsPath, orgID, alertNameBootcTimerNonCompliant, deviceName)
 
-				Eventually(func() bool {
-					statusCode, body, err := harness.HTTPGet(client, baseURL, alertsPath, authToken)
-					if err != nil || statusCode != http.StatusOK {
-						return false
-					}
+			Eventually(func() bool {
+				statusCode, body, err := harness.HTTPGet(client, baseURL, alertsPath, authToken)
+				if err != nil || statusCode != http.StatusOK {
+					return false
+				}
 
-					var alerts []map[string]interface{}
-					if err := json.Unmarshal([]byte(body), &alerts); err != nil {
-						return false
-					}
+				var alerts []map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &alerts); err != nil {
+					return false
+				}
 
-					// Alert should either not exist or be marked as resolved
-					if len(alerts) == 0 {
-						return true
-					}
+				// Alert should either not exist or be marked as resolved
+				if len(alerts) == 0 {
+					return true
+				}
 
-					// Check if all alerts are resolved (have endsAt timestamp)
-					for _, alert := range alerts {
-						if labels, ok := alert["labels"].(map[string]interface{}); ok {
-							if labels["resource"] == deviceName && labels["alertname"] == alertNameBootcTimerNonCompliant {
-								// Alert exists but should be resolved - check endsAt
-								if _, hasEndsAt := alert["endsAt"]; !hasEndsAt {
-									return false // Alert is still active
+				// Check if all matching alerts are resolved
+				for _, alert := range alerts {
+					if labels, ok := alert["labels"].(map[string]interface{}); ok {
+						if labels["resource"] == deviceName && labels["alertname"] == alertNameBootcTimerNonCompliant {
+							// Alert exists - check if it's resolved
+							if status, ok := alert["status"].(map[string]interface{}); ok {
+								if state, ok := status["state"].(string); ok && state == "firing" {
+									return false // Alert is still firing
 								}
 							}
 						}
 					}
-					return true
-				}, TIMEOUT, POLLING).Should(BeTrue(), "DeviceBootcTimerNonCompliant alert should be resolved")
-			}
+				}
+				return true
+			}, TIMEOUT, POLLING).Should(BeTrue(), "DeviceBootcTimerNonCompliant alert should be resolved")
 		}
 	})
 })

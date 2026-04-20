@@ -2,6 +2,7 @@ package compliance
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -48,20 +49,20 @@ func (b *BootcChecker) checkBootcTimer(ctx context.Context) v1beta1.Condition {
 	// Check if timer unit file exists
 	exists, err := b.reader.PathExists(bootcTimerUnitFile)
 	if err != nil {
-		b.log.Warnf("Failed to check if bootc timer exists: %v", err)
-		// Treat as non-present if we can't check
+		b.log.Errorf("Failed to check if bootc timer exists: %v", err)
+		// Return non-compliant on check failure to avoid false compliance
 		return v1beta1.Condition{
-			Type:    "BootcTimerCompliant",
-			Status:  v1beta1.ConditionStatusTrue,
-			Reason:  "NotPresent",
-			Message: "bootc-fetch-apply-updates.timer is not present on this system",
+			Type:    v1beta1.ConditionTypeDeviceBootcTimerCompliant,
+			Status:  v1beta1.ConditionStatusFalse,
+			Reason:  "CheckFailed",
+			Message: fmt.Sprintf("failed to check bootc timer status: %v", err),
 		}
 	}
 
 	if !exists {
 		// Non-bootc system or timer not installed - compliant
 		return v1beta1.Condition{
-			Type:    "BootcTimerCompliant",
+			Type:    v1beta1.ConditionTypeDeviceBootcTimerCompliant,
 			Status:  v1beta1.ConditionStatusTrue,
 			Reason:  "NotPresent",
 			Message: "bootc-fetch-apply-updates.timer is not present on this system",
@@ -77,7 +78,7 @@ func (b *BootcChecker) checkBootcTimer(ctx context.Context) v1beta1.Condition {
 	// Masked state means compliant
 	if state == "masked" || state == "masked-runtime" {
 		return v1beta1.Condition{
-			Type:    "BootcTimerCompliant",
+			Type:    v1beta1.ConditionTypeDeviceBootcTimerCompliant,
 			Status:  v1beta1.ConditionStatusTrue,
 			Reason:  "Masked",
 			Message: "bootc-fetch-apply-updates.timer is properly masked",
@@ -92,7 +93,7 @@ func (b *BootcChecker) checkBootcTimer(ctx context.Context) v1beta1.Condition {
 	}
 
 	return v1beta1.Condition{
-		Type:    "BootcTimerCompliant",
+		Type:    v1beta1.ConditionTypeDeviceBootcTimerCompliant,
 		Status:  v1beta1.ConditionStatusFalse,
 		Reason:  "NotMasked",
 		Message: message,
