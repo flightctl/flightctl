@@ -21,12 +21,20 @@ database:
   name: flightctl
 {{- end}}
 service:
+  disableTLS: true
   rateLimit:
     enabled: {{.service.rateLimit.enabled}}
     requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
     window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
     authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
+alertmanager:
+  proxyListenAddress: ":8080"
+  hostname: "localhost"
+  port: 9093
+  maxRetries: 3
+  baseDelay: "500ms"
+  maxDelay: "10s"
 auth:
   insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
   {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}
@@ -38,7 +46,7 @@ auth:
   oidc:
     enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
     {{if eq .global.auth.pamOidcIssuer.enabled true}}
-    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}/_/pam-issuer/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
     clientSecret: {{if .global.auth.pamOidcIssuer.clientSecret}}"{{ replace (replace .global.auth.pamOidcIssuer.clientSecret `\` `\\`) `"` `\"` }}"{{else}}""{{end}}
     {{else}}

@@ -1,7 +1,7 @@
 service:
-  baseUrl: https://{{.global.baseDomain}}:3443/
+  baseUrl: https://{{.global.baseDomain}}/_/flightctl/
   baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
-  baseUIUrl: https://{{.global.baseDomain}}:443
+  baseUIUrl: https://{{.global.baseDomain}}
   rateLimit:
     enabled: {{.service.rateLimit.enabled}}
     requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
@@ -15,7 +15,8 @@ service:
 auth:
   pamOidcIssuer:
     address: ":8444"
-    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    disableTLS: true
+    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}/_/pam-issuer/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
 {{- if .global.auth.pamOidcIssuer.clientSecret}}
     clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}

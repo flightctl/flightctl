@@ -61,9 +61,11 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// CLI Artifacts service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-cli-artifacts.container"), Template: true, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts-init.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-cli-artifacts-init.container"), Template: false, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts-certs.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-cli-artifacts-certs.volume"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-cli-artifacts/"), Template: false, Mode: RegularFileMode},
+
+		// Gateway service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-gateway/flightctl-gateway.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-gateway.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-gateway/flightctl-gateway-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-gateway/"), Template: false, Mode: RegularFileMode},
 
 		// ImageBuilder API service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-api/flightctl-imagebuilder-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-api.container"), Template: true, Mode: RegularFileMode},
@@ -122,6 +124,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-alertmanager-proxy"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-pam-issuer"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-gateway"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-telemetry-gateway"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-prometheus"), Mode: ExecutableFileMode},
@@ -136,6 +139,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-cli-artifacts"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-alertmanager-proxy"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-gateway"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db-migrate"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-worker"), Mode: ExecutableFileMode},

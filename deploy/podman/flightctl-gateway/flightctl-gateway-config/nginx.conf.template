@@ -1,0 +1,129 @@
+include /usr/share/nginx/modules/mod-stream.conf;
+
+worker_processes auto;
+error_log stderr;
+pid /run/nginx.pid;
+events {}
+
+http {
+  access_log /dev/stdout;
+
+  ssl_protocols TLSv1.3;
+  ssl_ecdh_curve auto;
+  ssl_prefer_server_ciphers off;
+
+  server {
+    server_name {{.global.baseDomain}};
+    listen 8443 ssl;
+    listen [::]:8443 ssl ipv6only=on;
+
+    ssl_certificate /etc/flightctl/pki/flightctl-gateway/server.crt;
+    ssl_certificate_key /etc/flightctl/pki/flightctl-gateway/server.key;
+
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass_request_headers on;
+    proxy_buffering off;
+
+    location /_/flightctl/ {
+      location /_/flightctl/ws/ {
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_pass http://flightctl-api:3080/ws/;
+      }
+
+      proxy_pass http://flightctl-api:3080/;
+    }
+
+    location /_/cli-artifacts/ {
+      proxy_pass http://flightctl-cli-artifacts:8090/;
+    }
+
+    location /_/alerts/ {
+      proxy_pass http://flightctl-alertmanager-proxy:8080/;
+    }
+
+    location /_/pam-issuer/ {
+      proxy_pass http://flightctl-pam-issuer:8444/;
+    }
+
+    location /_/imagebuilder/ {
+      proxy_pass http://flightctl-imagebuilder-api:8445/;
+    }
+
+    # Everything else goes to the UI service for the frontend.
+    location / {
+      # This is a convenience so that users can point to the base URL of the deployment when doing the
+      # CLI login and not have to know the API server subpath.
+      rewrite ^(/api/v1/.*)$ /_/flightctl$1 last;
+      rewrite ^(/ws/v1/.*)$ /_/flightctl$1 last;
+
+      location /api/terminal/ {
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_pass http://flightctl-ui:8080;
+      }
+
+      proxy_pass http://flightctl-ui:8080/;
+    }
+  }
+
+  {{if or (eq .gateway nil) (not .gateway.suppressOldPorts)}}
+  # Backwards compatibility for the API server if needed.
+  server {
+    server_name {{.global.baseDomain}};
+    listen 3443 ssl;
+    listen [::]:3443 ssl ipv6only=on;
+
+    ssl_certificate /etc/flightctl/pki/flightctl-gateway/server.crt;
+    ssl_certificate_key /etc/flightctl/pki/flightctl-gateway/server.key;
+
+    location /ws/ {
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+
+      proxy_pass http://flightctl-api:3080/ws/;
+    }
+
+    location / {
+      proxy_pass http://flightctl-api:3080/;
+    }
+  }
+
+  # Backwards compatibility for the Image Builder API server if needed.
+  server {
+    server_name {{.global.baseDomain}};
+    listen 8445 ssl;
+    listen [::]:8445 ssl ipv6only=on;
+
+    ssl_certificate /etc/flightctl/pki/flightctl-gateway/server.crt;
+    ssl_certificate_key /etc/flightctl/pki/flightctl-gateway/server.key;
+
+    location / {
+      proxy_pass http://flightctl-imagebuilder-api:8445/;
+    }
+  }
+  {{- end }}
+}
+
+# We need to keep the passthroughs to the mTLS authenticated endpoints because certain device
+# information is gathered directly from the client certs.
+stream {
+  # Passthrough to the Agent API service
+  server {
+    listen 7443;
+    listen [::]:7443 ipv6only=on;
+
+    proxy_pass flightctl-api:7443;
+  }
+
+  # Passthrough to the Telemetry Gateway service
+  server {
+    listen 4317;
+    listen [::]:4317 ipv6only=on;
+
+    proxy_pass flightctl-telemetry-gateway:4317;
+  }
+}

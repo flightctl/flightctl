@@ -100,6 +100,7 @@ type RendererConfig struct {
 	Prometheus         ImageConfig `mapstructure:"prometheus"`
 	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
 	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
+	Gateway            ImageConfig `mapstructure:"gateway"`
 }
 
 func NewRendererConfig() *RendererConfig {

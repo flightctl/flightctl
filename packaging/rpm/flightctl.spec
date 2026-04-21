@@ -554,6 +554,7 @@ fi
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
@@ -562,8 +563,8 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/tpm-cas
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
+    %dir %{_sysconfdir}/flightctl/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
@@ -586,6 +587,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-gateway
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
@@ -608,11 +610,10 @@ fi
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
     %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
-    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %{_datadir}/flightctl/flightctl-gateway/nginx.conf.template
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
@@ -634,11 +635,11 @@ fi
     %{_datadir}/containers/systemd/flightctl-kv.volume
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
     %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
+    %{_datadir}/containers/systemd/flightctl-gateway.container
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
-    %{_datadir}/containers/systemd/flightctl-cli-artifacts-certs.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
 
