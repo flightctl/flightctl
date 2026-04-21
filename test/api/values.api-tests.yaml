@@ -4,3 +4,4 @@ api:
     window: "1m"
     authRequests: 10000
     authWindow: "1m"
+  renderedSpecPollTimeout: "30s"

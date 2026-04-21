@@ -35,6 +35,7 @@ data:
         httpMaxHeaderBytes: {{ default 33010 .Values.api.httpMaxHeaderBytes }}
         httpMaxUrlLength: {{ default 2000 .Values.api.httpMaxUrlLength }}
         httpMaxRequestSize: {{ default 53137200 .Values.api.httpMaxRequestSize }}
+        renderedWaitTimeout: {{ .Values.api.renderedSpecPollTimeout | default "2m" | quote }}
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.agent }}/

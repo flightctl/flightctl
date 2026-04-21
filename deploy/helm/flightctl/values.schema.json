@@ -415,6 +415,10 @@
           "type": ["object", "null"],
           "description": "Additional labels for API PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "renderedSpecPollTimeout": {
+          "type": "string",
+          "description": "Timeout for the rendered device spec long-poll (e.g., 2m, 30s)"
         }
       }
     },

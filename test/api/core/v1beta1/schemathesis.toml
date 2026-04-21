@@ -1,6 +1,7 @@
 hooks = "core.v1beta1.hooks"
 base-url = "${BASE_URL}"
 rate-limit = "400/m"
+seed = 42
 suppress-health-check = ["filter_too_much"]
 continue-on-failure = true
 tls-verify = false
@@ -64,6 +65,11 @@ parameters = { "path.name" = "default" }
 [[operations]]
 include-path = "/fleets/{fleet}/templateversions"
 parameters = { "path.fleet" = "default" }
+
+# knownRenderedVersion triggers a server-side long-poll; allow enough time for it to complete
+[[operations]]
+include-path = "/devices/{name}/rendered"
+request-timeout = 60.0
 
 [reports.vcr]
 enabled = true

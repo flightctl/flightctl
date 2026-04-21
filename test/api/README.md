@@ -18,7 +18,7 @@ Run the curl command to reproduce the failure and read the response body for det
 ## How the test run works
 
 - Deploy the backend: `make deploy`
-- To increase API rate limits for testing, apply the override values to the running deployment:
+- To apply API test overrides (rate limits, rendered spec poll timeout) to the running deployment:
 
   ```bash
   helm upgrade flightctl ./deploy/helm/flightctl/ -n flightctl-external --reuse-values --values test/api/values.api-tests.yaml
@@ -60,7 +60,7 @@ test/api/
   run_suite.sh        -- Per-suite runner (schemathesis CLI + pytest)
   report.py           -- Generates consolidated markdown report from JUnit, TraceCov, and HAR data
   render_log.py       -- Strips ANSI codes from schemathesis output
-  values.api-tests.yaml -- Helm overrides for API rate limits during testing
+  values.api-tests.yaml -- Helm overrides for API testing (rate limits, rendered spec poll timeout)
   Containerfile       -- Container image: schemathesis + openssl + pyte
 ```
 

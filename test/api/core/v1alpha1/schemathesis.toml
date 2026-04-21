@@ -1,6 +1,7 @@
 hooks = "core.v1alpha1.hooks"
 base-url = "${BASE_URL}"
 rate-limit = "400/m"
+seed = 42
 suppress-health-check = ["filter_too_much"]
 continue-on-failure = true
 tls-verify = false

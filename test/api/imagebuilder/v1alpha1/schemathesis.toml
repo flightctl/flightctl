@@ -1,6 +1,7 @@
 hooks = "imagebuilder.v1alpha1.hooks"
 base-url = "${BASE_URL}"
 rate-limit = "400/m"
+seed = 42
 suppress-health-check = ["filter_too_much"]
 continue-on-failure = true
 tls-verify = false
@@ -57,6 +58,14 @@ enabled = false
 [[operations]]
 include-path = "/api/v1/imageexports/{name}/log"
 [operations.checks.response_schema_conformance]
+enabled = false
+
+# DELETE /imagebuilds cascade-deletes child ImageExports; stateful chains (non-deterministic seed)
+# may DELETE the parent before GET-ting the child, producing a legitimate 404
+[[operations]]
+include-path = "/api/v1/imageexports/{name}"
+include-method = "GET"
+[operations.checks.ensure_resource_availability]
 enabled = false
 
 # Download is only available after async export processing completes, not immediately after creation

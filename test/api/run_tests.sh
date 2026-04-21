@@ -63,7 +63,7 @@ run_schemathesis() {
         -e "SCHEMATHESIS_TOKEN=${AUTH_TOKEN}"
         -e "BASE_URL=${base_url}"
         -e "CORE_URL=${core_url}"
-        -e "CI=${CI:-}"
+        ${CI:+-e "CI=${CI}"}
         -e "SCHEMATHESIS_COVERAGE_REPORT_HTML_PATH=/app/results/schema-coverage.html"
     )
 
