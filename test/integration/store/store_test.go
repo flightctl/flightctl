@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -10,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,37 +18,11 @@ import (
 )
 
 var _ = Describe("DataStore Migration Tests", func() {
-	// createFreshDB creates a completely empty database owned by the test user.
-	// The caller must call the returned cleanup function (via defer).
-	createFreshDB := func(ctx context.Context, freshLog *logrus.Logger, prefix string) (*gorm.DB, func()) {
-		freshCfg := config.NewDefault()
-		freshDbName := prefix + uuid.New().String()[:8]
-		freshCfg.Database.Name = "flightctl"
-		adminDB, err := store.InitDB(freshCfg, freshLog)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(adminDB.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, freshDbName)).Error).To(Succeed())
-		store.CloseDB(adminDB)
-
-		freshCfg.Database.Name = freshDbName
-		freshGormDb, err := store.InitDB(freshCfg, freshLog)
-		Expect(err).ToNot(HaveOccurred())
-
-		cleanup := func() {
-			store.CloseDB(freshGormDb)
-			freshCfg.Database.Name = "flightctl"
-			if adminDB, _ := store.InitDB(freshCfg, freshLog); adminDB != nil {
-				Expect(adminDB.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, freshDbName)).Error).To(Succeed())
-				store.CloseDB(adminDB)
-			}
-		}
-		return freshGormDb, cleanup
-	}
-
 	// createFreshDBWithOrgs sets up a minimal database that simulates a pre-catalog
 	// installation: only the organizations table exists, with the given orgs pre-inserted.
-	// The caller must call the returned cleanup function (via defer).
-	createFreshDBWithOrgs := func(ctx context.Context, freshLog *logrus.Logger, orgIDs []uuid.UUID) (*gorm.DB, func()) {
-		freshGormDb, cleanup := createFreshDB(ctx, freshLog, "test_backfill_")
+	// Caller must use DeleteTestDB for cleanup.
+	createFreshDBWithOrgs := func(ctx context.Context, freshLog *logrus.Logger, orgIDs []uuid.UUID) (*config.Config, string, *gorm.DB) {
+		freshCfg, freshDbName, freshGormDb := testdb.CreateEmptyTestDB(ctx, freshLog, "test_backfill_", store.InitDB)
 
 		db := freshGormDb.WithContext(ctx)
 		Expect(db.AutoMigrate(&model.Organization{})).To(Succeed())
@@ -63,7 +37,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			}).Error).To(Succeed())
 		}
 
-		return freshGormDb, cleanup
+		return freshCfg, freshDbName, freshGormDb
 	}
 
 	Context("Default catalog backfill", func() {
@@ -73,8 +47,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 
 			org1ID := uuid.New()
 			org2ID := uuid.New()
-			freshGormDb, cleanup := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{org1ID, org2ID})
-			defer cleanup()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{org1ID, org2ID})
+			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
 
 			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
 			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
@@ -93,8 +67,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 
 			orgWithCatalogID := uuid.New()
 			orgWithoutCatalogID := uuid.New()
-			freshGormDb, cleanup := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgWithCatalogID, orgWithoutCatalogID})
-			defer cleanup()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgWithCatalogID, orgWithoutCatalogID})
+			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
 
 			// Also migrate the catalogs table and pre-insert a catalog for one org,
 			// simulating an installation that already has a custom catalog.
@@ -126,8 +100,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 			freshLog := flightlog.InitLogs()
 
 			orgID := uuid.New()
-			freshGormDb, cleanup := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
-			defer cleanup()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
 
 			// Migrate the catalogs table and pre-insert a catalog that has an owner
 			// (e.g. created by a ResourceSync), simulating an installation where all existing
@@ -162,8 +136,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 			// Use a fresh DB so the test user owns all tables and can run RunMigrations
 			// multiple times without DDL permission errors (which occur with the template
 			// DB strategy where tables are owned by the admin user, not the test user).
-			freshGormDb, cleanup := createFreshDB(freshCtx, freshLog, "test_backfill_restart_")
-			defer cleanup()
+			freshCfg, freshDbName, freshGormDb := testdb.CreateEmptyTestDB(freshCtx, freshLog, "test_backfill_restart_", store.InitDB)
+			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
 
 			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
 

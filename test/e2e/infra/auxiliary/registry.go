@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -50,22 +51,15 @@ type AuthenticatedEndpoint struct {
 
 // Registry holds connection info and the container for the aux registry.
 type Registry struct {
-	URL           string
-	Host          string
-	Port          string
-	Reused        bool // true when the container was already running (reuse=true)
+	URL  string
+	Host string
+	Port string
+	// Reused is true when reuse=true and registryContainerName is already running (not merely
+	// present or stopped); auxiliary.Get skips artifact upload when Reused (see containers.ContainerRunningByName).
+	Reused        bool
 	Authenticated AuthenticatedEndpoint
 
 	container testcontainers.Container
-}
-
-// containerExistsByName returns true if a container with the given name exists (running or stopped).
-func containerExistsByName(name string) bool {
-	cli := containerRuntimeCLIName()
-	filter := containerNamePSFilter(cli, name)
-	cmd := exec.Command(cli, "ps", "-a", "--filter", filter, "-q")
-	out, err := cmd.CombinedOutput()
-	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
 func getContainerLogs(name string) (string, error) {
@@ -85,7 +79,7 @@ func getContainerLogs(name string) (string, error) {
 // Start starts the TLS registry container, then the authenticated (nginx + basic auth) endpoint, and sets URL, Host, Port, Reused, Authenticated.
 func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
 	logrus.Infof("Starting registry container (reuse=%v)", reuse)
-	r.Reused = reuse && containerExistsByName(registryContainerName)
+	r.Reused = reuse && containers.ContainerRunningByName(registryContainerName)
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)

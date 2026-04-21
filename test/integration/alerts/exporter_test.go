@@ -20,7 +20,9 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -41,6 +43,7 @@ func TestExporterIntegration(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Tasks Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("Alert Exporter", func() {
@@ -64,12 +67,13 @@ var _ = Describe("Alert Exporter", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockProducer = queues.NewMockQueueProducer(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockProducer, log)
 		mockProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
@@ -85,7 +89,8 @@ var _ = Describe("Alert Exporter", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 		ctrl.Finish()
 	})
 

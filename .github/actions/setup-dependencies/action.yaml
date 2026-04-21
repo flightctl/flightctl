@@ -36,6 +36,10 @@ runs:
           sudo apt update -y # fix broken repo cache
           sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
+          # Prime rootless Podman API socket before Go testcontainers init() probes paths (otherwise
+          # /var/run/docker.sock can win on runners that ship both Docker and Podman).
+          podman info >/dev/null 2>&1 || true
+
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q protoc.zip bin/protoc -d /usr/local
           sudo chmod a+x /usr/local/bin/protoc

@@ -13,12 +13,14 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("RepoUpdate", func() {
@@ -30,6 +32,7 @@ var _ = Describe("RepoUpdate", func() {
 		serviceHandler service.Service
 		cfg            *config.Config
 		dbName         string
+		db             *gorm.DB
 		workerClient   *worker_client.MockWorkerClient
 		ctrl           *gomock.Controller
 	)
@@ -39,10 +42,11 @@ var _ = Describe("RepoUpdate", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 
@@ -134,7 +138,8 @@ var _ = Describe("RepoUpdate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	When("a Repository definition is updated", func() {

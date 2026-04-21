@@ -15,7 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,6 +37,7 @@ func TestStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Store Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("DeviceStore create", func() {
@@ -56,7 +59,8 @@ var _ = Describe("DeviceStore create", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		devStore = storeInst.Device()
 		called = false
 		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -71,7 +75,8 @@ var _ = Describe("DeviceStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	It("CreateOrUpdateDevice create mode race", func() {

@@ -17,12 +17,14 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("ResourceSync Task Integration Tests", func() {
@@ -35,6 +37,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		serviceHandler    service.Service
 		cfg               *config.Config
 		dbName            string
+		db                *gorm.DB
 		workerClient      worker_client.WorkerClient
 		ctrl              *gomock.Controller
 		mockQueueProducer *queues.MockQueueProducer
@@ -46,11 +49,12 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		internalCtx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil, nil)
@@ -60,7 +64,8 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 		ctrl.Finish()
 	})
 

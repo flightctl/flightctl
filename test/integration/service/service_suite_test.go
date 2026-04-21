@@ -17,7 +17,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -36,6 +38,8 @@ func TestServiceSuite(t *testing.T) {
 var _ = SynchronizedBeforeSuite(func() []byte {
 	// Initialize the root tracer/span for the entire service integration suite once
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Service Integration Suite")
+	// Ensure integration stack is running (containers + migrations)
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 	return nil
 }, func(_ []byte) {})
 
@@ -67,7 +71,8 @@ func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = testutil.InitLogsWithDebug()
 
-	s.Store, s.cfg, s.dbName, s.DB = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+	s.cfg, s.dbName, s.DB = testdb.CreateTestDB(s.Ctx, s.Log, "", store.InitDB)
+	s.Store = store.NewStore(s.DB, s.Log.WithField("pkg", "store"))
 
 	// Add a default admin mapped identity to the context for tests
 	// This is required by auth provider validation
@@ -90,7 +95,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.workerClient = worker_client.NewWorkerClient(s.mockQueueProducer, s.Log)
 	s.mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
+	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 	Expect(err).ToNot(HaveOccurred())
 
 	// Setup CA for CSR tests
@@ -106,7 +111,8 @@ func (s *ServiceTestSuite) Setup() {
 
 // Teardown performs common cleanup for service tests
 func (s *ServiceTestSuite) Teardown() {
-	store.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.Store, s.dbName)
+	_ = s.Store.Close()
+	testdb.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.DB, s.dbName)
 	if s.ctrl != nil {
 		s.ctrl.Finish()
 	}

@@ -31,6 +31,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -264,7 +265,7 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: error initializing test DB: %w", err)
 	}
-	defer store.CloseDB(dbTemp)
+	defer testdb.CloseDB(dbTemp)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)

@@ -47,11 +47,11 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 - **Helm chart (values, templates, Chart):** Under `deploy/helm/flightctl/`. After changes, run `make lint-helm` and ensure `make deploy` or `make deploy-helm` still works.
 - **Quadlet units and config:** Under `deploy/podman/`. Keep ordering and env/config in sync with `deploy/scripts/deploy_quadlets.sh`.
-- **Scripts:** `deploy/scripts/*.sh` – preserve idempotency and error handling; integration tests and `make deploy-db`/`deploy-kv` depend on them.
+- **Scripts:** `deploy/scripts/*.sh` – preserve idempotency and error handling; `make deploy-db`/`deploy-kv` and `test/scripts/run_migration.sh` (template DB) depend on them. **`make integration-test`** uses testcontainers (`test/integration/preflight`) instead of quadlet `deploy-db`/`deploy-kv`/`deploy-alertmanager`.
 
 ## Summary
 
 1. **Kind:** `make deploy` (and optional redeploy-*). Edit Helm under `deploy/helm/flightctl/` and run `make lint-helm`.
 2. **Quadlets:** `make deploy-quadlets`; edit units and config under `deploy/podman/` and `deploy/scripts/`.
-3. **DB/KV/Alertmanager:** Use `make deploy-db`, `deploy-kv`, etc.; do not change script contracts used by `test/test.mk` without updating tests.
+3. **DB/KV/Alertmanager:** Use `make deploy-db`, `deploy-kv`, etc. for local/quadlet workflows. Integration tests use testcontainers via `test/integration/preflight` (see `test/AGENTS.md`); keep `test/scripts/run_migration.sh` compatible with `DB_HOST`/`DB_PORT` and the migration image when changing DB scripts.
 4. New or changed Helm values/templates should be validated with `make lint-helm` and a test deploy.

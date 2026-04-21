@@ -13,12 +13,15 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var (
@@ -32,6 +35,7 @@ func TestDisruptionBudget(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Disruption budget suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("Rollout disruption budget test", func() {
@@ -42,6 +46,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		ctx              context.Context
 		log              *logrus.Logger
 		dbName           string
+		db               *gorm.DB
 		cfg              *config.Config
 		storeInst        store.Store
 		serviceHandler   service.Service
@@ -196,17 +201,19 @@ var _ = Describe("Rollout disruption budget test", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 
 		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
 		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 		ctrl.Finish()
 	})
 	Context("Query fleets", func() {

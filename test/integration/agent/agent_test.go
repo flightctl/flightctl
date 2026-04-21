@@ -26,6 +26,7 @@ import (
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,6 +59,7 @@ func TestAgent(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Agent Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("Device Agent behavior", func() {
