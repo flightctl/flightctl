@@ -24,4 +24,26 @@ kv:
   hostname: flightctl-kv
   port: 6379
 service: {}
+{{- if eq .vulnerability.enabled true}}
+vulnerability:
+  enabled: true
+  syncInterval: {{if .vulnerability.syncInterval}}{{.vulnerability.syncInterval}}{{else}}15m{{end}}
+  {{- if .vulnerability.alerting}}
+  alerting:
+    enabled: {{if eq .vulnerability.alerting.enabled true}}true{{else}}false{{end}}
+    warningCvssThreshold: {{if .vulnerability.alerting.warningCvssThreshold}}{{.vulnerability.alerting.warningCvssThreshold}}{{else}}4.0{{end}}
+    criticalCvssThreshold: {{if .vulnerability.alerting.criticalCvssThreshold}}{{.vulnerability.alerting.criticalCvssThreshold}}{{else}}7.0{{end}}
+  {{- end}}
+  {{- if .vulnerability.trustify}}
+  trustify:
+    endpoint: {{.vulnerability.trustify.endpoint}}
+    {{- if .vulnerability.trustify.auth}}
+    auth:
+      mode: {{if .vulnerability.trustify.auth.mode}}{{.vulnerability.trustify.auth.mode}}{{else}}none{{end}}
+      {{- if .vulnerability.trustify.auth.oidcIssuerUrl}}
+      oidcIssuerUrl: {{.vulnerability.trustify.auth.oidcIssuerUrl}}
+      {{- end}}
+    {{- end}}
+  {{- end}}
+{{- end}}
 

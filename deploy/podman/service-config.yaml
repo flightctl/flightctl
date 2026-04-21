@@ -118,6 +118,29 @@ prometheus:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
 
+# Vulnerability integration (optional). Uncomment and configure to enable.
+# vulnerability:
+#   # Enable vulnerability integration (sync task in flightctl-periodic + API endpoints in flightctl-api).
+#   enabled: false
+#   # Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
+#   syncInterval: 15m
+#   alerting:
+#     # Enable per-device CVE alerting for findings above the CVSS threshold.
+#     enabled: true
+#     # Minimum CVSS base score required to emit a per-device alert.
+#     warningCvssThreshold: 4.0
+#     criticalCvssThreshold: 7.0
+#   trustify:
+#     # Trustify API base URL (used by flightctl-periodic only).
+#     endpoint: https://trustify.example.com/api/v1
+#     auth:
+#       # Authentication mode. Allowed values: 'client-credentials', 'none'.
+#       mode: none
+#       # OIDC issuer URL (required when mode is 'client-credentials').
+#       oidcIssuerUrl: https://keycloak.example.com/realms/trustify
+#       # client_id and client_secret are supplied via FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_ID
+#       # and FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_SECRET environment variables.
+
 telemetryGateway:
   forward:
     endpoint:

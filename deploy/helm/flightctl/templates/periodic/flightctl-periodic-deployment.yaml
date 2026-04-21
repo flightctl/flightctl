@@ -55,6 +55,21 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+            {{- $vuln := default dict .Values.vulnerability -}}
+            {{- $trustify := default dict $vuln.trustify -}}
+            {{- $auth := default dict $trustify.auth -}}
+            {{- if and (default false $vuln.enabled) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
+            - name: FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_id
+            - name: FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_secret
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-periodic-config

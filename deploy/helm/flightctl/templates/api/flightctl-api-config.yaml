@@ -100,3 +100,7 @@ data:
         endpoint: {{ .Values.dev.tracing.endpoint }}
         insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
+    {{- if default false (default dict .Values.vulnerability).enabled }}
+    vulnerability:
+        enabled: true
+    {{- end }}
