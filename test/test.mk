@@ -75,68 +75,50 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list $(if $(TEST_DIR),$(TEST_DIR),./test/integration/...)))"
 
+BIN_PREFLIGHT := $(ROOT_DIR)/bin/preflight
+PREFLIGHT_SRC := $(wildcard $(ROOT_DIR)/test/integration/preflight/*.go)
+
+$(BIN_PREFLIGHT): $(PREFLIGHT_SRC)
+	@mkdir -p "$(ROOT_DIR)/bin"
+	cd "$(ROOT_DIR)" && go build -o $@ ./test/integration/preflight
+
+.PHONY: build-integration-preflight
+build-integration-preflight: $(BIN_PREFLIGHT)
+
+BIN_DB_MIGRATE := $(ROOT_DIR)/bin/flightctl-db-migrate
+
+$(BIN_DB_MIGRATE):
+	@mkdir -p "$(ROOT_DIR)/bin"
+	cd "$(ROOT_DIR)" && go build -o $@ ./cmd/flightctl-db-migrate
+
+.PHONY: build-db-migrate
+build-db-migrate: $(BIN_DB_MIGRATE)
+
+# Start integration testcontainers (Postgres, Redis, Alertmanager) and run migrations.
+# The migration binary is idempotent - safe to run multiple times.
+start-integration-services: $(BIN_PREFLIGHT) $(BIN_DB_MIGRATE)
+	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" start
+	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" migrate
+
+# Stop integration testcontainers.
+stop-integration-services: $(BIN_PREFLIGHT)
+	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" stop || true
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD=adminpass
-integration-test: export FLIGHTCTL_TEST_DB_STRATEGY?=local
 
+# Starts integration containers, runs migrations via flightctl-db-migrate binary (same as production),
+# then runs tests. Each test clones from the migrated 'flightctl' database for isolation.
 integration-test:
 	@bash -euo pipefail -c '\
-	  trap "set +e; $(MAKE) -k kill-alertmanager kill-kv kill-db || true" EXIT; \
-	  echo "Using $(FLIGHTCTL_TEST_DB_STRATEGY) database strategy..."; \
-	  $(MAKE) deploy-db deploy-kv deploy-alertmanager; \
-	  $(MAKE) _wait_for_db; \
-	  sudo podman exec flightctl-db psql -U admin -d postgres -c "ALTER USER flightctl_app CREATEDB;"; \
-	  if [[ "$(FLIGHTCTL_TEST_DB_STRATEGY)" == "template" ]]; then \
-	    $(MAKE) _run_template_migration; \
-	  else \
-	    echo "Local strategy: skipping migration image — tests will run local migrations..."; \
-	  fi; \
+	  trap "set +e; if [ \"$${KEEP_INTEGRATION_STACK:-}\" != \"1\" ]; then $(MAKE) -C \"$(ROOT_DIR)\" stop-integration-services || true; fi" EXIT; \
+	  $(MAKE) -C "$(ROOT_DIR)" start-integration-services; \
 	  echo "##################################################"; \
-	  echo "Running integration tests: $(FLIGHTCTL_TEST_DB_STRATEGY)"; \
+	  echo "Running integration tests"; \
 	  echo "##################################################"; \
-	  $(MAKE) run-integration-test \
-	'
-
-_wait_for_db:
-	@echo "Waiting for database to be ready..."
-	@timeout --foreground 60s bash -euo pipefail -c '\
-	  while ! sudo podman exec flightctl-db psql -U admin -d postgres -c "SELECT 1" >/dev/null 2>&1; do \
-	    echo "  ...still waiting"; \
-	    sleep 2; \
-	  done' || { echo "ERROR: Database did not become ready within 60s"; exit 1; }
-
-_run_template_migration:
-	@MIGRATION_IMAGE="$(MIGRATION_IMAGE)" bash -euo pipefail -c '\
-	  echo "Template strategy: resolving migration image..."; \
-	  if [ -n "$$MIGRATION_IMAGE" ]; then \
-	    echo "##################################################"; \
-	    echo "Using provided migration image: $$MIGRATION_IMAGE"; \
-	    echo "##################################################"; \
-	    if ! sudo podman image exists "$$MIGRATION_IMAGE"; then \
-	      echo "Image not found locally; attempting to pull..."; \
-	      if ! sudo podman pull "$$MIGRATION_IMAGE"; then \
-	        echo "Error: failed to pull $$MIGRATION_IMAGE" >&2; exit 1; \
-	      fi; \
-	    fi; \
-	    img="$$MIGRATION_IMAGE"; \
-	  else \
-	    echo "##################################################"; \
-	    echo "No MIGRATION_IMAGE provided; building a fresh one ..."; \
-	    echo "##################################################"; \
-	    $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
-	    img="flightctl-db-setup:latest"; \
-	    if ! sudo podman image exists "$$img"; then \
-	      echo "Error: build did not produce $$img" >&2; exit 1; \
-	    fi; \
-	  fi; \
-	  echo "##################################################"; \
-	  echo "Running database migration & template creation using: $$img"; \
-	  echo "##################################################"; \
-	  sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
-    test/scripts/run_migration.sh \
+	  $(MAKE) -C "$(ROOT_DIR)" run-integration-test \
 	'
 
 # DEPRECATED: deploy-e2e-extras is no longer used
@@ -282,7 +264,7 @@ stop-aux:
 	go run ./cmd/aux-service stop all
 
 .PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-aux stop-aux
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight build-db-migrate start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing
 SCHEMATHESIS_IMAGE ?= flightctl-schemathesis:latest

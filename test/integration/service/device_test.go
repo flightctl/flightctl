@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -742,10 +743,11 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			var err error
 			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance; AfterEach clears keys for isolation.
 			if testKvStore == nil {
-				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, "localhost", 6379, "adminpass")
+				kvPassword := testutil.IntegrationRedisPassword()
+				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), kvPassword)
 				Expect(err).ToNot(HaveOccurred())
 				processID := fmt.Sprintf("get-rendered-device-test-%s", uuid.New().String())
-				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), kvPassword, queues.DefaultRetryConfig())
 				Expect(err).ToNot(HaveOccurred())
 				renderedInitErr = rendered.Bus.Initialize(suite.Ctx, testKvStore, queuesProvider, 10*time.Second, suite.Log)
 				Expect(renderedInitErr).ToNot(HaveOccurred())

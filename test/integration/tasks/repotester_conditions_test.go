@@ -18,12 +18,14 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 type MockRepoTester struct {
@@ -104,6 +106,7 @@ var _ = Describe("RepoTester", func() {
 		serviceHandler service.Service
 		cfg            *config.Config
 		dbName         string
+		db             *gorm.DB
 		repotestr      *tasks.RepoTester
 	)
 
@@ -112,12 +115,13 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		stores = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockQueueProducer(ctrl)
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient := worker_client.NewWorkerClient(publisher, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		repotestr = tasks.NewRepoTester(log, serviceHandler, func(repository *api.Repository) tasks.TypeSpecificRepoTester {
@@ -126,7 +130,8 @@ var _ = Describe("RepoTester", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, stores, dbName)
+		_ = stores.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	Context("Conditions", func() {

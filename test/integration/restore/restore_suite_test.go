@@ -22,7 +22,9 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -40,6 +42,8 @@ func TestRestore(t *testing.T) {
 
 var _ = SynchronizedBeforeSuite(func() []byte {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Restore Integration Suite")
+	// Ensure integration stack is running (containers + migrations)
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 	return nil
 }, func(_ []byte) {})
 
@@ -63,7 +67,8 @@ func (s *RestoreTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = testutil.InitLogsWithDebug()
 
-	s.Store, s.cfg, s.dbName, s.DB = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+	s.cfg, s.dbName, s.DB = testdb.CreateTestDB(s.Ctx, s.Log, "", store.InitDB)
+	s.Store = store.NewStore(s.DB, s.Log.WithField("pkg", "store"))
 	s.RestoreStore = restore.NewRestoreStore(s.DB)
 	s.OrgID = store.NullOrgId
 
@@ -87,7 +92,7 @@ func (s *RestoreTestSuite) Setup() {
 	workerClient := worker_client.NewWorkerClient(mockQueueProducer, s.Log)
 	mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
+	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 	Expect(err).ToNot(HaveOccurred())
 
 	testDirPath := GinkgoT().TempDir()
@@ -100,7 +105,8 @@ func (s *RestoreTestSuite) Setup() {
 
 // Teardown performs common cleanup for restore tests.
 func (s *RestoreTestSuite) Teardown() {
-	store.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.Store, s.dbName)
+	_ = s.Store.Close()
+	testdb.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.DB, s.dbName)
 	if s.ctrl != nil {
 		s.ctrl.Finish()
 	}

@@ -3,7 +3,6 @@ package imagebuilder_worker_test
 import (
 	"context"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -16,9 +15,10 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/service"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,6 +39,7 @@ func TestImageBuilderWorker(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutilpkg.InitSuiteTracerForGinkgo("Containerfile Generation Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 func newTestImageBuild(name string, bindingType string) api.ImageBuild {
@@ -119,18 +120,12 @@ var _ = Describe("Containerfile Generation", func() {
 		ctx = testutilpkg.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStoreInst, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
-
-		// Run imagebuilder-specific migrations only for local strategy
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := storeInst.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
 
 		// Setup CA for enrollment credential generation (needed for early binding)
 		testDirPath := GinkgoT().TempDir()
@@ -148,7 +143,8 @@ var _ = Describe("Containerfile Generation", func() {
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStoreInst, dbName)
+		_ = mainStoreInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	Context("Late binding containerfile generation", func() {

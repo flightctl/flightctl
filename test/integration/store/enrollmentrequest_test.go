@@ -13,11 +13,13 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("enrollmentRequestStore create", func() {
@@ -28,6 +30,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		storeInst             store.Store
 		cfg                   *config.Config
 		dbName                string
+		db                    *gorm.DB
 		numEnrollmentRequests int
 	)
 
@@ -35,7 +38,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 
 		orgId = uuid.New()
 		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
@@ -45,7 +49,8 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {

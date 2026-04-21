@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -24,6 +25,7 @@ func TestStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("KVstore Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("FleetSelector", func() {
@@ -39,7 +41,7 @@ var _ = Describe("FleetSelector", func() {
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		var err error
-		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 	})
 

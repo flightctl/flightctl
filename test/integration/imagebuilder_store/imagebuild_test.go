@@ -2,7 +2,6 @@ package imagebuilder_store_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -12,10 +11,11 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,6 +35,7 @@ func TestImageBuilderStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutilpkg.InitSuiteTracerForGinkgo("ImageBuilder Store Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 func newTestImageBuild(name string) *api.ImageBuild {
@@ -75,19 +76,12 @@ var _ = Describe("ImageBuildStore", func() {
 		ctx = testutilpkg.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStoreInst, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
-
-		// Run imagebuilder-specific migrations only for local strategy
-		// Template strategy already has imagebuilder tables from flightctl-db-migrate
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := storeInst.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
 
 		// Create test organization (required for foreign key constraint)
 		orgId = uuid.New()
@@ -96,7 +90,8 @@ var _ = Describe("ImageBuildStore", func() {
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStoreInst, dbName)
+		_ = mainStoreInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	Context("Create", func() {

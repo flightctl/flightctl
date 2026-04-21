@@ -13,17 +13,26 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
 
+var suiteCtx context.Context
+
 func TestAuthConfigIntegration(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Auth Integration Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = util.InitSuiteTracerForGinkgo("Auth Integration Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+})
 
 var _ = Describe("Auth Config Integration Tests", func() {
 	var (
@@ -37,7 +46,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		log := util.InitLogsWithDebug()
 
 		// Setup test database and service handler
-		testStore, _, _, _ := store.PrepareDBForUnitTests(ctx, log)
+		_, _, db := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		testStore := store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Add admin identity to context for auth provider operations
 		testOrg := &model.Organization{

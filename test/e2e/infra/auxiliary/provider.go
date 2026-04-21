@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -32,48 +32,23 @@ func ShutdownAll(ctx context.Context) {
 	globalContainers = nil
 }
 
-// GetProviderType returns the testcontainers provider type (Podman).
+// GetProviderType returns the testcontainers provider type based on the detected runtime.
 func GetProviderType() testcontainers.ProviderType {
-	return testcontainers.ProviderPodman
+	return containers.GetProviderType()
 }
 
-// ContainerRequestOption modifies a container request.
-type ContainerRequestOption func(*testcontainers.ContainerRequest)
+// ContainerRequestOption is an alias for the shared containers package option type.
+type ContainerRequestOption = containers.ContainerRequestOption
 
 // WithNetwork sets the container network.
-func WithNetwork(network string) ContainerRequestOption {
-	return func(req *testcontainers.ContainerRequest) {
-		if network != "" && network != "host" {
-			req.Networks = []string{network}
-		}
-		if network == "host" {
-			req.NetworkMode = "host"
-		}
-	}
-}
+var WithNetwork = containers.WithNetwork
 
 // WithHostAccess adds host.containers.internal for Podman.
-func WithHostAccess() ContainerRequestOption {
-	return func(req *testcontainers.ContainerRequest) {
-		if isPodman() {
-			req.HostConfigModifier = func(hc *container.HostConfig) {
-				hc.ExtraHosts = append(hc.ExtraHosts, "host.containers.internal:host-gateway")
-			}
-		}
-	}
-}
+var WithHostAccess = containers.WithHostAccess
 
 // CreateContainer creates and starts a container, registering it for cleanup.
 func CreateContainer(ctx context.Context, req testcontainers.ContainerRequest, reuse bool, opts ...ContainerRequestOption) (testcontainers.Container, error) {
-	for _, opt := range opts {
-		opt(&req)
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ProviderType:     GetProviderType(),
-		ContainerRequest: req,
-		Started:          true,
-		Reuse:            reuse,
-	})
+	c, err := containers.GenericStart(ctx, req, reuse, opts...)
 	if err != nil {
 		return nil, err
 	}

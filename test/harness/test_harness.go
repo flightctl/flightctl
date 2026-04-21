@@ -31,7 +31,9 @@ import (
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	"go.uber.org/mock/gomock"
@@ -156,15 +158,18 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness failed adding mock route table: %w", err)
 	}
 
+	if err := integrationstack.EnsureRunning(ctx); err != nil {
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
+	}
+
 	serverCfg := *config.NewDefault()
+	testdb.ApplyIntegrationConnectionOverrides(&serverCfg)
 	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
-	// create store
-	store, dbName, err := testutil.NewTestStore(ctx, serverCfg, serverLog)
-	if err != nil {
-		return nil, fmt.Errorf("NewTestHarness: %w", err)
-	}
+	// create store using template cloning (faster than running migrations)
+	_, dbName, db := testdb.CreateTestDB(ctx, serverLog, "", store.InitDB)
+	storeInst := store.NewStore(db, serverLog.WithField("pkg", "store"))
 	serverCfg.Database.Name = dbName
 
 	// create certs
@@ -199,7 +204,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	// create server
-	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, storeInst, ca, serverCerts, provider)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -207,9 +212,9 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient, nil)
+	workerServer := workerserver.New(&serverCfg, serverLog, storeInst, provider, mockK8sClient, nil)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, store, ca, serverCerts, provider)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, storeInst, ca, serverCerts, provider)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -287,7 +292,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		cancelCtx:             cancel,
 		Server:                apiServer,
 		Client:                client,
-		Store:                 &store,
+		Store:                 &storeInst,
 		KVStore:               kvStore,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
@@ -310,7 +315,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
-	testHarness.ServiceHandler = service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{}, testHarness.vulnerabilityEnabled)
+	testHarness.ServiceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, ca, serverLog, "", "", []string{}, testHarness.vulnerabilityEnabled)
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {

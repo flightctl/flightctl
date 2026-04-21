@@ -19,12 +19,15 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
+	"gorm.io/gorm"
 )
 
 var suiteCtx context.Context
@@ -80,6 +83,7 @@ func TestStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Periodic Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("Periodic", func() {
@@ -92,6 +96,7 @@ var _ = Describe("Periodic", func() {
 		storeInst                store.Store
 		cfg                      *config.Config
 		dbName                   string
+		db                       *gorm.DB
 		workerClient             worker_client.WorkerClient
 		orgId                    uuid.UUID
 		publisherConfig          periodic.PeriodicTaskPublisherConfig
@@ -112,7 +117,8 @@ var _ = Describe("Periodic", func() {
 		log = flightlog.InitLogs()
 
 		// Setup database and store
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Grab default org id from the database
 		orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
@@ -124,11 +130,11 @@ var _ = Describe("Periodic", func() {
 		}
 
 		processID := fmt.Sprintf("periodic-test-%s", uuid.New().String())
-		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, "adminpass", queues.DefaultRetryConfig())
+		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword(), queues.DefaultRetryConfig())
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup kvStore for test
-		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 
 		queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
@@ -183,7 +189,8 @@ var _ = Describe("Periodic", func() {
 		}
 
 		// Clean up database
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 
 		// Clean up channel manager
 		if channelManager != nil {

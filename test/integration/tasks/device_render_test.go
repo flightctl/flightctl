@@ -19,6 +19,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -118,7 +119,8 @@ var _ = Describe("DeviceRender", func() {
 		fleetName = "myfleet"
 		deviceName = "mydevice"
 		repoName = "contents"
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -128,7 +130,7 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		var err error
-		kvStoreInst, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStoreInst, err = kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
 
@@ -136,7 +138,7 @@ var _ = Describe("DeviceRender", func() {
 		// Only initialize once (singleton pattern), subsequent calls are no-ops
 		if queuesProvider == nil {
 			processID := fmt.Sprintf("device-render-test-%s", uuid.New().String())
-			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword(), queues.DefaultRetryConfig())
 			Expect(err).ToNot(HaveOccurred())
 			err = rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)
 			Expect(err).ToNot(HaveOccurred())
@@ -151,7 +153,8 @@ var _ = Describe("DeviceRender", func() {
 			_ = kvStoreInst.DeleteAllKeys(ctx)
 		}
 
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 		ctrl.Finish()
 	})
 

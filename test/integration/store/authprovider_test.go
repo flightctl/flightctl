@@ -11,11 +11,13 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("AuthProviderStore", func() {
@@ -27,6 +29,7 @@ var _ = Describe("AuthProviderStore", func() {
 		authStore store.AuthProvider
 		cfg       *config.Config
 		dbName    string
+		db        *gorm.DB
 		called    bool
 		callback  store.EventCallback
 	)
@@ -34,7 +37,8 @@ var _ = Describe("AuthProviderStore", func() {
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		authStore = storeInst.AuthProvider()
 		called = false
 		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -47,7 +51,8 @@ var _ = Describe("AuthProviderStore", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	// Helper function to create a test auth provider

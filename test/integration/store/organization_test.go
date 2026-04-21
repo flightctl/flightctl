@@ -11,10 +11,12 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("OrganizationStore Integration Tests", func() {
@@ -24,16 +26,19 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 		storeInst store.Store
 		cfg       *config.Config
 		dbName    string
+		db        *gorm.DB
 	)
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 	})
 
 	Context("Organization Store", func() {
@@ -242,35 +247,13 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 			freshLog := flightlog.InitLogs()
 
-			// Use testutil directly to create a fresh database without migrations
-			freshCfg := config.NewDefault()
-			freshDbName := "test_org_race_" + uuid.New().String()[:8]
-			freshCfg.Database.Name = "flightctl"
-			adminDB, err := store.InitDB(freshCfg, freshLog)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Create the test database
-			err = adminDB.Exec("CREATE DATABASE " + freshDbName).Error
-			Expect(err).ToNot(HaveOccurred())
-			store.CloseDB(adminDB)
-
-			// Connect to the fresh database
-			freshCfg.Database.Name = freshDbName
-			freshGormDb, err := store.InitDB(freshCfg, freshLog)
-			Expect(err).ToNot(HaveOccurred())
-
-			defer func() {
-				store.CloseDB(freshGormDb)
-				freshCfg.Database.Name = "flightctl"
-				adminDB, _ := store.InitDB(freshCfg, freshLog)
-				if adminDB != nil {
-					adminDB.Exec("DROP DATABASE IF EXISTS " + freshDbName)
-					store.CloseDB(adminDB)
-				}
-			}()
+			// Create an empty test database (no template, no migrations)
+			freshCfg, freshDbName, freshGormDb := testdb.CreateEmptyTestDB(freshCtx, freshLog, "test_org_race_", store.InitDB)
+			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
 
 			// Manually create the organizations table structure WITHOUT running InitialMigration
 			db := freshGormDb.WithContext(freshCtx)
+			var err error
 			err = db.AutoMigrate(&model.Organization{})
 			Expect(err).ToNot(HaveOccurred())
 
