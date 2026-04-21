@@ -1,0 +1,240 @@
+openapi: 3.0.3
+info:
+  title: Trustify
+  description: Software Supply-Chain Security API (trimmed to analyze endpoint only)
+  license:
+    name: Apache License, Version 2.0
+    identifier: Apache-2.0
+  version: 0.4.12
+paths:
+  /api/v2/vulnerability/analyze:
+    post:
+      tags:
+      - vulnerability
+      summary: Analyze the provided purls for the known vulnerabilities
+      operationId: analyze
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalysisRequest'
+        required: true
+      responses:
+        '200':
+          description: Analyze the provided purls to search for known vulnerabilities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+components:
+  schemas:
+    AdvisoryHead:
+      type: object
+      required:
+      - uuid
+      - identifier
+      - document_id
+      - issuer
+      - published
+      - withdrawn
+      - title
+      - labels
+      properties:
+        document_id:
+          type: string
+          description: The identifier of the advisory, as provided by the document.
+        identifier:
+          type: string
+          description: The identifier of the advisory, as assigned by the issuing organization.
+        issuer:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/OrganizationSummary'
+          description: The issuer of the advisory, if known.
+        labels:
+          $ref: '#/components/schemas/Labels'
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+        published:
+          type: string
+          format: date-time
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        uuid:
+          type: string
+        withdrawn:
+          type: string
+          format: date-time
+          nullable: true
+    AnalysisAdvisory:
+      allOf:
+      - $ref: '#/components/schemas/AdvisoryHead'
+      - type: object
+        required:
+        - scores
+        properties:
+          scores:
+            type: array
+            items:
+              $ref: '#/components/schemas/Score'
+            description: CVSS scores
+    AnalysisDetails:
+      allOf:
+      - $ref: '#/components/schemas/VulnerabilityHead'
+      - type: object
+        required:
+        - status
+        properties:
+          status:
+            type: object
+            description: Map of status strings to advisories asserting that status.
+            additionalProperties:
+              type: array
+              items:
+                $ref: '#/components/schemas/AnalysisAdvisory'
+            propertyNames:
+              type: string
+    AnalysisRequest:
+      type: object
+      required:
+      - purls
+      properties:
+        purls:
+          type: array
+          items:
+            type: string
+    AnalysisResponse:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AnalysisResult'
+      propertyNames:
+        type: string
+    AnalysisResult:
+      type: object
+      required:
+      - details
+      - warnings
+      properties:
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisDetails'
+        warnings:
+          type: array
+          items:
+            type: string
+    Labels:
+      type: object
+      additionalProperties:
+        type: string
+    OrganizationHead:
+      type: object
+      description: An organization who may issue advisories.
+      required:
+      - id
+      - name
+      - cpe_key
+      - website
+      properties:
+        cpe_key:
+          type: string
+          nullable: true
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        website:
+          type: string
+          nullable: true
+    OrganizationSummary:
+      allOf:
+      - $ref: '#/components/schemas/OrganizationHead'
+    Score:
+      type: object
+      required:
+      - type
+      - value
+      - severity
+      properties:
+        severity:
+          $ref: '#/components/schemas/Severity'
+        type:
+          $ref: '#/components/schemas/ScoreType'
+        value:
+          type: number
+          format: double
+    ScoreType:
+      type: string
+      description: The type of score, indicating the scoring system and version used.
+      enum:
+      - '2.0'
+      - '3.0'
+      - '3.1'
+      - '4.0'
+    Severity:
+      type: string
+      description: Qualitative Severity Rating Scale (CVSS v3.1 Specification Section 5).
+      enum:
+      - none
+      - low
+      - medium
+      - high
+      - critical
+    VulnerabilityHead:
+      type: object
+      required:
+      - normative
+      - identifier
+      - title
+      - description
+      - reserved
+      - published
+      - modified
+      - withdrawn
+      - discovered
+      - released
+      - cwes
+      properties:
+        cwes:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+          nullable: true
+        discovered:
+          type: string
+          format: date-time
+          nullable: true
+        identifier:
+          type: string
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+        normative:
+          type: boolean
+        published:
+          type: string
+          format: date-time
+          nullable: true
+        released:
+          type: string
+          format: date-time
+          nullable: true
+        reserved:
+          type: string
+          format: date-time
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        withdrawn:
+          type: string
+          format: date-time
+          nullable: true
