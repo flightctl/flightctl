@@ -19,6 +19,14 @@ Flight Control automatically generates alerts for the following conditions:
 - **Device Disconnected**: Triggered when a device loses connection to Flight Control
 - **Device Connected**: Automatically resolves disconnection alerts when devices reconnect
 
+### Bootc timer compliance alerts
+
+- **`DeviceBootcTimerNonCompliant`**: Triggered when the bootc automatic update timer is not properly masked on a bootc-based device, which could allow unmanaged OS updates
+- **`DeviceBootcTimerCompliant`**: Automatically resolves bootc timer alerts when the timer becomes properly masked
+
+> [!NOTE]
+> On bootc-based systems, the bootc automatic update timer (`bootc-fetch-apply-updates.timer`) should be masked to prevent conflicts with managed OS updates. The agent automatically masks this timer during installation, but this alert will trigger if the timer becomes unmasked.
+
 ### Resource Usage Alerts
 
 - **CPU Alerts**:

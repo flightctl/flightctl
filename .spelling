@@ -456,6 +456,7 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
+unmanaged
  - docs/user/installing/deploying-observability-linux.md
 UserInfo
 Pre-configured
