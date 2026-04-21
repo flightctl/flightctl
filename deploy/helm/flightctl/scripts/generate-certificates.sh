@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Default values
 CERT_DIR=""
+GATEWAY_SANS=()
 API_SANS=()
 TELEMETRY_SANS=()
 ALERTMANAGER_PROXY_SANS=()
@@ -26,6 +27,7 @@ Required:
   --cert-dir <dir>              Directory to store certificates
 
 Optional:
+  --gateway-san <dns>           DNS SAN for flightctl-gateway (can be specified multiple times)
   --api-san <dns>               DNS SAN for flightctl-api (can be specified multiple times)
   --telemetry-san <dns>         DNS SAN for telemetry-gateway (can be specified multiple times)
   --alertmanager-proxy-san <dns> DNS SAN for alertmanager-proxy (can be specified multiple times)
@@ -48,6 +50,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --cert-dir)
             CERT_DIR="$2"
+            shift 2
+            ;;
+        --gateway-san)
+            GATEWAY_SANS+=("$2")
             shift 2
             ;;
         --api-san)
@@ -277,7 +283,7 @@ generate_server_cert() {
 
     # Generate private key (ECDSA P-256)
     openssl ecparam -name prime256v1 -genkey -noout -out "$key_path"
-    chmod 600 "$key_path"
+    chmod 640 "$key_path"
 
     # Generate CSR
     openssl req -new -sha256 -key "$key_path" -out "$csr_path" -subj "/CN=$cn"
@@ -372,22 +378,37 @@ else
 fi
 
 # PAM Issuer Token Signer CA (intermediate CA signed by Flight Control CA)
-if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
-    mkdir -p "$CERT_DIR/flightctl-pam-issuer"
+mkdir -p "$CERT_DIR/flightctl-pam-issuer"
 
-    PAM_ISSUER_TOKEN_SIGNER_CA_KEY="$CERT_DIR/flightctl-pam-issuer/token-signer.key"
-    PAM_ISSUER_TOKEN_SIGNER_CA_CERT="$CERT_DIR/flightctl-pam-issuer/token-signer.crt"
+PAM_ISSUER_TOKEN_SIGNER_CA_KEY="$CERT_DIR/flightctl-pam-issuer/token-signer.key"
+PAM_ISSUER_TOKEN_SIGNER_CA_CERT="$CERT_DIR/flightctl-pam-issuer/token-signer.crt"
 
-    if [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" ]] && [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" ]]; then
-        echo "Skipped generation of PAM Issuer Token Signer CA certificate (already exists)"
-    else
-        generate_intermediate_ca "flightctl-pam-issuer-token-signer-ca" \
-            "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" \
-            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
-        echo "Generated PAM Issuer Token Signer CA certificate (10 years, ECDSA P-256)"
-    fi
+if [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" ]] && [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" ]]; then
+    echo "Skipped generation of PAM Issuer Token Signer CA certificate (already exists)"
 else
-    echo "Skipped generation of PAM Issuer Token Signer CA certificate (no PAM Issuer SANs specified)"
+    generate_intermediate_ca "flightctl-pam-issuer-token-signer-ca" \
+        "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" \
+        "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
+    echo "Generated PAM Issuer Token Signer CA certificate (10 years, ECDSA P-256)"
+fi
+
+if [[ ${#GATEWAY_SANS[@]} -gt 0 ]]; then
+  mkdir -p "$CERT_DIR/flightctl-gateway"
+
+  GATEWAY_SERVER_KEY="$CERT_DIR/flightctl-gateway/server.key"
+  GATEWAY_SERVER_CERT="$CERT_DIR/flightctl-gateway/server.crt"
+
+  if [[ -f "$GATEWAY_SERVER_CERT" ]] && [[ -f "$GATEWAY_SERVER_KEY" ]]; then
+      echo "Skipped generation of Gateway Server TLS certificate (already exists)"
+  else
+      generate_server_cert "flightctl-gateway" \
+          "$GATEWAY_SERVER_KEY" "$GATEWAY_SERVER_CERT" \
+          "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+          "${GATEWAY_SANS[@]}"
+      echo "Generated Gateway Server TLS certificate (2 years, ECDSA P-256)"
+  fi
+else
+  echo "Skipped generation of Gateway Server TLS certificate (no Gateway SANs specified)"
 fi
 
 # API Server TLS certificate

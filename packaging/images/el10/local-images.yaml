@@ -22,6 +22,9 @@ pam-issuer:
 db-setup:
   image: flightctl-db-setup-el10
   tag: latest
+gateway:
+  image: quay.io/sclorg/nginx-126-c10s
+  tag: "20260421"
 ui:
   # UI images are built from flightctl-ui repo
   image: quay.io/flightctl/flightctl-ui-el10

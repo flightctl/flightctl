@@ -44,14 +44,6 @@ if ! [[ "$base_domain" =~ ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z]([-a-z0-9]*[a-
     exit 1
 fi
 
-# Build SAN arrays for each certificate type
-# SANs include:
-#  * External DNS names (based on baseDomain)
-#  * System hostnames (short and FQDN)
-#  * Podman service names
-#  * Loopback address
-#  * All host IP addresses
-
 # API certificate SANs
 api_sans=(
     "api.$base_domain"
@@ -75,60 +67,15 @@ telemetry_sans=(
 )
 telemetry_sans+=("${host_ips[@]}")
 
-# Alert Manager Proxy certificate SANs
-alertmanager_proxy_sans=(
-    "alertmanager-proxy.$base_domain"
+# Gateway certificate SANs
+gateway_sans=(
     "$base_domain"
     "$hostname_short"
     "$hostname_fqdn"
-    "flightctl-alertmanager-proxy"
+    "flightctl-gateway"
     "localhost"
 )
-alertmanager_proxy_sans+=("${host_ips[@]}")
-
-# PAM Issuer certificate SANs
-pam_issuer_sans=(
-    "pam-issuer.$base_domain"
-    "$base_domain"
-    "$hostname_short"
-    "$hostname_fqdn"
-    "flightctl-pam-issuer"
-    "localhost"
-)
-pam_issuer_sans+=("${host_ips[@]}")
-
-# UI certificate SANs
-ui_sans=(
-    "ui.$base_domain"
-    "$base_domain"
-    "$hostname_short"
-    "$hostname_fqdn"
-    "flightctl-ui"
-    "localhost"
-)
-ui_sans+=("${host_ips[@]}")
-
-# CLI Artifacts certificate SANs
-cli_artifacts_sans=(
-    "cli-artifacts.$base_domain"
-    "$base_domain"
-    "$hostname_short"
-    "$hostname_fqdn"
-    "flightctl-cli-artifacts"
-    "localhost"
-)
-cli_artifacts_sans+=("${host_ips[@]}")
-
-# ImageBuilder API certificate SANs
-imagebuilder_api_sans=(
-    "imagebuilder-api.$base_domain"
-    "$base_domain"
-    "$hostname_short"
-    "$hostname_fqdn"
-    "flightctl-imagebuilder-api"
-    "localhost"
-)
-imagebuilder_api_sans+=("${host_ips[@]}")
+gateway_sans+=("${host_ips[@]}")
 
 # Prometheus certificate SANs
 prometheus_sans=(
@@ -152,17 +99,6 @@ grafana_sans=(
 )
 grafana_sans+=("${host_ips[@]}")
 
-# UserInfo Proxy certificate SANs
-userinfo_proxy_sans=(
-    "userinfo-proxy.$base_domain"
-    "$base_domain"
-    "$hostname_short"
-    "$hostname_fqdn"
-    "flightctl-userinfo-proxy"
-    "localhost"
-)
-userinfo_proxy_sans+=("${host_ips[@]}")
-
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -174,24 +110,8 @@ for san in "${telemetry_sans[@]}"; do
     cert_gen_args+=("--telemetry-san" "$san")
 done
 
-for san in "${alertmanager_proxy_sans[@]}"; do
-    cert_gen_args+=("--alertmanager-proxy-san" "$san")
-done
-
-for san in "${pam_issuer_sans[@]}"; do
-    cert_gen_args+=("--pam-issuer-san" "$san")
-done
-
-for san in "${ui_sans[@]}"; do
-    cert_gen_args+=("--ui-san" "$san")
-done
-
-for san in "${cli_artifacts_sans[@]}"; do
-    cert_gen_args+=("--cli-artifacts-san" "$san")
-done
-
-for san in "${imagebuilder_api_sans[@]}"; do
-    cert_gen_args+=("--imagebuilder-api-san" "$san")
+for san in "${gateway_sans[@]}"; do
+    cert_gen_args+=("--gateway-san" "$san")
 done
 
 for san in "${prometheus_sans[@]}"; do
@@ -200,10 +120,6 @@ done
 
 for san in "${grafana_sans[@]}"; do
     cert_gen_args+=("--grafana-san" "$san")
-done
-
-for san in "${userinfo_proxy_sans[@]}"; do
-    cert_gen_args+=("--userinfo-proxy-san" "$san")
 done
 
 # Generate certificates
