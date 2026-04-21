@@ -494,20 +494,18 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 # Disable bootc automatic updates on bootc systems (automatically managed updates)
 # This masks the timer with a fallback when building in an env without an active systemd.
-if [ -f /usr/lib/systemd/system/bootc-fetch-apply-updates.timer ]; then
-    if ! systemctl mask bootc-fetch-apply-updates.timer 2>/dev/null; then
-        # systemctl not available (e.g., during container image build), create mask manually
-        mkdir -p /etc/systemd/system
-        ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
-    fi
+# Always create the mask - bootc images will have the timer, non-bootc images won't care.
+if ! systemctl mask bootc-fetch-apply-updates.timer 2>/dev/null; then
+    # systemctl not available (e.g., during container image build), create mask manually
+    mkdir -p /etc/systemd/system
+    ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
 fi
 
 %postun agent
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
-    if [ -f /usr/lib/systemd/system/bootc-fetch-apply-updates.timer ]; then
-        systemctl unmask bootc-fetch-apply-updates.timer || rm -f /etc/systemd/system/bootc-fetch-apply-updates.timer
-    fi
+    # Try to unmask the timer if it exists, or just remove the symlink
+    systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || rm -f /etc/systemd/system/bootc-fetch-apply-updates.timer
     loginctl disable-linger flightctl || :
 fi
 
