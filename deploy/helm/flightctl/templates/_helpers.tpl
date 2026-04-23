@@ -261,6 +261,10 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getInternalAlertManagerProxyUrl" }}
+  {{- print "https://flightctl-alertmanager-proxy:8443"}}
+{{- end }}
+
 {{- define "flightctl.getAlertManagerProxyUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
