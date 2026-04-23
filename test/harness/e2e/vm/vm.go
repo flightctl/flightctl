@@ -192,7 +192,7 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
-	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
+	args := []string{"sudo", "TZ=UTC", "journalctl", "--no-pager", "--no-hostname"}
 
 	if opts.Unit != "" {
 		args = append(args, "-u", opts.Unit)
@@ -205,7 +205,11 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 	}
 
 	if opts.Since != "" {
-		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
+		since := opts.Since
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			since = t.UTC().Format("2006-01-02 15:04:05")
+		}
+		args = append(args, "--since", fmt.Sprintf("%q", since))
 	}
 
 	logrus.Debugf("Reading journal logs with command: %s", strings.Join(args, " "))
