@@ -500,6 +500,7 @@ systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
     systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
+    systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
     loginctl disable-linger flightctl || :
 fi
 
