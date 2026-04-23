@@ -1228,9 +1228,9 @@ components:
               example: edge-apps
           required:
             - catalog
-          additionalProperties: false
-      # Note: additionalProperties: false moved to the second allOf branch to only apply to the new properties,
-      # not the entire composed schema which would reject valid ObjectMeta fields
+      # Note: No additionalProperties: false here because this schema is used in allOf compositions
+      # with ObjectMeta. Setting additionalProperties: false would prevent the composition from working
+      # properly and would reject valid ObjectMeta fields like name, labels, annotations, etc.
     CatalogItem:
       type: object
       description: CatalogItem represents an application template from a catalog. It provides default configuration values that can be customized when adding the application to a fleet.
