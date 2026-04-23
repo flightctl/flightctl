@@ -10,7 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -34,6 +36,7 @@ const (
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
 	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
+	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 )
 
 type PeriodicTaskMetadata struct {
@@ -49,6 +52,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
+	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -59,15 +63,23 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 		merged[k] = v
 	}
 
-	if cfg == nil || cfg.Periodic == nil {
+	if cfg == nil {
 		return merged
 	}
 
-	tasks := cfg.Periodic.Tasks
-	if tasks.ResourceSync.Schedule.Interval > 0 {
-		meta := merged[PeriodicTaskTypeResourceSync]
-		meta.Interval = time.Duration(tasks.ResourceSync.Schedule.Interval)
-		merged[PeriodicTaskTypeResourceSync] = meta
+	if cfg.Periodic != nil {
+		periodicTasks := cfg.Periodic.Tasks
+		if periodicTasks.ResourceSync.Schedule.Interval > 0 {
+			meta := merged[PeriodicTaskTypeResourceSync]
+			meta.Interval = time.Duration(periodicTasks.ResourceSync.Schedule.Interval)
+			merged[PeriodicTaskTypeResourceSync] = meta
+		}
+	}
+
+	if cfg.Vulnerability != nil && cfg.Vulnerability.SyncInterval > 0 {
+		meta := merged[PeriodicTaskTypeVulnerabilitySync]
+		meta.Interval = time.Duration(cfg.Vulnerability.SyncInterval)
+		merged[PeriodicTaskTypeVulnerabilitySync] = meta
 	}
 
 	return merged
@@ -185,8 +197,20 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 	}
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
-	return map[PeriodicTaskType]PeriodicTaskExecutor{
+type VulnerabilitySyncExecutor struct {
+	log          logrus.FieldLogger
+	vulnClient   trustifyv2.VulnerabilityClient
+	findingStore store.VulnerabilityFinding
+}
+
+func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore)
+	vulnSync.Poll(taskCtx)
+}
+
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient) map[PeriodicTaskType]PeriodicTaskExecutor {
+	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
 			serviceHandler: serviceHandler,
@@ -221,4 +245,14 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			workerMetrics:  workerMetrics,
 		},
 	}
+
+	if cfg.Vulnerability != nil && cfg.Vulnerability.Enabled && vulnClient != nil && findingStore != nil {
+		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
+			log:          log.WithField("pkg", "vulnerability-sync"),
+			vulnClient:   vulnClient,
+			findingStore: findingStore,
+		}
+	}
+
+	return executors
 }

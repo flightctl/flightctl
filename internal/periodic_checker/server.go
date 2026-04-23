@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -84,8 +85,23 @@ func (s *Server) Run(ctx context.Context) error {
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
+	var vulnClient trustifyv2.VulnerabilityClient
+	if s.cfg.Vulnerability != nil && s.cfg.Vulnerability.Enabled {
+		if s.cfg.Vulnerability.Trustify == nil {
+			s.log.Warn("Vulnerability syncing is enabled but Trustify config is missing; vulnerability-sync executor will be skipped")
+		} else {
+			var err error
+			vulnClient, err = trustifyv2.NewVulnerabilityClient(ctx, s.cfg.Vulnerability.Trustify)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to initialize Trustify client, vulnerability sync will be disabled")
+			}
+		}
+	} else {
+		s.log.Debug("Vulnerability syncing is disabled")
+	}
+
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
