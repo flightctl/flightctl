@@ -154,10 +154,10 @@ redhat-el10:
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: 10.7-1766414426
+      tag: 10.1-1776906601
     kv:
       image: registry.redhat.io/rhel10/valkey-8
-      tag: 10.7-1766414358
+      tag: 10.1-1776907598
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
       tag: v2.15.0-1
