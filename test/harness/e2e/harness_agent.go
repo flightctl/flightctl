@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -23,6 +24,18 @@ const agentConfigPath = "/etc/flightctl/config.yaml"
 
 func vmShellCommandArgs(command string) []string {
 	return []string{"bash -lc " + strconv.Quote(command)}
+}
+
+// RunScriptOnVM executes a bash script on the VM without relying on direct shell quoting
+// of the full script body.
+func (h *Harness) RunScriptOnVM(script string) (*bytes.Buffer, error) {
+	if h == nil {
+		return nil, fmt.Errorf("harness is nil")
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(script))
+	remote := "printf %s " + strconv.Quote(encoded) + " | base64 -d | sudo bash"
+	return h.VM.RunSSH(vmShellCommandArgs(remote), nil)
 }
 
 // StartFlightCtlAgent starts the flightctl-agent service
@@ -48,6 +61,43 @@ func (h *Harness) RestartFlightCtlAgent() error {
 	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to restart flightctl-agent: %w", err)
+	}
+	return nil
+}
+
+// CopyAgentFile copies a file on the VM using sudo cp.
+func (h *Harness) CopyAgentFile(sourcePath, destinationPath string) error {
+	if strings.TrimSpace(sourcePath) == "" || strings.TrimSpace(destinationPath) == "" {
+		return fmt.Errorf("source and destination paths must be non-empty")
+	}
+	_, err := h.VM.RunSSH([]string{"sudo", "cp", sourcePath, destinationPath}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to copy %s to %s: %w", sourcePath, destinationPath, err)
+	}
+	return nil
+}
+
+// RemoveAgentFile removes a file on the VM using sudo rm -f.
+func (h *Harness) RemoveAgentFile(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("path must be non-empty")
+	}
+	_, err := h.VM.RunSSH([]string{"sudo", "rm", "-f", path}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to remove file %s: %w", path, err)
+	}
+	return nil
+}
+
+// WriteAgentFile writes content to a file on the VM while suppressing payload echo in stdout.
+func (h *Harness) WriteAgentFile(path, content string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("path must be non-empty")
+	}
+	command := fmt.Sprintf("sudo tee %s >/dev/null", strconv.Quote(path))
+	_, err := h.VM.RunSSH(vmShellCommandArgs(command), bytes.NewBufferString(content))
+	if err != nil {
+		return fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 	return nil
 }
@@ -335,29 +385,27 @@ func (h *Harness) GetAgentMetricValue(metricName string) (string, error) {
 	return ParseMetricValue(metricsOutput, metricName), nil
 }
 
-// GetAPIEndpointFromVM extracts the API server IP and port from the agent
-// config file on the VM (/etc/flightctl/config.yaml).
-func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
+func (h *Harness) getAPIEndpointAddressFromVM() (host string, ip string, port string, err error) {
 	output, err := h.VM.RunSSH([]string{"sudo", "cat", "/etc/flightctl/config.yaml"}, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read agent config: %w", err)
+		return "", "", "", fmt.Errorf("failed to read agent config: %w", err)
 	}
 
 	cfg := &agentcfg.Config{}
 	if err := yaml.Unmarshal(output.Bytes(), cfg); err != nil {
-		return "", "", fmt.Errorf("failed to parse agent config YAML: %w", err)
+		return "", "", "", fmt.Errorf("failed to parse agent config YAML: %w", err)
 	}
 	serverURL := cfg.ManagementService.Service.Server
 	if serverURL == "" {
 		serverURL = cfg.EnrollmentService.Service.Server
 	}
 	if serverURL == "" {
-		return "", "", fmt.Errorf("server URL not found in agent config")
+		return "", "", "", fmt.Errorf("server URL not found in agent config")
 	}
 
 	parsed, err := url.Parse(serverURL)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to parse server URL %q: %w", serverURL, err)
+		return "", "", "", fmt.Errorf("failed to parse server URL %q: %w", serverURL, err)
 	}
 
 	hostname := parsed.Hostname()
@@ -370,6 +418,7 @@ func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
 		}
 	}
 
+	resolvedIP := hostname
 	// If hostname is not an IP, resolve it on the VM so iptables rules
 	// use the actual destination IP rather than relying on iptables DNS
 	// resolution which may differ from the Go HTTP client's resolution.
@@ -382,13 +431,26 @@ func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
 			if len(lines) > 0 {
 				fields := strings.Fields(lines[0])
 				if len(fields) > 0 && net.ParseIP(fields[0]) != nil {
-					hostname = fields[0]
+					resolvedIP = fields[0]
 				}
 			}
 		}
 	}
 
-	return hostname, p, nil
+	return hostname, resolvedIP, p, nil
+}
+
+// GetAPIEndpointFromVM extracts the resolved API server IP and port from the
+// agent config file on the VM (/etc/flightctl/config.yaml).
+func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
+	_, ip, port, err = h.getAPIEndpointAddressFromVM()
+	return ip, port, err
+}
+
+// GetAPIEndpointHostIPPortFromVM extracts both the configured API hostname and
+// the resolved destination IP plus port from the agent config file on the VM.
+func (h *Harness) GetAPIEndpointHostIPPortFromVM() (host string, ip string, port string, err error) {
+	return h.getAPIEndpointAddressFromVM()
 }
 
 // BlockTrafficOnVM adds an iptables/ip6tables rule on the VM to reject TCP traffic to the
