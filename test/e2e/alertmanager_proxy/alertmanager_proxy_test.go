@@ -193,18 +193,58 @@ var _ = Describe("Alertmanager proxy", func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to start proxy service access")
 		defer cleanup()
 
-		clusterToken, _, err := login.LoginToEnv(testHarness, nonAdminUser, nonAdminPassword, "")
-		if err != nil {
-			Skip(fmt.Sprintf("unable to login as non-admin user %q for authz-denied test: %v", nonAdminUser, err))
+		testID := testHarness.GetTestIDFromContext()
+		testIDSuffix := testID
+		if len(testIDSuffix) >= 8 {
+			testIDSuffix = testIDSuffix[:8]
 		}
-		err = login.LoginToFlightctl(testHarness, clusterToken)
-		Expect(err).ToNot(HaveOccurred(), "failed to log non-admin user into flightctl")
-		DeferCleanup(restoreAdminLoginForTest, testHarness)
+		if strings.TrimSpace(testIDSuffix) == "" {
+			testIDSuffix = "default"
+		}
+		testOrgName := fmt.Sprintf("alertproxy-%s", testIDSuffix)
+		rbac := testProviders.RBAC
+		Expect(rbac).ToNot(BeNil(), "RBAC provider should be available for authz-denied flow")
+		Expect(rbac.CreateOrganization(testHarness.Context, testOrgName)).To(Succeed(), "failed to create temporary organization for non-admin user")
+		Expect(rbac.AddUserToOrg(testHarness.Context, testOrgName, nonAdminUser)).To(Succeed(), "failed to grant non-admin user organization access")
 
-		orgID, err := testHarness.GetOrganizationID()
-		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
+		DeferCleanup(func() error {
+			restoreErr := restoreAdminLoginForTest(testHarness)
+			deleteErr := rbac.DeleteOrganization(testHarness.Context, testOrgName)
+			if restoreErr != nil && deleteErr != nil {
+				return fmt.Errorf("failed to restore admin login: %w; failed to delete organization %q: %v", restoreErr, testOrgName, deleteErr)
+			}
+			if restoreErr != nil {
+				return fmt.Errorf("failed to restore admin login: %w", restoreErr)
+			}
+			if deleteErr != nil {
+				return fmt.Errorf("failed to delete organization %q: %w", testOrgName, deleteErr)
+			}
+			return nil
+		})
+
+		var clusterToken string
+		var orgID string
+		Eventually(func() error {
+			token, _, loginErr := login.LoginToEnv(testHarness, nonAdminUser, nonAdminPassword, "")
+			if loginErr != nil {
+				return loginErr
+			}
+			if err := login.LoginToFlightctl(testHarness, token); err != nil {
+				return err
+			}
+			resolvedOrgID, err := testHarness.GetOrganizationIDForNamespace(testOrgName)
+			if err != nil {
+				return err
+			}
+			if err := testHarness.SetCurrentOrganization(resolvedOrgID); err != nil {
+				return err
+			}
+			clusterToken = token
+			orgID = resolvedOrgID
+			return nil
+		}, util.TIMEOUT, util.POLLING).Should(Succeed(), "failed to log non-admin user into flightctl")
+
 		Expect(orgID).ToNot(BeEmpty(), errOrgIDEmpty)
-
 		Expect(clusterToken).ToNot(BeEmpty(), "non-admin cluster token should not be empty")
 
 		alertsPath := buildAlertsFilterPath(orgID, "", "")
