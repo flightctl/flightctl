@@ -268,13 +268,16 @@ wait_for_vm_ips() {
     export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
     export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
 
-    # Try to get the IPs
     if [ -n "${INTERFACE_DEFAULT}" ]; then
       VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
     fi
 
     if [ -n "${INTERFACE_BM}" ]; then
-      VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+      if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+        VM_IP=$(sudo virsh domifaddr "${VM_NAME}" --interface "${INTERFACE_BM}" 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+      else
+        VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+      fi
     fi
 
     # Check if both VM's IPs are available
@@ -298,11 +301,11 @@ wait_for_vm_ips() {
 
 wait_for_ssh() {
   local ssh_timeout="${1:-${TIMEOUT_SECONDS}}"
-  echo "Waiting for SSH to be ready on ${VM_DEFAULT_IP} (timeout: ${ssh_timeout}s)..."
+  echo "Waiting for SSH to be ready on ${SSH_VM_TARGET} (timeout: ${ssh_timeout}s)..."
   ELAPSED=0
   while [ $ELAPSED -lt $ssh_timeout ]; do
     if ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o BatchMode=yes -o ConnectTimeout=5 ${USER}@${VM_DEFAULT_IP} "true" 2>/dev/null; then
+        -o BatchMode=yes -o ConnectTimeout=5 ${SSH_VM_TARGET} "true" 2>/dev/null; then
       echo "SSH is ready"
       return 0
     fi
@@ -312,22 +315,28 @@ wait_for_ssh() {
   echo "ERROR: SSH did not become ready within ${ssh_timeout} seconds"
   echo "VM state: $(virsh domstate ${VM_NAME} 2>/dev/null || echo 'unknown')"
   virsh domifaddr ${VM_NAME} 2>/dev/null || true
-  # Attempt SSH with verbose output for diagnostics
   ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-      -o BatchMode=yes -o ConnectTimeout=5 -v ${USER}@${VM_DEFAULT_IP} "true" 2>&1 || true
+      -o BatchMode=yes -o ConnectTimeout=5 -v ${SSH_VM_TARGET} "true" 2>&1 || true
   return 1
 }
 
 wait_for_vm_ips || exit 1
-wait_for_ssh || exit 1
 
 # Configure the VM
 echo "Provisioning the VM..."
 
+if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+  SSH_VM_TARGET="${USER}@${VM_IP}"
+else
+  SSH_VM_TARGET="${USER}@${VM_DEFAULT_IP}"
+fi
+
+wait_for_ssh || exit 1
+
 # Executing commands
 echo "Executing commands in the VM..."
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} bash -s <<'REMOTE_EOF'
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} bash -s <<'REMOTE_EOF'
 set -e
   # Install packages; retry on failure (e.g. baseos mirror/checksum).
   install_pkgs() {
@@ -354,7 +363,7 @@ set -e
   done
 REMOTE_EOF
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} <<EOF
   # Install OpenShift client
   echo "Installing OpenShift client..."
   curl https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux-amd64-rhel9.tar.gz | sudo tar xvz -C /usr/local/bin
@@ -398,5 +407,5 @@ if [ "${ENABLE_TPM_PASSTHROUGH}" = "true" ]; then
 fi
 
 # Greetings
-echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+echo "You can access the created VM with ssh ${SSH_VM_TARGET}"
 echo "VM creation and provisioning complete!"

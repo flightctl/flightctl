@@ -985,13 +985,30 @@ func (h *Harness) DeleteRepository(name string) error {
 	return err
 }
 
+// getIPTablesCommand returns the appropriate iptables command (iptables or ip6tables)
+// based on the IP version. Resolves hostnames and respects IPV6_ONLY environment variable.
+func getIPTablesCommand(host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
+			ip = ips[0]
+		}
+	}
+	if ip != nil && ip.To4() == nil {
+		return "ip6tables"
+	}
+	return "iptables"
+}
+
 func tcpNetworkTableRule(ip, port string, remove bool) []string {
 	flag := "-A" // Add rule
 	if remove {
 		flag = "-D" // Delete rule
 	}
 
-	rule := []string{"iptables", flag, "OUTPUT"}
+	iptablesCmd := getIPTablesCommand(ip)
+
+	rule := []string{iptablesCmd, flag, "OUTPUT"}
 
 	if ip != "" {
 		rule = append(rule, "-d", ip)
@@ -1007,7 +1024,8 @@ func tcpNetworkTableRule(ip, port string, remove bool) []string {
 }
 
 func buildIPTablesCmd(ip, port string, remove bool) []string {
-	return append([]string{"sudo"}, tcpNetworkTableRule(ip, port, remove)...)
+	rule := tcpNetworkTableRule(ip, port, remove)
+	return append([]string{"sudo"}, rule...)
 }
 
 // SimulateNetworkFailure blocks VM traffic to the given registry host:port via iptables.
@@ -1016,7 +1034,9 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 	if registryHost == "" || registryPort == "" {
 		return fmt.Errorf("registry host and port are required for network failure simulation")
 	}
-	blockCommands := [][]string{buildIPTablesCmd(registryHost, registryPort, false)}
+
+	blockCmd := buildIPTablesCmd(registryHost, registryPort, false)
+	blockCommands := [][]string{blockCmd}
 
 	for _, cmd := range blockCommands {
 		stdout, err := h.VM.RunSSH(cmd, nil)
@@ -1025,11 +1045,13 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 		}
 	}
 
-	stdout, err := h.VM.RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	// List iptables rules for debugging (use appropriate command based on IP version)
+	iptablesListCmd := getIPTablesCommand(registryHost)
+	stdout, err := h.VM.RunSSH([]string{"sudo", iptablesListCmd, "-L", "OUTPUT"}, nil)
 	if err != nil {
-		logrus.Warnf("Failed to list iptables rules: %v", err)
+		logrus.Warnf("Failed to list %s rules: %v", iptablesListCmd, err)
 	} else {
-		logrus.Debugf("Current iptables rules:\n%s", stdout.String())
+		logrus.Debugf("Current %s rules:\n%s", iptablesListCmd, stdout.String())
 	}
 
 	return nil
@@ -1039,6 +1061,7 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 // It returns a function that will only execute once to undo the iptables modification
 func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, error) {
 	args := tcpNetworkTableRule(ip, port, false)
+
 	_, err := h.SH("sudo", args...)
 	noop := func() error { return nil }
 	if err != nil {
@@ -1059,7 +1082,9 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 	if registryHost == "" || registryPort == "" {
 		return fmt.Errorf("registry host and port are required for network failure fix")
 	}
-	unblockCommands := [][]string{buildIPTablesCmd(registryHost, registryPort, true)}
+
+	unblockCmd := buildIPTablesCmd(registryHost, registryPort, true)
+	unblockCommands := [][]string{unblockCmd}
 
 	for _, cmd := range unblockCommands {
 		stdout, err := h.VM.RunSSH(cmd, nil)
@@ -1071,11 +1096,13 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 	// Clear any remaining DNS cache
 	_, _ = h.VM.RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
 
-	stdout, err := h.VM.RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	// List iptables rules for debugging (use appropriate command based on IP version)
+	iptablesListCmd := getIPTablesCommand(registryHost)
+	stdout, err := h.VM.RunSSH([]string{"sudo", iptablesListCmd, "-L", "OUTPUT"}, nil)
 	if err != nil {
-		logrus.Warnf("Failed to list iptables rules: %v", err)
+		logrus.Warnf("Failed to list %s rules: %v", iptablesListCmd, err)
 	} else {
-		logrus.Debugf("Current iptables rules after recovery:\n%s", stdout.String())
+		logrus.Debugf("Current %s rules after recovery:\n%s", iptablesListCmd, stdout.String())
 	}
 
 	return nil
@@ -1085,9 +1112,10 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 // if no entry for the ip:port combo exists
 func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
 	args := tcpNetworkTableRule(ip, port, true)
+
 	_, err := h.SH("sudo", args...)
 	if err != nil {
-		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+		return fmt.Errorf("failed to remove iptables rule %v: %w", args, err)
 	}
 	_, _ = h.SH("sudo", "systemd-resolve", "--flush-caches")
 
