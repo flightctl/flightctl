@@ -466,9 +466,9 @@ vulnerability:
   alerting:
     # -- Enable CVE alerting (emits per-device events for high-CVSS findings).
     enabled: true
-    # -- Minimum CVSS base score to emit a Warning-level CVE event (default 4.0).
+    # -- Minimum CVSS base score to trigger a per-device alert.
     warningCvssThreshold: 4.0
-    # -- Minimum CVSS base score to emit a Critical-level CVE event (default 7.0).
+    # -- Minimum CVSS base score to trigger a critical per-device alert.
     criticalCvssThreshold: 7.0
   trustify:
     # -- Trustify API endpoint URL.

@@ -616,3 +616,10 @@ jumphost-less
  - docs/user/using/greenboot.md
 flightctl_agent_pre_rollback
 redboot-task-runner
+- docs/user/installing/configuring-vulnerability-integration.md
+CVE
+CVEs
+CVSS
+SBOM
+Trustify
+v2
