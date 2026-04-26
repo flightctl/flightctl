@@ -153,8 +153,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing API server")
 
 	// Create service handler and wrap with tracing
+	vulnerabilityEnabled := s.cfg.Vulnerability != nil && s.cfg.Vulnerability.Enabled
 	baseServiceHandler := service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, vulnerabilityEnabled)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth with traced service handler for OIDC provider access

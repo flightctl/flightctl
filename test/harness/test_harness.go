@@ -56,6 +56,8 @@ type TestHarness struct {
 	mockK8sClient *k8sclient.MockK8SClient
 	ctrl          *gomock.Controller
 
+	vulnerabilityEnabled bool
+
 	// attributes for the test harness
 	Context        context.Context
 	Server         *apiserver.Server
@@ -93,6 +95,14 @@ func createAdminBaseIdentity() *common.BaseIdentity {
 		Roles:        []string{string(api.RoleAdmin)},
 	}
 	return common.NewBaseIdentity("test-admin", uuid.New().String(), []common.ReportedOrganization{testOrg})
+}
+
+// WithVulnerabilityEnabled enables the vulnerability feature endpoints for the
+// service handler created by NewTestHarness.
+func WithVulnerabilityEnabled() TestHarnessOption {
+	return func(h *TestHarness) {
+		h.vulnerabilityEnabled = true
+	}
 }
 
 // WithAgentMetrics enables the agent's Prometheus metrics endpoint when the
@@ -262,14 +272,6 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	// Create service handler for direct service calls (bypassing HTTP/auth middleware)
-	publisher, err := worker_client.QueuePublisher(ctx, provider)
-	if err != nil {
-		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
-	}
-	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
-	serviceHandler := service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{})
-
 	testHarness := &TestHarness{
 		agentConfig:           cfg,
 		serverListener:        listener,
@@ -279,18 +281,29 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		Server:                apiServer,
 		Client:                client,
 		Store:                 &store,
-		ServiceHandler:        serviceHandler,
 		KVStore:               kvStore,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
 
-	// Apply test harness options before starting the agent
+	// Apply options before constructing subsystems that depend on option values
+	// (e.g. vulnerabilityEnabled is read when creating the service handler below).
 	for _, o := range opts {
 		if o != nil {
 			o(testHarness)
 		}
 	}
+
+	// Create service handler for direct service calls (bypassing HTTP/auth middleware)
+	publisher, err := worker_client.QueuePublisher(ctx, provider)
+	if err != nil {
+		kvStore.Close()
+		cancel()
+		ctrl.Finish()
+		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
+	}
+	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
+	testHarness.ServiceHandler = service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{}, testHarness.vulnerabilityEnabled)
 
 	testHarness.StartAgent()
 

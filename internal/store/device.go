@@ -179,6 +179,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceOsImageDigestIndex(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -271,6 +275,21 @@ func (s *DeviceStore) createServiceConditionsIndex(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// createDeviceOsImageDigestIndex creates a partial expression index on
+// devices(status->'os'->>'imageDigest') so queries that look up deployed OS
+// image digests (e.g. for vulnerability scanning) can use an index scan instead
+// of a full sequential scan as the devices table grows.
+func (s *DeviceStore) createDeviceOsImageDigestIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_os_image_digest
+		ON devices ((status->'os'->>'imageDigest'))
+		WHERE deleted_at IS NULL
+		  AND status->'os'->>'imageDigest' IS NOT NULL
+		  AND status->'os'->>'imageDigest' <> ''`).Error
 }
 
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {

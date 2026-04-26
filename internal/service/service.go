@@ -157,4 +157,10 @@ type Service interface {
 
 	// Organization
 	ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status)
+
+	// Vulnerability
+	GetDeviceVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitiesParams) (*domain.VulnerabilityList, domain.Status)
+	GetDeviceVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitySummaryParams) (*domain.DeviceVulnerabilitySummaryResponse, domain.Status)
+	GetFleetVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status)
+	GetFleetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitySummaryParams) (*domain.FleetVulnerabilitySummaryResponse, domain.Status)
 }

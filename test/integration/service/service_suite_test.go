@@ -48,6 +48,10 @@ type ServiceTestSuite struct {
 	Handler service.Service
 	OrgID   uuid.UUID
 
+	// VulnerabilityEnabled controls whether vulnerability endpoints are enabled
+	// for this suite. Set to true in individual specs before calling Setup().
+	VulnerabilityEnabled bool
+
 	// Implementation details
 	cfg               *config.Config
 	dbName            string
@@ -95,7 +99,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, s.VulnerabilityEnabled)
 	// Default org for integration tests
 	s.OrgID = store.NullOrgId
 }

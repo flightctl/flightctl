@@ -83,7 +83,7 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache.Start()
 	defer orgCache.Stop()
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
 
 	var vulnClient trustifyv2.VulnerabilityClient
 	if s.cfg.Vulnerability != nil && s.cfg.Vulnerability.Enabled {
