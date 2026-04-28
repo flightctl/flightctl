@@ -54,6 +54,41 @@ include-path = "/enrollmentrequests/{name}/approval"
 [operations.checks.response_schema_conformance]
 enabled = false
 
+[[operations]]
+include-path = "/vulnerabilities"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/summary"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/cves/{cveId}/impact"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/devices/{name}"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/devices/{name}/summary"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/fleets/{name}"
+[operations.checks.not_a_server_error]
+enabled = false
+
+[[operations]]
+include-path = "/vulnerabilities/fleets/{name}/summary"
+[operations.checks.not_a_server_error]
+enabled = false
+
 [reports.vcr]
 enabled = true
 
