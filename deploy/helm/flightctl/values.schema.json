@@ -749,7 +749,7 @@
         }
       }
     },
-    "vulnerability": {
+    "vulnerabilityReporting": {
       "type": "object",
       "description": "Vulnerability integration configuration",
       "additionalProperties": false,

@@ -22,22 +22,22 @@ const (
 )
 
 type Config struct {
-	Database            *dbConfig                  `json:"database,omitempty"`
-	Service             *svcConfig                 `json:"service,omitempty"`
-	ImageBuilderService *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	KV                  *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                *authConfig                `json:"auth,omitempty"`
-	Metrics             *metricsConfig             `json:"metrics,omitempty"`
-	CA                  *ca.Config                 `json:"ca,omitempty"`
-	Tracing             *TracingConfig             `json:"tracing,omitempty"`
-	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic            *periodicConfig            `json:"periodic,omitempty"`
-	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	Vulnerability       *VulnerabilityConfig       `json:"vulnerability,omitempty"`
+	Database               *dbConfig                  `json:"database,omitempty"`
+	Service                *svcConfig                 `json:"service,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
+	KV                     *kvConfig                  `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                `json:"auth,omitempty"`
+	Metrics                *metricsConfig             `json:"metrics,omitempty"`
+	CA                     *ca.Config                 `json:"ca,omitempty"`
+	Tracing                *TracingConfig             `json:"tracing,omitempty"`
+	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig            `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -806,7 +806,7 @@ func applyEnvVarOverrides(c *Config) {
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
-	applyVulnerabilityEnvVarOverrides(c)
+	applyVulnerabilityReportingEnvVarOverrides(c)
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.
 	// Valid values: "true", "1" (enable), "false", "0" (disable)
@@ -832,17 +832,17 @@ func applyEnvVarOverrides(c *Config) {
 	}
 }
 
-func applyVulnerabilityEnvVarOverrides(c *Config) {
-	enabled := os.Getenv("FLIGHTCTL_VULNERABILITY_ENABLED")
-	syncInterval := os.Getenv("FLIGHTCTL_VULNERABILITY_SYNC_INTERVAL")
-	trustifyEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_ENDPOINT")
-	trustifyAuthMode := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_AUTH_MODE")
-	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_OIDC_ISSUER_URL")
-	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_ID")
-	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_SECRET")
-	alertingEnabled := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_ENABLED")
-	alertingWarningThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_WARNING_CVSS_THRESHOLD")
-	alertingCriticalThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_CRITICAL_CVSS_THRESHOLD")
+func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
+	enabled := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ENABLED")
+	syncInterval := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_SYNC_INTERVAL")
+	trustifyEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_ENDPOINT")
+	trustifyAuthMode := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_AUTH_MODE")
+	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
+	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
+	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
+	alertingEnabled := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_ENABLED")
+	alertingWarningThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_WARNING_CVSS_THRESHOLD")
+	alertingCriticalThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_CRITICAL_CVSS_THRESHOLD")
 
 	if enabled == "" && syncInterval == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
 		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
@@ -850,34 +850,34 @@ func applyVulnerabilityEnvVarOverrides(c *Config) {
 		return
 	}
 
-	if c.Vulnerability == nil {
-		c.Vulnerability = &VulnerabilityConfig{}
+	if c.VulnerabilityReporting == nil {
+		c.VulnerabilityReporting = &VulnerabilityConfig{}
 	}
 
 	switch enabled {
 	case "true", "1":
-		c.Vulnerability.Enabled = true
+		c.VulnerabilityReporting.Enabled = true
 	case "false", "0":
-		c.Vulnerability.Enabled = false
+		c.VulnerabilityReporting.Enabled = false
 	case "":
 	default:
-		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ENABLED value %q (expected: true/1/false/0), ignoring\n", enabled)
+		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", enabled)
 	}
 
 	if syncInterval != "" {
 		d, err := time.ParseDuration(syncInterval)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_SYNC_INTERVAL value %q: %v, ignoring\n", syncInterval, err)
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_SYNC_INTERVAL value %q: %v, ignoring\n", syncInterval, err)
 		} else {
-			c.Vulnerability.SyncInterval = util.Duration(d)
+			c.VulnerabilityReporting.SyncInterval = util.Duration(d)
 		}
 	}
 
-	applyVulnerabilityTrustifyEnvVarOverrides(c.Vulnerability, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
-	applyVulnerabilityAlertingEnvVarOverrides(c.Vulnerability, alertingEnabled, alertingWarningThreshold, alertingCriticalThreshold)
+	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
+	applyVulnerabilityReportingAlertingEnvVarOverrides(c.VulnerabilityReporting, alertingEnabled, alertingWarningThreshold, alertingCriticalThreshold)
 }
 
-func applyVulnerabilityTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
+func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
 	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
 		return
 	}
@@ -907,7 +907,7 @@ func applyVulnerabilityTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint,
 	}
 }
 
-func applyVulnerabilityAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingEnabled, warningThreshold, criticalThreshold string) {
+func applyVulnerabilityReportingAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingEnabled, warningThreshold, criticalThreshold string) {
 	if alertingEnabled == "" && warningThreshold == "" && criticalThreshold == "" {
 		return
 	}
@@ -921,12 +921,12 @@ func applyVulnerabilityAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingE
 		v.Alerting.Enabled = false
 	case "":
 	default:
-		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", alertingEnabled)
+		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", alertingEnabled)
 	}
 	if warningThreshold != "" {
 		var threshold float64
 		if _, err := fmt.Sscanf(warningThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_WARNING_CVSS_THRESHOLD value %q: %v, ignoring\n", warningThreshold, err)
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_WARNING_CVSS_THRESHOLD value %q: %v, ignoring\n", warningThreshold, err)
 		} else {
 			v.Alerting.WarningCVSSThreshold = threshold
 		}
@@ -934,7 +934,7 @@ func applyVulnerabilityAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingE
 	if criticalThreshold != "" {
 		var threshold float64
 		if _, err := fmt.Sscanf(criticalThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_CRITICAL_CVSS_THRESHOLD value %q: %v, ignoring\n", criticalThreshold, err)
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_CRITICAL_CVSS_THRESHOLD value %q: %v, ignoring\n", criticalThreshold, err)
 		} else {
 			v.Alerting.CriticalCVSSThreshold = threshold
 		}

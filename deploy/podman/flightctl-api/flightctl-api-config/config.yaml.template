@@ -111,7 +111,7 @@ auth:
       {{with .global.auth.oidc.organizationAssignment.organizationNamePrefix}}organizationNamePrefix: {{.}}{{end}}
       {{with .global.auth.oidc.organizationAssignment.organizationNameSuffix}}organizationNameSuffix: {{.}}{{end}}
 {{- end}}
-{{- if eq .vulnerability.enabled true}}
-vulnerability:
+{{- if eq .vulnerabilityReporting.enabled true}}
+vulnerabilityReporting:
   enabled: true
 {{- end}}

@@ -86,12 +86,12 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
 
 	var vulnClient trustifyv2.VulnerabilityClient
-	if s.cfg.Vulnerability != nil && s.cfg.Vulnerability.Enabled {
-		if s.cfg.Vulnerability.Trustify == nil {
+	if s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled {
+		if s.cfg.VulnerabilityReporting.Trustify == nil {
 			s.log.Warn("Vulnerability syncing is enabled but Trustify config is missing; vulnerability-sync executor will be skipped")
 		} else {
 			var err error
-			vulnClient, err = trustifyv2.NewVulnerabilityClient(ctx, s.cfg.Vulnerability.Trustify)
+			vulnClient, err = trustifyv2.NewVulnerabilityClient(ctx, s.cfg.VulnerabilityReporting.Trustify)
 			if err != nil {
 				s.log.WithError(err).Error("Failed to initialize Trustify client, vulnerability sync will be disabled")
 			}

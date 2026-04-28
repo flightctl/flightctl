@@ -76,9 +76,9 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 		}
 	}
 
-	if cfg.Vulnerability != nil && cfg.Vulnerability.SyncInterval > 0 {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.SyncInterval > 0 {
 		meta := merged[PeriodicTaskTypeVulnerabilitySync]
-		meta.Interval = time.Duration(cfg.Vulnerability.SyncInterval)
+		meta.Interval = time.Duration(cfg.VulnerabilityReporting.SyncInterval)
 		merged[PeriodicTaskTypeVulnerabilitySync] = meta
 	}
 
@@ -246,7 +246,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		},
 	}
 
-	if cfg.Vulnerability != nil && cfg.Vulnerability.Enabled && vulnClient != nil && findingStore != nil {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && vulnClient != nil && findingStore != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
 			log:          log.WithField("pkg", "vulnerability-sync"),
 			vulnClient:   vulnClient,

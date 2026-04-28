@@ -397,16 +397,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerability | object | `{"alerting":{"criticalCvssThreshold":7,"enabled":true,"warningCvssThreshold":4},"enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
-| vulnerability.alerting.criticalCvssThreshold | float | `7` | Minimum CVSS base score to trigger a critical per-device alert. |
-| vulnerability.alerting.enabled | bool | `true` | Enable CVE alerting (emits per-device events for high-CVSS findings). |
-| vulnerability.alerting.warningCvssThreshold | float | `4` | Minimum CVSS base score to trigger a per-device alert. |
-| vulnerability.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
-| vulnerability.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
-| vulnerability.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
-| vulnerability.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
-| vulnerability.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
-| vulnerability.trustify.endpoint | string | `""` | Trustify API endpoint URL. |
+| vulnerabilityReporting | object | `{"alerting":{"criticalCvssThreshold":7,"enabled":true,"warningCvssThreshold":4},"enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.alerting.criticalCvssThreshold | float | `7` | Minimum CVSS base score to trigger a critical per-device alert. |
+| vulnerabilityReporting.alerting.enabled | bool | `true` | Enable CVE alerting (emits per-device events for high-CVSS findings). |
+| vulnerabilityReporting.alerting.warningCvssThreshold | float | `4` | Minimum CVSS base score to trigger a per-device alert. |
+| vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
+| vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
+| vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
+| vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
+| vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
+| vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API endpoint URL. |
 | worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |

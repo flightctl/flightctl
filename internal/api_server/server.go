@@ -153,7 +153,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing API server")
 
 	// Create service handler and wrap with tracing
-	vulnerabilityEnabled := s.cfg.Vulnerability != nil && s.cfg.Vulnerability.Enabled
+	vulnerabilityEnabled := s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled
 	baseServiceHandler := service.NewServiceHandler(
 		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, vulnerabilityEnabled)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
