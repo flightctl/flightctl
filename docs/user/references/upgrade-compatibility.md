@@ -6,14 +6,11 @@ This document describes the supported upgrade paths for Flight Control.
 
 Flight Control follows semantic versioning. When upgrading Flight Control, you must follow supported upgrade paths to ensure data integrity and service continuity.
 
-> [!IMPORTANT]
-> There are no current upgrade paths. This document will be updated with supported upgrade paths as they become available.
-
 ## Supported Upgrade Paths
 
 | From Version | To Version | Notes |
 |--------------|------------|-------|
-| v1.0.0 | — | No current upgrade paths |
+| 1.0.x | 1.1.x | |
 
 ## Before You Upgrade
 
@@ -25,7 +22,39 @@ Before attempting an upgrade:
 
 ## Upgrade Procedure
 
-Detailed upgrade procedures will be documented here once upgrade paths are available.
+### Upgrading from 1.0.x to 1.1.x using Helm
+
+#### Prerequisites
+
+Confirm that you have `helm` and `kubectl` installed and configured to access your cluster.
+
+#### Procedure
+
+1. Set the target version and namespace:
+
+    ```console
+    FC_VERSION=1.1.x
+    FC_NAMESPACE=flightctl
+    ```
+
+    Replace `1.1.x` with the exact version you are upgrading to, for example `1.1.1`.
+
+2. Run `helm upgrade`:
+
+    ```console
+    helm upgrade flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
+      --namespace ${FC_NAMESPACE}
+    ```
+
+3. Wait for all pods to reach the `Running` or `Completed` state:
+
+    ```console
+    kubectl get pods -n ${FC_NAMESPACE} --watch
+    ```
+
+#### Post-upgrade steps
+
+After the upgrade completes, follow any version-specific steps in the [Upgrade Notes](#upgrade-notes) section below.
 
 ## Upgrade Notes
 

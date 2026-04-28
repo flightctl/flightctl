@@ -326,6 +326,8 @@ CatalogItem
 URI
 CatalogItems
 multicluster
+1.0.x
+1.1.x
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
