@@ -94,6 +94,15 @@ const POLLINGLONG = "1s"
 const TIMEOUT = "5m"
 const LONGTIMEOUT = "10m"
 
+// Service name constants for flightctl deployment components.
+const (
+	ServiceAPI      = "flightctl-api"
+	ServiceWorker   = "flightctl-worker"
+	ServicePeriodic = "flightctl-periodic"
+	ServiceUI       = "flightctl-ui"
+	ServiceDB       = "flightctl-db"
+)
+
 // Operation constants for RBAC testing
 const (
 	OperationCreate = "create"
@@ -401,7 +410,7 @@ func (h *Harness) checkLogsForPanicAVC(sinceTime time.Time) {
 		}
 	}
 	if isK8sEnvironment() {
-		for _, svc := range []string{"flightctl-api", "flightctl-worker", "flightctl-periodic"} {
+		for _, svc := range []string{ServiceAPI, ServiceWorker, ServicePeriodic} {
 			nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec // svc iterates a hardcoded list
 				"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
 			if err != nil || len(nsOut) == 0 {
@@ -458,7 +467,7 @@ func isQuadletEnvironment() bool {
 		logrus.Infof("E2E_ENVIRONMENT is set to %q, isQuadlet=%v", env, isQuadlet)
 		return isQuadlet
 	}
-	isActive := exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service").Run() == nil
+	isActive := exec.Command("sudo", "systemctl", "is-active", ServiceAPI+".service").Run() == nil
 	logrus.Infof("E2E_ENVIRONMENT not set, detecting quadlet via systemctl: isActive=%v", isActive)
 	return isActive
 }
@@ -492,11 +501,11 @@ func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 	}
 	if isQuadletEnvironment() {
 		services := []string{
-			"flightctl-api",
-			"flightctl-worker",
-			"flightctl-periodic",
-			"flightctl-ui",
-			"flightctl-db",
+			ServiceAPI,
+			ServiceWorker,
+			ServicePeriodic,
+			ServiceUI,
+			ServiceDB,
 		}
 		return h.captureQuadletServiceLogs(artifactDir, services)
 	}
