@@ -72,10 +72,10 @@ type ImageExportService interface {
 
 // ImageExportDownload contains information for downloading an ImageExport artifact
 type ImageExportDownload struct {
-	RedirectURL string
-	BlobReader  io.ReadCloser
-	Headers     http.Header
-	StatusCode  int
+	BlobReader io.ReadCloser
+	Headers    http.Header
+	StatusCode int
+	Filename   string
 }
 
 // imageExportService is the concrete implementation of ImageExportService
@@ -531,7 +531,13 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 
 	log.WithFields(logrus.Fields{"blobURL": blobURLStr, "statusCode": getResp.StatusCode}).Debug("Received GET response")
 
-	return s.handleBlobResponse(getResp, blobURLStr, log)
+	download, err := s.handleBlobResponse(ctx, getResp, httpClient, blobURLStr, log)
+	if err != nil {
+		return nil, err
+	}
+
+	download.Filename = getDownloadFilename(*imageBuild.Metadata.Name, imageExport.Spec.Format)
+	return download, nil
 }
 
 // setupRepositoryReference creates a repository reference and configures authentication
@@ -672,9 +678,11 @@ func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (
 	}
 
 	return &http.Client{
-		Timeout: 30 * time.Second,
+		// No client-level timeout - we're streaming potentially large files (GB-sized)
+		// Connection timeouts are handled at the transport level
 		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
+			TLSClientConfig:       tlsConfig,
+			ResponseHeaderTimeout: 30 * time.Second, // Timeout for response headers only, not body
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -708,19 +716,67 @@ func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req
 }
 
 // handleBlobResponse handles the HTTP response from the blob endpoint
-func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL string, log logrus.FieldLogger) (*ImageExportDownload, error) {
-	// Handle redirect (3xx)
+// If the response is a redirect, it follows the redirect and returns the actual blob content
+func (s *imageExportService) handleBlobResponse(ctx context.Context, resp *http.Response, httpClient *http.Client, blobURL string, log logrus.FieldLogger) (*ImageExportDownload, error) {
+	// Handle redirect (3xx) - follow it to get the actual blob content
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		resp.Body.Close()
-		redirectURL := resp.Header.Get("Location")
-		if redirectURL == "" {
+		locationHeader := resp.Header.Get("Location")
+		if locationHeader == "" {
 			log.WithField("statusCode", resp.StatusCode).Error("Redirect response missing Location header")
 			return nil, errors.New("redirect response missing Location header")
 		}
-		log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "redirectURL": redirectURL}).Info("Returning redirect response")
+
+		// Parse and resolve the redirect URL (handles relative redirects)
+		redirectURL, err := url.Parse(locationHeader)
+		if err != nil {
+			log.WithError(err).WithField("statusCode", resp.StatusCode).Error("Failed to parse redirect Location header")
+			return nil, fmt.Errorf("failed to parse redirect Location: %w", err)
+		}
+
+		// Resolve relative URLs against the original request URL
+		if !redirectURL.IsAbs() {
+			redirectURL = resp.Request.URL.ResolveReference(redirectURL)
+		}
+
+		// Validate scheme (only allow http/https)
+		if redirectURL.Scheme != "http" && redirectURL.Scheme != "https" {
+			log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "scheme": redirectURL.Scheme}).Error("Redirect URL has invalid scheme")
+			return nil, fmt.Errorf("redirect URL has invalid scheme: %s", redirectURL.Scheme)
+		}
+
+		// Log only safe parts of the URL (no query params which may contain presigned tokens)
+		redirectLogFields := logrus.Fields{
+			"statusCode":   resp.StatusCode,
+			"redirectHost": redirectURL.Host,
+			"redirectPath": redirectURL.Path,
+		}
+		log.WithFields(redirectLogFields).Info("Following redirect to fetch blob")
+
+		redirectReq, err := http.NewRequestWithContext(ctx, "GET", redirectURL.String(), nil)
+		if err != nil {
+			log.WithError(err).WithFields(redirectLogFields).Error("Failed to create redirect request")
+			return nil, fmt.Errorf("failed to create redirect request: %w", err)
+		}
+
+		redirectResp, err := httpClient.Do(redirectReq)
+		if err != nil {
+			log.WithError(err).WithFields(redirectLogFields).Error("Failed to follow redirect")
+			return nil, fmt.Errorf("%w: failed to follow redirect: %w", ErrExternalServiceUnavailable, err)
+		}
+
+		if redirectResp.StatusCode != http.StatusOK {
+			redirectResp.Body.Close()
+			log.WithFields(logrus.Fields{"redirectHost": redirectURL.Host, "redirectPath": redirectURL.Path, "statusCode": redirectResp.StatusCode}).Error("Unexpected status code from redirect")
+			return nil, fmt.Errorf("%w: unexpected status code from redirect: %d", ErrExternalServiceUnavailable, redirectResp.StatusCode)
+		}
+
+		contentLength := redirectResp.Header.Get("Content-Length")
+		log.WithFields(logrus.Fields{"redirectHost": redirectURL.Host, "statusCode": redirectResp.StatusCode, "contentLength": contentLength}).Info("Successfully fetched blob from redirect")
 		return &ImageExportDownload{
-			RedirectURL: redirectURL,
-			StatusCode:  resp.StatusCode,
+			BlobReader: redirectResp.Body,
+			Headers:    redirectResp.Header,
+			StatusCode: redirectResp.StatusCode,
 		}, nil
 	}
 
@@ -820,6 +876,20 @@ func (s *imageExportService) getRegistryToken(ctx context.Context, client *http.
 	}
 
 	return "", fmt.Errorf("empty token received")
+}
+
+// getDownloadFilename returns the suggested download filename based on the base name and export format
+func getDownloadFilename(baseName string, format domain.ExportFormatType) string {
+	ext := ".bin"
+	switch format {
+	case domain.ExportFormatTypeISO:
+		ext = ".iso"
+	case domain.ExportFormatTypeQCOW2, domain.ExportFormatTypeQCOW2DiskContainer:
+		ext = ".qcow2"
+	case domain.ExportFormatTypeVMDK:
+		ext = ".vmdk"
+	}
+	return baseName + ext
 }
 
 // validateImageExportForDownload validates that an ImageExport is ready for download.
