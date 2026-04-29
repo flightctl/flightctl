@@ -477,7 +477,10 @@ func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 // flightctl.service pod label. In quadlet environments a static list is used.
 func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 	if isK8sEnvironment() {
-		services := discoverK8sFlightctlServices()
+		services, err := discoverK8sFlightctlServices()
+		if err != nil {
+			return fmt.Errorf("CaptureDeploymentLogs: service discovery failed: %w", err)
+		}
 		if len(services) == 0 {
 			GinkgoWriter.Println("CaptureDeploymentLogs: no flightctl services discovered in cluster, skipping")
 			return nil
@@ -502,12 +505,15 @@ func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 // discoverK8sFlightctlServices returns the unique set of flightctl.service
 // label values from pods across all namespaces. This avoids hardcoding the
 // list of deployed services.
-func discoverK8sFlightctlServices() []string {
+func discoverK8sFlightctlServices() ([]string, error) {
 	out, err := exec.Command("kubectl", "get", "pods", "--all-namespaces",
 		"-l", "flightctl.service",
 		"-o", "jsonpath={.items[*].metadata.labels.flightctl\\.service}").Output()
-	if err != nil || len(out) == 0 {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("kubectl get pods failed: %w", err)
+	}
+	if len(out) == 0 {
+		return nil, nil
 	}
 	seen := map[string]struct{}{}
 	var services []string
@@ -517,24 +523,29 @@ func discoverK8sFlightctlServices() []string {
 			services = append(services, s)
 		}
 	}
-	return services
+	return services, nil
+}
+
+// getK8sServicePodLogs fetches logs from pods matching flightctl.service=<svc>.
+// Extra kubectl-logs arguments (e.g. --since-time, --tail) can be passed via extraArgs.
+func getK8sServicePodLogs(svc string, extraArgs ...string) ([]byte, error) {
+	nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces",
+		"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
+	if err != nil || len(nsOut) == 0 {
+		return nil, fmt.Errorf("no pods found for %s", svc)
+	}
+
+	args := []string{"logs", "-n", string(nsOut), "-l", "flightctl.service=" + svc}
+	args = append(args, extraArgs...)
+	return exec.Command("kubectl", args...).Output() //nolint:gosec
 }
 
 func (h *Harness) captureK8sServiceLogs(artifactDir string, services []string) error {
 	var errs []error
 	for _, svc := range services {
-		nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec
-			"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
-		if err != nil || len(nsOut) == 0 {
-			GinkgoWriter.Printf("CaptureDeploymentLogs: no pods found for %s, skipping\n", svc)
-			continue
-		}
-		ns := string(nsOut)
-
-		out, err := exec.Command("kubectl", "logs", "-n", ns, "-l", "flightctl.service="+svc, //nolint:gosec
-			"--tail=-1").Output()
+		out, err := getK8sServicePodLogs(svc, "--tail=-1")
 		if err != nil {
-			GinkgoWriter.Printf("CaptureDeploymentLogs: failed to get logs for %s: %v\n", svc, err)
+			GinkgoWriter.Printf("CaptureDeploymentLogs: %s: %v, skipping\n", svc, err)
 			errs = append(errs, fmt.Errorf("%s: %w", svc, err))
 			continue
 		}
