@@ -364,6 +364,25 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 	}
 }
 
+// CaptureDeploymentLogsIfFailed captures deployment pod logs to the artifacts
+// directory when the current test has failed. Intended to be called from AfterEach
+// alongside PrintAgentLogsIfFailed.
+func (h *Harness) CaptureDeploymentLogsIfFailed() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	artifactDir := filepath.Join("artifacts", "deployment-logs", h.GetTestIDFromContext())
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		logrus.Errorf("CaptureDeploymentLogsIfFailed: failed to create artifact dir: %v", err)
+		return
+	}
+
+	if err := h.CaptureDeploymentLogs(artifactDir); err != nil {
+		logrus.Errorf("CaptureDeploymentLogsIfFailed: %v", err)
+	}
+}
+
 // checkLogsForPanicAVC checks both agent VM logs and service pod logs for
 // Go panics and SELinux AVC denials, failing the current test if any are found.
 // Registered via DeferCleanup in SetTestContext so it runs for every test.
@@ -432,6 +451,14 @@ func isK8sEnvironment() bool {
 	return exec.Command("kubectl", "config", "current-context").Run() == nil
 }
 
+// isQuadletEnvironment returns true if running in a quadlet (systemd + Podman) environment.
+func isQuadletEnvironment() bool {
+	if env := os.Getenv("E2E_ENVIRONMENT"); env != "" {
+		return env == "quadlet"
+	}
+	return exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service").Run() == nil
+}
+
 // GetServiceLogs returns the logs from the specified service using journalctl.
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
@@ -444,16 +471,11 @@ func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 	return h.VM.GetServiceLogs("flightctl-agent")
 }
 
-// CaptureDeploymentLogs fetches logs from the flightctl deployment pods
+// CaptureDeploymentLogs fetches logs from the flightctl deployment services
 // (api, worker, periodic, ui, db) and stores each as an artifact file in
-// the given directory. Requires a Kubernetes environment; skips silently
-// when kubectl is unavailable.
+// the given directory. Supports both Kubernetes (kubectl logs) and quadlet
+// (journalctl) environments.
 func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
-	if !isK8sEnvironment() {
-		GinkgoWriter.Println("CaptureDeploymentLogs: not a k8s environment, skipping")
-		return nil
-	}
-
 	services := []string{
 		"flightctl-api",
 		"flightctl-worker",
@@ -462,6 +484,18 @@ func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 		"flightctl-db",
 	}
 
+	if isK8sEnvironment() {
+		return h.captureK8sServiceLogs(artifactDir, services)
+	}
+	if isQuadletEnvironment() {
+		return h.captureQuadletServiceLogs(artifactDir, services)
+	}
+
+	GinkgoWriter.Println("CaptureDeploymentLogs: unknown environment, skipping")
+	return nil
+}
+
+func (h *Harness) captureK8sServiceLogs(artifactDir string, services []string) error {
 	var errs []error
 	for _, svc := range services {
 		nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec
@@ -487,7 +521,27 @@ func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 		}
 		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
 	}
+	return errors.Join(errs...)
+}
 
+func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []string) error {
+	var errs []error
+	for _, svc := range services {
+		unit := svc + ".service"
+		out, err := exec.Command("sudo", "journalctl", "-u", unit, "--no-pager").Output() //nolint:gosec
+		if err != nil {
+			GinkgoWriter.Printf("CaptureDeploymentLogs: failed to get logs for %s: %v\n", unit, err)
+			errs = append(errs, fmt.Errorf("%s: %w", svc, err))
+			continue
+		}
+
+		filename := fmt.Sprintf("deployment_%s_logs.txt", svc)
+		if writeErr := os.WriteFile(filepath.Join(artifactDir, filename), out, 0o600); writeErr != nil {
+			errs = append(errs, fmt.Errorf("writing %s: %w", filename, writeErr))
+			continue
+		}
+		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
+	}
 	return errors.Join(errs...)
 }
 

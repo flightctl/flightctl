@@ -182,6 +182,7 @@ var _ = Describe("Device observability", func() {
 		})
 		AfterEach(func() {
 			harness.PrintAgentLogsIfFailed()
+			harness.CaptureDeploymentLogsIfFailed()
 		})
 		It("should export device metrics using TPM-backed OTEL authentication", Label("85185", "tpm", "tpm-sw", "agent"), func() {
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)

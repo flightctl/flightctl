@@ -32,6 +32,7 @@ var _ = Describe("TPM Device Authentication", func() {
 		suiteCtx := e2e.GetWorkerContext()
 
 		harness.PrintAgentLogsIfFailed()
+		harness.CaptureDeploymentLogsIfFailed()
 
 		if CurrentSpecReport().Failed() {
 			if err := runTPMDiagnostic(harness); err != nil {
