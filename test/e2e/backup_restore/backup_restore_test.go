@@ -65,6 +65,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
+				harness2.CaptureDeploymentLogsIfFailed()
 				err := harness2.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})
@@ -75,6 +76,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(harness3.SetupVMFromPoolAndStartAgent(workerID3)).To(Succeed())
 			DeferCleanup(func() {
 				harness3.PrintAgentLogsIfFailed()
+				harness3.CaptureDeploymentLogsIfFailed()
 				err := harness3.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness3 cleanup")
 			})
@@ -299,6 +301,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
+				harness2.CaptureDeploymentLogsIfFailed()
 				err := harness2.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})

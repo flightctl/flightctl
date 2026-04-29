@@ -92,8 +92,9 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	// Print agent logs if test failed (logs from all boots via journalctl)
+	// Capture logs if test failed
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup
