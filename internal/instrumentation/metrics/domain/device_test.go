@@ -124,7 +124,7 @@ func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.DeviceList, error) {
+func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.DeviceListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
 func (m *MockDevice) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {

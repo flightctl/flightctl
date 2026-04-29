@@ -1083,6 +1083,14 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: cveId
+          in: query
+          description: Filter devices by CVE ID. Only returns devices whose OS image digest has the specified vulnerability. Must be a MITRE-style identifier (CVE-YYYY-sequence, e.g. CVE-2024-12345).
+          required: false
+          schema:
+            type: string
+            pattern: '^CVE-[0-9]{4}-[0-9]{4,}$'
+            maxLength: 64
       responses:
         "200":
           description: OK

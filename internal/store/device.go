@@ -43,6 +43,12 @@ func (d DeviceStatusType) Validate() error {
 	}
 }
 
+// DeviceListParams extends ListParams with device-specific filter options.
+type DeviceListParams struct {
+	ListParams
+	CveID *string // Filter devices by CVE ID (joins with vulnerability_findings)
+}
+
 type Device interface {
 	InitialMigration(ctx context.Context) error
 
@@ -51,7 +57,7 @@ type Device interface {
 	Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*domain.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*domain.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback EventCallback) (*domain.Device, error)
@@ -420,8 +426,84 @@ func (s *DeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, nam
 	return s.getWithTimestamp(ctx, orgId, name)
 }
 
-func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error) {
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	// Build base query with selectors
+	baseQuery, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, listParams.ListParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply CVE filter if specified (join with vulnerability_findings)
+	if listParams.CveID != nil {
+		baseQuery = s.applyCveFilter(baseQuery, *listParams.CveID)
+	}
+
+	// Device model has a spec column
+	baseQuery = baseQuery.Where("spec IS NOT NULL")
+
+	// Create query for fetching with pagination
+	query := baseQuery.Session(&gorm.Session{})
+	if listParams.Limit > 0 {
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue, listParams.ListParams)
+	}
+
+	// Execute query
+	result := query.Find(&devices)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	// Handle continue token if we got more than requested
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		lastIndex := len(devices) - 1
+		lastItem := devices[lastIndex]
+		columns, _, _ := getSortColumns(listParams.ListParams)
+
+		// Build values for continue token
+		continueValues := make([]string, len(columns))
+		for i, col := range columns {
+			switch col {
+			case SortByName:
+				continueValues[i] = lastItem.Name
+			case SortByCreatedAt:
+				continueValues[i] = lastItem.CreatedAt.Format(time.RFC3339Nano)
+			default:
+				continueValues[i] = ""
+			}
+		}
+
+		devices = devices[:lastIndex]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = CountRemainingItems(baseQuery, continueValues, listParams.ListParams)
+		}
+
+		nextContinue = BuildContinueString(continueValues, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	ret, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
+// applyCveFilter adds a join with vulnerability_findings to filter devices by CVE ID.
+func (s *DeviceStore) applyCveFilter(query *gorm.DB, cveID string) *gorm.DB {
+	return query.Joins(
+		"JOIN vulnerability_findings ON devices.status->'os'->>'imageDigest' = vulnerability_findings.image_digest",
+	).Where("vulnerability_findings.cve_id = ?", cveID)
 }
 
 func (s *DeviceStore) ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
