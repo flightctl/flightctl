@@ -529,7 +529,7 @@ func discoverK8sFlightctlServices() ([]string, error) {
 // getK8sServicePodLogs fetches logs from pods matching flightctl.service=<svc>.
 // Extra kubectl-logs arguments (e.g. --since-time, --tail) can be passed via extraArgs.
 func getK8sServicePodLogs(svc string, extraArgs ...string) ([]byte, error) {
-	nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces",
+	nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec
 		"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
 	if err != nil || len(nsOut) == 0 {
 		return nil, fmt.Errorf("no pods found for %s", svc)
