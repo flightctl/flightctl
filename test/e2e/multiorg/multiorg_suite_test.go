@@ -96,6 +96,10 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
+	// Capture logs if test failed
+	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
+
 	_ = login.Login(harness, adminUser, adminPass)
 
 	err := harness.CleanUpAllTestResources()

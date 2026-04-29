@@ -84,6 +84,17 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 })
 
+var _ = AfterEach(func() {
+	harness := e2e.GetWorkerHarness()
+	suiteCtx := e2e.GetWorkerContext()
+
+	// Capture logs if test failed
+	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
+
+	harness.SetTestContext(suiteCtx)
+})
+
 var _ = AfterSuite(func() {
 	harness := e2e.GetWorkerHarness()
 

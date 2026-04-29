@@ -55,6 +55,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -88,10 +89,21 @@ const fiveSecondTimeout = 5 * time.Second
 // setupSnapshotRestoreTimeout is the maximum time allowed for VM snapshot restore in BeforeEach.
 const setupSnapshotRestoreTimeout = 10 * time.Minute
 
-const POLLING = "250ms"
-const POLLINGLONG = "1s"
-const TIMEOUT = "5m"
-const LONGTIMEOUT = "10m"
+const (
+	POLLING     = "250ms"
+	POLLINGLONG = "1s"
+	TIMEOUT     = "5m"
+	LONGTIMEOUT = "10m"
+)
+
+// Service name constants for flightctl deployment components.
+const (
+	ServiceAPI      = "flightctl-api"
+	ServiceWorker   = "flightctl-worker"
+	ServicePeriodic = "flightctl-periodic"
+	ServiceUI       = "flightctl-ui"
+	ServiceDB       = "flightctl-db"
+)
 
 // Operation constants for RBAC testing
 const (
@@ -350,6 +362,25 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 	}
 }
 
+// CaptureDeploymentLogsIfFailed captures deployment pod logs to the artifacts
+// directory when the current test has failed. Intended to be called from AfterEach
+// alongside PrintAgentLogsIfFailed.
+func (h *Harness) CaptureDeploymentLogsIfFailed() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	artifactDir := filepath.Join(util.GetTopLevelDir(), "artifacts", "deployment-logs", h.GetTestIDFromContext())
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		logrus.Errorf("CaptureDeploymentLogsIfFailed: failed to create artifact dir: %v", err)
+		return
+	}
+
+	if err := h.CaptureDeploymentLogs(artifactDir); err != nil {
+		logrus.Errorf("CaptureDeploymentLogsIfFailed: %v", err)
+	}
+}
+
 // checkLogsForPanicAVC checks both agent VM logs and service pod logs for
 // Go panics and SELinux AVC denials, failing the current test if any are found.
 // Registered via DeferCleanup in SetTestContext so it runs for every test.
@@ -368,7 +399,7 @@ func (h *Harness) checkLogsForPanicAVC(sinceTime time.Time) {
 		}
 	}
 	if isK8sEnvironment() {
-		for _, svc := range []string{"flightctl-api", "flightctl-worker", "flightctl-periodic"} {
+		for _, svc := range []string{ServiceAPI, ServiceWorker, ServicePeriodic} {
 			nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec // svc iterates a hardcoded list
 				"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
 			if err != nil || len(nsOut) == 0 {
@@ -418,10 +449,165 @@ func isK8sEnvironment() bool {
 	return exec.Command("kubectl", "config", "current-context").Run() == nil
 }
 
+// isQuadletEnvironment returns true if running in a quadlet (systemd + Podman) environment.
+func isQuadletEnvironment() bool {
+	if env := os.Getenv("E2E_ENVIRONMENT"); env != "" {
+		isQuadlet := env == "quadlet"
+		logrus.Infof("E2E_ENVIRONMENT is set to %q, isQuadlet=%v", env, isQuadlet)
+		return isQuadlet
+	}
+	isActive := exec.Command("sudo", "systemctl", "is-active", ServiceAPI+".service").Run() == nil
+	logrus.Infof("E2E_ENVIRONMENT not set, detecting quadlet via systemctl: isActive=%v", isActive)
+	return isActive
+}
+
 // GetServiceLogs returns the logs from the specified service using journalctl.
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 	return h.VM.GetServiceLogs(serviceName)
+}
+
+// GetFlightctlAgentLogs returns the logs from the flightctl-agent service using journalctl.
+func (h *Harness) GetFlightctlAgentLogs() (string, error) {
+	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// CaptureDeploymentLogs fetches logs from the flightctl deployment services
+// and stores each as an artifact file in the given directory.
+// In Kubernetes environments, services are discovered dynamically via the
+func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
+	if isK8sEnvironment() {
+		services, err := discoverK8sFlightctlServices()
+		if err != nil {
+			return fmt.Errorf("CaptureDeploymentLogs: service discovery failed: %w", err)
+		}
+		if len(services) == 0 {
+			GinkgoWriter.Println("CaptureDeploymentLogs: no flightctl services discovered in cluster, skipping")
+			return nil
+		}
+		return h.captureK8sServiceLogs(artifactDir, services)
+	}
+	if isQuadletEnvironment() {
+		services := []string{
+			ServiceAPI,
+			ServiceWorker,
+			ServicePeriodic,
+			ServiceUI,
+			ServiceDB,
+		}
+		return h.captureQuadletServiceLogs(artifactDir, services)
+	}
+
+	GinkgoWriter.Println("CaptureDeploymentLogs: unknown environment, skipping")
+	return nil
+}
+
+// discoverK8sFlightctlServices returns the unique set of flightctl.service
+// label values from pods across all namespaces. This avoids hardcoding the
+// list of deployed services.
+func discoverK8sFlightctlServices() ([]string, error) {
+	out, err := exec.Command("kubectl", "get", "pods", "--all-namespaces",
+		"-l", "flightctl.service",
+		"-o", "jsonpath={.items[*].metadata.labels.flightctl\\.service}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("kubectl get pods failed: %w", err)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	var services []string
+	for _, s := range strings.Fields(string(out)) {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			services = append(services, s)
+		}
+	}
+	return services, nil
+}
+
+// getK8sServicePodLogs fetches logs from pods matching flightctl.service=<svc>.
+// Extra kubectl-logs arguments (e.g. --since-time, --tail) can be passed via extraArgs.
+func getK8sServicePodLogs(svc string, extraArgs ...string) ([]byte, error) {
+	nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec
+		"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
+	if err != nil || len(nsOut) == 0 {
+		return nil, fmt.Errorf("no pods found for %s", svc)
+	}
+
+	args := []string{"logs", "-n", string(nsOut), "-l", "flightctl.service=" + svc}
+	args = append(args, extraArgs...)
+	return exec.Command("kubectl", args...).Output() //nolint:gosec
+}
+
+func (h *Harness) captureK8sServiceLogs(artifactDir string, services []string) error {
+	var errs []error
+	for _, svc := range services {
+		out, err := getK8sServicePodLogs(svc, "--tail=-1")
+		if err != nil {
+			GinkgoWriter.Printf("CaptureDeploymentLogs: %s: %v, skipping\n", svc, err)
+			errs = append(errs, fmt.Errorf("%s: %w", svc, err))
+			continue
+		}
+
+		filename := fmt.Sprintf("deployment_%s_logs.txt", svc)
+		if writeErr := os.WriteFile(filepath.Join(artifactDir, filename), out, 0o600); writeErr != nil {
+			errs = append(errs, fmt.Errorf("writing %s: %w", filename, writeErr))
+			continue
+		}
+		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
+	}
+	return errors.Join(errs...)
+}
+
+func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []string) error {
+	host := os.Getenv("QUADLET_HOST")
+	sshUser := os.Getenv("E2E_SSH_USER")
+	sshKeyPath := os.Getenv("E2E_SSH_KEY_PATH")
+	sshPassword := os.Getenv("E2E_SSH_PASSWORD")
+	remote := sshUser != "" && host != "" && host != "localhost" && host != "127.0.0.1"
+
+	var errs []error
+	for _, svc := range services {
+		unit := svc + ".service"
+
+		var cmd *exec.Cmd
+		if remote {
+			sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
+			usePassword := sshKeyPath == "" && sshPassword != ""
+			if sshKeyPath != "" {
+				sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", sshKeyPath)
+			} else if !usePassword {
+				sshArgs = append(sshArgs, "-o", "BatchMode=yes")
+			}
+			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", sshUser, host))
+			sshArgs = append(sshArgs, fmt.Sprintf("sudo journalctl -u %s --no-pager", unit))
+
+			if usePassword {
+				cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec
+				cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
+			} else {
+				cmd = exec.Command("ssh", sshArgs...) //nolint:gosec
+			}
+		} else {
+			cmd = exec.Command("sudo", "journalctl", "-u", unit, "--no-pager") //nolint:gosec
+		}
+
+		out, err := cmd.Output()
+		if err != nil {
+			GinkgoWriter.Printf("CaptureDeploymentLogs: failed to get logs for %s: %v\n", unit, err)
+			errs = append(errs, fmt.Errorf("%s: %w", svc, err))
+			continue
+		}
+
+		filename := fmt.Sprintf("deployment_%s_logs.txt", svc)
+		if writeErr := os.WriteFile(filepath.Join(artifactDir, filename), out, 0o600); writeErr != nil {
+			errs = append(errs, fmt.Errorf("writing %s: %w", filename, writeErr))
+			continue
+		}
+		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
+	}
+	return errors.Join(errs...)
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
@@ -432,7 +618,6 @@ func (h *Harness) GetEnrollmentIDFromServiceLogs(serviceName string) string {
 	Eventually(func() string {
 		// Get logs from the latest service invocation using systemd invocation ID
 		output, err := h.GetServiceLogs(serviceName)
-
 		if err != nil {
 			logrus.Debugf("Failed to get service logs: %v", err)
 			return ""
@@ -580,7 +765,6 @@ func (h *Harness) SHWithStdin(stdin, command string, args ...string) (string, er
 
 	logrus.Infof("running: %s with stdin: %s", strings.Join(cmd.Args, " "), stdin)
 	output, err := cmd.CombinedOutput()
-
 	if err != nil {
 		logrus.Errorf("executing cli: %s", err)
 		// keeping standard error output for debugging, otherwise log output
@@ -623,7 +807,6 @@ func (h *Harness) CLIWithEnvAndShell(env map[string]string, shellCommand string)
 
 	logrus.Infof("running shell command with env: %v", env)
 	output, err := cmd.CombinedOutput()
-
 	if err != nil {
 		logrus.Errorf("executing shell command: %s", err)
 		// keeping standard error output for debugging, otherwise log output
@@ -731,6 +914,7 @@ func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (str
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return deviceId, device
 }
+
 func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.EnrollmentRequestApproval {
 	mergedLabels := map[string]string{"test-id": h.GetTestIDFromContext()}
 	for _, label := range labels {
@@ -959,7 +1143,7 @@ func (h *Harness) CreateRepository(repositorySpec v1beta1.RepositorySpec, metada
 	// Add test label to metadata
 	h.addTestLabelToResource(&metadata)
 
-	var repository = v1beta1.Repository{
+	repository := v1beta1.Repository{
 		ApiVersion: v1beta1.RepositoryAPIVersion,
 		Kind:       v1beta1.RepositoryKind,
 
@@ -972,7 +1156,7 @@ func (h *Harness) CreateRepository(repositorySpec v1beta1.RepositorySpec, metada
 
 // ReplaceRepository ensures the specified repository exists and is updated to the appropriate values
 func (h *Harness) ReplaceRepository(repositorySpec v1beta1.RepositorySpec, metadata v1beta1.ObjectMeta) error {
-	var repository = v1beta1.Repository{
+	repository := v1beta1.Repository{
 		ApiVersion: v1beta1.RepositoryAPIVersion,
 		Kind:       v1beta1.RepositoryKind,
 
@@ -1472,7 +1656,7 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 
 	// Initialize git repository management
 	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
-	err = os.MkdirAll(gitWorkDir, 0755)
+	err = os.MkdirAll(gitWorkDir, 0o755)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create git work directory: %w", err)
@@ -2113,7 +2297,6 @@ func ExecuteReadOnlyResourceOperations(harness *Harness, resourceTypes []string,
 			if err == nil {
 				return fmt.Errorf("listing %s should fail but succeeded", resourceType)
 			}
-
 		}
 	}
 	return nil
@@ -2121,7 +2304,6 @@ func ExecuteReadOnlyResourceOperations(harness *Harness, resourceTypes []string,
 
 // GetVersionsFromCLI returns client, server, and agent versions from the flightctl CLI version command
 func (h *Harness) GetVersionsFromCLI() (clientVersion, serverVersion, agentVersion string, err error) {
-
 	versionOutput, err := h.CLI("version")
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to get version from CLI: %w", err)
@@ -2377,7 +2559,7 @@ func main() {
 			return
 		}
 		srcPath := filepath.Join(td, "main.go")
-		if err := os.WriteFile(srcPath, []byte(src), 0600); err != nil {
+		if err := os.WriteFile(srcPath, []byte(src), 0o600); err != nil {
 			editorBuildErr = fmt.Errorf("write src: %w", err)
 			return
 		}

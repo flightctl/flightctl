@@ -212,6 +212,15 @@ jobs:
           if-no-files-found: warn
           overwrite: true
 
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          path: artifacts/deployment-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
       # ========== COLLECT LOGS ==========
       - name: Collect and Upload Logs
         if: always()
