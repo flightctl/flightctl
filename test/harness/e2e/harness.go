@@ -55,6 +55,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -441,6 +442,53 @@ func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// CaptureDeploymentLogs fetches logs from the flightctl deployment pods
+// (api, worker, periodic, ui, db) and stores each as an artifact file in
+// the given directory. Requires a Kubernetes environment; skips silently
+// when kubectl is unavailable.
+func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
+	if !isK8sEnvironment() {
+		GinkgoWriter.Println("CaptureDeploymentLogs: not a k8s environment, skipping")
+		return nil
+	}
+
+	services := []string{
+		"flightctl-api",
+		"flightctl-worker",
+		"flightctl-periodic",
+		"flightctl-ui",
+		"flightctl-db",
+	}
+
+	var errs []error
+	for _, svc := range services {
+		nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec
+			"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
+		if err != nil || len(nsOut) == 0 {
+			GinkgoWriter.Printf("CaptureDeploymentLogs: no pods found for %s, skipping\n", svc)
+			continue
+		}
+		ns := string(nsOut)
+
+		out, err := exec.Command("kubectl", "logs", "-n", ns, "-l", "flightctl.service="+svc, //nolint:gosec
+			"--tail=-1").Output()
+		if err != nil {
+			GinkgoWriter.Printf("CaptureDeploymentLogs: failed to get logs for %s: %v\n", svc, err)
+			errs = append(errs, fmt.Errorf("%s: %w", svc, err))
+			continue
+		}
+
+		filename := fmt.Sprintf("deployment_%s_logs.txt", svc)
+		if writeErr := os.WriteFile(filepath.Join(artifactDir, filename), out, 0o600); writeErr != nil {
+			errs = append(errs, fmt.Errorf("writing %s: %w", filename, writeErr))
+			continue
+		}
+		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
+	}
+
+	return errors.Join(errs...)
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
