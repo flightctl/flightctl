@@ -472,27 +472,52 @@ func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 }
 
 // CaptureDeploymentLogs fetches logs from the flightctl deployment services
-// (api, worker, periodic, ui, db) and stores each as an artifact file in
-// the given directory. Supports both Kubernetes (kubectl logs) and quadlet
-// (journalctl) environments.
+// and stores each as an artifact file in the given directory.
+// In Kubernetes environments, services are discovered dynamically via the
+// flightctl.service pod label. In quadlet environments a static list is used.
 func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
-	services := []string{
-		"flightctl-api",
-		"flightctl-worker",
-		"flightctl-periodic",
-		"flightctl-ui",
-		"flightctl-db",
-	}
-
 	if isK8sEnvironment() {
+		services := discoverK8sFlightctlServices()
+		if len(services) == 0 {
+			GinkgoWriter.Println("CaptureDeploymentLogs: no flightctl services discovered in cluster, skipping")
+			return nil
+		}
 		return h.captureK8sServiceLogs(artifactDir, services)
 	}
 	if isQuadletEnvironment() {
+		services := []string{
+			"flightctl-api",
+			"flightctl-worker",
+			"flightctl-periodic",
+			"flightctl-ui",
+			"flightctl-db",
+		}
 		return h.captureQuadletServiceLogs(artifactDir, services)
 	}
 
 	GinkgoWriter.Println("CaptureDeploymentLogs: unknown environment, skipping")
 	return nil
+}
+
+// discoverK8sFlightctlServices returns the unique set of flightctl.service
+// label values from pods across all namespaces. This avoids hardcoding the
+// list of deployed services.
+func discoverK8sFlightctlServices() []string {
+	out, err := exec.Command("kubectl", "get", "pods", "--all-namespaces",
+		"-l", "flightctl.service",
+		"-o", "jsonpath={.items[*].metadata.labels.flightctl\\.service}").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var services []string
+	for _, s := range strings.Fields(string(out)) {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			services = append(services, s)
+		}
+	}
+	return services
 }
 
 func (h *Harness) captureK8sServiceLogs(artifactDir string, services []string) error {
