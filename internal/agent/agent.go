@@ -342,6 +342,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
+		a.config.LabelFromSystemInfo,
 		statusManager,
 		rootSystemdClient,
 		identityProvider,

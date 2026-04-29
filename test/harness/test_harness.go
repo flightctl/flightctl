@@ -328,8 +328,13 @@ func (h *TestHarness) AgentDownloadedCertificate() bool {
 }
 
 func (h *TestHarness) StopAgent() {
+	if h.cancelAgentCtx == nil || h.agentFinished == nil {
+		return
+	}
 	h.cancelAgentCtx()
 	<-h.agentFinished
+	h.cancelAgentCtx = nil
+	h.agentFinished = nil
 }
 
 func (h *TestHarness) StartAgent() {

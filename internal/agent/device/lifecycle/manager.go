@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
+	"github.com/stoewer/go-strcase"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
 )
@@ -44,12 +47,13 @@ type LifecycleManager struct {
 	dataDir              string
 	deviceReadWriter     fileio.ReadWriter
 
-	enrollmentClient client.Enrollment
-	defaultLabels    map[string]string
-	enrollmentCSR    []byte
-	statusManager    status.Manager
-	systemdClient    *client.Systemd
-	identityProvider identity.Provider
+	enrollmentClient    client.Enrollment
+	defaultLabels       map[string]string
+	labelFromSystemInfo map[string]string
+	enrollmentCSR       []byte
+	statusManager       status.Manager
+	systemdClient       *client.Systemd
+	identityProvider    identity.Provider
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -66,6 +70,7 @@ func NewManager(
 	enrollmentClient client.Enrollment,
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
+	labelFromSystemInfo map[string]string,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
@@ -83,6 +88,7 @@ func NewManager(
 		enrollmentClient:     enrollmentClient,
 		enrollmentCSR:        enrollmentCSR,
 		defaultLabels:        defaultLabels,
+		labelFromSystemInfo:  labelFromSystemInfo,
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
@@ -420,6 +426,9 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		m.log.Debugf("Failed to read desired.json: %v", err)
 	}
 
+	// Build enrollment labels by merging labelFromSystemInfo with defaultLabels
+	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus)
+
 	req := v1beta1.EnrollmentRequest{
 		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
@@ -429,7 +438,7 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		Spec: v1beta1.EnrollmentRequestSpec{
 			Csr:                  csrString,
 			DeviceStatus:         deviceStatus,
-			Labels:               &m.defaultLabels,
+			Labels:               &enrollmentLabels,
 			KnownRenderedVersion: knownRenderedVersion,
 		},
 	}
@@ -447,4 +456,74 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 	}
 
 	return nil
+}
+
+// buildEnrollmentLabels creates the final label map for enrollment by:
+// 1. Mapping systemInfo fields (built-in and customInfo) to labels based on labelFromSystemInfo config
+// 2. Adding default alias=hostname if no "alias" label is configured
+// 3. Merging with defaultLabels (defaultLabels take precedence on conflicts)
+func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceStatus) map[string]string {
+	// Start with labels from systemInfo mappings
+	labels := make(map[string]string, len(m.labelFromSystemInfo)+len(m.defaultLabels)+1)
+
+	// Extract systemInfo field mappings (includes both built-in and customInfo fields)
+	for labelName, fieldName := range m.labelFromSystemInfo {
+		value := m.extractSystemInfoField(&deviceStatus.SystemInfo, fieldName)
+		if value != "" {
+			labels[labelName] = value
+		} else {
+			m.log.Warnf("Failed to extract systemInfo field %q for label %q", fieldName, labelName)
+		}
+	}
+
+	// Add default alias=hostname if no "alias" label is configured
+	if _, hasAlias := m.labelFromSystemInfo["alias"]; !hasAlias {
+		hostname := m.extractSystemInfoField(&deviceStatus.SystemInfo, "hostname")
+		if hostname != "" {
+			labels["alias"] = hostname
+		}
+	}
+
+	// Then apply defaultLabels, which take precedence on conflicts
+	maps.Copy(labels, m.defaultLabels)
+
+	return labels
+}
+
+// extractSystemInfoField extracts a field from DeviceSystemInfo (built-in or customInfo)
+// Supports both built-in fields (e.g., "hostname", "architecture") and customInfo fields
+// (e.g., "customInfo.siteId", "customInfo.rackNumber").
+func (m *LifecycleManager) extractSystemInfoField(systemInfo *v1beta1.DeviceSystemInfo, fieldName string) string {
+	// Check if this is a customInfo field (e.g., "customInfo.siteId")
+	const customInfoPrefix = "customInfo."
+	if customFieldName, found := strings.CutPrefix(fieldName, customInfoPrefix); found {
+		if systemInfo.CustomInfo != nil {
+			if value, ok := (*systemInfo.CustomInfo)[customFieldName]; ok {
+				return value
+			}
+		}
+		m.log.Debugf("CustomInfo field %q not found or is empty", customFieldName)
+		return ""
+	}
+
+	// Built-in field: use reflection to access struct fields
+	// Convert to UpperCamelCase to match Go struct field naming
+	structFieldName := strcase.UpperCamelCase(fieldName)
+	v := reflect.ValueOf(*systemInfo)
+	field := v.FieldByName(structFieldName)
+
+	// If field exists and is a string type, return its value
+	if field.IsValid() && field.Kind() == reflect.String {
+		return field.String()
+	}
+
+	// If not found in struct fields, try AdditionalProperties
+	if systemInfo.AdditionalProperties != nil {
+		if value, ok := systemInfo.AdditionalProperties[fieldName]; ok {
+			return value
+		}
+	}
+
+	m.log.Debugf("SystemInfo field %q not found or is empty", fieldName)
+	return ""
 }

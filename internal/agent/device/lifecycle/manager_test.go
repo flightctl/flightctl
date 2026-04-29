@@ -224,3 +224,223 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		})
 	}
 }
+
+func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		labelFromSystemInfo map[string]string
+		defaultLabels       map[string]string
+		deviceStatus        *v1beta1.DeviceStatus
+		expected            map[string]string
+	}{
+		{
+			name:                "When no label mappings it should add default alias and default labels",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels: map[string]string{
+				"env": "prod",
+			},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+				},
+			},
+			expected: map[string]string{
+				"alias": "test-host",
+				"env":   "prod",
+			},
+		},
+		{
+			name: "When mapping systemInfo fields it should extract them correctly and add default alias",
+			labelFromSystemInfo: map[string]string{
+				"arch": "architecture",
+				"os":   "operatingSystem",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture:    "x86_64",
+					OperatingSystem: "linux",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+				},
+			},
+			expected: map[string]string{
+				"arch":  "x86_64",
+				"os":    "linux",
+				"alias": "test-host",
+			},
+		},
+		{
+			name: "When mapping customInfo fields it should extract them correctly and add default alias",
+			labelFromSystemInfo: map[string]string{
+				"site": "customInfo.siteId",
+				"rack": "customInfo.rackNumber",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+					CustomInfo: &v1beta1.CustomDeviceInfo{
+						"siteId":     "site-123",
+						"rackNumber": "rack-5",
+					},
+				},
+			},
+			expected: map[string]string{
+				"site":  "site-123",
+				"rack":  "rack-5",
+				"alias": "test-host",
+			},
+		},
+		{
+			name: "When alias is configured it should not add default alias",
+			labelFromSystemInfo: map[string]string{
+				"alias": "productName",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname":    "test-host",
+						"productName": "my-product",
+					},
+				},
+			},
+			expected: map[string]string{
+				"alias": "my-product",
+			},
+		},
+		{
+			name: "When defaultLabels conflict with mapped labels it should use defaultLabels",
+			labelFromSystemInfo: map[string]string{
+				"env": "architecture",
+			},
+			defaultLabels: map[string]string{
+				"env": "prod",
+			},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+				},
+			},
+			expected: map[string]string{
+				"env":   "prod", // defaultLabels takes precedence
+				"alias": "test-host",
+			},
+		},
+		{
+			name: "When mixing built-in and customInfo fields it should extract both and add default alias",
+			labelFromSystemInfo: map[string]string{
+				"arch": "architecture",
+				"site": "customInfo.siteId",
+			},
+			defaultLabels: map[string]string{
+				"env": "prod",
+			},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "arm64",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+					CustomInfo: &v1beta1.CustomDeviceInfo{
+						"siteId": "site-456",
+					},
+				},
+			},
+			expected: map[string]string{
+				"arch":  "arm64",
+				"site":  "site-456",
+				"env":   "prod",
+				"alias": "test-host",
+			},
+		},
+		{
+			name: "When built-in field does not exist it should skip that label",
+			labelFromSystemInfo: map[string]string{
+				"arch":    "architecture",
+				"missing": "nonexistent",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+					CustomInfo: &v1beta1.CustomDeviceInfo{},
+				},
+			},
+			expected: map[string]string{
+				"arch":  "x86_64",
+				"alias": "test-host",
+				// "missing" should not be present
+			},
+		},
+		{
+			name: "When customInfo field does not exist it should skip that label",
+			labelFromSystemInfo: map[string]string{
+				"arch":    "architecture",
+				"missing": "customInfo.nonexistent",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+					CustomInfo: &v1beta1.CustomDeviceInfo{
+						"siteId": "site-123",
+					},
+				},
+			},
+			expected: map[string]string{
+				"arch":  "x86_64",
+				"alias": "test-host",
+				// "missing" should not be present
+			},
+		},
+		{
+			name: "When mapping AdditionalProperties it should extract them correctly and add default alias",
+			labelFromSystemInfo: map[string]string{
+				"customField": "myCustomField",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname":      "test-host",
+						"myCustomField": "custom-value",
+					},
+				},
+			},
+			expected: map[string]string{
+				"customField": "custom-value",
+				"alias":       "test-host",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &LifecycleManager{
+				labelFromSystemInfo: tt.labelFromSystemInfo,
+				defaultLabels:       tt.defaultLabels,
+				log:                 log.NewPrefixLogger("test"),
+			}
+
+			result := manager.buildEnrollmentLabels(tt.deviceStatus)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
