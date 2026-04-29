@@ -454,9 +454,13 @@ func isK8sEnvironment() bool {
 // isQuadletEnvironment returns true if running in a quadlet (systemd + Podman) environment.
 func isQuadletEnvironment() bool {
 	if env := os.Getenv("E2E_ENVIRONMENT"); env != "" {
-		return env == "quadlet"
+		isQuadlet := env == "quadlet"
+		logrus.Infof("E2E_ENVIRONMENT is set to %q, isQuadlet=%v", env, isQuadlet)
+		return isQuadlet
 	}
-	return exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service").Run() == nil
+	isActive := exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service").Run() == nil
+	logrus.Infof("E2E_ENVIRONMENT not set, detecting quadlet via systemctl: isActive=%v", isActive)
+	return isActive
 }
 
 // GetServiceLogs returns the logs from the specified service using journalctl.
@@ -474,7 +478,6 @@ func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 // CaptureDeploymentLogs fetches logs from the flightctl deployment services
 // and stores each as an artifact file in the given directory.
 // In Kubernetes environments, services are discovered dynamically via the
-// flightctl.service pod label. In quadlet environments a static list is used.
 func (h *Harness) CaptureDeploymentLogs(artifactDir string) error {
 	if isK8sEnvironment() {
 		services, err := discoverK8sFlightctlServices()
