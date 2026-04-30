@@ -47,6 +47,7 @@ func TestListenForEvents(t *testing.T) {
 		expectedStatus   v1beta1.ApplicationStatusType
 		expectedSummary  v1beta1.ApplicationsSummaryStatusType
 		events           []client.PodmanEvent
+		inspectFinished  bool // when true, mock inspect has FinishedAt set so resolveStatus converts die→exited
 	}{
 		{
 			name:     "single app start",
@@ -183,6 +184,58 @@ func TestListenForEvents(t *testing.T) {
 			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
+		{
+			name:            "all containers manually stopped with stop then die exit code 0",
+			appNames:        []string{"app1"},
+			inspectFinished: true,
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
+			},
+			expectedReady:   "0/2",
+			expectedStatus:  v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name:            "one container manually stopped with stop then die exit code 0 one running",
+			appNames:        []string{"app1"},
+			inspectFinished: true,
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
+			},
+			expectedReady:   "1/2",
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name:            "When all containers complete normally with die exit code 0 it should report completed",
+			appNames:        []string{"app1"},
+			inspectFinished: true,
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+			},
+			expectedReady:   "0/1",
+			expectedStatus:  v1beta1.ApplicationStatusCompleted,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,7 +259,11 @@ func TestListenForEvents(t *testing.T) {
 
 			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			inspect := mockPodmanInspect(restartsPerContainer)
+			if tc.inspectFinished {
+				inspect.State.FinishedAt = "2024-01-01T00:00:00Z"
+			}
+			testInspect = append(testInspect, inspect)
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
