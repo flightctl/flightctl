@@ -185,7 +185,7 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name:            "all containers manually stopped with stop then die exit code 0",
+			name:            "When all containers are manually stopped with stop then die exit code 0 it should report error",
 			appNames:        []string{"app1"},
 			inspectFinished: true,
 			events: []client.PodmanEvent{
@@ -205,7 +205,7 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
-			name:            "one container manually stopped with stop then die exit code 0 one running",
+			name:            "When one container is manually stopped with stop then die exit code 0 and one is running it should report degraded",
 			appNames:        []string{"app1"},
 			inspectFinished: true,
 			events: []client.PodmanEvent{
