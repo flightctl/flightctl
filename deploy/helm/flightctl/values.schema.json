@@ -771,7 +771,7 @@
           "description": "Trustify API connection details",
           "additionalProperties": false,
           "properties": {
-            "endpoint": { "type": "string", "description": "Trustify API endpoint URL" },
+            "endpoint": { "type": "string", "description": "Trustify API base URL (do not include /api/v1 or /api/v2 paths)" },
             "auth": {
               "type": "object",
               "description": "Trustify authentication configuration",

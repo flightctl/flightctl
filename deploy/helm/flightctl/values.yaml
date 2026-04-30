@@ -471,7 +471,7 @@ vulnerabilityReporting:
     # -- Minimum CVSS base score to trigger a critical per-device alert.
     criticalCvssThreshold: 7.0
   trustify:
-    # -- Trustify API endpoint URL.
+    # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
     endpoint: ""
     auth:
       # -- Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'.

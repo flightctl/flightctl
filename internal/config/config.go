@@ -462,7 +462,8 @@ type VulnerabilityAlertingConfig struct {
 
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
-	// Endpoint is the Trustify API base URL.
+	// Endpoint is the Trustify API base URL (e.g. "https://trustify.example.com").
+	// Do not include the /api/v1 or /api/v2 paths; the client appends them automatically.
 	Endpoint string `json:"endpoint,omitempty"`
 	// Auth configures how the periodic service authenticates to Trustify.
 	Auth *TrustifyAuthConfig `json:"auth,omitempty"`

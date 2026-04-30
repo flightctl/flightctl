@@ -132,7 +132,8 @@ prometheus:
 #     criticalCvssThreshold: 7.0
 #   trustify:
 #     # Trustify API base URL (used by flightctl-periodic only).
-#     endpoint: https://trustify.example.com/api/v1
+#     # NOTE: Do not include the API path; the client appends /api/v2/vulnerability/analyze automatically.
+#     endpoint: https://trustify.example.com
 #     auth:
 #       # Authentication mode. Allowed values: 'client-credentials', 'none'.
 #       mode: none
