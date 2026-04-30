@@ -14,16 +14,16 @@ spec:
   links:
     - href: '{{ $url }}/amd64/linux/flightctl-linux-amd64.tar.gz'
       text: Download flightctl for Linux for x86_64
+    - href: '{{ $url }}/arm64/linux/flightctl-linux-arm64.tar.gz'
+      text: Download flightctl for Linux for ARM64
     - href: '{{ $url }}/amd64/mac/flightctl-darwin-amd64.zip'
       text: Download flightctl for Mac for x86_64
+    - href: '{{ $url }}/arm64/mac/flightctl-darwin-arm64.zip'
+      text: Download flightctl for Mac for ARM64
     - href: '{{ $url }}/amd64/windows/flightctl-windows-amd64.zip'
       text: Download flightctl for Windows for x86_64
-    - href: '{{ $url }}/arm64/linux/flightctl-linux-arm64.tar.gz'
-      text: Download flightctl for Linux for ARM 64
-    - href: '{{ $url }}/arm64/mac/flightctl-darwin-arm64.zip'
-      text: Download flightctl for Mac for ARM 64
     - href: '{{ $url }}/arm64/windows/flightctl-windows-arm64.zip'
-      text: Download flightctl for Windows for ARM 64
+      text: Download flightctl for Windows for ARM64
 ---
 apiVersion: console.openshift.io/v1
 kind: ConsoleCLIDownload
@@ -38,14 +38,14 @@ spec:
   links:
     - href: '{{ $url }}/amd64/linux/flightctl-restore-linux-amd64.tar.gz'
       text: Download flightctl-restore for Linux for x86_64
+    - href: '{{ $url }}/arm64/linux/flightctl-restore-linux-arm64.tar.gz'
+      text: Download flightctl-restore for Linux for ARM64
     - href: '{{ $url }}/amd64/mac/flightctl-restore-darwin-amd64.zip'
       text: Download flightctl-restore for Mac for x86_64
+    - href: '{{ $url }}/arm64/mac/flightctl-restore-darwin-arm64.zip'
+      text: Download flightctl-restore for Mac for ARM64
     - href: '{{ $url }}/amd64/windows/flightctl-restore-windows-amd64.zip'
       text: Download flightctl-restore for Windows for x86_64
-    - href: '{{ $url }}/arm64/linux/flightctl-restore-linux-arm64.tar.gz'
-      text: Download flightctl-restore for Linux for ARM 64
-    - href: '{{ $url }}/arm64/mac/flightctl-restore-darwin-arm64.zip'
-      text: Download flightctl-restore for Mac for ARM 64
     - href: '{{ $url }}/arm64/windows/flightctl-restore-windows-arm64.zip'
-      text: Download flightctl-restore for Windows for ARM 64
+      text: Download flightctl-restore for Windows for ARM64
 {{ end }}
