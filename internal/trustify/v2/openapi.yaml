@@ -1,240 +1,172 @@
 openapi: 3.0.3
 info:
   title: Trustify
-  description: Software Supply-Chain Security API (trimmed to analyze endpoint only)
+  description: Software Supply-Chain Security API (SBOM and advisory endpoints)
   license:
     name: Apache License, Version 2.0
     identifier: Apache-2.0
   version: 0.4.12
 paths:
-  /api/v2/vulnerability/analyze:
-    post:
+  /api/v2/sbom:
+    get:
       tags:
-      - vulnerability
-      summary: Analyze the provided purls for the known vulnerabilities
-      operationId: analyze
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnalysisRequest'
-        required: true
+      - sbom
+      summary: List SBOMs
+      operationId: listSboms
+      parameters:
+      - name: q
+        in: query
+        description: Search query (e.g., sha256~<digest> or name~<image>)
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
       responses:
         '200':
-          description: Analyze the provided purls to search for known vulnerabilities
+          description: List of matching SBOMs
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnalysisResponse'
+                $ref: '#/components/schemas/SbomListResponse'
+  /api/v2/sbom/{id}/advisory:
+    get:
+      tags:
+      - sbom
+      summary: Get advisories for an SBOM
+      operationId: getSbomAdvisories
+      parameters:
+      - name: id
+        in: path
+        description: SBOM ID (e.g., urn:uuid:...)
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: List of advisories affecting the SBOM
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SbomAdvisory'
+        '404':
+          description: SBOM not found
 components:
   schemas:
-    AdvisoryHead:
+    SbomListResponse:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SbomSummary'
+        total:
+          type: integer
+          format: int64
+    SbomSummary:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          description: SBOM ID (URN format)
+        name:
+          type: string
+          description: SBOM name (usually the image reference)
+        sha256:
+          type: string
+          nullable: true
+          description: SHA256 digest of the SBOM content
+        published:
+          type: string
+          format: date-time
+          nullable: true
+    SbomAdvisory:
       type: object
       required:
       - uuid
       - identifier
       - document_id
-      - issuer
-      - published
-      - withdrawn
       - title
-      - labels
+      - status
       properties:
-        document_id:
+        uuid:
           type: string
-          description: The identifier of the advisory, as provided by the document.
         identifier:
           type: string
-          description: The identifier of the advisory, as assigned by the issuing organization.
-        issuer:
-          nullable: true
-          allOf:
-          - $ref: '#/components/schemas/OrganizationSummary'
-          description: The issuer of the advisory, if known.
-        labels:
-          $ref: '#/components/schemas/Labels'
-        modified:
+          description: Advisory identifier (e.g., URL or reference)
+        document_id:
           type: string
-          format: date-time
+          description: CVE ID (e.g., CVE-2023-44487)
+        title:
+          type: string
           nullable: true
         published:
           type: string
           format: date-time
           nullable: true
-        title:
-          type: string
-          nullable: true
-        uuid:
-          type: string
-        withdrawn:
+        modified:
           type: string
           format: date-time
           nullable: true
-    AnalysisAdvisory:
-      allOf:
-      - $ref: '#/components/schemas/AdvisoryHead'
-      - type: object
-        required:
-        - scores
-        properties:
-          scores:
-            type: array
-            items:
-              $ref: '#/components/schemas/Score'
-            description: CVSS scores
-    AnalysisDetails:
-      allOf:
-      - $ref: '#/components/schemas/VulnerabilityHead'
-      - type: object
-        required:
-        - status
-        properties:
-          status:
-            type: object
-            description: Map of status strings to advisories asserting that status.
-            additionalProperties:
-              type: array
-              items:
-                $ref: '#/components/schemas/AnalysisAdvisory'
-            propertyNames:
-              type: string
-    AnalysisRequest:
-      type: object
-      required:
-      - purls
-      properties:
-        purls:
+        status:
           type: array
           items:
-            type: string
-    AnalysisResponse:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/AnalysisResult'
-      propertyNames:
-        type: string
-    AnalysisResult:
+            $ref: '#/components/schemas/SbomStatus'
+    SbomStatus:
       type: object
       required:
-      - details
-      - warnings
+      - identifier
+      - status
+      - average_severity
+      - average_score
       properties:
-        details:
-          type: array
-          items:
-            $ref: '#/components/schemas/AnalysisDetails'
-        warnings:
-          type: array
-          items:
-            type: string
-    Labels:
-      type: object
-      additionalProperties:
-        type: string
-    OrganizationHead:
-      type: object
-      description: An organization who may issue advisories.
-      required:
-      - id
-      - name
-      - cpe_key
-      - website
-      properties:
-        cpe_key:
+        identifier:
+          type: string
+          description: CVE identifier
+        title:
           type: string
           nullable: true
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        website:
+        description:
           type: string
           nullable: true
-    OrganizationSummary:
-      allOf:
-      - $ref: '#/components/schemas/OrganizationHead'
-    Score:
-      type: object
-      required:
-      - type
-      - value
-      - severity
-      properties:
-        severity:
+        status:
+          type: string
+          description: Vulnerability status (affected, fixed, not_affected, unknown)
+        average_severity:
           $ref: '#/components/schemas/Severity'
-        type:
-          $ref: '#/components/schemas/ScoreType'
-        value:
+        average_score:
           type: number
           format: double
-    ScoreType:
-      type: string
-      description: The type of score, indicating the scoring system and version used.
-      enum:
-      - '2.0'
-      - '3.0'
-      - '3.1'
-      - '4.0'
+        published:
+          type: string
+          format: date-time
+          nullable: true
     Severity:
       type: string
-      description: Qualitative Severity Rating Scale (CVSS v3.1 Specification Section 5).
+      description: Qualitative Severity Rating Scale
       enum:
       - none
       - low
       - medium
       - high
       - critical
-    VulnerabilityHead:
-      type: object
-      required:
-      - normative
-      - identifier
-      - title
-      - description
-      - reserved
-      - published
-      - modified
-      - withdrawn
-      - discovered
-      - released
-      - cwes
-      properties:
-        cwes:
-          type: array
-          items:
-            type: string
-        description:
-          type: string
-          nullable: true
-        discovered:
-          type: string
-          format: date-time
-          nullable: true
-        identifier:
-          type: string
-        modified:
-          type: string
-          format: date-time
-          nullable: true
-        normative:
-          type: boolean
-        published:
-          type: string
-          format: date-time
-          nullable: true
-        released:
-          type: string
-          format: date-time
-          nullable: true
-        reserved:
-          type: string
-          format: date-time
-          nullable: true
-        title:
-          type: string
-          nullable: true
-        withdrawn:
-          type: string
-          format: date-time
-          nullable: true

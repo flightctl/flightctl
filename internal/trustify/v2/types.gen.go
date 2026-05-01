@@ -5,16 +5,6 @@ package trustifyv2
 
 import (
 	"time"
-
-	openapi_types "github.com/oapi-codegen/runtime/types"
-)
-
-// Defines values for ScoreType.
-const (
-	N20 ScoreType = "2.0"
-	N30 ScoreType = "3.0"
-	N31 ScoreType = "3.1"
-	N40 ScoreType = "4.0"
 )
 
 // Defines values for Severity.
@@ -26,121 +16,67 @@ const (
 	None     Severity = "none"
 )
 
-// AdvisoryHead defines model for AdvisoryHead.
-type AdvisoryHead struct {
-	// DocumentId The identifier of the advisory, as provided by the document.
+// SbomAdvisory defines model for SbomAdvisory.
+type SbomAdvisory struct {
+	// DocumentId CVE ID (e.g., CVE-2023-44487)
 	DocumentId string `json:"document_id"`
 
-	// Identifier The identifier of the advisory, as assigned by the issuing organization.
-	Identifier string `json:"identifier"`
-
-	// Issuer The issuer of the advisory, if known.
-	Issuer    *OrganizationSummary `json:"issuer"`
-	Labels    Labels               `json:"labels"`
-	Modified  *time.Time           `json:"modified"`
-	Published *time.Time           `json:"published"`
-	Title     *string              `json:"title"`
-	Uuid      string               `json:"uuid"`
-	Withdrawn *time.Time           `json:"withdrawn"`
+	// Identifier Advisory identifier (e.g., URL or reference)
+	Identifier string       `json:"identifier"`
+	Modified   *time.Time   `json:"modified"`
+	Published  *time.Time   `json:"published"`
+	Status     []SbomStatus `json:"status"`
+	Title      *string      `json:"title"`
+	Uuid       string       `json:"uuid"`
 }
 
-// AnalysisAdvisory defines model for AnalysisAdvisory.
-type AnalysisAdvisory struct {
-	// DocumentId The identifier of the advisory, as provided by the document.
-	DocumentId string `json:"document_id"`
-
-	// Identifier The identifier of the advisory, as assigned by the issuing organization.
-	Identifier string `json:"identifier"`
-
-	// Issuer The issuer of the advisory, if known.
-	Issuer    *OrganizationSummary `json:"issuer"`
-	Labels    Labels               `json:"labels"`
-	Modified  *time.Time           `json:"modified"`
-	Published *time.Time           `json:"published"`
-
-	// Scores CVSS scores
-	Scores    []Score    `json:"scores"`
-	Title     *string    `json:"title"`
-	Uuid      string     `json:"uuid"`
-	Withdrawn *time.Time `json:"withdrawn"`
+// SbomListResponse defines model for SbomListResponse.
+type SbomListResponse struct {
+	Items []SbomSummary `json:"items"`
+	Total int64         `json:"total"`
 }
 
-// AnalysisDetails defines model for AnalysisDetails.
-type AnalysisDetails struct {
-	Cwes        []string   `json:"cwes"`
-	Description *string    `json:"description"`
-	Discovered  *time.Time `json:"discovered"`
-	Identifier  string     `json:"identifier"`
-	Modified    *time.Time `json:"modified"`
-	Normative   bool       `json:"normative"`
-	Published   *time.Time `json:"published"`
-	Released    *time.Time `json:"released"`
-	Reserved    *time.Time `json:"reserved"`
+// SbomStatus defines model for SbomStatus.
+type SbomStatus struct {
+	AverageScore float64 `json:"average_score"`
 
-	// Status Map of status strings to advisories asserting that status.
-	Status    map[string][]AnalysisAdvisory `json:"status"`
-	Title     *string                       `json:"title"`
-	Withdrawn *time.Time                    `json:"withdrawn"`
+	// AverageSeverity Qualitative Severity Rating Scale
+	AverageSeverity Severity `json:"average_severity"`
+	Description     *string  `json:"description"`
+
+	// Identifier CVE identifier
+	Identifier string     `json:"identifier"`
+	Published  *time.Time `json:"published"`
+
+	// Status Vulnerability status (affected, fixed, not_affected, unknown)
+	Status string  `json:"status"`
+	Title  *string `json:"title"`
 }
 
-// AnalysisRequest defines model for AnalysisRequest.
-type AnalysisRequest struct {
-	Purls []string `json:"purls"`
+// SbomSummary defines model for SbomSummary.
+type SbomSummary struct {
+	// Id SBOM ID (URN format)
+	Id string `json:"id"`
+
+	// Name SBOM name (usually the image reference)
+	Name      string     `json:"name"`
+	Published *time.Time `json:"published"`
+
+	// Sha256 SHA256 digest of the SBOM content
+	Sha256 *string `json:"sha256"`
 }
 
-// AnalysisResponse defines model for AnalysisResponse.
-type AnalysisResponse map[string]AnalysisResult
-
-// AnalysisResult defines model for AnalysisResult.
-type AnalysisResult struct {
-	Details  []AnalysisDetails `json:"details"`
-	Warnings []string          `json:"warnings"`
-}
-
-// Labels defines model for Labels.
-type Labels map[string]string
-
-// OrganizationHead An organization who may issue advisories.
-type OrganizationHead struct {
-	CpeKey  *string            `json:"cpe_key"`
-	Id      openapi_types.UUID `json:"id"`
-	Name    string             `json:"name"`
-	Website *string            `json:"website"`
-}
-
-// OrganizationSummary An organization who may issue advisories.
-type OrganizationSummary = OrganizationHead
-
-// Score defines model for Score.
-type Score struct {
-	// Severity Qualitative Severity Rating Scale (CVSS v3.1 Specification Section 5).
-	Severity Severity `json:"severity"`
-
-	// Type The type of score, indicating the scoring system and version used.
-	Type  ScoreType `json:"type"`
-	Value float64   `json:"value"`
-}
-
-// ScoreType The type of score, indicating the scoring system and version used.
-type ScoreType string
-
-// Severity Qualitative Severity Rating Scale (CVSS v3.1 Specification Section 5).
+// Severity Qualitative Severity Rating Scale
 type Severity string
 
-// VulnerabilityHead defines model for VulnerabilityHead.
-type VulnerabilityHead struct {
-	Cwes        []string   `json:"cwes"`
-	Description *string    `json:"description"`
-	Discovered  *time.Time `json:"discovered"`
-	Identifier  string     `json:"identifier"`
-	Modified    *time.Time `json:"modified"`
-	Normative   bool       `json:"normative"`
-	Published   *time.Time `json:"published"`
-	Released    *time.Time `json:"released"`
-	Reserved    *time.Time `json:"reserved"`
-	Title       *string    `json:"title"`
-	Withdrawn   *time.Time `json:"withdrawn"`
-}
+// ListSbomsParams defines parameters for ListSboms.
+type ListSbomsParams struct {
+	// Q Search query (e.g., sha256~<digest> or name~<image>)
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
 
-// AnalyzeJSONRequestBody defines body for Analyze for application/json ContentType.
-type AnalyzeJSONRequestBody = AnalysisRequest
+	// Limit Maximum number of results to return
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of results to skip
+	Offset *int64 `form:"offset,omitempty" json:"offset,omitempty"`
+}

@@ -4,7 +4,6 @@
 package trustifyv2
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/oapi-codegen/runtime"
 )
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
@@ -87,14 +88,15 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// AnalyzeWithBody request with any body
-	AnalyzeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListSboms request
+	ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	Analyze(ctx context.Context, body AnalyzeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetSbomAdvisories request
+	GetSbomAdvisories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) AnalyzeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAnalyzeRequestWithBody(c.Server, contentType, body)
+func (c *Client) ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSbomsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +107,8 @@ func (c *Client) AnalyzeWithBody(ctx context.Context, contentType string, body i
 	return c.Client.Do(req)
 }
 
-func (c *Client) Analyze(ctx context.Context, body AnalyzeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAnalyzeRequest(c.Server, body)
+func (c *Client) GetSbomAdvisories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSbomAdvisoriesRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -117,19 +119,8 @@ func (c *Client) Analyze(ctx context.Context, body AnalyzeJSONRequestBody, reqEd
 	return c.Client.Do(req)
 }
 
-// NewAnalyzeRequest calls the generic Analyze builder with application/json body
-func NewAnalyzeRequest(server string, body AnalyzeJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewAnalyzeRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewAnalyzeRequestWithBody generates requests for Analyze with any type of body
-func NewAnalyzeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewListSbomsRequest generates requests for ListSboms
+func NewListSbomsRequest(server string, params *ListSbomsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -137,7 +128,7 @@ func NewAnalyzeRequestWithBody(server string, contentType string, body io.Reader
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v2/vulnerability/analyze")
+	operationPath := fmt.Sprintf("/api/v2/sbom")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -147,12 +138,98 @@ func NewAnalyzeRequestWithBody(server string, contentType string, body io.Reader
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "q", runtime.ParamLocationQuery, *params.Q); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "offset", runtime.ParamLocationQuery, *params.Offset); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Add("Content-Type", contentType)
+	return req, nil
+}
+
+// NewGetSbomAdvisoriesRequest generates requests for GetSbomAdvisories
+func NewGetSbomAdvisoriesRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/sbom/%s/advisory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -200,20 +277,21 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// AnalyzeWithBodyWithResponse request with any body
-	AnalyzeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnalyzeResponse, error)
+	// ListSbomsWithResponse request
+	ListSbomsWithResponse(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*ListSbomsResponse, error)
 
-	AnalyzeWithResponse(ctx context.Context, body AnalyzeJSONRequestBody, reqEditors ...RequestEditorFn) (*AnalyzeResponse, error)
+	// GetSbomAdvisoriesWithResponse request
+	GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error)
 }
 
-type AnalyzeResponse struct {
+type ListSbomsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *AnalysisResponse
+	JSON200      *SbomListResponse
 }
 
 // Status returns HTTPResponse.Status
-func (r AnalyzeResponse) Status() string {
+func (r ListSbomsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -221,46 +299,95 @@ func (r AnalyzeResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r AnalyzeResponse) StatusCode() int {
+func (r ListSbomsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-// AnalyzeWithBodyWithResponse request with arbitrary body returning *AnalyzeResponse
-func (c *ClientWithResponses) AnalyzeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnalyzeResponse, error) {
-	rsp, err := c.AnalyzeWithBody(ctx, contentType, body, reqEditors...)
+type GetSbomAdvisoriesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]SbomAdvisory
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSbomAdvisoriesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSbomAdvisoriesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ListSbomsWithResponse request returning *ListSbomsResponse
+func (c *ClientWithResponses) ListSbomsWithResponse(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*ListSbomsResponse, error) {
+	rsp, err := c.ListSboms(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAnalyzeResponse(rsp)
+	return ParseListSbomsResponse(rsp)
 }
 
-func (c *ClientWithResponses) AnalyzeWithResponse(ctx context.Context, body AnalyzeJSONRequestBody, reqEditors ...RequestEditorFn) (*AnalyzeResponse, error) {
-	rsp, err := c.Analyze(ctx, body, reqEditors...)
+// GetSbomAdvisoriesWithResponse request returning *GetSbomAdvisoriesResponse
+func (c *ClientWithResponses) GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error) {
+	rsp, err := c.GetSbomAdvisories(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAnalyzeResponse(rsp)
+	return ParseGetSbomAdvisoriesResponse(rsp)
 }
 
-// ParseAnalyzeResponse parses an HTTP response from a AnalyzeWithResponse call
-func ParseAnalyzeResponse(rsp *http.Response) (*AnalyzeResponse, error) {
+// ParseListSbomsResponse parses an HTTP response from a ListSbomsWithResponse call
+func ParseListSbomsResponse(rsp *http.Response) (*ListSbomsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &AnalyzeResponse{
+	response := &ListSbomsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest AnalysisResponse
+		var dest SbomListResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSbomAdvisoriesResponse parses an HTTP response from a GetSbomAdvisoriesWithResponse call
+func ParseGetSbomAdvisoriesResponse(rsp *http.Response) (*GetSbomAdvisoriesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSbomAdvisoriesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []SbomAdvisory
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
