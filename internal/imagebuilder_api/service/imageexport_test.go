@@ -978,6 +978,7 @@ func newOciRepositoryWithRegistry(name string, accessMode v1beta1.OciRepoSpecAcc
 }
 
 // TestDownloadImageExportWithRedirect tests successful download with redirect response.
+// The service follows redirects and returns the blob content.
 func TestDownloadImageExportWithRedirect(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -986,7 +987,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	// Create a test HTTP server that mocks an OCI registry
 	manifestDigest := "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	layerDigest := "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
-	presignedURL := "https://storage.example.com/presigned-blob-url"
+	blobContent := []byte("test blob content from redirect")
 
 	// Create manifest JSON
 	manifest := ocispec.Manifest{
@@ -1019,9 +1020,16 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(manifestBytes)
 		case "/v2/test-image/blobs/" + layerDigest:
-			// Blob fetch - return redirect
-			w.Header().Set("Location", presignedURL)
+			// Blob fetch - return redirect to internal presigned URL
+			redirectURL := "https://" + r.Host + "/presigned-blob"
+			w.Header().Set("Location", redirectURL)
 			w.WriteHeader(http.StatusTemporaryRedirect)
+		case "/presigned-blob":
+			// Presigned URL serves the actual blob content
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(blobContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1055,13 +1063,19 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
-	// Download
+	// Download - now follows redirects and returns blob content
 	result, err := svc.Download(ctx, orgId, "test-export")
 	require.NoError(err)
 	require.NotNil(result)
-	require.Equal(presignedURL, result.RedirectURL)
-	require.Equal(http.StatusTemporaryRedirect, result.StatusCode)
-	require.Nil(result.BlobReader)
+	require.NotNil(result.BlobReader)
+	require.Equal(http.StatusOK, result.StatusCode)
+	require.NotEmpty(result.Filename)
+
+	// Read blob content
+	defer result.BlobReader.Close()
+	readContent, err := io.ReadAll(result.BlobReader)
+	require.NoError(err)
+	require.Equal(blobContent, readContent)
 }
 
 // TestDownloadImageExportWithBlobReader tests successful download with direct blob stream.
@@ -1148,18 +1162,16 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	result, err := svc.Download(ctx, orgId, "test-export")
 	require.NoError(err)
 	require.NotNil(result)
-	require.Empty(result.RedirectURL)
 	require.NotNil(result.BlobReader)
 	require.Equal(http.StatusOK, result.StatusCode)
 	require.NotNil(result.Headers)
+	require.NotEmpty(result.Filename)
 
 	// Read blob content
-	if result.BlobReader != nil {
-		defer result.BlobReader.Close()
-		readContent, err := io.ReadAll(result.BlobReader)
-		require.NoError(err)
-		require.Equal(blobContent, readContent)
-	}
+	defer result.BlobReader.Close()
+	readContent, err := io.ReadAll(result.BlobReader)
+	require.NoError(err)
+	require.Equal(blobContent, readContent)
 }
 
 // TestDownloadImageExportManifestWrongLayerCount tests validation of manifest layer count.

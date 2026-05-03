@@ -275,18 +275,6 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Handle redirect
-	if download.RedirectURL != "" {
-		statusCode := download.StatusCode
-		if statusCode == 0 {
-			// Default to 302 if status code not set
-			statusCode = http.StatusFound
-		}
-		w.Header().Set("Location", download.RedirectURL)
-		w.WriteHeader(statusCode)
-		return
-	}
-
 	// Handle blob streaming
 	if download.BlobReader != nil {
 		defer download.BlobReader.Close()
@@ -298,12 +286,22 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 			}
 		}
 
+		// Set Content-Disposition header for proper filename
+		if download.Filename != "" {
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", download.Filename))
+		}
+
 		// Set status code
 		statusCode := download.StatusCode
 		if statusCode == 0 {
 			statusCode = http.StatusOK
 		}
 		w.WriteHeader(statusCode)
+
+		// Flush headers immediately so the browser can show download dialog
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
 
 		// Stream the blob content
 		_, err := io.Copy(w, download.BlobReader)
@@ -315,7 +313,7 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 	}
 
 	// Should not reach here, but handle gracefully
-	h.log.WithField("name", name).Error("download returned neither redirect nor blob")
+	h.log.WithField("name", name).Error("download returned no blob content")
 	h.SetResponse(w, nil, service.StatusInternalServerError("Invalid download response"))
 }
 
