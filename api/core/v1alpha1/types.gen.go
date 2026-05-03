@@ -386,7 +386,7 @@ type CatalogStatus struct {
 	Conditions []externalRef0.Condition `json:"conditions"`
 }
 
-// CveCountsBySeverity Counts of distinct CVEs in the org by highest severity.
+// CveCountsBySeverity Counts of distinct CVEs in the organization by highest severity.
 type CveCountsBySeverity struct {
 	// Critical Count of distinct Critical CVEs.
 	Critical int64 `json:"critical"`
@@ -403,34 +403,34 @@ type CveCountsBySeverity struct {
 	// None Count of distinct CVEs with no exploitable impact (CVSS score 0).
 	None int64 `json:"none"`
 
-	// Total Total distinct CVEs across the org.
+	// Total Total distinct CVEs across the organization.
 	Total int64 `json:"total"`
 
 	// Unknown Count of distinct CVEs with unknown or unscored severity.
 	Unknown int64 `json:"unknown"`
 }
 
-// DeviceCountsBySeverity Counts of distinct devices affected in the org, bucketed by finding severity (join of devices to vulnerability_findings).
+// DeviceCountsBySeverity Counts of distinct devices affected in the organization, grouped by vulnerability severity.
 type DeviceCountsBySeverity struct {
-	// Critical Devices whose highest severity finding is critical.
+	// Critical Number of devices whose highest severity finding is critical.
 	Critical int64 `json:"critical"`
 
-	// High Devices whose highest severity finding is high.
+	// High Number of devices whose highest severity finding is high.
 	High int64 `json:"high"`
 
-	// Low Devices whose highest severity finding is low.
+	// Low Number of devices whose highest severity finding is low.
 	Low int64 `json:"low"`
 
-	// Medium Devices whose highest severity finding is medium.
+	// Medium Number of devices whose highest severity finding is medium.
 	Medium int64 `json:"medium"`
 
-	// None Devices whose highest severity finding is none.
+	// None Number of devices whose highest severity finding is none.
 	None int64 `json:"none"`
 
-	// Total Distinct devices with at least one non-not_affected finding in scope.
+	// Total Number of distinct devices with at least one vulnerability finding in the organization.
 	Total int64 `json:"total"`
 
-	// Unknown Devices whose highest severity finding is unknown.
+	// Unknown Number of devices whose highest severity finding is unknown.
 	Unknown int64 `json:"unknown"`
 }
 
@@ -523,7 +523,7 @@ type Vulnerability struct {
 	// AdvisoryId Vendor advisory identifier when available.
 	AdvisoryId *string `json:"advisoryId,omitempty"`
 
-	// AffectedDevices Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for org-wide context it is the count across the whole org.
+	// AffectedDevices Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for organization-wide context it is the count across the whole organization.
 	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
 
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -557,7 +557,7 @@ type Vulnerability struct {
 // VulnerabilitySeverity Normalized severity label.
 type VulnerabilitySeverity string
 
-// VulnerabilityGroup A CVE grouped across one or more images, as returned by fleet-scoped and org-wide vulnerability list endpoints. Each finding represents one image in which the CVE was detected.
+// VulnerabilityGroup A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide vulnerability list endpoints. Each finding represents one image in which the CVE was detected.
 type VulnerabilityGroup struct {
 	// AffectedDevices Total distinct devices affected by this CVE within scope.
 	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
@@ -620,7 +620,7 @@ type VulnerabilityGroupItem struct {
 // VulnerabilityGroupItemSeverity Severity of this CVE for this digest.
 type VulnerabilityGroupItemSeverity string
 
-// VulnerabilityGroupList Paginated list of VulnerabilityGroup resources (fleet-scoped or org-wide).
+// VulnerabilityGroupList Paginated list of VulnerabilityGroup resources (fleet-scoped or organization-wide).
 type VulnerabilityGroupList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion ApiVersion `json:"apiVersion"`
@@ -661,20 +661,20 @@ type VulnerabilityImpact struct {
 	// Kind Resource kind; always VulnerabilityImpact.
 	Kind string `json:"kind"`
 
-	// MaxCvssScore Highest CVSS base score across all affected digests.
+	// MaxCvssScore Highest CVSS base score for this CVE in the fleet or fleetless group.
 	MaxCvssScore *float32 `json:"maxCvssScore,omitempty"`
 
-	// MaxPublishedAt Latest advisory publish time across all affected digests.
+	// MaxPublishedAt When this CVE was first observed in the fleet or fleetless group.
 	MaxPublishedAt *time.Time `json:"maxPublishedAt,omitempty"`
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata externalRef0.ListMeta `json:"metadata"`
 
-	// Severity Worst severity across all affected digests.
+	// Severity Worst severity for this CVE in the fleet or fleetless group.
 	Severity VulnerabilityImpactSeverity `json:"severity"`
 }
 
-// VulnerabilityImpactSeverity Worst severity across all affected digests.
+// VulnerabilityImpactSeverity Worst severity for this CVE in the fleet or fleetless group.
 type VulnerabilityImpactSeverity string
 
 // VulnerabilityList Paginated list of Vulnerability resources.
@@ -721,7 +721,7 @@ type VulnerabilitySummaryResponse struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion ApiVersion `json:"apiVersion"`
 
-	// CvesBySeverity Counts of distinct CVEs in the org by highest severity.
+	// CvesBySeverity Counts of distinct CVEs in the organization by highest severity.
 	CvesBySeverity CveCountsBySeverity `json:"cvesBySeverity"`
 
 	// Kind Resource kind; always VulnerabilitySummary.
@@ -799,7 +799,7 @@ type GetVulnerabilityImpactParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
-	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	// FieldSelector Restricts blast-radius rows by device owner before aggregation. Supported key is `owner` (device owner string, for example `owner=Fleet/my-fleet`). Operators include `=`, `==`, `!=`, and set-style `in` / `notin` where applicable.
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
 	// SortBy Field to sort blast radius rows by.

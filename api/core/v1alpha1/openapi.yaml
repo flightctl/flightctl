@@ -19,7 +19,7 @@ tags:
   - name: catalog
     description: Operations on Catalog resources.
   - name: vulnerability
-    description: Operations for vulnerability reports and org-wide summaries.
+    description: Operations for vulnerability reports and organization-wide summaries.
 paths:
   /catalogitems:
     x-resource: catalogitems
@@ -1106,7 +1106,7 @@ paths:
     get:
       tags:
         - vulnerability
-      description: Return org-wide CVE counts by severity.
+      description: Return organization-wide CVE counts by severity.
       operationId: getVulnerabilitySummary
       responses:
         "200":
@@ -1150,7 +1150,7 @@ paths:
     get:
       tags:
         - vulnerability
-      description: List distinct vulnerabilities across the org with affected device counts.
+      description: List distinct vulnerabilities across the organization with affected device counts.
       operationId: listVulnerabilities
       parameters:
         - name: continue
@@ -1546,7 +1546,7 @@ paths:
       parameters:
         - name: cveId
           in: path
-          description: The CVE identifier (for example, CVE-2024-1234). Unknown identifiers still return 200 with an empty blast-radius list when there is no matching data.
+          description: The CVE identifier (for example, CVE-2024-1234). Unknown identifiers still return 200 with an empty list of affected resources (blast radius) when no matching data is found.
           required: true
           schema:
             type: string
@@ -1558,7 +1558,9 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          description: >-
+            Restricts blast-radius rows by device owner before aggregation. Supported key is `owner`
+            (device owner string, for example `owner=Fleet/my-fleet`). Operators include `=`, `==`, `!=`, and set-style `in` / `notin` where applicable.
           schema:
             type: string
         - name: sortBy
@@ -2074,7 +2076,7 @@ components:
           $ref: '#/components/schemas/CveCountsBySeverity'
     DeviceCountsBySeverity:
       type: object
-      description: Counts of distinct devices affected in the org, bucketed by finding severity (join of devices to vulnerability_findings).
+      description: Counts of distinct devices affected in the organization, grouped by vulnerability severity.
       additionalProperties: false
       required:
         - total
@@ -2088,34 +2090,34 @@ components:
         total:
           type: integer
           format: int64
-          description: Distinct devices with at least one non-not_affected finding in scope.
+          description: Number of distinct devices with at least one vulnerability finding in the organization.
         critical:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is critical.
+          description: Number of devices whose highest severity finding is critical.
         high:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is high.
+          description: Number of devices whose highest severity finding is high.
         medium:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is medium.
+          description: Number of devices whose highest severity finding is medium.
         low:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is low.
+          description: Number of devices whose highest severity finding is low.
         none:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is none.
+          description: Number of devices whose highest severity finding is none.
         unknown:
           type: integer
           format: int64
-          description: Devices whose highest severity finding is unknown.
+          description: Number of devices whose highest severity finding is unknown.
     CveCountsBySeverity:
       type: object
-      description: Counts of distinct CVEs in the org by highest severity.
+      description: Counts of distinct CVEs in the organization by highest severity.
       additionalProperties: false
       required:
         - total
@@ -2129,7 +2131,7 @@ components:
         total:
           type: integer
           format: int64
-          description: Total distinct CVEs across the org.
+          description: Total distinct CVEs across the organization.
         critical:
           type: integer
           format: int64
@@ -2199,7 +2201,7 @@ components:
         affectedDevices:
           type: integer
           format: int64
-          description: Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for org-wide context it is the count across the whole org.
+          description: Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for organization-wide context it is the count across the whole organization.
     VulnerabilityList:
       type: object
       description: Paginated list of Vulnerability resources.
@@ -2286,7 +2288,7 @@ components:
     VulnerabilityGroup:
       type: object
       description: >
-        A CVE grouped across one or more images, as returned by fleet-scoped and org-wide
+        A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide
         vulnerability list endpoints. Each finding represents one image in which the CVE was
         detected.
       additionalProperties: false
@@ -2328,7 +2330,7 @@ components:
             $ref: '#/components/schemas/VulnerabilityGroupItem'
     VulnerabilityGroupList:
       type: object
-      description: Paginated list of VulnerabilityGroup resources (fleet-scoped or org-wide).
+      description: Paginated list of VulnerabilityGroup resources (fleet-scoped or organization-wide).
       additionalProperties: false
       required:
         - apiVersion
@@ -2464,16 +2466,16 @@ components:
           description: CVE identifier for this blast radius response.
         severity:
           type: string
-          description: Worst severity across all affected digests.
+          description: Worst severity for this CVE in the fleet or fleetless group.
           enum: [Critical, High, Medium, Low, None, Unknown]
         maxCvssScore:
           type: number
           format: float
-          description: Highest CVSS base score across all affected digests.
+          description: Highest CVSS base score for this CVE in the fleet or fleetless group.
         maxPublishedAt:
           type: string
           format: date-time
-          description: Latest advisory publish time across all affected digests.
+          description: When this CVE was first observed in the fleet or fleetless group.
         items:
           type: array
           description: Per-fleet or fleetless rows with device and image counts.
