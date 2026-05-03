@@ -41,6 +41,9 @@ imageBuilderWorker:
     bootcImageBuilder:
       image: quay.io/org/bootc:latest
       skipTlsVerify: false
+    syft:
+      image: quay.io/org/syft:latest
+      skipTlsVerify: false
 `
 
 // findRepoRoot returns the repository root (directory containing go.mod).

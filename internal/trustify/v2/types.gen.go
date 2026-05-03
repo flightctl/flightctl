@@ -66,6 +66,15 @@ type SbomSummary struct {
 	Sha256 *string `json:"sha256"`
 }
 
+// SbomUploadResponse defines model for SbomUploadResponse.
+type SbomUploadResponse struct {
+	// DocumentId Document ID (URN format)
+	DocumentId *string `json:"document_id,omitempty"`
+
+	// Id ID of the uploaded SBOM
+	Id string `json:"id"`
+}
+
 // Severity Qualitative Severity Rating Scale
 type Severity string
 
@@ -80,3 +89,15 @@ type ListSbomsParams struct {
 	// Offset Number of results to skip
 	Offset *int64 `form:"offset,omitempty" json:"offset,omitempty"`
 }
+
+// UploadSbomJSONBody defines parameters for UploadSbom.
+type UploadSbomJSONBody = string
+
+// UploadSbomParams defines parameters for UploadSbom.
+type UploadSbomParams struct {
+	// Labels Labels to associate with the SBOM (e.g., image digest as sha256~<digest>)
+	Labels *string `form:"labels,omitempty" json:"labels,omitempty"`
+}
+
+// UploadSbomJSONRequestBody defines body for UploadSbom for application/json ContentType.
+type UploadSbomJSONRequestBody = UploadSbomJSONBody

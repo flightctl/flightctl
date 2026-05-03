@@ -41,6 +41,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SbomListResponse'
+    post:
+      tags:
+      - sbom
+      summary: Upload an SBOM
+      operationId: uploadSbom
+      parameters:
+      - name: labels
+        in: query
+        description: Labels to associate with the SBOM (e.g., image digest as sha256~<digest>)
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: CycloneDX or SPDX SBOM document in JSON format
+      responses:
+        '201':
+          description: SBOM uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SbomUploadResponse'
+        '400':
+          description: Invalid SBOM format
+        '409':
+          description: SBOM already exists
   /api/v2/sbom/{id}/advisory:
     get:
       tags:
@@ -170,3 +200,14 @@ components:
       - medium
       - high
       - critical
+    SbomUploadResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          description: ID of the uploaded SBOM
+        document_id:
+          type: string
+          description: Document ID (URN format)

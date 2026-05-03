@@ -23,6 +23,7 @@ import (
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -78,6 +79,10 @@ func (c *Consumer) shouldProcessImageBuild(ctx context.Context, orgID uuid.UUID,
 
 	case string(domain.ImageBuildConditionReasonPushing):
 		log.Infof("ImageBuild %q is already being processed (Pushing), skipping", name)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonGeneratingSBOM):
+		log.Infof("ImageBuild %q is already being processed (GeneratingSBOM), skipping", name)
 		return false, nil
 
 	case string(domain.ImageBuildConditionReasonCanceling):
@@ -232,8 +237,13 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
-	// Update ImageBuild status with the pushed image reference and mark as Completed
+	// Update ImageBuild status with the pushed image reference
 	statusUpdater.UpdateImageReference(imageRef)
+
+	// Step 5: Generate and distribute SBOM (if enabled)
+	if c.isSBOMEnabled() {
+		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, podmanWorker, statusUpdater, log)
+	}
 
 	// Mark as Completed
 	now = time.Now().UTC()
@@ -248,6 +258,66 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	log.Info("ImageBuild marked as Completed")
 	return nil
+}
+
+// processSBOM handles SBOM generation and distribution.
+// SBOM failures are non-fatal - the build succeeds even if SBOM generation fails.
+func (c *Consumer) processSBOM(
+	buildCtx context.Context,
+	ctx context.Context,
+	orgID uuid.UUID,
+	imageBuild *domain.ImageBuild,
+	imageRef string,
+	podmanWorker *podmanWorker,
+	statusUpdater *statusUpdater,
+	log logrus.FieldLogger,
+) {
+	// Update status to GeneratingSBOM
+	now := time.Now().UTC()
+	sbomCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonGeneratingSBOM),
+		Message:            "Scanning for vulnerabilities",
+		LastTransitionTime: now,
+	}
+	statusUpdater.UpdateCondition(sbomCondition)
+
+	log.Info("Phase: SBOM Generation Started")
+
+	// Generate SBOM
+	sbomResult, err := c.generateSBOM(buildCtx, imageRef, podmanWorker, log)
+	if err != nil {
+		log.WithError(err).Warn("SBOM generation failed (non-fatal)")
+		return
+	}
+
+	log.WithFields(logrus.Fields{
+		"sbomPath":    sbomResult.SBOMPath,
+		"imageDigest": sbomResult.ImageDigest,
+	}).Info("SBOM generated successfully")
+
+	// Push SBOM to OCI registry as referrer (if enabled)
+	if c.shouldPushSBOMToRegistry() {
+		if err := c.pushSBOMAsReferrer(buildCtx, orgID, imageBuild, sbomResult, statusUpdater, log); err != nil {
+			log.WithError(err).Warn("SBOM push to registry failed (non-fatal)")
+		}
+	}
+
+	// Upload SBOM to Trustify (if enabled and configured)
+	if c.shouldUploadSBOMToTrustify() && c.cfg.VulnerabilityReporting != nil &&
+		c.cfg.VulnerabilityReporting.Enabled && c.cfg.VulnerabilityReporting.Trustify != nil {
+		trustifyClient, err := trustifyv2.NewVulnerabilityClient(ctx, c.cfg.VulnerabilityReporting.Trustify)
+		if err != nil {
+			log.WithError(err).Warn("Failed to create Trustify client for SBOM upload (non-fatal)")
+		} else if trustifyClient != nil {
+			if err := c.uploadSBOMToTrustify(buildCtx, trustifyClient, sbomResult, log); err != nil {
+				log.WithError(err).Warn("SBOM upload to Trustify failed (non-fatal)")
+			}
+		}
+	}
+
+	log.Info("Phase: SBOM Generation Completed")
 }
 
 // handleBuildError handles errors during the build process.

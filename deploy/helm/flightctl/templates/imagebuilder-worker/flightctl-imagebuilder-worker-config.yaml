@@ -54,6 +54,7 @@ data:
         {{- with .Values.imageBuilderWorker.serviceImages }}
         {{- $podman := .podman | default (dict "image" "" "skipTlsVerify" false) }}
         {{- $bootc := .bootcImageBuilder | default (dict "image" "" "skipTlsVerify" false) }}
+        {{- $syft := .syft | default (dict "image" "" "skipTlsVerify" false) }}
         serviceImages:
           podman:
             image: {{ $podman.image | default "" | quote }}
@@ -61,5 +62,63 @@ data:
           bootcImageBuilder:
             image: {{ $bootc.image | default "" | quote }}
             skipTlsVerify: {{ $bootc.skipTlsVerify | default false }}
+          syft:
+            image: {{ $syft.image | default "" | quote }}
+            skipTlsVerify: {{ $syft.skipTlsVerify | default false }}
         {{- end }}
+        {{- with .Values.imageBuilderWorker.sbom }}
+        sbom:
+          enabled: {{ if kindIs "bool" .enabled }}{{ .enabled }}{{ else }}true{{ end }}
+          pushToRegistry: {{ if kindIs "bool" .pushToRegistry }}{{ .pushToRegistry }}{{ else }}true{{ end }}
+          uploadToTrustify: {{ if kindIs "bool" .uploadToTrustify }}{{ .uploadToTrustify }}{{ else }}true{{ end }}
+          {{- if .purlTransform }}
+          purlTransform:
+            {{- if kindIs "bool" .purlTransform.enabled }}
+            enabled: {{ .purlTransform.enabled }}
+            {{- end }}
+            {{- if .purlTransform.namespaceMapping }}
+            namespaceMapping:
+              {{- range $k, $v := .purlTransform.namespaceMapping }}
+              {{ $k }}: {{ $v | quote }}
+              {{- end }}
+            {{- end }}
+            {{- if .purlTransform.distroMapping }}
+            distroMapping:
+              {{- range $k, $v := .purlTransform.distroMapping }}
+              {{ $k }}: {{ $v | quote }}
+              {{- end }}
+            {{- end }}
+            {{- if .purlTransform.allowedQualifiers }}
+            allowedQualifiers:
+              {{- range .purlTransform.allowedQualifiers }}
+              - {{ . | quote }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+    {{- $vuln := default dict .Values.vulnerabilityReporting }}
+    {{- $trustify := default dict $vuln.trustify }}
+    {{- $auth := default dict $trustify.auth }}
+    {{- if default false $vuln.enabled }}
+    vulnerabilityReporting:
+        enabled: true
+        syncInterval: {{ $vuln.syncInterval | default "15m" | quote }}
+        {{- if $vuln.alerting }}
+        alerting:
+            enabled: {{ $vuln.alerting.enabled }}
+            warningCvssThreshold: {{ $vuln.alerting.warningCvssThreshold }}
+            criticalCvssThreshold: {{ $vuln.alerting.criticalCvssThreshold }}
+        {{- end }}
+        {{- if $vuln.trustify }}
+        trustify:
+            endpoint: {{ $trustify.endpoint | quote }}
+            {{- if $vuln.trustify.auth }}
+            auth:
+                mode: {{ $auth.mode | default "none" | quote }}
+                {{- if $auth.oidcIssuerUrl }}
+                oidcIssuerUrl: {{ $auth.oidcIssuerUrl | quote }}
+                {{- end }}
+            {{- end }}
+        {{- end }}
+    {{- end }}
 {{- end }}

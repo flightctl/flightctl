@@ -371,7 +371,7 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
-  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  # -- Builder images (podman, bootc-image-builder, syft) and skip-TLS options
   serviceImages:
     podman:
       # -- Podman builder image (leave empty to use default).
@@ -383,6 +383,22 @@ imageBuilderWorker:
       image: ""
       # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
       skipTlsVerify: false
+    syft:
+      # -- Syft image for SBOM generation. If empty, the worker uses `docker.io/anchore/syft:v1.44.0` (see `defaultSyftImage` in `internal/config/config.go`).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Syft image.
+      skipTlsVerify: false
+  # -- SBOM generation after image push (Syft produces CycloneDX JSON; PURL normalization; optional OCI referrer push and Trustify upload when configured).
+  sbom:
+    # -- Run SBOM generation after a successful image push.
+    enabled: true
+    # -- Attach the SBOM to the pushed image as an OCI 1.1 referrer artifact on the destination registry.
+    pushToRegistry: true
+    # -- Upload the SBOM to Trustify when vulnerability reporting is enabled and Trustify is configured (same settings as `vulnerabilityReporting` elsewhere in this chart).
+    uploadToTrustify: true
+    purlTransform:
+      # -- Normalize RPM PURLs (namespace/distro/qualifiers) before push/upload for advisory matching.
+      enabled: true
   # -- Resource requests and limits
   resources: {}
 

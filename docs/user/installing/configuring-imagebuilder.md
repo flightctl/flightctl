@@ -197,7 +197,13 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
 | `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
-| `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
+| `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder, Syft). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
+| `imageBuilderWorker.serviceImages.syft.image` | string | `""` | Syft image used for SBOM scans. If empty, the worker uses the built-in default image (see the Helm chart `README` parameter description for the current reference). |
+| `imageBuilderWorker.serviceImages.syft.skipTlsVerify` | bool | `false` | Set to `true` to skip TLS verification when pulling the Syft image. |
+| `imageBuilderWorker.sbom.enabled` | bool | `true` | After a successful image push, run SBOM generation (Syft) when `true`. |
+| `imageBuilderWorker.sbom.pushToRegistry` | bool | `true` | Push the SBOM to the same destination registry as an OCI 1.1 referrer artifact. |
+| `imageBuilderWorker.sbom.uploadToTrustify` | bool | `true` | When vulnerability reporting is enabled and Trustify is configured, upload the SBOM to Trustify. |
+| `imageBuilderWorker.sbom.purlTransform` | object | — | Optional PURL normalization for CycloneDX component PURLs. Fields: `enabled`, `namespaceMapping`, `distroMapping`, `allowedQualifiers`. Only configured mappings change values; anything not listed in a mapping is left unchanged. |
 
 ### Podman Quadlet Configuration
 
@@ -218,15 +224,46 @@ imagebuilderWorker:
     bootcImageBuilder:
       image: ""             # Override bootc-image-builder image (optional)
       skipTlsVerify: false  # Set to true to skip TLS verification
+    syft:
+      image: ""             # Override Syft image (optional); empty uses worker default
+      skipTlsVerify: false
+  sbom:
+    enabled: true
+    pushToRegistry: true
+    uploadToTrustify: true
+    purlTransform:
+      enabled: true
 ```
 
 ### Skip TLS verification
 
 Set `imageBuilderWorker.serviceImages.podman.skipTlsVerify` and/or `imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify` to `true` (Helm values or Podman `service-config.yaml`) to skip TLS verification when pulling the corresponding builder image.
 
+## SBOM generation
+
+After a successful image push, the ImageBuilder Worker can generate a CycloneDX JSON SBOM using Syft, optionally normalize PURLs on components, push the SBOM as an OCI 1.1 referrer on the destination registry, and upload the SBOM to Trustify when vulnerability reporting is enabled.
+
+### Worker configuration (Helm and Podman)
+
+Configure SBOM behavior under the ImageBuilder Worker section of the worker configuration file. With Helm, that section is rendered into the worker `ConfigMap`. With Podman quadlets, it appears in `/etc/flightctl/flightctl-imagebuilder-worker/config.yaml` after template render.
+
+The following keys control SBOM behavior (see also the parameter table in this document and the Helm chart README for defaults):
+
+- Syft image pull: `serviceImages.syft` (`image`, `skipTlsVerify`). Leave `image` empty to use the default Syft image pinned in the worker binary.
+- SBOM switches: `sbom` (`enabled`, `pushToRegistry`, `uploadToTrustify`).
+- PURL normalization: optional `sbom.purlTransform` with `enabled`, `namespaceMapping`, `distroMapping`, and `allowedQualifiers`. Only values you map are rewritten; unmapped namespace or distro values stay as they appear in the SBOM.
+
+### Trustify upload and vulnerability reporting
+
+SBOM upload to Trustify uses the same Trustify endpoint and authentication settings as the rest of Flight Control. For Helm, enable vulnerability reporting in the chart so the worker receives the Trustify block in its generated configuration. For Podman, follow the commented `vulnerabilityReporting` example in `/etc/flightctl/service-config.yaml`. For client-credentials authentication, use the same Trustify client environment variables as other Flight Control services (see [Configuring vulnerability integration](configuring-vulnerability-integration.md)).
+
+### ImageBuild status and logs
+
+While SBOM steps run, the build can report the `GeneratingSBOM` condition reason; the Ready condition message is `Scanning for vulnerabilities`. Worker logs include Syft invocation and push or upload steps.
+
 ### Custom CA for builder image registries
 
-To use a custom CA for the registry that serves the Podman or bootc-image-builder image, mount the CA certificate so the worker’s podman can use it. Podman looks for registry CAs under `/etc/containers/certs.d/<registry>/ca.crt`, where `<registry>` is the registry host (and port if non-default), e.g. `my-registry.example.com` or `my-registry.example.com:5000`.
+To use a custom CA for the registry that serves the Podman or bootc-image-builder image, mount the CA certificate so that podman in the worker can use it. Podman looks for registry CAs under `/etc/containers/certs.d/<registry>/ca.crt`, where `<registry>` is the registry host (and port if non-default), e.g. `my-registry.example.com` or `my-registry.example.com:5000`.
 
 - **Helm:** Add a volume from a Secret or ConfigMap that contains the CA file (e.g. key `ca.crt`), and a volumeMount on the imagebuilder worker Deployment that mounts it at `/etc/containers/certs.d/<registry>/ca.crt`. Use the same registry host value as in your builder image reference.
 - **Podman Quadlets:** Add a `Volume=` line to the imagebuilder worker container unit so the host path (or path where the CA file lives) is mounted at `/etc/containers/certs.d/<registry>/ca.crt` inside the container.

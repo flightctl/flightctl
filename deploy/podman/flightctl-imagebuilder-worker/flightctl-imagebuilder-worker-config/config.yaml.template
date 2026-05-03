@@ -51,4 +51,61 @@ imageBuilderWorker:
       image: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.image}}
       skipTlsVerify: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify}}
   {{- end}}
+  {{- if .imagebuilderWorker.serviceImages.syft}}
+    syft:
+      image: {{.imagebuilderWorker.serviceImages.syft.image}}
+      skipTlsVerify: {{.imagebuilderWorker.serviceImages.syft.skipTlsVerify}}
   {{- end}}
+  {{- end}}
+  {{- if .imagebuilderWorker.sbom}}
+  sbom:
+    enabled: {{if eq (printf "%v" .imagebuilderWorker.sbom.enabled) "false"}}false{{else}}true{{end}}
+    pushToRegistry: {{if eq (printf "%v" .imagebuilderWorker.sbom.pushToRegistry) "false"}}false{{else}}true{{end}}
+    uploadToTrustify: {{if eq (printf "%v" .imagebuilderWorker.sbom.uploadToTrustify) "false"}}false{{else}}true{{end}}
+    {{- if .imagebuilderWorker.sbom.purlTransform}}
+    purlTransform:
+      {{- if or (eq (printf "%v" .imagebuilderWorker.sbom.purlTransform.enabled) "true") (eq (printf "%v" .imagebuilderWorker.sbom.purlTransform.enabled) "false")}}
+      enabled: {{.imagebuilderWorker.sbom.purlTransform.enabled}}
+      {{- end}}
+      {{- if .imagebuilderWorker.sbom.purlTransform.namespaceMapping}}
+      namespaceMapping:
+        {{- range $k, $v := .imagebuilderWorker.sbom.purlTransform.namespaceMapping}}
+        {{$k}}: {{$v}}
+        {{- end}}
+      {{- end}}
+      {{- if .imagebuilderWorker.sbom.purlTransform.distroMapping}}
+      distroMapping:
+        {{- range $k, $v := .imagebuilderWorker.sbom.purlTransform.distroMapping}}
+        {{$k}}: {{$v}}
+        {{- end}}
+      {{- end}}
+      {{- if .imagebuilderWorker.sbom.purlTransform.allowedQualifiers}}
+      allowedQualifiers:
+        {{- range .imagebuilderWorker.sbom.purlTransform.allowedQualifiers}}
+        - {{.}}
+        {{- end}}
+      {{- end}}
+    {{- end}}
+  {{- end}}
+{{- if eq .vulnerabilityReporting.enabled true}}
+vulnerabilityReporting:
+  enabled: true
+  syncInterval: {{if .vulnerabilityReporting.syncInterval}}{{.vulnerabilityReporting.syncInterval}}{{else}}15m{{end}}
+  {{- if .vulnerabilityReporting.alerting}}
+  alerting:
+    enabled: {{if eq .vulnerabilityReporting.alerting.enabled true}}true{{else}}false{{end}}
+    warningCvssThreshold: {{if .vulnerabilityReporting.alerting.warningCvssThreshold}}{{.vulnerabilityReporting.alerting.warningCvssThreshold}}{{else}}4.0{{end}}
+    criticalCvssThreshold: {{if .vulnerabilityReporting.alerting.criticalCvssThreshold}}{{.vulnerabilityReporting.alerting.criticalCvssThreshold}}{{else}}7.0{{end}}
+  {{- end}}
+  {{- if .vulnerabilityReporting.trustify}}
+  trustify:
+    endpoint: {{.vulnerabilityReporting.trustify.endpoint}}
+    {{- if .vulnerabilityReporting.trustify.auth}}
+    auth:
+      mode: {{if .vulnerabilityReporting.trustify.auth.mode}}{{.vulnerabilityReporting.trustify.auth.mode}}{{else}}none{{end}}
+      {{- if .vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
+      oidcIssuerUrl: {{.vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
+      {{- end}}
+    {{- end}}
+  {{- end}}
+{{- end}}

@@ -593,7 +593,7 @@
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
         "serviceImages": {
           "type": "object",
-          "description": "Builder images (podman, bootc-image-builder) and skip-TLS options",
+          "description": "Builder images (podman, bootc-image-builder, syft) and skip-TLS options",
           "properties": {
             "podman": {
               "type": "object",
@@ -607,6 +607,44 @@
               "properties": {
                 "image": { "type": "string", "description": "bootc-image-builder image (leave empty to use default)" },
                 "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the bootc-image-builder image" }
+              }
+            },
+            "syft": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "Syft image for SBOM generation; empty uses worker default docker.io/anchore/syft:v1.44.0 (internal/config defaultSyftImage)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Syft image" }
+              }
+            }
+          }
+        },
+        "sbom": {
+          "type": "object",
+          "description": "SBOM generation and distribution after image push",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable SBOM generation" },
+            "pushToRegistry": { "type": "boolean", "description": "Push SBOM as OCI referrer artifact" },
+            "uploadToTrustify": { "type": "boolean", "description": "Upload SBOM to Trustify when vulnerability reporting is enabled" },
+            "purlTransform": {
+              "type": "object",
+              "description": "PURL normalization for advisory matching",
+              "properties": {
+                "enabled": { "type": "boolean", "description": "Enable PURL normalization" },
+                "namespaceMapping": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" },
+                  "description": "Map PURL namespace (e.g. centos) to advisory namespace (e.g. redhat)"
+                },
+                "distroMapping": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" },
+                  "description": "Map distro qualifier values (e.g. centos-9) to rhel-9"
+                },
+                "allowedQualifiers": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Qualifier keys to retain on PURLs"
+                }
               }
             }
           }

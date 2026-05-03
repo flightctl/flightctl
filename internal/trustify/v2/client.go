@@ -54,6 +54,10 @@ type VulnerabilityClient interface {
 	// with the given image digests. It returns a map from image digest to findings.
 	// Digests not found in Trustify will have an empty slice in the map.
 	GetVulnerabilitiesForDigests(ctx context.Context, digests []string) (map[string][]Finding, error)
+
+	// UploadSBOM uploads an SBOM document to Trustify, associating it with the
+	// given image digest. The SBOM should be in CycloneDX or SPDX JSON format.
+	UploadSBOM(ctx context.Context, sbomData []byte, imageDigest string) error
 }
 
 type vulnerabilityClient struct {
@@ -128,6 +132,35 @@ func (c *vulnerabilityClient) GetVulnerabilitiesForDigests(ctx context.Context, 
 	}
 
 	return results, nil
+}
+
+// UploadSBOM uploads an SBOM document to Trustify.
+func (c *vulnerabilityClient) UploadSBOM(ctx context.Context, sbomData []byte, imageDigest string) error {
+	// Build labels query parameter with the image digest
+	// Format: sha256~<digest> to match how Trustify indexes SBOMs
+	labels := "sha256~" + stripSHA256Prefix(imageDigest)
+
+	resp, err := c.api.UploadSbomWithBodyWithResponse(ctx, &UploadSbomParams{
+		Labels: &labels,
+	}, "application/json", strings.NewReader(string(sbomData)))
+	if err != nil {
+		return &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("uploading SBOM: %w", err)}
+	}
+
+	switch resp.StatusCode() {
+	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
+		return nil
+	case http.StatusConflict:
+		// SBOM already exists, which is fine
+		return nil
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid SBOM format: %s", string(resp.Body))
+	default:
+		return &ConnectionError{
+			Endpoint: c.endpoint,
+			Err:      fmt.Errorf("unexpected status %d uploading SBOM: %s", resp.StatusCode(), resp.Body),
+		}
+	}
 }
 
 // findSBOMsForDigests queries Trustify for SBOMs matching the given digests.

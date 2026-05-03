@@ -4,6 +4,7 @@
 package trustifyv2
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -91,12 +92,41 @@ type ClientInterface interface {
 	// ListSboms request
 	ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UploadSbomWithBody request with any body
+	UploadSbomWithBody(ctx context.Context, params *UploadSbomParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UploadSbom(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetSbomAdvisories request
 	GetSbomAdvisories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSbomsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadSbomWithBody(ctx context.Context, params *UploadSbomParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadSbomRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadSbom(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadSbomRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +230,68 @@ func NewListSbomsRequest(server string, params *ListSbomsParams) (*http.Request,
 	return req, nil
 }
 
+// NewUploadSbomRequest calls the generic UploadSbom builder with application/json body
+func NewUploadSbomRequest(server string, params *UploadSbomParams, body UploadSbomJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUploadSbomRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewUploadSbomRequestWithBody generates requests for UploadSbom with any type of body
+func NewUploadSbomRequestWithBody(server string, params *UploadSbomParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/sbom")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Labels != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labels", runtime.ParamLocationQuery, *params.Labels); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetSbomAdvisoriesRequest generates requests for GetSbomAdvisories
 func NewGetSbomAdvisoriesRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -280,6 +372,11 @@ type ClientWithResponsesInterface interface {
 	// ListSbomsWithResponse request
 	ListSbomsWithResponse(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*ListSbomsResponse, error)
 
+	// UploadSbomWithBodyWithResponse request with any body
+	UploadSbomWithBodyWithResponse(ctx context.Context, params *UploadSbomParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSbomResponse, error)
+
+	UploadSbomWithResponse(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*UploadSbomResponse, error)
+
 	// GetSbomAdvisoriesWithResponse request
 	GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error)
 }
@@ -300,6 +397,28 @@ func (r ListSbomsResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ListSbomsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type UploadSbomResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *SbomUploadResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadSbomResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadSbomResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -337,6 +456,23 @@ func (c *ClientWithResponses) ListSbomsWithResponse(ctx context.Context, params 
 	return ParseListSbomsResponse(rsp)
 }
 
+// UploadSbomWithBodyWithResponse request with arbitrary body returning *UploadSbomResponse
+func (c *ClientWithResponses) UploadSbomWithBodyWithResponse(ctx context.Context, params *UploadSbomParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSbomResponse, error) {
+	rsp, err := c.UploadSbomWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadSbomResponse(rsp)
+}
+
+func (c *ClientWithResponses) UploadSbomWithResponse(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*UploadSbomResponse, error) {
+	rsp, err := c.UploadSbom(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadSbomResponse(rsp)
+}
+
 // GetSbomAdvisoriesWithResponse request returning *GetSbomAdvisoriesResponse
 func (c *ClientWithResponses) GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error) {
 	rsp, err := c.GetSbomAdvisories(ctx, id, reqEditors...)
@@ -366,6 +502,32 @@ func ParseListSbomsResponse(rsp *http.Response) (*ListSbomsResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadSbomResponse parses an HTTP response from a UploadSbomWithResponse call
+func ParseUploadSbomResponse(rsp *http.Response) (*UploadSbomResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadSbomResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest SbomUploadResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	}
 

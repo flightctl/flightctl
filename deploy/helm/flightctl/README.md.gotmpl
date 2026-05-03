@@ -56,6 +56,8 @@ On OpenShift clusters, the chart automatically creates a SecurityContextConstrai
 
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
+SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker pulls the pinned Syft image from application code (`defaultSyftImage` in `internal/config/config.go`, currently `docker.io/anchore/syft:v1.44.0`). Podman and bootc-image-builder use their own built-in defaults the same way when those image fields are empty.
+
 If you don't need image building capabilities, you can disable the imagebuilder-worker:
 
 ```yaml

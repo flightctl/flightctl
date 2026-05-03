@@ -102,7 +102,7 @@ grafana:
 
 prometheus:
 
-# ImageBuilder Worker (optional). Uncomment and set when using custom builder images or skip-TLS.
+# ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.
 # imagebuilderWorker:
 #   logLevel: info
 #   maxConcurrentBuilds: 2
@@ -117,8 +117,18 @@ prometheus:
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
+#     syft:
+#       image: ""           # Override Syft image for SBOM generation (optional)
+#       skipTlsVerify: false
+#   sbom:
+#     enabled: true
+#     pushToRegistry: true
+#     uploadToTrustify: true
+#     purlTransform:
+#       enabled: true
 
 # Vulnerability integration (optional). Uncomment and configure to enable.
+# When enabled, flightctl-imagebuilder-worker also receives trustify settings (SBOM upload uses the same client as periodic).
 # vulnerabilityReporting:
 #   # Enable vulnerability integration (sync task in flightctl-periodic + API endpoints in flightctl-api).
 #   enabled: false
