@@ -279,6 +279,7 @@ RFC3339
 RPC
 sos
 sudo
+systemInfo
 ts
 update_device_status_duration_seconds
 v1.0.0

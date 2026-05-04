@@ -19,6 +19,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `spec-fetch-interval`    | `Duration` | | **Deprecated**: This parameter is no longer used. The agent now uses long-polling to receive specification updates immediately when available. |
 | `status-update-interval` | `Duration` | | Interval in which the agent reports its device status under normal conditions. The agent immediately sends status reports on major events related to the health of the system and application workloads as well as on the progress during a system update. Default: `60s` |
 | `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
+| `label-from-systeminfo`  | `object` (`string`) | | Maps system information fields to device labels at enrollment time. See [Enrollment-time label mapping](#enrollment-time-label-mapping). Default: `{}` |
 | `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
 | `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
@@ -33,7 +34,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 
 > [!NOTE]
 > The `/etc/flightctl/conf.d/` drop-in directory supports only a subset of the agent configuration. Currently supported keys include:
-> `log-level`, `system-info`, `system-info-custom`, and `system-info-timeout`.
+> `log-level`, `system-info`, `system-info-custom`, `system-info-timeout`, and `label-from-systeminfo`.
 
 ## Communication Timeouts
 
@@ -169,6 +170,128 @@ status:
     bootID: 87f7e27e-bdc0-42b1-b909-6dc81fe43ea2
     customInfo:
       fips: disabled
+```
+
+## Enrollment-time label mapping
+
+The `label-from-systeminfo` configuration parameter enables automatic device labeling during enrollment by mapping system information fields to device labels. This allows devices to self-describe their characteristics without manual intervention, enabling automatic fleet selection based on hardware, location, or custom attributes.
+
+> [!TIP]
+> Labels configured with `label-from-systeminfo` can be used in fleet selectors to automatically assign devices to fleets based on their characteristics. See [Selecting Devices into a Fleet](../using/managing-fleets.md#selecting-devices-into-a-fleet) for details on how fleet selectors work with device labels.
+
+### How it works
+
+During enrollment, the agent collects system information and applies the configured label mappings. The resulting labels are included in the enrollment request and become part of the device's metadata. These labels can then be used by fleet selectors to automatically assign devices to the appropriate fleets.
+
+### Mapping built-in fields
+
+You can map any built-in system information field to a label. Reference built-in fields by their field name:
+
+```yaml
+label-from-systeminfo:
+  arch: architecture
+  os-name: distroName
+  os-version: distroVersion
+```
+
+This configuration creates device labels by mapping built-in systemInfo fields:
+
+- Label `arch` ← `systemInfo.architecture` (e.g., `amd64`, `arm64`)
+- Label `os-name` ← `systemInfo.distroName` (e.g., `Red Hat Enterprise Linux`)
+- Label `os-version` ← `systemInfo.distroVersion` (e.g., `9.5 (Plow)`)
+
+The label name (left side) can be anything you choose; the field name (right side) must be one of the built-in system info fields. See [Built-in system info collectors](#built-in-system-info-collectors) for the complete list of available fields.
+
+### Mapping custom fields
+
+You can also map custom system information fields to labels. Reference custom fields using the `customInfo.` prefix followed by the field name:
+
+```yaml
+system-info-custom: [region, siteId, rackNumber]
+label-from-systeminfo:
+  region: customInfo.region
+  site: customInfo.siteId
+  rack: customInfo.rackNumber
+```
+
+This configuration:
+
+1. Enables collection of custom info from scripts in `/usr/lib/flightctl/custom-info.d/`
+2. Maps each custom field to a corresponding label
+
+See [Custom system info collectors](#custom-system-info-collectors) for details on creating custom info scripts.
+
+### Default alias behavior
+
+By default, the agent automatically adds an `alias` label set to the device's hostname if no `alias` mapping is configured in `label-from-systeminfo`. This provides a human-readable identifier for devices.
+
+To override this behavior and set the alias from a different source:
+
+```yaml
+system-info-custom: [productName]
+label-from-systeminfo:
+  alias: customInfo.productName
+```
+
+### Label precedence
+
+When the same label key is defined in multiple places, labels are applied in the following precedence order (highest to lowest):
+
+1. `default-labels` (highest precedence - always wins)
+2. `label-from-systeminfo` (mapped from system info)
+3. Default `alias=hostname` (lowest precedence - only if no alias is configured)
+
+Example showing precedence:
+
+```yaml
+default-labels:
+  env: production      # This value wins
+label-from-systeminfo:
+  env: customInfo.env  # This is ignored due to default-labels taking precedence
+  region: customInfo.region
+```
+
+In this case, the device will have `env=production` (from `default-labels`) and `region` mapped from custom info.
+
+### Complete example
+
+Here's a complete configuration for a wayside device that automatically selects the appropriate protocol fleet based on its installed protocol:
+
+```yaml
+# /usr/lib/flightctl/custom-info.d/waysideProtocol
+#!/bin/bash
+# Outputs: Wayside-Protocol-A or Wayside-Protocol-B
+cat /etc/wayside/protocol.txt
+```
+
+```yaml
+# /etc/flightctl/config.yaml
+system-info-custom: [waysideProtocol]
+label-from-systeminfo:
+  protocol: customInfo.waysideProtocol
+  arch: architecture
+default-labels:
+  env: production
+```
+
+With this configuration:
+
+- Devices automatically get a `protocol` label based on their installed protocol
+- Devices get an `arch` label based on their CPU architecture  
+- All devices get `env=production` from default-labels
+- Devices get `alias=hostname` automatically
+
+Fleets can then target devices by protocol:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Fleet
+metadata:
+  name: wayside-protocol-a
+spec:
+  selector:
+    matchLabels:
+      protocol: Wayside-Protocol-A
 ```
 
 ## Audit Configuration
