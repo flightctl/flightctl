@@ -261,9 +261,9 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 		var responseError api.Status
 		err := json.Unmarshal(responseBody, &responseError)
 		if err != nil {
-			return fmt.Errorf("%d %s", statusCode, string(responseBody))
+			return fmt.Errorf("server returned %d: %s", statusCode, string(responseBody))
 		}
-		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+		return fmt.Errorf("server returned %d: %s", statusCode, responseError.Message)
 	}
 	return nil
 }
