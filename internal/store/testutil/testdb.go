@@ -72,7 +72,8 @@ func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, d
 	}
 	defer CloseDB(adminDB)
 
-	adminDB = adminDB.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
+	// Use WITH (FORCE) to terminate any remaining connections before dropping (PostgreSQL 13+)
+	adminDB = adminDB.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName))
 	if adminDB.Error != nil {
 		log.Fatalf("dropping database: %v", adminDB.Error)
 	}

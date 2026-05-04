@@ -1745,6 +1745,20 @@ func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, orgId, owner any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, orgId, owner)
 }
 
+// SyncDeviceCVELifecycleEvents mocks base method.
+func (m *MockService) SyncDeviceCVELifecycleEvents(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SyncDeviceCVELifecycleEvents", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SyncDeviceCVELifecycleEvents indicates an expected call of SyncDeviceCVELifecycleEvents.
+func (mr *MockServiceMockRecorder) SyncDeviceCVELifecycleEvents(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncDeviceCVELifecycleEvents", reflect.TypeOf((*MockService)(nil).SyncDeviceCVELifecycleEvents), ctx)
+}
+
 // UnmarkDevicesRolloutSelection mocks base method.
 func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
 	m.ctrl.T.Helper()

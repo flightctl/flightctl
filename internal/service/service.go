@@ -166,4 +166,6 @@ type Service interface {
 	GetDeviceVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitySummaryParams) (*domain.DeviceVulnerabilitySummaryResponse, domain.Status)
 	GetFleetVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status)
 	GetFleetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitySummaryParams) (*domain.FleetVulnerabilitySummaryResponse, domain.Status)
+
+	SyncDeviceCVELifecycleEvents(ctx context.Context) error
 }
