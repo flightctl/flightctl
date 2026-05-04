@@ -61,6 +61,10 @@ const (
 	EventReasonDeviceSpecInvalid               = v1beta1.EventReasonDeviceSpecInvalid
 	EventReasonDeviceSpecValid                 = v1beta1.EventReasonDeviceSpecValid
 	EventReasonDeviceUpdateFailed              = v1beta1.EventReasonDeviceUpdateFailed
+	EventReasonDeviceVulnerabilityCVECritical  = v1beta1.EventReasonDeviceVulnerabilityCVECritical
+	EventReasonDeviceVulnerabilityCVEResolved  = v1beta1.EventReasonDeviceVulnerabilityCVEResolved
+	EventReasonDeviceVulnerabilityCVEWarning   = v1beta1.EventReasonDeviceVulnerabilityCVEWarning
+	EventReasonDeviceOSImageChanged            = v1beta1.EventReasonDeviceOSImageChanged
 	EventReasonEnrollmentRequestApprovalFailed = v1beta1.EventReasonEnrollmentRequestApprovalFailed
 	EventReasonEnrollmentRequestApproved       = v1beta1.EventReasonEnrollmentRequestApproved
 	EventReasonFleetInvalid                    = v1beta1.EventReasonFleetInvalid
@@ -104,6 +108,8 @@ type ReferencedRepositoryUpdatedDetailsDetailType = v1beta1.ReferencedRepository
 type ResourceUpdatedDetails = v1beta1.ResourceUpdatedDetails
 type ResourceUpdatedDetailsDetailType = v1beta1.ResourceUpdatedDetailsDetailType
 type ResourceUpdatedDetailsUpdatedFields = v1beta1.ResourceUpdatedDetailsUpdatedFields
+type DeviceVulnerabilityCveDetails = v1beta1.DeviceVulnerabilityCveDetails
+type DeviceVulnerabilityCveDetailsDetailType = v1beta1.DeviceVulnerabilityCveDetailsDetailType
 
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed
@@ -143,6 +149,8 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceMemoryWarning:             {},
 	EventReasonDeviceDiskCritical:              {},
 	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceVulnerabilityCVECritical:  {},
+	EventReasonDeviceVulnerabilityCVEWarning:   {},
 	EventReasonDeviceDisconnected:              {},
 	EventReasonDeviceConflictPaused:            {},
 	EventReasonDeviceSpecInvalid:               {},

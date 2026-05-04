@@ -97,12 +97,6 @@ imageBuilderWorker:
 vulnerabilityReporting:
   enabled: true
   syncInterval: {{if .vulnerabilityReporting.syncInterval}}{{.vulnerabilityReporting.syncInterval}}{{else}}15m{{end}}
-  {{- if .vulnerabilityReporting.alerting}}
-  alerting:
-    enabled: {{if eq .vulnerabilityReporting.alerting.enabled true}}true{{else}}false{{end}}
-    warningCvssThreshold: {{if .vulnerabilityReporting.alerting.warningCvssThreshold}}{{.vulnerabilityReporting.alerting.warningCvssThreshold}}{{else}}4.0{{end}}
-    criticalCvssThreshold: {{if .vulnerabilityReporting.alerting.criticalCvssThreshold}}{{.vulnerabilityReporting.alerting.criticalCvssThreshold}}{{else}}7.0{{end}}
-  {{- end}}
   {{- if .vulnerabilityReporting.trustify}}
   trustify:
     endpoint: {{.vulnerabilityReporting.trustify.endpoint}}

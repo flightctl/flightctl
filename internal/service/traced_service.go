@@ -825,6 +825,17 @@ func (t *TracedService) GetFleetVulnerabilitySummary(ctx context.Context, orgId 
 	return resp, st
 }
 
+func (t *TracedService) SyncDeviceCVELifecycleEvents(ctx context.Context) error {
+	ctx, span := startSpan(ctx, "SyncDeviceCVELifecycleEvents")
+	defer span.End()
+	err := t.inner.SyncDeviceCVELifecycleEvents(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return err
+}
+
 // --- Auth ---
 func (t *TracedService) GetAuthConfig(ctx context.Context, authConfig *domain.AuthConfig) (*domain.AuthConfig, domain.Status) {
 	ctx, span := startSpan(ctx, "GetAuthConfig")

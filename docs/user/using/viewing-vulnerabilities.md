@@ -154,6 +154,14 @@ flightctl get vuln device/my-device -o yaml
 flightctl get vuln fleet/production -o wide
 ```
 
+## CVE events
+
+High-severity findings trigger per-device [Events](../references/events.md#vulnerability-cve-events) after each vulnerability sync. Use the CLI to inspect them:
+
+```console
+flightctl get events --field-selector="reason in (DeviceVulnerabilityCVEWarning,DeviceVulnerabilityCVECritical,DeviceVulnerabilityCVEResolved)"
+```
+
 ## Pagination
 
 For large result sets, use pagination:

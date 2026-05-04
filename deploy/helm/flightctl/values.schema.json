@@ -804,16 +804,6 @@
       "properties": {
         "enabled": { "type": "boolean", "description": "Enable vulnerability integration (sync task + API endpoints)" },
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
-        "alerting": {
-          "type": "object",
-          "description": "CVE alerting configuration",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": { "type": "boolean", "description": "Enable CVE alerting" },
-            "warningCvssThreshold": { "type": "number", "description": "Minimum CVSS base score to emit a Warning-level CVE event" },
-            "criticalCvssThreshold": { "type": "number", "description": "Minimum CVSS base score to emit a Critical-level CVE event" }
-          }
-        },
         "trustify": {
           "type": "object",
           "description": "Trustify API connection details",
