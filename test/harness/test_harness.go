@@ -42,6 +42,7 @@ type TestHarness struct {
 	cancelAgentCtx context.CancelFunc
 	agentFinished  chan struct{}
 	agentConfig    *agent_config.Config
+	skipAutoStart  bool
 
 	// internals for server
 	serverListener net.Listener
@@ -133,6 +134,12 @@ func WithAgentAudit() TestHarnessOption {
 			enabled := true
 			h.agentConfig.AuditLog.Enabled = &enabled
 		}
+	}
+}
+
+func WithoutAutoStartAgent() TestHarnessOption {
+	return func(h *TestHarness) {
+		h.skipAutoStart = true
 	}
 }
 
@@ -305,7 +312,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
 	testHarness.ServiceHandler = service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{}, testHarness.vulnerabilityEnabled)
 
-	testHarness.StartAgent()
+	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
+	if !testHarness.skipAutoStart {
+		testHarness.StartAgent()
+	}
 
 	return testHarness, nil
 }
@@ -365,6 +375,11 @@ func (h *TestHarness) GetMockK8sClient() *k8sclient.MockK8SClient {
 func (h *TestHarness) RestartAgent() {
 	h.StopAgent()
 	h.StartAgent()
+}
+
+// AgentConfig returns the agent configuration for test customization
+func (h *TestHarness) AgentConfig() *agent_config.Config {
+	return h.agentConfig
 }
 
 // AuthenticatedContext adds admin identities and org ID to the provided context for direct service calls
