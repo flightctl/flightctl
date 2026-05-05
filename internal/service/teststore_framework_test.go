@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -722,10 +723,10 @@ func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings [
 	return nil
 }
 
-func (d *DummyVulnerabilityFinding) GetVulnerabilities(ctx context.Context, digest string, params store.VulnerabilityQueryParams) ([]model.VulnerabilityFinding, int64, error) {
-	filters, err := parseVulnerabilityFindingFilters(ctx, params.FieldSelector)
+func (d *DummyVulnerabilityFinding) GetVulnerabilities(ctx context.Context, digest string, listParams store.ListParams) (*store.VulnerabilityListResult, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, listParams.FieldSelector)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	var matched []model.VulnerabilityFinding
@@ -740,23 +741,37 @@ func (d *DummyVulnerabilityFinding) GetVulnerabilities(ctx context.Context, dige
 	}
 
 	total := int64(len(matched))
+	sortCol, sortOrder := getSortColAndOrder(listParams)
 	sort.SliceStable(matched, func(i, j int) bool {
-		return compareFindingsByVulnerabilityParams(matched[i], matched[j], params.SortBy, params.Descending) < 0
+		return compareFindingsBySortColumn(matched[i], matched[j], sortCol, sortOrder) < 0
 	})
 
-	if params.Limit <= 0 {
-		return matched, total, nil
+	if listParams.Limit <= 0 {
+		return &store.VulnerabilityListResult{Items: matched}, nil
 	}
 
-	start := params.Offset
+	// Simple offset-based pagination for tests (cursor ignored for simplicity)
+	offset := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		// For tests, we use a simple index as continue token
+		offset, _ = strconv.Atoi(listParams.Continue.Names[0])
+	}
+	start := offset
 	if start > len(matched) {
 		start = len(matched)
 	}
-	end := start + params.Limit
+	end := start + listParams.Limit
 	if end > len(matched) {
 		end = len(matched)
 	}
-	return matched[start:end], total, nil
+	items := matched[start:end]
+
+	var cont *string
+	if end < len(matched) {
+		cont = store.BuildContinueString([]string{strconv.Itoa(end)}, total-int64(end))
+	}
+
+	return &store.VulnerabilityListResult{Items: items, Continue: cont}, nil
 }
 
 func (d *DummyVulnerabilityFinding) GetVulnerabilitySummary(ctx context.Context, digest string, fieldSelector *selector.FieldSelector) (store.SeverityCounts, error) {
@@ -834,10 +849,40 @@ func (d *DummyVulnerabilityFinding) ListFleetDeviceImageDigests(_ context.Contex
 	return result, nil
 }
 
-func (d *DummyVulnerabilityFinding) GetVulnerabilityGroups(ctx context.Context, digests []store.DeviceImageDigest, params store.VulnerabilityQueryParams) ([]store.VulnerabilityGroup, int64, error) {
-	filters, err := parseVulnerabilityFindingFilters(ctx, params.FieldSelector)
+func (d *DummyVulnerabilityFinding) ListOrgDeviceImageDigests(_ context.Context, _ uuid.UUID) ([]store.DeviceImageDigest, error) {
+	seen := map[string]store.DeviceImageDigest{}
+	for _, dev := range *d.deviceStore.devices {
+		if dev.Status == nil || dev.Status.Os.ImageDigest == "" {
+			continue
+		}
+		key := dev.Status.Os.ImageDigest
+		entry := seen[key]
+		entry.ImageDigest = key
+		entry.DeviceCount++
+
+		imageFound := false
+		for _, imageRef := range entry.ImageRefs {
+			if imageRef == dev.Status.Os.Image {
+				imageFound = true
+				break
+			}
+		}
+		if !imageFound {
+			entry.ImageRefs = append(entry.ImageRefs, dev.Status.Os.Image)
+		}
+		seen[key] = entry
+	}
+	result := make([]store.DeviceImageDigest, 0, len(seen))
+	for _, v := range seen {
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilityGroups(ctx context.Context, digests []store.DeviceImageDigest, listParams store.ListParams) (*store.VulnerabilityGroupResult, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, listParams.FieldSelector)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	digestSet := map[string]struct{}{}
@@ -879,23 +924,37 @@ func (d *DummyVulnerabilityFinding) GetVulnerabilityGroups(ctx context.Context, 
 	for _, g := range groupMap {
 		groups = append(groups, *g)
 	}
+	sortCol, sortOrder := getSortColAndOrder(listParams)
 	sort.SliceStable(groups, func(i, j int) bool {
-		return compareVulnerabilityGroupsByParams(groups[i], groups[j], params.SortBy, params.Descending) < 0
+		return compareVulnerabilityGroupsBySortColumn(groups[i], groups[j], sortCol, sortOrder) < 0
 	})
 
 	total := int64(len(groups))
-	if params.Limit <= 0 {
-		return groups, total, nil
+	if listParams.Limit <= 0 {
+		return &store.VulnerabilityGroupResult{Groups: groups}, nil
 	}
-	start := params.Offset
+
+	// Simple offset-based pagination for tests
+	offset := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		offset, _ = strconv.Atoi(listParams.Continue.Names[0])
+	}
+	start := offset
 	if start > len(groups) {
 		start = len(groups)
 	}
-	end := start + params.Limit
+	end := start + listParams.Limit
 	if end > len(groups) {
 		end = len(groups)
 	}
-	return groups[start:end], total, nil
+	items := groups[start:end]
+
+	var cont *string
+	if end < len(groups) {
+		cont = store.BuildContinueString([]string{strconv.Itoa(end)}, total-int64(end))
+	}
+
+	return &store.VulnerabilityGroupResult{Groups: items, Continue: cont}, nil
 }
 
 func (d *DummyVulnerabilityFinding) GetFleetVulnerabilitySummary(ctx context.Context, digests []store.DeviceImageDigest, fieldSelector *selector.FieldSelector) (store.FleetSeverityCounts, error) {
@@ -942,6 +1001,48 @@ func (d *DummyVulnerabilityFinding) GetFleetVulnerabilitySummary(ctx context.Con
 		}
 	}
 	return counts, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetOrgVulnerabilitySummary(_ context.Context, _ uuid.UUID) (store.OrgVulnerabilitySummary, error) {
+	return store.OrgVulnerabilitySummary{}, nil
+}
+
+func (d *DummyVulnerabilityFinding) FindAnyFindingForCVE(_ context.Context, cveID string) (*model.VulnerabilityFinding, error) {
+	for i := range d.findings {
+		if d.findings[i].CveID == cveID {
+			f := d.findings[i]
+			return &f, nil
+		}
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) FindingsForCVEAndImageDigests(_ context.Context, cveID string, imageDigests []string) ([]model.VulnerabilityFinding, error) {
+	if len(imageDigests) == 0 {
+		return nil, nil
+	}
+	wantDigest := map[string]struct{}{}
+	for _, dig := range imageDigests {
+		wantDigest[dig] = struct{}{}
+	}
+	var out []model.VulnerabilityFinding
+	for _, f := range d.findings {
+		if f.CveID != cveID {
+			continue
+		}
+		if _, ok := wantDigest[f.ImageDigest]; ok {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilityImpactPage(_ context.Context, _ uuid.UUID, _ string, _ store.ListParams) (*store.ImpactPageResult, error) {
+	return &store.ImpactPageResult{}, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetImpactDigestDetails(_ context.Context, _ uuid.UUID, _ string, _ []string, _ bool) ([]store.ImpactDigestDetail, error) {
+	return nil, nil
 }
 
 type vulnerabilityFindingFilter struct {
@@ -1013,19 +1114,32 @@ func findingMatchesVulnerabilityFilters(f model.VulnerabilityFinding, filters []
 	return true
 }
 
-func compareFindingsByVulnerabilityParams(a, b model.VulnerabilityFinding, sortBy string, descending bool) int {
-	switch sortBy {
-	case "cvssScore":
+func getSortColAndOrder(listParams store.ListParams) (store.SortColumn, store.SortOrder) {
+	sortCol := store.SortBySeverity
+	if len(listParams.SortColumns) > 0 {
+		sortCol = listParams.SortColumns[0]
+	}
+	sortOrder := store.SortDesc
+	if listParams.SortOrder != nil {
+		sortOrder = *listParams.SortOrder
+	}
+	return sortCol, sortOrder
+}
+
+func compareFindingsBySortColumn(a, b model.VulnerabilityFinding, sortCol store.SortColumn, sortOrder store.SortOrder) int {
+	descending := sortOrder == store.SortDesc
+	switch sortCol {
+	case store.SortByCvssScore:
 		if result := compareNullableFloat(a.CvssScore, b.CvssScore, descending); result != 0 {
 			return result
 		}
 		return strings.Compare(a.CveID, b.CveID)
-	case "publishedAt":
+	case store.SortByPublishedAt:
 		if result := compareNullableTime(a.PublishedAt, b.PublishedAt, descending); result != 0 {
 			return result
 		}
 		return strings.Compare(a.CveID, b.CveID)
-	case "cveId":
+	case store.SortByCveId:
 		if descending {
 			return strings.Compare(b.CveID, a.CveID)
 		}
@@ -1049,19 +1163,20 @@ func compareFindingsByVulnerabilityParams(a, b model.VulnerabilityFinding, sortB
 	}
 }
 
-func compareVulnerabilityGroupsByParams(a, b store.VulnerabilityGroup, sortBy string, descending bool) int {
-	switch sortBy {
-	case "cvssScore":
+func compareVulnerabilityGroupsBySortColumn(a, b store.VulnerabilityGroup, sortCol store.SortColumn, sortOrder store.SortOrder) int {
+	descending := sortOrder == store.SortDesc
+	switch sortCol {
+	case store.SortByCvssScore:
 		if result := compareNullableFloat(a.MaxCvssScore, b.MaxCvssScore, descending); result != 0 {
 			return result
 		}
 		return strings.Compare(a.CveID, b.CveID)
-	case "publishedAt":
+	case store.SortByPublishedAt:
 		if result := compareNullableTime(a.MaxPublishedAt, b.MaxPublishedAt, descending); result != 0 {
 			return result
 		}
 		return strings.Compare(a.CveID, b.CveID)
-	case "cveId":
+	case store.SortByCveId:
 		if descending {
 			return strings.Compare(b.CveID, a.CveID)
 		}

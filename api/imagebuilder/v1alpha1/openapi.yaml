@@ -1146,6 +1146,7 @@ components:
         - Pending
         - Building
         - Pushing
+        - GeneratingSBOM
         - Completed
         - Failed
         - Canceling
@@ -1154,6 +1155,7 @@ components:
         - ImageBuildConditionReasonPending
         - ImageBuildConditionReasonBuilding
         - ImageBuildConditionReasonPushing
+        - ImageBuildConditionReasonGeneratingSBOM
         - ImageBuildConditionReasonCompleted
         - ImageBuildConditionReasonFailed
         - ImageBuildConditionReasonCanceling

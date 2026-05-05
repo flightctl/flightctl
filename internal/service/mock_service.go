@@ -916,6 +916,36 @@ func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, orgId, fleet, name an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateVersion", reflect.TypeOf((*MockService)(nil).GetTemplateVersion), ctx, orgId, fleet, name)
 }
 
+// GetVulnerabilityImpact mocks base method.
+func (m *MockService) GetVulnerabilityImpact(ctx context.Context, orgId uuid.UUID, cveId string, params domain.GetVulnerabilityImpactParams) (*domain.VulnerabilityImpact, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVulnerabilityImpact", ctx, orgId, cveId, params)
+	ret0, _ := ret[0].(*domain.VulnerabilityImpact)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetVulnerabilityImpact indicates an expected call of GetVulnerabilityImpact.
+func (mr *MockServiceMockRecorder) GetVulnerabilityImpact(ctx, orgId, cveId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVulnerabilityImpact", reflect.TypeOf((*MockService)(nil).GetVulnerabilityImpact), ctx, orgId, cveId, params)
+}
+
+// GetVulnerabilitySummary mocks base method.
+func (m *MockService) GetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID) (*domain.VulnerabilitySummaryResponse, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVulnerabilitySummary", ctx, orgId)
+	ret0, _ := ret[0].(*domain.VulnerabilitySummaryResponse)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetVulnerabilitySummary indicates an expected call of GetVulnerabilitySummary.
+func (mr *MockServiceMockRecorder) GetVulnerabilitySummary(ctx, orgId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVulnerabilitySummary", reflect.TypeOf((*MockService)(nil).GetVulnerabilitySummary), ctx, orgId)
+}
+
 // ListAllAuthProviders mocks base method.
 func (m *MockService) ListAllAuthProviders(ctx context.Context, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1199,6 +1229,21 @@ func (m *MockService) ListTemplateVersions(ctx context.Context, orgId uuid.UUID,
 func (mr *MockServiceMockRecorder) ListTemplateVersions(ctx, orgId, fleet, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTemplateVersions", reflect.TypeOf((*MockService)(nil).ListTemplateVersions), ctx, orgId, fleet, params)
+}
+
+// ListVulnerabilities mocks base method.
+func (m *MockService) ListVulnerabilities(ctx context.Context, orgId uuid.UUID, params domain.ListVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVulnerabilities", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.VulnerabilityGroupList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListVulnerabilities indicates an expected call of ListVulnerabilities.
+func (mr *MockServiceMockRecorder) ListVulnerabilities(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVulnerabilities", reflect.TypeOf((*MockService)(nil).ListVulnerabilities), ctx, orgId, params)
 }
 
 // MarkDevicesRolloutSelection mocks base method.

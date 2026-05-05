@@ -175,11 +175,13 @@ type serviceImageConfig struct {
 type serviceImagesConfig struct {
 	Podman            *serviceImageConfig `json:"podman,omitempty"`
 	BootcImageBuilder *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
+	Syft              *serviceImageConfig `json:"syft,omitempty"`
 }
 
 const (
 	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
 	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
 )
 
 type imageBuilderWorkerConfig struct {
@@ -193,18 +195,115 @@ type imageBuilderWorkerConfig struct {
 	RPMRepoURL               string               `json:"rpmRepoUrl,omitempty"`
 	RPMRepoAdd               *bool                `json:"rpmRepoAdd,omitempty"`
 	RPMRepoEnable            string               `json:"rpmRepoEnable,omitempty"`
+	SBOM                     *SBOMConfig          `json:"sbom,omitempty"`
+}
+
+// SBOMConfig holds configuration for SBOM generation during image builds.
+type SBOMConfig struct {
+	Enabled          bool                 `json:"enabled,omitempty"`
+	PushToRegistry   bool                 `json:"pushToRegistry,omitempty"`
+	UploadToTrustify bool                 `json:"uploadToTrustify,omitempty"`
+	PurlTransform    *PurlTransformConfig `json:"purlTransform,omitempty"`
+}
+
+// PurlTransformTypeRules defines namespace, distro, and qualifier rules for one PURL package type
+// (map key and segment after "pkg:" in pkg:type/..., e.g. "rpm").
+type PurlTransformTypeRules struct {
+	NamespaceMapping  map[string]string `json:"namespaceMapping,omitempty"`
+	DistroMapping     map[string]string `json:"distroMapping,omitempty"`
+	AllowedQualifiers []string          `json:"allowedQualifiers,omitempty"`
+}
+
+// PurlTransformConfig holds configuration for PURL normalization.
+type PurlTransformConfig struct {
+	// Enabled, when nil, means enabled (default). Set to false to disable PURL normalization.
+	Enabled *bool `json:"enabled,omitempty"`
+	// ByType maps package type ID (e.g. "rpm") to rules for that type only.
+	ByType map[string]PurlTransformTypeRules `json:"byType,omitempty"`
+}
+
+// EffectivePurlTransformEnabled returns whether PURL normalization is enabled.
+func (p *PurlTransformConfig) EffectivePurlTransformEnabled() bool {
+	if p == nil {
+		return true
+	}
+	if p.Enabled == nil {
+		return true
+	}
+	return *p.Enabled
+}
+
+func normalizePURLPackageTypeID(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	return strings.TrimPrefix(s, "pkg:")
+}
+
+// NormalizedPURLPackageTypeID returns the package type key for lookups (after "pkg:", lowercased).
+func NormalizedPURLPackageTypeID(s string) string {
+	return normalizePURLPackageTypeID(s)
+}
+
+// NewDefaultSBOMConfig returns the default SBOM configuration.
+func NewDefaultSBOMConfig() *SBOMConfig {
+	return &SBOMConfig{
+		Enabled:          true,
+		PushToRegistry:   true,
+		UploadToTrustify: true,
+		PurlTransform:    NewDefaultPurlTransformConfig(),
+	}
+}
+
+// NewDefaultPurlTransformConfig returns default PURL transformation config for RHEL-based distros.
+func NewDefaultPurlTransformConfig() *PurlTransformConfig {
+	enabled := true
+	return &PurlTransformConfig{
+		Enabled: &enabled,
+		ByType: map[string]PurlTransformTypeRules{
+			"rpm": {
+				NamespaceMapping: map[string]string{
+					"centos":     "redhat",
+					"rocky":      "redhat",
+					"rockylinux": "redhat",
+					"alma":       "redhat",
+					"almalinux":  "redhat",
+					"oracle":     "redhat",
+				},
+				DistroMapping: map[string]string{
+					"centos-7":        "rhel-7",
+					"centos-8":        "rhel-8",
+					"centos-9":        "rhel-9",
+					"centos-stream-8": "rhel-8",
+					"centos-stream-9": "rhel-9",
+					"rocky-8":         "rhel-8",
+					"rocky-9":         "rhel-9",
+					"alma-8":          "rhel-8",
+					"alma-9":          "rhel-9",
+					"almalinux-8":     "rhel-8",
+					"almalinux-9":     "rhel-9",
+					"oracle-8":        "rhel-8",
+					"oracle-9":        "rhel-9",
+				},
+				AllowedQualifiers: []string{"arch", "distro"},
+			},
+		},
+	}
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	return &imageBuilderWorkerConfig{
-		LogLevel:                 "info",
-		MaxConcurrentBuilds:      2,
-		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
-		ServiceImages:            &serviceImagesConfig{Podman: &serviceImageConfig{Image: defaultPodmanImage}, BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage}},
+		LogLevel:            "info",
+		MaxConcurrentBuilds: 2,
+		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
+		ServiceImages: &serviceImagesConfig{
+			Podman:            &serviceImageConfig{Image: defaultPodmanImage},
+			BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage},
+			Syft:              &serviceImageConfig{Image: defaultSyftImage},
+		},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
+		SBOM:                     NewDefaultSBOMConfig(),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
 	}
 }
@@ -233,6 +332,43 @@ func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderImage() string {
 // EffectiveBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the bootc-image-builder image.
 func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderSkipTLSVerify() bool {
 	return c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.SkipTLSVerify
+}
+
+// EffectiveSyftImage returns the Syft image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectiveSyftImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.Image != "" {
+		return c.ServiceImages.Syft.Image
+	}
+	return defaultSyftImage
+}
+
+// EffectiveSyftSkipTLSVerify returns whether to skip TLS verification when pulling the Syft image.
+func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.SkipTLSVerify
+}
+
+// IsSBOMEnabled returns whether SBOM generation is enabled.
+func (c *imageBuilderWorkerConfig) IsSBOMEnabled() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.Enabled
+}
+
+// SBOMPushToRegistry returns whether to push SBOM to OCI registry as referrer.
+func (c *imageBuilderWorkerConfig) SBOMPushToRegistry() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.PushToRegistry
+}
+
+// SBOMUploadToTrustify returns whether to upload SBOM to Trustify.
+func (c *imageBuilderWorkerConfig) SBOMUploadToTrustify() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.UploadToTrustify
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
@@ -462,7 +598,8 @@ type VulnerabilityAlertingConfig struct {
 
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
-	// Endpoint is the Trustify API base URL.
+	// Endpoint is the Trustify API base URL (e.g. "https://trustify.example.com").
+	// Do not include the /api/v1 or /api/v2 paths; the client appends them automatically.
 	Endpoint string `json:"endpoint,omitempty"`
 	// Auth configures how the periodic service authenticates to Trustify.
 	Auth *TrustifyAuthConfig `json:"auth,omitempty"`

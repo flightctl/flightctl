@@ -530,6 +530,42 @@ func TestGetOptionsValidation(t *testing.T) {
 			options:     &GetOptions{CatalogName: "my-catalog"},
 			expectError: false,
 		},
+
+		// CveId validation tests
+		{
+			name:        "cve_id_with_device_list_ok",
+			args:        []string{"devices"},
+			options:     &GetOptions{CveId: "CVE-2023-44487"},
+			expectError: false,
+		},
+		{
+			name:          "cve_id_with_specific_device_fails",
+			args:          []string{"device", "test1"},
+			options:       &GetOptions{CveId: "CVE-2023-44487"},
+			expectError:   true,
+			errorContains: "cannot specify '--cve-id' when getting specific devices",
+		},
+		{
+			name:          "cve_id_with_multiple_devices_fails",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{CveId: "CVE-2023-44487"},
+			expectError:   true,
+			errorContains: "cannot specify '--cve-id' when getting specific devices",
+		},
+		{
+			name:          "cve_id_with_non_device_resource_fails",
+			args:          []string{"fleets"},
+			options:       &GetOptions{CveId: "CVE-2023-44487"},
+			expectError:   true,
+			errorContains: "'--cve-id' can only be specified when listing devices",
+		},
+		{
+			name:          "cve_id_with_enrollmentrequests_fails",
+			args:          []string{"enrollmentrequests"},
+			options:       &GetOptions{CveId: "CVE-2023-44487"},
+			expectError:   true,
+			errorContains: "'--cve-id' can only be specified when listing devices",
+		},
 	}
 
 	for _, tc := range tests {
@@ -559,6 +595,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.CatalogName != "" {
 					opts.CatalogName = tc.options.CatalogName
+				}
+				if tc.options.CveId != "" {
+					opts.CveId = tc.options.CveId
 				}
 			}
 

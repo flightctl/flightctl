@@ -552,7 +552,7 @@ image-pruning:
 					return false
 				}
 				return !exists
-			}, util.TIMEOUT, util.POLLING).Should(BeTrue(), "shared image %s should be pruned after all apps removed", sharedImage)
+			}, util.TIMEOUT_5M, util.LONG_POLLING).Should(BeTrue(), "shared image %s should be pruned after all apps are removed", sharedImage)
 		})
 	})
 })

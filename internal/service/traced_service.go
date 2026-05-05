@@ -776,6 +776,27 @@ func (t *TracedService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID,
 }
 
 // --- Vulnerability ---
+func (t *TracedService) GetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID) (*domain.VulnerabilitySummaryResponse, domain.Status) {
+	ctx, span := startSpan(ctx, "GetVulnerabilitySummary")
+	resp, st := t.inner.GetVulnerabilitySummary(ctx, orgId)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ListVulnerabilities(ctx context.Context, orgId uuid.UUID, params domain.ListVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListVulnerabilities")
+	resp, st := t.inner.ListVulnerabilities(ctx, orgId, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetVulnerabilityImpact(ctx context.Context, orgId uuid.UUID, cveId string, params domain.GetVulnerabilityImpactParams) (*domain.VulnerabilityImpact, domain.Status) {
+	ctx, span := startSpan(ctx, "GetVulnerabilityImpact")
+	resp, st := t.inner.GetVulnerabilityImpact(ctx, orgId, cveId, params)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) GetDeviceVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitiesParams) (*domain.VulnerabilityList, domain.Status) {
 	ctx, span := startSpan(ctx, "GetDeviceVulnerabilities")
 	resp, st := t.inner.GetDeviceVulnerabilities(ctx, orgId, name, params)

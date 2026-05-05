@@ -23,6 +23,7 @@ The `ImageBuild` resource automates the process of building bootc container imag
 * Generating a Containerfile that includes the Flight Control agent
 * Building the container image using podman
 * Pushing the built image to your destination registry
+* Optionally generating an SBOM (Syft, CycloneDX JSON), normalizing PURLs, pushing the SBOM as an OCI referrer, and uploading to Trustify when you enable those options in the ImageBuilder Worker configuration (see [Configuring the ImageBuilder Worker](../installing/configuring-imagebuilder.md#sbom-generation))
 * Managing enrollment certificate binding (early or late)
 
 ### ImageBuild Specification
