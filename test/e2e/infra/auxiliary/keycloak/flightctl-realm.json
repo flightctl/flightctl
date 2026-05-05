@@ -26,6 +26,20 @@
       "protocol": "openid-connect",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true
+    },
+    {
+      "clientId": "flightctl-oauth2-client",
+      "name": "flightctl-oauth2-client",
+      "enabled": true,
+      "redirectUris": [
+        "http://localhost:8080/callback"
+      ],
+      "webOrigins": ["+"],
+      "publicClient": false,
+      "secret": "e2e-flightctl-oauth2-client-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true
     }
   ],
   "users": [
