@@ -429,6 +429,110 @@ func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 				"alias":       "test-host",
 			},
 		},
+		{
+			name:                "When hostname is empty it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is (none) it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "(none)",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is localhost it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "localhost",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is localhost.localdomain it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "localhost.localdomain",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is localhost6.localdomain6 it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "localhost6.localdomain6",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is LOCALHOST (uppercase) it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "LOCALHOST",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is 127.0.0.1 it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "127.0.0.1",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name:                "When hostname is ::1 it should not add default alias",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels:       map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "::1",
+					},
+				},
+			},
+			expected: map[string]string{},
+		},
 	}
 
 	for _, tt := range tests {

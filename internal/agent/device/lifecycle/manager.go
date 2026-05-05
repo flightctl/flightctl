@@ -479,7 +479,7 @@ func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceSta
 	// Add default alias=hostname if no "alias" label is configured
 	if _, hasAlias := m.labelFromSystemInfo["alias"]; !hasAlias {
 		hostname := m.extractSystemInfoField(&deviceStatus.SystemInfo, "hostname")
-		if hostname != "" {
+		if isUsefulHostname(hostname) {
 			labels["alias"] = hostname
 		}
 	}
@@ -488,6 +488,26 @@ func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceSta
 	maps.Copy(labels, m.defaultLabels)
 
 	return labels
+}
+
+// isUsefulHostname checks if a hostname is helpful for use as a device alias.
+// Returns false for empty strings, "(none)", localhost variants, or loopback IPs.
+func isUsefulHostname(hostname string) bool {
+	if hostname == "" || hostname == "(none)" {
+		return false
+	}
+
+	h := strings.ToLower(hostname)
+
+	if strings.HasPrefix(h, "localhost") {
+		return false
+	}
+
+	if h == "127.0.0.1" || h == "::1" {
+		return false
+	}
+
+	return true
 }
 
 // extractSystemInfoField extracts a field from DeviceSystemInfo (built-in or customInfo)
