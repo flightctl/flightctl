@@ -21,6 +21,8 @@ const (
 	keycloakRealmName      = "flightctl"
 	// KeycloakE2EClientSecret is the client secret for flightctl-client in the e2e realm.
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
+	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
+	KeycloakE2EOAuth2ClientSecret = "e2e-flightctl-oauth2-client-secret" //nolint:gosec // G101: e2e test client secret only
 )
 
 // Keycloak holds connection info and the container for the aux Keycloak.
