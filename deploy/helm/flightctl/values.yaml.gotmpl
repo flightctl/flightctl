@@ -384,7 +384,7 @@ imageBuilderWorker:
       # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
       skipTlsVerify: false
     syft:
-      # -- Syft image for SBOM generation. If empty, the worker uses `docker.io/anchore/syft:v1.44.0` (see `defaultSyftImage` in `internal/config/config.go`).
+      # -- Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`.
       image: ""
       # -- Set to true to skip TLS verification when pulling the Syft image.
       skipTlsVerify: false

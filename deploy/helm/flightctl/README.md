@@ -29,7 +29,7 @@ On OpenShift clusters, the chart automatically creates a SecurityContextConstrai
 
 For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
 
-SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker pulls the pinned Syft image from application code (`defaultSyftImage` in `internal/config/config.go`, currently `docker.io/anchore/syft:v1.44.0`). Podman and bootc-image-builder use their own built-in defaults the same way when those image fields are empty.
+SBOM defaults (see `imageBuilderWorker.sbom` and `imageBuilderWorker.serviceImages.syft` in the parameters table): when `serviceImages.syft.image` is empty, the worker uses `docker.io/anchore/syft:v1.44.0`. Podman and bootc-image-builder use their own defaults when those image fields are empty.
 
 If you don't need image building capabilities, you can disable the imagebuilder-worker:
 
@@ -369,7 +369,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the bootc-image-builder image. |
 | imageBuilderWorker.serviceImages.podman.image | string | `""` | Podman builder image (leave empty to use default). |
 | imageBuilderWorker.serviceImages.podman.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Podman builder image. |
-| imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, the worker uses `docker.io/anchore/syft:v1.44.0` (see `defaultSyftImage` in `internal/config/config.go`). |
+| imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |

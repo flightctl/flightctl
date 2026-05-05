@@ -612,7 +612,7 @@
             "syft": {
               "type": "object",
               "properties": {
-                "image": { "type": "string", "description": "Syft image for SBOM generation; empty uses worker default docker.io/anchore/syft:v1.44.0 (internal/config defaultSyftImage)" },
+                "image": { "type": "string", "description": "Syft image for SBOM generation; empty uses docker.io/anchore/syft:v1.44.0" },
                 "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Syft image" }
               }
             }

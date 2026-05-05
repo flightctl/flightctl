@@ -413,3 +413,19 @@ func (c *Consumer) shouldPushSBOMToRegistry() bool {
 func (c *Consumer) shouldUploadSBOMToTrustify() bool {
 	return c.cfg.ImageBuilderWorker.SBOMUploadToTrustify()
 }
+
+// shouldRunSBOMPipeline reports whether SBOM generation should run. Syft runs only when
+// at least one distribution path is in effect (OCI referrer push or Trustify upload).
+func (c *Consumer) shouldRunSBOMPipeline() bool {
+	if !c.isSBOMEnabled() {
+		return false
+	}
+	if c.shouldPushSBOMToRegistry() {
+		return true
+	}
+	if !c.shouldUploadSBOMToTrustify() {
+		return false
+	}
+	v := c.cfg.VulnerabilityReporting
+	return v != nil && v.Enabled && v.Trustify != nil
+}

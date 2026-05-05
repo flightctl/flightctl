@@ -108,8 +108,10 @@ func TransformSBOMPurls(sbomData []byte, cfg *config.PurlTransformConfig) ([]byt
 	return json.MarshalIndent(sbom, "", "  ")
 }
 
-// GetEffectivePurlTransformConfig returns the PURL transform config to use,
-// merging user config with defaults where not specified.
+// GetEffectivePurlTransformConfig returns the PURL transform config to use.
+// Enabled and AllowedQualifiers fall back to defaults when unset on the user config.
+// NamespaceMapping and DistroMapping start from defaults and are overridden by user entries;
+// user map keys are lowercased so they match TransformPurl's case-insensitive lookups.
 func GetEffectivePurlTransformConfig(userCfg *config.PurlTransformConfig) *config.PurlTransformConfig {
 	defaults := config.NewDefaultPurlTransformConfig()
 
@@ -126,17 +128,15 @@ func GetEffectivePurlTransformConfig(userCfg *config.PurlTransformConfig) *confi
 		result.Enabled = defaults.Enabled
 	}
 
-	// Use user mappings if provided, otherwise use defaults
-	if len(userCfg.NamespaceMapping) > 0 {
-		result.NamespaceMapping = maps.Clone(userCfg.NamespaceMapping)
-	} else {
-		result.NamespaceMapping = maps.Clone(defaults.NamespaceMapping)
+	// Merge defaults with user mappings; user keys are lowercased to match TransformPurl lookups.
+	result.NamespaceMapping = maps.Clone(defaults.NamespaceMapping)
+	for k, v := range userCfg.NamespaceMapping {
+		result.NamespaceMapping[strings.ToLower(k)] = v
 	}
 
-	if len(userCfg.DistroMapping) > 0 {
-		result.DistroMapping = maps.Clone(userCfg.DistroMapping)
-	} else {
-		result.DistroMapping = maps.Clone(defaults.DistroMapping)
+	result.DistroMapping = maps.Clone(defaults.DistroMapping)
+	for k, v := range userCfg.DistroMapping {
+		result.DistroMapping[strings.ToLower(k)] = v
 	}
 
 	if len(userCfg.AllowedQualifiers) > 0 {

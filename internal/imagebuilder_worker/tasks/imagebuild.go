@@ -240,8 +240,8 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	// Update ImageBuild status with the pushed image reference
 	statusUpdater.UpdateImageReference(imageRef)
 
-	// Step 5: Generate and distribute SBOM (if enabled)
-	if c.isSBOMEnabled() {
+	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
+	if c.shouldRunSBOMPipeline() {
 		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, podmanWorker, statusUpdater, log)
 	}
 

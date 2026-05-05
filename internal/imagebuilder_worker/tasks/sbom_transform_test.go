@@ -174,6 +174,7 @@ func TestGetEffectivePurlTransformConfig(t *testing.T) {
 		got := GetEffectivePurlTransformConfig(user)
 		def := config.NewDefaultPurlTransformConfig()
 		require.Equal(t, "other", got.DistroMapping["kuku"])
+		require.Equal(t, "rhel-9", got.DistroMapping["centos-9"])
 		require.Equal(t, def.NamespaceMapping["centos"], got.NamespaceMapping["centos"])
 	})
 
@@ -185,7 +186,23 @@ func TestGetEffectivePurlTransformConfig(t *testing.T) {
 			NamespaceMapping: map[string]string{"fedora": "redhat"},
 		}
 		got := GetEffectivePurlTransformConfig(user)
+		def := config.NewDefaultPurlTransformConfig()
 		require.Equal(t, "redhat", got.NamespaceMapping["fedora"])
+		require.Equal(t, def.NamespaceMapping["centos"], got.NamespaceMapping["centos"])
 		require.Equal(t, "rhel-9", got.DistroMapping["centos-9"])
+	})
+
+	t.Run("When user map keys differ only by casing they should normalize to lowercase overrides", func(t *testing.T) {
+		t.Parallel()
+		enabled := true
+		user := &config.PurlTransformConfig{
+			Enabled:          &enabled,
+			NamespaceMapping: map[string]string{"CentOS": "custom-ns"},
+			DistroMapping:    map[string]string{"CentOS-9": "custom-distro"},
+		}
+		got := GetEffectivePurlTransformConfig(user)
+		require.Equal(t, "custom-ns", got.NamespaceMapping["centos"])
+		require.Equal(t, "custom-distro", got.DistroMapping["centos-9"])
+		require.Equal(t, "redhat", got.NamespaceMapping["rocky"])
 	})
 }
