@@ -158,3 +158,18 @@ func TestCreateAAPApplication(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildOAuthApplicationRequest(t *testing.T) {
+	req := buildOAuthApplicationRequest("example.com", "test-app", 7)
+
+	require.Equal(t, "test-app", req.Name)
+	require.Equal(t, 7, req.Organization)
+	require.Equal(t, "authorization-code", req.AuthorizationGrantType)
+	require.Equal(t, "public", req.ClientType)
+	require.Equal(t, "https://example.com:443", req.AppURL)
+	require.Equal(
+		t,
+		"https://example.com:443/callback http://localhost:8080/callback http://127.0.0.1:8080/callback",
+		req.RedirectURIs,
+	)
+}
