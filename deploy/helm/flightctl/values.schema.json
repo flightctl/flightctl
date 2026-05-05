@@ -627,23 +627,33 @@
             "uploadToTrustify": { "type": "boolean", "description": "Upload SBOM to Trustify when vulnerability reporting is enabled" },
             "purlTransform": {
               "type": "object",
-              "description": "PURL normalization for advisory matching",
+              "description": "PURL normalization for advisory matching; rules are per package type under byType (e.g. rpm)",
               "properties": {
                 "enabled": { "type": "boolean", "description": "Enable PURL normalization" },
-                "namespaceMapping": {
+                "byType": {
                   "type": "object",
-                  "additionalProperties": { "type": "string" },
-                  "description": "Map PURL namespace (e.g. centos) to advisory namespace (e.g. redhat)"
-                },
-                "distroMapping": {
-                  "type": "object",
-                  "additionalProperties": { "type": "string" },
-                  "description": "Map distro qualifier values (e.g. centos-9) to rhel-9"
-                },
-                "allowedQualifiers": {
-                  "type": "array",
-                  "items": { "type": "string" },
-                  "description": "Qualifier keys to retain on PURLs"
+                  "description": "Map package type ID (rpm, npm, ...) to qualifier and namespace rules for that type only",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "namespaceMapping": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                        "description": "Map PURL namespace to advisory namespace for this type"
+                      },
+                      "distroMapping": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                        "description": "Map distro qualifier values for this type"
+                      },
+                      "allowedQualifiers": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Qualifier keys to retain; omit or empty to keep qualifiers unchanged"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
                 }
               }
             }

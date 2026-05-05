@@ -14,10 +14,12 @@ import (
 var purlPattern = regexp.MustCompile(`^(pkg:[^/]+)/([^/]+)/([^@?]+)(@[^?]+)?(\?.+)?$`)
 
 // TransformPurl normalizes a PURL for Trustify advisory matching.
-// It applies only configuration-driven rules:
-// 1. Namespace: if NamespaceMapping contains a key matching the namespace (case-insensitive), replace; otherwise unchanged.
-// 2. Distro qualifier: if DistroMapping contains a key matching the distro value (case-insensitive), replace; otherwise unchanged.
-// 3. Qualifiers: only keys listed in AllowedQualifiers are kept; others are dropped.
+// Rules come from cfg.byType keyed by package type ID (segment after pkg:).
+// When no rule block exists for that type, the PURL is returned unchanged.
+// For a configured type:
+// 1. Namespace: NamespaceMapping replaces when a key matches the namespace (case-insensitive).
+// 2. AllowedQualifiers: when non-empty, only those qualifier keys are kept (distro uses DistroMapping);
+// when empty or unset, qualifiers are preserved as in the original PURL.
 func TransformPurl(purl string, cfg *config.PurlTransformConfig) string {
 	if cfg == nil || !cfg.EffectivePurlTransformEnabled() {
 		return purl
@@ -29,8 +31,15 @@ func TransformPurl(purl string, cfg *config.PurlTransformConfig) string {
 	}
 
 	typePrefix := matches[1] // "pkg:rpm"
-	namespace := matches[2]  // "centos"
-	name := matches[3]       // "acl"
+	typeID := config.NormalizedPURLPackageTypeID(typePrefix)
+
+	rules, ok := lookupTypeRules(cfg, typeID)
+	if !ok {
+		return purl
+	}
+
+	namespace := matches[2] // "centos"
+	name := matches[3]      // "acl"
 	version := ""
 	if len(matches) > 4 && matches[4] != "" {
 		version = matches[4] // "@2.3.1-4.el9"
@@ -40,34 +49,46 @@ func TransformPurl(purl string, cfg *config.PurlTransformConfig) string {
 		qualifiers = matches[5] // "?arch=x86_64&distro=centos-9&..."
 	}
 
-	// 1. Map namespace
-	if mapped, ok := cfg.NamespaceMapping[strings.ToLower(namespace)]; ok {
+	// 1. Map namespace (only within this type's mappings)
+	nsMap := rules.NamespaceMapping
+	if mapped, ok := nsMap[strings.ToLower(namespace)]; ok {
 		namespace = mapped
 	}
 
-	// 2. Process qualifiers
-	var filteredQualifiers []string
+	// 2. Qualifiers
+	var qualOut string
 	if qualifiers != "" {
-		q, err := url.ParseQuery(strings.TrimPrefix(qualifiers, "?"))
-		if err == nil {
-			for _, allowed := range cfg.AllowedQualifiers {
-				if val := q.Get(allowed); val != "" {
-					if allowed == "distro" {
-						val = mapDistroQualifier(val, cfg.DistroMapping)
+		if len(rules.AllowedQualifiers) > 0 {
+			var filteredQualifiers []string
+			q, err := url.ParseQuery(strings.TrimPrefix(qualifiers, "?"))
+			if err == nil {
+				for _, allowed := range rules.AllowedQualifiers {
+					if val := q.Get(allowed); val != "" {
+						if allowed == "distro" {
+							val = mapDistroQualifier(val, rules.DistroMapping)
+						}
+						filteredQualifiers = append(filteredQualifiers, allowed+"="+url.QueryEscape(val))
 					}
-					filteredQualifiers = append(filteredQualifiers, allowed+"="+url.QueryEscape(val))
 				}
 			}
+			if len(filteredQualifiers) > 0 {
+				qualOut = "?" + strings.Join(filteredQualifiers, "&")
+			}
+		} else {
+			qualOut = qualifiers
 		}
 	}
 
-	// Rebuild PURL
-	result := typePrefix + "/" + namespace + "/" + name + version
-	if len(filteredQualifiers) > 0 {
-		result += "?" + strings.Join(filteredQualifiers, "&")
-	}
-
+	result := typePrefix + "/" + namespace + "/" + name + version + qualOut
 	return result
+}
+
+func lookupTypeRules(cfg *config.PurlTransformConfig, typeID string) (config.PurlTransformTypeRules, bool) {
+	if cfg.ByType == nil {
+		return config.PurlTransformTypeRules{}, false
+	}
+	rules, ok := cfg.ByType[typeID]
+	return rules, ok
 }
 
 // mapDistroQualifier replaces a distro qualifier only when DistroMapping defines a key for it (case-insensitive key match).
@@ -94,7 +115,6 @@ func TransformSBOMPurls(sbomData []byte, cfg *config.PurlTransformConfig) ([]byt
 		return nil, err
 	}
 
-	// Transform components array
 	if components, ok := sbom["components"].([]interface{}); ok {
 		for _, comp := range components {
 			if c, ok := comp.(map[string]interface{}); ok {
@@ -108,10 +128,8 @@ func TransformSBOMPurls(sbomData []byte, cfg *config.PurlTransformConfig) ([]byt
 	return json.MarshalIndent(sbom, "", "  ")
 }
 
-// GetEffectivePurlTransformConfig returns the PURL transform config to use.
-// Enabled and AllowedQualifiers fall back to defaults when unset on the user config.
-// NamespaceMapping and DistroMapping start from defaults and are overridden by user entries;
-// user map keys are lowercased so they match TransformPurl's case-insensitive lookups.
+// GetEffectivePurlTransformConfig merges user-level purlTransform with defaults per package type.
+// Map keys under byType are normalized to lowercase type IDs (e.g. rpm, npm).
 func GetEffectivePurlTransformConfig(userCfg *config.PurlTransformConfig) *config.PurlTransformConfig {
 	defaults := config.NewDefaultPurlTransformConfig()
 
@@ -128,22 +146,79 @@ func GetEffectivePurlTransformConfig(userCfg *config.PurlTransformConfig) *confi
 		result.Enabled = defaults.Enabled
 	}
 
-	// Merge defaults with user mappings; user keys are lowercased to match TransformPurl lookups.
-	result.NamespaceMapping = maps.Clone(defaults.NamespaceMapping)
-	for k, v := range userCfg.NamespaceMapping {
-		result.NamespaceMapping[strings.ToLower(k)] = v
-	}
+	typeIDs := mergedTypeIDs(defaults.ByType, userCfg.ByType)
+	result.ByType = make(map[string]config.PurlTransformTypeRules)
+	for tid := range typeIDs {
+		base := config.PurlTransformTypeRules{}
+		if defaults.ByType != nil {
+			if b, ok := defaults.ByType[tid]; ok {
+				base = cloneTypeRules(b)
+			}
+		}
 
-	result.DistroMapping = maps.Clone(defaults.DistroMapping)
-	for k, v := range userCfg.DistroMapping {
-		result.DistroMapping[strings.ToLower(k)] = v
-	}
-
-	if len(userCfg.AllowedQualifiers) > 0 {
-		result.AllowedQualifiers = append([]string(nil), userCfg.AllowedQualifiers...)
-	} else {
-		result.AllowedQualifiers = append([]string(nil), defaults.AllowedQualifiers...)
+		userRules := lookupUserRulesByNormalizedID(userCfg.ByType, tid)
+		result.ByType[tid] = mergeOneTypeRules(base, userRules)
 	}
 
 	return result
+}
+
+func mergedTypeIDs(defaults, user map[string]config.PurlTransformTypeRules) map[string]struct{} {
+	out := map[string]struct{}{}
+	for k := range defaults {
+		out[config.NormalizedPURLPackageTypeID(k)] = struct{}{}
+	}
+	for k := range user {
+		out[config.NormalizedPURLPackageTypeID(k)] = struct{}{}
+	}
+	return out
+}
+
+func lookupUserRulesByNormalizedID(user map[string]config.PurlTransformTypeRules, wantID string) config.PurlTransformTypeRules {
+	if user == nil {
+		return config.PurlTransformTypeRules{}
+	}
+	for k, rules := range user {
+		if config.NormalizedPURLPackageTypeID(k) == wantID {
+			return rules
+		}
+	}
+	return config.PurlTransformTypeRules{}
+}
+
+func cloneTypeRules(r config.PurlTransformTypeRules) config.PurlTransformTypeRules {
+	out := config.PurlTransformTypeRules{
+		NamespaceMapping:  maps.Clone(r.NamespaceMapping),
+		DistroMapping:     maps.Clone(r.DistroMapping),
+		AllowedQualifiers: append([]string(nil), r.AllowedQualifiers...),
+	}
+	return out
+}
+
+func mergeOneTypeRules(base, overlay config.PurlTransformTypeRules) config.PurlTransformTypeRules {
+	out := cloneTypeRules(base)
+
+	if overlay.NamespaceMapping != nil {
+		if out.NamespaceMapping == nil {
+			out.NamespaceMapping = map[string]string{}
+		}
+		for k, v := range overlay.NamespaceMapping {
+			out.NamespaceMapping[strings.ToLower(k)] = v
+		}
+	}
+
+	if overlay.DistroMapping != nil {
+		if out.DistroMapping == nil {
+			out.DistroMapping = map[string]string{}
+		}
+		for k, v := range overlay.DistroMapping {
+			out.DistroMapping[strings.ToLower(k)] = v
+		}
+	}
+
+	if len(overlay.AllowedQualifiers) > 0 {
+		out.AllowedQualifiers = append([]string(nil), overlay.AllowedQualifiers...)
+	}
+
+	return out
 }

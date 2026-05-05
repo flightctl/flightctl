@@ -20,16 +20,18 @@ pushToRegistry: true
 uploadToTrustify: true
 purlTransform:
   enabled: true
-  distroMapping:
-    kuku: custom-distro
+  byType:
+    rpm:
+      distroMapping:
+        kuku: custom-distro
 `
 	var sbom config.SBOMConfig
 	require.NoError(t, yaml.Unmarshal([]byte(fragment), &sbom))
 	require.True(t, sbom.Enabled)
 
 	eff := tasks.GetEffectivePurlTransformConfig(sbom.PurlTransform)
-	require.Equal(t, "custom-distro", eff.DistroMapping["kuku"])
-	require.Equal(t, "redhat", eff.NamespaceMapping["centos"])
+	require.Equal(t, "custom-distro", eff.ByType["rpm"].DistroMapping["kuku"])
+	require.Equal(t, "redhat", eff.ByType["rpm"].NamespaceMapping["centos"])
 
 	raw := []byte(`{"components":[{"purl":"pkg:rpm/centos/tool@1.0?arch=x86_64&distro=kuku"}]}`)
 	out, err := tasks.TransformSBOMPurls(raw, eff)
@@ -45,15 +47,19 @@ func TestSBOMJSONPartialPurlTransform(t *testing.T) {
 	t.Parallel()
 	const jsonFragment = `{
   "enabled": true,
-  "namespaceMapping": {"fedora": "redhat"},
-  "allowedQualifiers": ["distro"]
+  "byType": {
+    "rpm": {
+      "namespaceMapping": {"fedora": "redhat"},
+      "allowedQualifiers": ["distro"]
+    }
+  }
 }`
 	var pt config.PurlTransformConfig
 	require.NoError(t, json.Unmarshal([]byte(jsonFragment), &pt))
 
 	eff := tasks.GetEffectivePurlTransformConfig(&pt)
-	require.Equal(t, "redhat", eff.NamespaceMapping["fedora"])
-	require.Equal(t, "rhel-9", eff.DistroMapping["centos-9"])
+	require.Equal(t, "redhat", eff.ByType["rpm"].NamespaceMapping["fedora"])
+	require.Equal(t, "rhel-9", eff.ByType["rpm"].DistroMapping["centos-9"])
 
 	p := "pkg:rpm/fedora/pkg@1?distro=centos-9&arch=x86_64"
 	got := tasks.TransformPurl(p, eff)

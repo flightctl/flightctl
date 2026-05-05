@@ -206,13 +206,20 @@ type SBOMConfig struct {
 	PurlTransform    *PurlTransformConfig `json:"purlTransform,omitempty"`
 }
 
-// PurlTransformConfig holds configuration for PURL normalization.
-type PurlTransformConfig struct {
-	// Enabled, when nil, means enabled (default). Set to false to disable PURL normalization.
-	Enabled           *bool             `json:"enabled,omitempty"`
+// PurlTransformTypeRules defines namespace, distro, and qualifier rules for one PURL package type
+// (map key and segment after "pkg:" in pkg:type/..., e.g. "rpm").
+type PurlTransformTypeRules struct {
 	NamespaceMapping  map[string]string `json:"namespaceMapping,omitempty"`
 	DistroMapping     map[string]string `json:"distroMapping,omitempty"`
 	AllowedQualifiers []string          `json:"allowedQualifiers,omitempty"`
+}
+
+// PurlTransformConfig holds configuration for PURL normalization.
+type PurlTransformConfig struct {
+	// Enabled, when nil, means enabled (default). Set to false to disable PURL normalization.
+	Enabled *bool `json:"enabled,omitempty"`
+	// ByType maps package type ID (e.g. "rpm") to rules for that type only.
+	ByType map[string]PurlTransformTypeRules `json:"byType,omitempty"`
 }
 
 // EffectivePurlTransformEnabled returns whether PURL normalization is enabled.
@@ -224,6 +231,16 @@ func (p *PurlTransformConfig) EffectivePurlTransformEnabled() bool {
 		return true
 	}
 	return *p.Enabled
+}
+
+func normalizePURLPackageTypeID(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	return strings.TrimPrefix(s, "pkg:")
+}
+
+// NormalizedPURLPackageTypeID returns the package type key for lookups (after "pkg:", lowercased).
+func NormalizedPURLPackageTypeID(s string) string {
+	return normalizePURLPackageTypeID(s)
 }
 
 // NewDefaultSBOMConfig returns the default SBOM configuration.
@@ -241,30 +258,34 @@ func NewDefaultPurlTransformConfig() *PurlTransformConfig {
 	enabled := true
 	return &PurlTransformConfig{
 		Enabled: &enabled,
-		NamespaceMapping: map[string]string{
-			"centos":     "redhat",
-			"rocky":      "redhat",
-			"rockylinux": "redhat",
-			"alma":       "redhat",
-			"almalinux":  "redhat",
-			"oracle":     "redhat",
+		ByType: map[string]PurlTransformTypeRules{
+			"rpm": {
+				NamespaceMapping: map[string]string{
+					"centos":     "redhat",
+					"rocky":      "redhat",
+					"rockylinux": "redhat",
+					"alma":       "redhat",
+					"almalinux":  "redhat",
+					"oracle":     "redhat",
+				},
+				DistroMapping: map[string]string{
+					"centos-7":        "rhel-7",
+					"centos-8":        "rhel-8",
+					"centos-9":        "rhel-9",
+					"centos-stream-8": "rhel-8",
+					"centos-stream-9": "rhel-9",
+					"rocky-8":         "rhel-8",
+					"rocky-9":         "rhel-9",
+					"alma-8":          "rhel-8",
+					"alma-9":          "rhel-9",
+					"almalinux-8":     "rhel-8",
+					"almalinux-9":     "rhel-9",
+					"oracle-8":        "rhel-8",
+					"oracle-9":        "rhel-9",
+				},
+				AllowedQualifiers: []string{"arch", "distro"},
+			},
 		},
-		DistroMapping: map[string]string{
-			"centos-7":        "rhel-7",
-			"centos-8":        "rhel-8",
-			"centos-9":        "rhel-9",
-			"centos-stream-8": "rhel-8",
-			"centos-stream-9": "rhel-9",
-			"rocky-8":         "rhel-8",
-			"rocky-9":         "rhel-9",
-			"alma-8":          "rhel-8",
-			"alma-9":          "rhel-9",
-			"almalinux-8":     "rhel-8",
-			"almalinux-9":     "rhel-9",
-			"oracle-8":        "rhel-8",
-			"oracle-9":        "rhel-9",
-		},
-		AllowedQualifiers: []string{"arch", "distro"},
 	}
 }
 

@@ -76,22 +76,28 @@ data:
             {{- if kindIs "bool" .purlTransform.enabled }}
             enabled: {{ .purlTransform.enabled }}
             {{- end }}
-            {{- if .purlTransform.namespaceMapping }}
-            namespaceMapping:
-              {{- range $k, $v := .purlTransform.namespaceMapping }}
-              {{ $k }}: {{ $v | quote }}
-              {{- end }}
-            {{- end }}
-            {{- if .purlTransform.distroMapping }}
-            distroMapping:
-              {{- range $k, $v := .purlTransform.distroMapping }}
-              {{ $k }}: {{ $v | quote }}
-              {{- end }}
-            {{- end }}
-            {{- if .purlTransform.allowedQualifiers }}
-            allowedQualifiers:
-              {{- range .purlTransform.allowedQualifiers }}
-              - {{ . | quote }}
+            {{- if .purlTransform.byType }}
+            byType:
+              {{- range $type, $rules := .purlTransform.byType }}
+              {{ $type }}:
+                {{- if $rules.namespaceMapping }}
+                namespaceMapping:
+                  {{- range $k, $v := $rules.namespaceMapping }}
+                  {{ $k }}: {{ $v | quote }}
+                  {{- end }}
+                {{- end }}
+                {{- if $rules.distroMapping }}
+                distroMapping:
+                  {{- range $k, $v := $rules.distroMapping }}
+                  {{ $k }}: {{ $v | quote }}
+                  {{- end }}
+                {{- end }}
+                {{- if $rules.allowedQualifiers }}
+                allowedQualifiers:
+                  {{- range $rules.allowedQualifiers }}
+                  - {{ . | quote }}
+                  {{- end }}
+                {{- end }}
               {{- end }}
             {{- end }}
           {{- end }}

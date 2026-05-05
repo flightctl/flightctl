@@ -67,22 +67,28 @@ imageBuilderWorker:
       {{- if or (eq (printf "%v" .imagebuilderWorker.sbom.purlTransform.enabled) "true") (eq (printf "%v" .imagebuilderWorker.sbom.purlTransform.enabled) "false")}}
       enabled: {{.imagebuilderWorker.sbom.purlTransform.enabled}}
       {{- end}}
-      {{- if .imagebuilderWorker.sbom.purlTransform.namespaceMapping}}
-      namespaceMapping:
-        {{- range $k, $v := .imagebuilderWorker.sbom.purlTransform.namespaceMapping}}
-        {{$k}}: {{$v}}
-        {{- end}}
-      {{- end}}
-      {{- if .imagebuilderWorker.sbom.purlTransform.distroMapping}}
-      distroMapping:
-        {{- range $k, $v := .imagebuilderWorker.sbom.purlTransform.distroMapping}}
-        {{$k}}: {{$v}}
-        {{- end}}
-      {{- end}}
-      {{- if .imagebuilderWorker.sbom.purlTransform.allowedQualifiers}}
-      allowedQualifiers:
-        {{- range .imagebuilderWorker.sbom.purlTransform.allowedQualifiers}}
-        - {{.}}
+      {{- if .imagebuilderWorker.sbom.purlTransform.byType}}
+      byType:
+        {{- range $type, $rules := .imagebuilderWorker.sbom.purlTransform.byType}}
+        {{$type}}:
+          {{- if $rules.namespaceMapping}}
+          namespaceMapping:
+            {{- range $k, $v := $rules.namespaceMapping}}
+            {{$k}}: {{$v}}
+            {{- end}}
+          {{- end}}
+          {{- if $rules.distroMapping}}
+          distroMapping:
+            {{- range $k, $v := $rules.distroMapping}}
+            {{$k}}: {{$v}}
+            {{- end}}
+          {{- end}}
+          {{- if $rules.allowedQualifiers}}
+          allowedQualifiers:
+            {{- range $rules.allowedQualifiers}}
+            - {{.}}
+            {{- end}}
+          {{- end}}
         {{- end}}
       {{- end}}
     {{- end}}

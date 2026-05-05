@@ -203,7 +203,7 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.sbom.enabled` | bool | `true` | After a successful image push, run SBOM generation (Syft) when `true`. |
 | `imageBuilderWorker.sbom.pushToRegistry` | bool | `true` | Push the SBOM to the same destination registry as an OCI 1.1 referrer artifact. |
 | `imageBuilderWorker.sbom.uploadToTrustify` | bool | `true` | When vulnerability reporting is enabled and Trustify is configured, upload the SBOM to Trustify. |
-| `imageBuilderWorker.sbom.purlTransform` | object | — | Optional PURL normalization for CycloneDX component PURLs. Fields: `enabled`, `namespaceMapping`, `distroMapping`, `allowedQualifiers`. Only configured mappings change values; anything not listed in a mapping is left unchanged. |
+| `imageBuilderWorker.sbom.purlTransform` | object | — | Optional PURL normalization for CycloneDX component PURLs. Fields: `enabled`, `byType` (map of package type IDs such as `rpm` or `npm` to `namespaceMapping`, `distroMapping`, and `allowedQualifiers`). Rules apply only to PURLs with that package type (`pkg:type/...`). The worker merges your `rpm` overrides with built-in RPM defaults when you omit a field. |
 
 ### Podman Quadlet Configuration
 
@@ -251,7 +251,7 @@ The following keys control SBOM behavior (see also the parameter table in this d
 
 - Syft image pull: `serviceImages.syft` (`image`, `skipTlsVerify`). Leave `image` empty to use the default Syft image pinned in the worker binary.
 - SBOM switches: `sbom` (`enabled`, `pushToRegistry`, `uploadToTrustify`).
-- PURL normalization: optional `sbom.purlTransform` with `enabled`, `namespaceMapping`, `distroMapping`, and `allowedQualifiers`. Only values you map are rewritten; unmapped namespace or distro values stay as they appear in the SBOM.
+- PURL normalization: optional `sbom.purlTransform` with `enabled` and `byType`; configure `namespaceMapping`, `distroMapping`, and `allowedQualifiers` per package type (`rpm`, `npm`, and so on). The worker merges your `rpm` block with built-in RPM defaults. When the merged rules list one or more `allowedQualifiers`, only those qualifiers are retained; omit `allowedQualifiers` entirely on an extra type (for example `npm`) when you want namespace rewriting only and no qualifier stripping.
 
 ### Trustify upload and vulnerability reporting
 
