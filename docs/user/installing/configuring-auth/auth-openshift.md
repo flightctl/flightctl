@@ -144,15 +144,8 @@ After login, the user will automatically have access to the Flight Control organ
 
 ## Multi-Project Access
 
-Users with access to multiple OpenShift projects will have access to multiple Flight Control organizations:
-
-```bash
-# User has access to project-a and project-b in OpenShift
-# After login, they can access both organizations in Flight Control
-
-flightctl get devices --org project-a
-flightctl get devices --org project-b
-```
+Users with access to multiple OpenShift projects will have access to multiple Flight Control organizations.
+For CLI organization selection and `--org` usage, see [Usage with multiple organizations](organizations.md#usage-with-multiple-organizations).
 
 ## Troubleshooting
 
