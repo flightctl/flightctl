@@ -755,6 +755,21 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 	}
 }
 
+// TestResourceLabels returns the test-id label used by e2e cleanup.
+func (h *Harness) TestResourceLabels() (map[string]string, error) {
+	if h == nil {
+		return nil, fmt.Errorf("harness is nil")
+	}
+	if h.Context == nil {
+		return nil, fmt.Errorf("test ID not found in harness context")
+	}
+	testID, ok := h.Context.Value(util.TestIDKey).(string)
+	if !ok || testID == "" {
+		return nil, fmt.Errorf("test ID not found in harness context")
+	}
+	return map[string]string{"test-id": testID}, nil
+}
+
 func (h *Harness) CleanUpAllTestResources() error {
 	if h.VM != nil {
 		if err := h.StopFlightCtlAgent(); err != nil {
