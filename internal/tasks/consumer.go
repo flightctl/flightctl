@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -24,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, depRefStore store.DependencyRef, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -87,7 +86,7 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 		if shouldValidateFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetValidation"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, depRefStore, log)
+				return fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
@@ -317,7 +316,6 @@ func LaunchConsumers(ctx context.Context,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
 	cfg *config.Config,
-	depRefStore store.DependencyRef,
 	numConsumers, threadsPerConsumer int,
 	workerMetrics *worker.WorkerCollector) error {
 	totalConsumers := numConsumers * threadsPerConsumer
@@ -337,7 +335,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, cfg, depRefStore, workerMetrics)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
 				return err
 			}
 		}

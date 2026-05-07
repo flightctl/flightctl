@@ -16,6 +16,7 @@ import (
 
 	domain "github.com/flightctl/flightctl/internal/domain"
 	store "github.com/flightctl/flightctl/internal/store"
+	model "github.com/flightctl/flightctl/internal/store/model"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
@@ -320,6 +321,20 @@ func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, orgId
 func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
+}
+
+// DeleteDependencyRefsByFleet mocks base method.
+func (m *MockService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDependencyRefsByFleet", ctx, orgId, fleetName)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteDependencyRefsByFleet indicates an expected call of DeleteDependencyRefsByFleet.
+func (mr *MockServiceMockRecorder) DeleteDependencyRefsByFleet(ctx, orgId, fleetName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDependencyRefsByFleet", reflect.TypeOf((*MockService)(nil).DeleteDependencyRefsByFleet), ctx, orgId, fleetName)
 }
 
 // DeleteDevice mocks base method.
@@ -1885,4 +1900,18 @@ func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, orgId u
 func (mr *MockServiceMockRecorder) UpdateServiceSideDeviceStatus(ctx, orgId, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServiceSideDeviceStatus), ctx, orgId, device)
+}
+
+// UpsertDependencyRef mocks base method.
+func (m *MockService) UpsertDependencyRef(ctx context.Context, orgId uuid.UUID, ref *model.DependencyRef) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDependencyRef", ctx, orgId, ref)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// UpsertDependencyRef indicates an expected call of UpsertDependencyRef.
+func (mr *MockServiceMockRecorder) UpsertDependencyRef(ctx, orgId, ref any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDependencyRef", reflect.TypeOf((*MockService)(nil).UpsertDependencyRef), ctx, orgId, ref)
 }

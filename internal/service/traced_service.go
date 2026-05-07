@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -628,6 +629,20 @@ func (t *TracedService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, c
 func (t *TracedService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status {
 	ctx, span := startSpan(ctx, "DeleteCatalogItem")
 	st := t.inner.DeleteCatalogItem(ctx, orgId, catalogName, itemName)
+	endSpan(span, st)
+	return st
+}
+
+// --- DependencyRef ---
+func (t *TracedService) UpsertDependencyRef(ctx context.Context, orgId uuid.UUID, ref *model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "UpsertDependencyRef")
+	st := t.inner.UpsertDependencyRef(ctx, orgId, ref)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
+	ctx, span := startSpan(ctx, "DeleteDependencyRefsByFleet")
+	st := t.inner.DeleteDependencyRefsByFleet(ctx, orgId, fleetName)
 	endSpan(span, st)
 	return st
 }
