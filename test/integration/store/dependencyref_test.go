@@ -54,7 +54,6 @@ var _ = Describe("DependencyRefStore", func() {
 				RefType:        "git",
 				RepositoryName: lo.ToPtr("my-repo"),
 				Revision:       lo.ToPtr("main"),
-				SyncInterval:   lo.ToPtr("5m"),
 			}
 			httpRef := &model.DependencyRef{
 				OrgID:          orgId,
@@ -63,7 +62,6 @@ var _ = Describe("DependencyRefStore", func() {
 				RefType:        "http",
 				RepositoryName: lo.ToPtr("my-http-repo"),
 				HTTPSuffix:     lo.ToPtr("/config.json"),
-				SyncInterval:   lo.ToPtr("10m"),
 			}
 
 			err := storeInst.DependencyRef().Upsert(ctx, orgId, gitRef)
@@ -100,13 +98,11 @@ var _ = Describe("DependencyRefStore", func() {
 				RefType:        "git",
 				RepositoryName: lo.ToPtr("my-repo"),
 				Revision:       lo.ToPtr("main"),
-				SyncInterval:   lo.ToPtr("5m"),
 			}
 			err := storeInst.DependencyRef().Upsert(ctx, orgId, ref)
 			Expect(err).ToNot(HaveOccurred())
 
 			ref.Revision = lo.ToPtr("develop")
-			ref.SyncInterval = lo.ToPtr("2m")
 			err = storeInst.DependencyRef().Upsert(ctx, orgId, ref)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -114,7 +110,6 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(1))
 			Expect(*refs[0].Revision).To(Equal("develop"))
-			Expect(*refs[0].SyncInterval).To(Equal("2m"))
 		})
 	})
 

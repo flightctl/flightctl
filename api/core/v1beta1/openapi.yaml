@@ -6457,18 +6457,6 @@ components:
         mapping:
           BatchSequence: '#/components/schemas/BatchSequence'
 
-    DependenciesSync:
-      type: object
-      description: Configuration for automated dependency synchronization.
-      additionalProperties: false
-      properties:
-        enabled:
-          type: boolean
-          description: Whether automated dependency synchronization is enabled.
-          default: true
-        pollInterval:
-          $ref: '#/components/schemas/Duration'
-
     RolloutPolicy:
       type: object
       properties:
@@ -6490,8 +6478,6 @@ components:
           $ref: '#/components/schemas/LabelSelector'
         rolloutPolicy:
           $ref: '#/components/schemas/RolloutPolicy'
-        dependenciesSync:
-          $ref: '#/components/schemas/DependenciesSync'
         template:
           type: object
           description: The template for the devices in the fleet.
@@ -6510,8 +6496,6 @@ components:
       type: object
       description: DeviceSpec describes a device.
       properties:
-        dependenciesSync:
-          $ref: '#/components/schemas/DependenciesSync'
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
