@@ -236,6 +236,11 @@ func shouldValidateFleet(ctx context.Context, event domain.Event, log logrus.Fie
 		return true
 	}
 
+	// If a dependency change was detected for a fleet, return true
+	if event.Reason == domain.EventReasonDependencyChangeDetected && event.InvolvedObject.Kind == domain.FleetKind {
+		return true
+	}
+
 	return false
 }
 
@@ -245,6 +250,7 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 	}
 
 	if lo.Contains([]domain.EventReason{domain.EventReasonReferencedRepositoryUpdated,
+		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonResourceCreated,
 		domain.EventReasonFleetRolloutDeviceSelected, domain.EventReasonDeviceConflictResolved,
 		domain.EventReasonDeviceDecommissioned}, event.Reason) {
