@@ -1,5 +1,3 @@
-// Copyright (c) Flight Control Authors. Licensed under Apache-2.0.
-
 package tasks
 
 import (
@@ -174,15 +172,19 @@ func (d *DependencySyncGit) probeAndReconcile(ctx context.Context, orgId uuid.UU
 	now := time.Now().UTC()
 
 	if existing == nil {
-		d.syncStore.Set(ctx, orgId, &model.SyncState{ //nolint:errcheck
+		if err := d.syncStore.Set(ctx, orgId, &model.SyncState{
 			OrgID: orgId, ResourceKey: resourceKey,
 			Fingerprint: newSHA, LastCheckedAt: now, LastChangeAt: &now,
-		})
+		}); err != nil {
+			d.log.WithError(err).Errorf("failed creating sync state for %s", resourceKey)
+		}
 		return
 	}
 
 	if newSHA == existing.Fingerprint {
-		d.syncStore.SetLastCheckedAt(ctx, orgId, resourceKey, now) //nolint:errcheck
+		if err := d.syncStore.SetLastCheckedAt(ctx, orgId, resourceKey, now); err != nil {
+			d.log.WithError(err).Errorf("failed updating last_checked_at for %s", resourceKey)
+		}
 		return
 	}
 

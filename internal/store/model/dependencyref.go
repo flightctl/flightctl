@@ -1,5 +1,3 @@
-// Copyright (c) Flight Control Authors. Licensed under Apache-2.0.
-
 package model
 
 import "github.com/google/uuid"

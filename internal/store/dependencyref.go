@@ -1,9 +1,8 @@
-// Copyright (c) Flight Control Authors. Licensed under Apache-2.0.
-
 package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -38,6 +37,9 @@ func (s *DependencyRefStore) InitialMigration(ctx context.Context) error {
 }
 
 func (s *DependencyRefStore) Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error {
+	if ref == nil {
+		return fmt.Errorf("cannot upsert nil DependencyRef")
+	}
 	ref.OrgID = orgID
 	result := s.getDB(ctx).Save(ref)
 	if result.Error != nil {
