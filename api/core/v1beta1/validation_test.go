@@ -2453,6 +2453,8 @@ func TestFleetValidate_DependenciesSync(t *testing.T) {
 					}
 				}
 				require.True(found, "expected %q error in: %v", tt.errSubstring, errs)
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
 			}
 		})
 	}
@@ -2495,6 +2497,8 @@ func TestDeviceSpecValidate_DependenciesSync(t *testing.T) {
 					}
 				}
 				require.True(found, "expected %q error in: %v", tt.errSubstring, errs)
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
 			}
 		})
 	}
