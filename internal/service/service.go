@@ -142,6 +142,12 @@ type Service interface {
 	// DependencyRef
 	UpsertDependencyRef(ctx context.Context, orgId uuid.UUID, ref *model.DependencyRef) domain.Status
 	DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status
+	ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status)
+
+	// SyncState
+	GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status)
+	SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status
+	SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, t time.Time) domain.Status
 
 	// TemplateVersion
 	CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status)

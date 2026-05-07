@@ -916,6 +916,21 @@ func (mr *MockServiceMockRecorder) GetResourceSync(ctx, orgId, name any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceSync", reflect.TypeOf((*MockService)(nil).GetResourceSync), ctx, orgId, name)
 }
 
+// GetSyncState mocks base method.
+func (m *MockService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSyncState", ctx, orgId, resourceKey)
+	ret0, _ := ret[0].(*model.SyncState)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetSyncState indicates an expected call of GetSyncState.
+func (mr *MockServiceMockRecorder) GetSyncState(ctx, orgId, resourceKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSyncState", reflect.TypeOf((*MockService)(nil).GetSyncState), ctx, orgId, resourceKey)
+}
+
 // GetTemplateVersion mocks base method.
 func (m *MockService) GetTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1064,6 +1079,21 @@ func (m *MockService) ListConnectivityChangedDevices(ctx context.Context, orgId 
 func (mr *MockServiceMockRecorder) ListConnectivityChangedDevices(ctx, orgId, params, cutoffTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListConnectivityChangedDevices", reflect.TypeOf((*MockService)(nil).ListConnectivityChangedDevices), ctx, orgId, params, cutoffTime)
+}
+
+// ListDependencyRefsByRefType mocks base method.
+func (m *MockService) ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDependencyRefsByRefType", ctx, orgId, refType)
+	ret0, _ := ret[0].([]model.DependencyRef)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDependencyRefsByRefType indicates an expected call of ListDependencyRefsByRefType.
+func (mr *MockServiceMockRecorder) ListDependencyRefsByRefType(ctx, orgId, refType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDependencyRefsByRefType", reflect.TypeOf((*MockService)(nil).ListDependencyRefsByRefType), ctx, orgId, refType)
 }
 
 // ListDevices mocks base method.
@@ -1760,18 +1790,32 @@ func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, orgId, owner any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, orgId, owner)
 }
 
-// SyncDeviceCVELifecycleEvents mocks base method.
-func (m *MockService) SyncDeviceCVELifecycleEvents(ctx context.Context) error {
+// SetSyncState mocks base method.
+func (m *MockService) SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncDeviceCVELifecycleEvents", ctx)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "SetSyncState", ctx, orgId, state)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
-// SyncDeviceCVELifecycleEvents indicates an expected call of SyncDeviceCVELifecycleEvents.
-func (mr *MockServiceMockRecorder) SyncDeviceCVELifecycleEvents(ctx any) *gomock.Call {
+// SetSyncState indicates an expected call of SetSyncState.
+func (mr *MockServiceMockRecorder) SetSyncState(ctx, orgId, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncDeviceCVELifecycleEvents", reflect.TypeOf((*MockService)(nil).SyncDeviceCVELifecycleEvents), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSyncState", reflect.TypeOf((*MockService)(nil).SetSyncState), ctx, orgId, state)
+}
+
+// SetSyncStateLastCheckedAt mocks base method.
+func (m *MockService) SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, t time.Time) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSyncStateLastCheckedAt", ctx, orgId, resourceKey, t)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// SetSyncStateLastCheckedAt indicates an expected call of SetSyncStateLastCheckedAt.
+func (mr *MockServiceMockRecorder) SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, t any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSyncStateLastCheckedAt", reflect.TypeOf((*MockService)(nil).SetSyncStateLastCheckedAt), ctx, orgId, resourceKey, t)
 }
 
 // UnmarkDevicesRolloutSelection mocks base method.

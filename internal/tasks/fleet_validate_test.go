@@ -228,7 +228,6 @@ func TestFleetValidateLogic_GetFingerprint(t *testing.T) {
 	}
 }
 
-
 func makeGitConfigItem(t *testing.T, name, repo, revision string) domain.ConfigProviderSpec {
 	t.Helper()
 	gitSpec := &domain.GitConfigProviderSpec{Name: name}

@@ -646,6 +646,32 @@ func (t *TracedService) DeleteDependencyRefsByFleet(ctx context.Context, orgId u
 	endSpan(span, st)
 	return st
 }
+func (t *TracedService) ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDependencyRefsByRefType")
+	resp, st := t.inner.ListDependencyRefsByRefType(ctx, orgId, refType)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- SyncState ---
+func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
+	ctx, span := startSpan(ctx, "GetSyncState")
+	resp, st := t.inner.GetSyncState(ctx, orgId, resourceKey)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status {
+	ctx, span := startSpan(ctx, "SetSyncState")
+	st := t.inner.SetSyncState(ctx, orgId, state)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, tm time.Time) domain.Status {
+	ctx, span := startSpan(ctx, "SetSyncStateLastCheckedAt")
+	st := t.inner.SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, tm)
+	endSpan(span, st)
+	return st
+}
 
 // --- TemplateVersion ---
 func (t *TracedService) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
