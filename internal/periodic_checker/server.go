@@ -101,7 +101,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, s.store.SyncState(), s.store.DependencyRef())
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

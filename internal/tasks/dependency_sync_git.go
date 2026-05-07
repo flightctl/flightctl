@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/uuid"
@@ -26,21 +25,16 @@ type gitLsRemoteFunc func(ctx context.Context, repoURL string, refs []string,
 type DependencySyncGit struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
-	syncStore      store.SyncState
-	depRefStore    store.DependencyRef
 	cfg            *config.Config
 	lsRemote       gitLsRemoteFunc
 	maxConcurrent  int
 }
 
 func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service,
-	syncStore store.SyncState, depRefStore store.DependencyRef,
 	cfg *config.Config) *DependencySyncGit {
 	return &DependencySyncGit{
 		log:            log,
 		serviceHandler: serviceHandler,
-		syncStore:      syncStore,
-		depRefStore:    depRefStore,
 		cfg:            cfg,
 		lsRemote:       GitLsRemote,
 		maxConcurrent:  10,
@@ -57,9 +51,9 @@ type probeTarget struct {
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
-	refs, err := d.depRefStore.ListByRefType(ctx, orgId, "git")
-	if err != nil {
-		d.log.WithError(err).Error("failed listing git dependency refs")
+	refs, status := d.serviceHandler.ListDependencyRefsByRefType(ctx, orgId, "git")
+	if status.Code != http.StatusOK {
+		d.log.Errorf("failed listing git dependency refs: %s", status.Message)
 		return
 	}
 	if len(refs) == 0 {
@@ -130,9 +124,9 @@ func (d *DependencySyncGit) buildProbeTargets(refs []model.DependencyRef) []prob
 func (d *DependencySyncGit) probeAndReconcile(ctx context.Context, orgId uuid.UUID, target *probeTarget, pollInterval time.Duration) {
 	resourceKey := fmt.Sprintf("git:%s/%s", target.repoName, target.revision)
 
-	existing, err := d.syncStore.Get(ctx, orgId, resourceKey)
-	if err != nil {
-		d.log.WithError(err).Errorf("failed reading sync state for %s", resourceKey)
+	existing, status := d.serviceHandler.GetSyncState(ctx, orgId, resourceKey)
+	if status.Code != http.StatusOK {
+		d.log.Errorf("failed reading sync state for %s: %s", resourceKey, status.Message)
 		return
 	}
 
@@ -173,27 +167,27 @@ func (d *DependencySyncGit) probeAndReconcile(ctx context.Context, orgId uuid.UU
 	now := time.Now().UTC()
 
 	if existing == nil {
-		if err := d.syncStore.Set(ctx, orgId, &model.SyncState{
+		if st := d.serviceHandler.SetSyncState(ctx, orgId, &model.SyncState{
 			OrgID: orgId, ResourceKey: resourceKey,
 			Fingerprint: newSHA, LastCheckedAt: now, LastChangeAt: &now,
-		}); err != nil {
-			d.log.WithError(err).Errorf("failed creating sync state for %s", resourceKey)
+		}); st.Code != http.StatusOK {
+			d.log.Errorf("failed creating sync state for %s: %s", resourceKey, st.Message)
 		}
 		return
 	}
 
 	if newSHA == existing.Fingerprint {
-		if err := d.syncStore.SetLastCheckedAt(ctx, orgId, resourceKey, now); err != nil {
-			d.log.WithError(err).Errorf("failed updating last_checked_at for %s", resourceKey)
+		if st := d.serviceHandler.SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, now); st.Code != http.StatusOK {
+			d.log.Errorf("failed updating last_checked_at for %s: %s", resourceKey, st.Message)
 		}
 		return
 	}
 
-	if err := d.syncStore.Set(ctx, orgId, &model.SyncState{
+	if st := d.serviceHandler.SetSyncState(ctx, orgId, &model.SyncState{
 		OrgID: orgId, ResourceKey: resourceKey,
 		Fingerprint: newSHA, LastCheckedAt: now, LastChangeAt: &now,
-	}); err != nil {
-		d.log.WithError(err).Errorf("failed updating sync state for %s", resourceKey)
+	}); st.Code != http.StatusOK {
+		d.log.Errorf("failed updating sync state for %s: %s", resourceKey, st.Message)
 		return
 	}
 
@@ -214,4 +208,3 @@ func (d *DependencySyncGit) probeAndReconcile(ctx context.Context, orgId uuid.UU
 func containsTemplateParam(s string) bool {
 	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
 }
-

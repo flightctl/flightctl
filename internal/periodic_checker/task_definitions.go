@@ -256,18 +256,16 @@ func statusToError(st domain.Status) error {
 type DependencySyncGitExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
-	syncStore      store.SyncState
-	depRefStore    store.DependencyRef
 	cfg            *config.Config
 }
 
 func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncGit)
-	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.syncStore, e.depRefStore, e.cfg)
+	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.cfg)
 	depSync.Poll(taskCtx, orgId)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, syncStore store.SyncState, depRefStore store.DependencyRef) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -313,14 +311,10 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		}
 	}
 
-	if syncStore != nil && depRefStore != nil {
-		executors[PeriodicTaskTypeDependencySyncGit] = &DependencySyncGitExecutor{
-			log:            log.WithField("pkg", "dependency-sync-git"),
-			serviceHandler: serviceHandler,
-			syncStore:      syncStore,
-			depRefStore:    depRefStore,
-			cfg:            cfg,
-		}
+	executors[PeriodicTaskTypeDependencySyncGit] = &DependencySyncGitExecutor{
+		log:            log.WithField("pkg", "dependency-sync-git"),
+		serviceHandler: serviceHandler,
+		cfg:            cfg,
 	}
 
 	return executors
