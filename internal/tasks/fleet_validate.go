@@ -9,6 +9,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -31,8 +33,8 @@ import (
 // This design avoids unnecessary object creation, ensures consistency, and allows
 // safe reprocessing of the task without side effects.
 
-func fleetValidate(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(log, serviceHandler, k8sClient, orgId, event)
+func fleetValidate(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, depRefStore store.DependencyRef, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(log, serviceHandler, k8sClient, depRefStore, orgId, event)
 	switch {
 	case event.InvolvedObject.Kind == domain.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -49,13 +51,14 @@ type FleetValidateLogic struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	k8sClient      k8sclient.K8SClient
+	depRefStore    store.DependencyRef
 	orgId          uuid.UUID
 	event          domain.Event
 	templateConfig *[]domain.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
-	return FleetValidateLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, orgId: orgId, event: event}
+func NewFleetValidateLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, depRefStore store.DependencyRef, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
+	return FleetValidateLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, depRefStore: depRefStore, orgId: orgId, event: event}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
@@ -74,6 +77,12 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	status = t.serviceHandler.OverwriteFleetRepositoryRefs(ctx, t.orgId, *fleet.Metadata.Name, referencedRepos...)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting repository references: %s", status.Message)
+	}
+
+	// Populate dependency_refs for the sync controller's polling work list.
+	// Done even if validation failed — same rationale as OverwriteFleetRepositoryRefs.
+	if err := t.populateDependencyRefs(ctx, *fleet.Metadata.Name); err != nil {
+		return fmt.Errorf("failed populating dependency refs for fleet %s: %w", *fleet.Metadata.Name, err)
 	}
 
 	if validationErr != nil {
@@ -283,4 +292,83 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 		shortHash = shortHash[:8]
 	}
 	return base + "-" + shortHash
+}
+
+// populateDependencyRefs replaces all dependency_refs rows for the fleet
+// with the current set extracted from the template config. This gives the
+// sync controller an up-to-date polling work list.
+func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetName string) error {
+	if t.depRefStore == nil {
+		return nil
+	}
+
+	refs := t.collectDependencyRefs(fleetName)
+
+	if err := t.depRefStore.DeleteByFleet(ctx, t.orgId, fleetName); err != nil {
+		return fmt.Errorf("deleting stale dependency refs: %w", err)
+	}
+	for i := range refs {
+		if err := t.depRefStore.Upsert(ctx, t.orgId, &refs[i]); err != nil {
+			return fmt.Errorf("upserting dependency ref: %w", err)
+		}
+	}
+	return nil
+}
+
+// collectDependencyRefs iterates the template config and builds a
+// DependencyRef for each external dependency (git, HTTP, K8s secret).
+// Inline config items produce no refs.
+func (t *FleetValidateLogic) collectDependencyRefs(fleetName string) []model.DependencyRef {
+	if t.templateConfig == nil {
+		return nil
+	}
+
+	var refs []model.DependencyRef
+	for i := range *t.templateConfig {
+		configItem := (*t.templateConfig)[i]
+		configType, err := configItem.Type()
+		if err != nil {
+			t.log.WithError(err).Warn("skipping config item with unknown type during dependency ref collection")
+			continue
+		}
+		switch configType {
+		case domain.GitConfigProviderType:
+			gitSpec, err := configItem.AsGitConfigProviderSpec()
+			if err != nil {
+				t.log.WithError(err).Warn("skipping git config item that failed to decode")
+				continue
+			}
+			refs = append(refs, model.DependencyRef{
+				FleetName:      &fleetName,
+				RefType:        "git",
+				RepositoryName: &gitSpec.GitRef.Repository,
+				Revision:       &gitSpec.GitRef.TargetRevision,
+			})
+		case domain.HttpConfigProviderType:
+			httpSpec, err := configItem.AsHttpConfigProviderSpec()
+			if err != nil {
+				t.log.WithError(err).Warn("skipping HTTP config item that failed to decode")
+				continue
+			}
+			refs = append(refs, model.DependencyRef{
+				FleetName:      &fleetName,
+				RefType:        "http",
+				RepositoryName: &httpSpec.HttpRef.Repository,
+				HTTPSuffix:     httpSpec.HttpRef.Suffix,
+			})
+		case domain.KubernetesSecretProviderType:
+			k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
+			if err != nil {
+				t.log.WithError(err).Warn("skipping K8s secret config item that failed to decode")
+				continue
+			}
+			refs = append(refs, model.DependencyRef{
+				FleetName:       &fleetName,
+				RefType:         "secret",
+				SecretName:      &k8sSpec.SecretRef.Name,
+				SecretNamespace: &k8sSpec.SecretRef.Namespace,
+			})
+		}
+	}
+	return refs
 }

@@ -1,10 +1,9 @@
-// Copyright (c) Flight Control Authors. Licensed under Apache-2.0.
-
 package store
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -52,6 +51,9 @@ func (s *SyncStateStore) Get(ctx context.Context, orgID uuid.UUID, resourceKey s
 }
 
 func (s *SyncStateStore) Set(ctx context.Context, orgID uuid.UUID, state *model.SyncState) error {
+	if state == nil {
+		return fmt.Errorf("cannot set nil SyncState")
+	}
 	state.OrgID = orgID
 	result := s.getDB(ctx).Save(state)
 	if result.Error != nil {

@@ -8,8 +8,10 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,7 +92,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create FleetValidateLogic instance
-			logic := NewFleetValidateLogic(log, mockService, mockK8SClient, orgId, event)
+			logic := NewFleetValidateLogic(log, mockService, mockK8SClient, nil, orgId, event)
 
 			// Execute
 			err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
@@ -221,4 +223,262 @@ func TestFleetValidateLogic_GetFingerprint(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// mockDepRefStoreForValidate is a hand-written mock that records DeleteByFleet
+// and Upsert calls for verification.
+type mockDepRefStoreForValidate struct {
+	deletedFleets []string
+	upsertedRefs  []model.DependencyRef
+	deleteErr     error
+	upsertErr     error
+}
+
+func (m *mockDepRefStoreForValidate) InitialMigration(_ context.Context) error { return nil }
+func (m *mockDepRefStoreForValidate) ListByRefType(_ context.Context, _ uuid.UUID, _ string) ([]model.DependencyRef, error) {
+	return nil, nil
+}
+func (m *mockDepRefStoreForValidate) DeleteByFleet(_ context.Context, _ uuid.UUID, fleetName string) error {
+	m.deletedFleets = append(m.deletedFleets, fleetName)
+	return m.deleteErr
+}
+func (m *mockDepRefStoreForValidate) Upsert(_ context.Context, _ uuid.UUID, ref *model.DependencyRef) error {
+	m.upsertedRefs = append(m.upsertedRefs, *ref)
+	return m.upsertErr
+}
+
+func makeGitConfigItem(t *testing.T, name, repo, revision string) domain.ConfigProviderSpec {
+	t.Helper()
+	gitSpec := &domain.GitConfigProviderSpec{Name: name}
+	gitSpec.GitRef.Repository = repo
+	gitSpec.GitRef.TargetRevision = revision
+	gitSpec.GitRef.Path = "/etc/config"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromGitConfigProviderSpec(*gitSpec))
+	return item
+}
+
+func makeHttpConfigItem(t *testing.T, name, repo string, suffix *string) domain.ConfigProviderSpec {
+	t.Helper()
+	httpSpec := &domain.HttpConfigProviderSpec{Name: name}
+	httpSpec.HttpRef.Repository = repo
+	httpSpec.HttpRef.FilePath = "/etc/http-config"
+	httpSpec.HttpRef.Suffix = suffix
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromHttpConfigProviderSpec(*httpSpec))
+	return item
+}
+
+func makeK8sSecretConfigItem(t *testing.T, name, secretName, secretNamespace string) domain.ConfigProviderSpec {
+	t.Helper()
+	k8sSpec := &domain.KubernetesSecretProviderSpec{Name: name}
+	k8sSpec.SecretRef.Name = secretName
+	k8sSpec.SecretRef.Namespace = secretNamespace
+	k8sSpec.SecretRef.MountPath = "/etc/secret"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromKubernetesSecretProviderSpec(*k8sSpec))
+	return item
+}
+
+func makeInlineConfigItem(t *testing.T, name string) domain.ConfigProviderSpec {
+	t.Helper()
+	inlineSpec := &domain.InlineConfigProviderSpec{Name: name}
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromInlineConfigProviderSpec(*inlineSpec))
+	return item
+}
+
+func TestCollectDependencyRefs(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    *[]domain.ConfigProviderSpec
+		fleetName string
+		expected  []model.DependencyRef
+	}{
+		{
+			name:      "When config is nil it should return nil",
+			config:    nil,
+			fleetName: "my-fleet",
+			expected:  nil,
+		},
+		{
+			name:      "When config is empty it should return no refs",
+			config:    &[]domain.ConfigProviderSpec{},
+			fleetName: "my-fleet",
+			expected:  nil,
+		},
+		{
+			name:      "When config has only inline items it should return no refs",
+			fleetName: "my-fleet",
+		},
+		{
+			name:      "When config has a git item it should return a git ref",
+			fleetName: "my-fleet",
+		},
+		{
+			name:      "When config has an HTTP item it should return an HTTP ref",
+			fleetName: "my-fleet",
+		},
+		{
+			name:      "When config has a K8s secret item it should return a secret ref",
+			fleetName: "my-fleet",
+		},
+		{
+			name:      "When config has mixed items it should return refs for all external types",
+			fleetName: "my-fleet",
+		},
+	}
+
+	// Build configs dynamically inside each test case
+	tests[2].config = &[]domain.ConfigProviderSpec{}
+	tests[3].config = &[]domain.ConfigProviderSpec{}
+	tests[4].config = &[]domain.ConfigProviderSpec{}
+	tests[5].config = &[]domain.ConfigProviderSpec{}
+	tests[6].config = &[]domain.ConfigProviderSpec{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.name {
+			case "When config has only inline items it should return no refs":
+				*tt.config = []domain.ConfigProviderSpec{makeInlineConfigItem(t, "my-inline")}
+				tt.expected = nil
+
+			case "When config has a git item it should return a git ref":
+				*tt.config = []domain.ConfigProviderSpec{makeGitConfigItem(t, "my-git", "my-repo", "main")}
+				tt.expected = []model.DependencyRef{{
+					FleetName:      lo.ToPtr("my-fleet"),
+					RefType:        "git",
+					RepositoryName: lo.ToPtr("my-repo"),
+					Revision:       lo.ToPtr("main"),
+				}}
+
+			case "When config has an HTTP item it should return an HTTP ref":
+				suffix := "/api/config"
+				*tt.config = []domain.ConfigProviderSpec{makeHttpConfigItem(t, "my-http", "http-repo", &suffix)}
+				tt.expected = []model.DependencyRef{{
+					FleetName:      lo.ToPtr("my-fleet"),
+					RefType:        "http",
+					RepositoryName: lo.ToPtr("http-repo"),
+					HTTPSuffix:     lo.ToPtr("/api/config"),
+				}}
+
+			case "When config has a K8s secret item it should return a secret ref":
+				*tt.config = []domain.ConfigProviderSpec{makeK8sSecretConfigItem(t, "my-secret", "db-creds", "prod")}
+				tt.expected = []model.DependencyRef{{
+					FleetName:       lo.ToPtr("my-fleet"),
+					RefType:         "secret",
+					SecretName:      lo.ToPtr("db-creds"),
+					SecretNamespace: lo.ToPtr("prod"),
+				}}
+
+			case "When config has mixed items it should return refs for all external types":
+				*tt.config = []domain.ConfigProviderSpec{
+					makeGitConfigItem(t, "git-cfg", "repo-a", "v1.0"),
+					makeInlineConfigItem(t, "inline-cfg"),
+					makeHttpConfigItem(t, "http-cfg", "repo-b", nil),
+					makeK8sSecretConfigItem(t, "secret-cfg", "api-key", "default"),
+				}
+				tt.expected = []model.DependencyRef{
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "git", RepositoryName: lo.ToPtr("repo-a"), Revision: lo.ToPtr("v1.0")},
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "http", RepositoryName: lo.ToPtr("repo-b"), HTTPSuffix: nil},
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "secret", SecretName: lo.ToPtr("api-key"), SecretNamespace: lo.ToPtr("default")},
+				}
+			}
+
+			logic := FleetValidateLogic{
+				log:            logrus.New(),
+				templateConfig: tt.config,
+			}
+			refs := logic.collectDependencyRefs(tt.fleetName)
+			assert.Equal(t, tt.expected, refs)
+		})
+	}
+}
+
+func TestPopulateDependencyRefs(t *testing.T) {
+	orgId := uuid.New()
+
+	t.Run("When depRefStore is nil it should be a no-op", func(t *testing.T) {
+		logic := FleetValidateLogic{
+			log:         logrus.New(),
+			orgId:       orgId,
+			depRefStore: nil,
+			templateConfig: &[]domain.ConfigProviderSpec{
+				makeGitConfigItem(t, "cfg", "repo", "main"),
+			},
+		}
+		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
+		assert.NoError(t, err)
+	})
+
+	t.Run("When config has refs it should delete then upsert each", func(t *testing.T) {
+		mockStore := &mockDepRefStoreForValidate{}
+		logic := FleetValidateLogic{
+			log:         logrus.New(),
+			orgId:       orgId,
+			depRefStore: mockStore,
+			templateConfig: &[]domain.ConfigProviderSpec{
+				makeGitConfigItem(t, "git-cfg", "my-repo", "main"),
+				makeK8sSecretConfigItem(t, "secret-cfg", "my-secret", "ns"),
+			},
+		}
+		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"my-fleet"}, mockStore.deletedFleets)
+		require.Len(t, mockStore.upsertedRefs, 2)
+		assert.Equal(t, "git", mockStore.upsertedRefs[0].RefType)
+		assert.Equal(t, "my-repo", *mockStore.upsertedRefs[0].RepositoryName)
+		assert.Equal(t, "secret", mockStore.upsertedRefs[1].RefType)
+		assert.Equal(t, "my-secret", *mockStore.upsertedRefs[1].SecretName)
+	})
+
+	t.Run("When config is empty it should delete then upsert nothing", func(t *testing.T) {
+		mockStore := &mockDepRefStoreForValidate{}
+		logic := FleetValidateLogic{
+			log:            logrus.New(),
+			orgId:          orgId,
+			depRefStore:    mockStore,
+			templateConfig: &[]domain.ConfigProviderSpec{},
+		}
+		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"my-fleet"}, mockStore.deletedFleets)
+		assert.Empty(t, mockStore.upsertedRefs)
+	})
+
+	t.Run("When DeleteByFleet fails it should return error", func(t *testing.T) {
+		mockStore := &mockDepRefStoreForValidate{
+			deleteErr: assert.AnError,
+		}
+		logic := FleetValidateLogic{
+			log:         logrus.New(),
+			orgId:       orgId,
+			depRefStore: mockStore,
+			templateConfig: &[]domain.ConfigProviderSpec{
+				makeGitConfigItem(t, "cfg", "repo", "main"),
+			},
+		}
+		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "deleting stale dependency refs")
+	})
+
+	t.Run("When Upsert fails it should return error", func(t *testing.T) {
+		mockStore := &mockDepRefStoreForValidate{
+			upsertErr: assert.AnError,
+		}
+		logic := FleetValidateLogic{
+			log:         logrus.New(),
+			orgId:       orgId,
+			depRefStore: mockStore,
+			templateConfig: &[]domain.ConfigProviderSpec{
+				makeGitConfigItem(t, "cfg", "repo", "main"),
+			},
+		}
+		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "upserting dependency ref")
+	})
 }
