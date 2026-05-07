@@ -78,6 +78,7 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonResourceDeleted:             {},
 	domain.EventReasonFleetRolloutStarted:         {},
 	domain.EventReasonReferencedRepositoryUpdated: {},
+	domain.EventReasonDependencyChangeDetected:    {},
 	domain.EventReasonFleetRolloutDeviceSelected:  {},
 	domain.EventReasonFleetRolloutBatchDispatched: {},
 	domain.EventReasonDeviceConflictResolved:      {},

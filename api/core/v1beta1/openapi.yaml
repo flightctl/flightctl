@@ -7192,6 +7192,7 @@ components:
             - ResourceSyncParsingFailed
             - ResourceSyncSynced
             - ResourceSyncSyncFailed
+            - DependencyChangeDetected
             - SystemRestored
         message:
           type: string
@@ -7275,6 +7276,7 @@ components:
           FleetRolloutBatchCompleted: "#/components/schemas/FleetRolloutBatchCompletedDetails"
           FleetRolloutDeviceSelected: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
           DeviceVulnerabilityCVE: "#/components/schemas/DeviceVulnerabilityCveDetails"
+          DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -7291,6 +7293,7 @@ components:
         - $ref: "#/components/schemas/FleetRolloutBatchCompletedDetails"
         - $ref: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
         - $ref: "#/components/schemas/DeviceVulnerabilityCveDetails"
+        - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -7313,6 +7316,7 @@ components:
         firstImageDigest:
           type: string
           description: Image digest when the CVE was first detected on this device (historical/audit field, e.g. sha256:...).
+
     ResourceUpdatedDetails:
       type: object
       required:
@@ -7585,6 +7589,23 @@ components:
         repository:
           type: string
           description: The name of the repository that was updated.
+    DependencyChangeDetectedDetails:
+      type: object
+      required:
+        - detailType
+        - resourceKey
+        - fingerprint
+      properties:
+        detailType:
+          type: string
+          enum: [DependencyChangeDetected]
+          description: The type of detail for discriminator purposes.
+        resourceKey:
+          type: string
+          description: The resource key identifying the dependency that changed (e.g. "git:my-repo/main").
+        fingerprint:
+          type: string
+          description: The new fingerprint (e.g. commit SHA) of the changed dependency.
     Organization:
       type: object
       required:

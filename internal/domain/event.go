@@ -78,6 +78,7 @@ const (
 	EventReasonFleetValid                      = v1beta1.EventReasonFleetValid
 	EventReasonInternalTaskFailed              = v1beta1.EventReasonInternalTaskFailed
 	EventReasonInternalTaskPermanentlyFailed   = v1beta1.EventReasonInternalTaskPermanentlyFailed
+	EventReasonDependencyChangeDetected        = v1beta1.EventReasonDependencyChangeDetected
 	EventReasonReferencedRepositoryUpdated     = v1beta1.EventReasonReferencedRepositoryUpdated
 	EventReasonRepositoryAccessible            = v1beta1.EventReasonRepositoryAccessible
 	EventReasonRepositoryInaccessible          = v1beta1.EventReasonRepositoryInaccessible
@@ -103,6 +104,8 @@ type InternalTaskFailedDetails = v1beta1.InternalTaskFailedDetails
 type InternalTaskFailedDetailsDetailType = v1beta1.InternalTaskFailedDetailsDetailType
 type InternalTaskPermanentlyFailedDetails = v1beta1.InternalTaskPermanentlyFailedDetails
 type InternalTaskPermanentlyFailedDetailsDetailType = v1beta1.InternalTaskPermanentlyFailedDetailsDetailType
+type DependencyChangeDetectedDetails = v1beta1.DependencyChangeDetectedDetails
+type DependencyChangeDetectedDetailsDetailType = v1beta1.DependencyChangeDetectedDetailsDetailType
 type ReferencedRepositoryUpdatedDetails = v1beta1.ReferencedRepositoryUpdatedDetails
 type ReferencedRepositoryUpdatedDetailsDetailType = v1beta1.ReferencedRepositoryUpdatedDetailsDetailType
 type ResourceUpdatedDetails = v1beta1.ResourceUpdatedDetails
@@ -114,6 +117,7 @@ type DeviceVulnerabilityCveDetailsDetailType = v1beta1.DeviceVulnerabilityCveDet
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed
 	InternalTaskPermanentlyFailed = v1beta1.InternalTaskPermanentlyFailed
+	DependencyChangeDetected      = v1beta1.DependencyChangeDetected
 	ReferencedRepositoryUpdated   = v1beta1.ReferencedRepositoryUpdated
 	ResourceUpdated               = v1beta1.ResourceUpdated
 
