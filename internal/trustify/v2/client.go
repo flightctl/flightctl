@@ -275,6 +275,10 @@ func parseAdvisoriesToFindings(imageDigest string, advisories []SbomAdvisory) []
 				PublishedAt: adv.Published,
 			}
 
+			if adv.Issuer != nil {
+				finding.Issuer = adv.Issuer
+			}
+
 			score := st.AverageScore
 			finding.CVSSScore = &score
 

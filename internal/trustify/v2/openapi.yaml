@@ -147,6 +147,10 @@ components:
         document_id:
           type: string
           description: CVE ID (e.g., CVE-2023-44487)
+        issuer:
+          nullable: true
+          description: The issuer of the advisory, if known.
+          $ref: '#/components/schemas/Issuer'
         title:
           type: string
           nullable: true
@@ -211,3 +215,25 @@ components:
         document_id:
           type: string
           description: Document ID (URN format)
+    Issuer:
+      type: object
+      description: The issuer of an advisory (e.g., Red Hat, NVD).
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The opaque UUID of the organization.
+        name:
+          type: string
+          description: The name of the organization.
+        cpe_key:
+          type: string
+          nullable: true
+          description: The CPE key of the organization, if known.
+        website:
+          type: string
+          nullable: true
+          description: The website of the organization, if known.

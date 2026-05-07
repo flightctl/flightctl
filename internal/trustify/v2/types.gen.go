@@ -5,6 +5,8 @@ package trustifyv2
 
 import (
 	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for Severity.
@@ -16,18 +18,36 @@ const (
 	None     Severity = "none"
 )
 
+// Issuer The issuer of an advisory (e.g., Red Hat, NVD).
+type Issuer struct {
+	// CpeKey The CPE key of the organization, if known.
+	CpeKey *string `json:"cpe_key"`
+
+	// Id The opaque UUID of the organization.
+	Id openapi_types.UUID `json:"id"`
+
+	// Name The name of the organization.
+	Name string `json:"name"`
+
+	// Website The website of the organization, if known.
+	Website *string `json:"website"`
+}
+
 // SbomAdvisory defines model for SbomAdvisory.
 type SbomAdvisory struct {
 	// DocumentId CVE ID (e.g., CVE-2023-44487)
 	DocumentId string `json:"document_id"`
 
 	// Identifier Advisory identifier (e.g., URL or reference)
-	Identifier string       `json:"identifier"`
-	Modified   *time.Time   `json:"modified"`
-	Published  *time.Time   `json:"published"`
-	Status     []SbomStatus `json:"status"`
-	Title      *string      `json:"title"`
-	Uuid       string       `json:"uuid"`
+	Identifier string `json:"identifier"`
+
+	// Issuer The issuer of an advisory (e.g., Red Hat, NVD).
+	Issuer    *Issuer      `json:"issuer,omitempty"`
+	Modified  *time.Time   `json:"modified"`
+	Published *time.Time   `json:"published"`
+	Status    []SbomStatus `json:"status"`
+	Title     *string      `json:"title"`
+	Uuid      string       `json:"uuid"`
 }
 
 // SbomListResponse defines model for SbomListResponse.
