@@ -4,18 +4,14 @@ package store
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type DependencyRef interface {
 	InitialMigration(ctx context.Context) error
-	Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
-	Delete(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
 }
 
 type DependencyRefStore struct {
@@ -35,21 +31,4 @@ func (s *DependencyRefStore) getDB(ctx context.Context) *gorm.DB {
 
 func (s *DependencyRefStore) InitialMigration(ctx context.Context) error {
 	return s.getDB(ctx).AutoMigrate(&model.DependencyRef{})
-}
-
-func (s *DependencyRefStore) Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error {
-	if ref == nil {
-		return fmt.Errorf("dependencyref: Upsert called with nil ref")
-	}
-	ref.OrgID = orgID
-	return s.getDB(ctx).Save(ref).Error
-}
-
-// Delete removes a single dependency_ref row identified by its composite primary key.
-func (s *DependencyRefStore) Delete(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error {
-	if ref == nil {
-		return fmt.Errorf("dependencyref: Delete called with nil ref")
-	}
-	ref.OrgID = orgID
-	return s.getDB(ctx).Delete(ref).Error
 }

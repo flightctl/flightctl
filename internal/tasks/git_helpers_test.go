@@ -141,6 +141,28 @@ func TestGitLsRemote_EmptyRefs(t *testing.T) {
 	require.Empty(resolved)
 }
 
+func TestGitLsRemote_HappyPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+	require := require.New(t)
+	resolved, err := GitLsRemote(context.Background(), "https://github.com/flightctl/flightctl.git", []string{"main"}, nil)
+	require.NoError(err)
+	require.Contains(resolved, "main")
+	require.Len(resolved["main"], 40, "commit SHA should be 40 hex chars")
+}
+
+func TestGitLsRemote_MultipleRefs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+	require := require.New(t)
+	resolved, err := GitLsRemote(context.Background(), "https://github.com/flightctl/flightctl.git", []string{"main", "nonexistent-branch-xyz"}, nil)
+	require.NoError(err)
+	require.Contains(resolved, "main")
+	require.NotContains(resolved, "nonexistent-branch-xyz")
+}
+
 func TestGitLsRemote_InvalidURL(t *testing.T) {
 	require := require.New(t)
 	_, err := GitLsRemote(context.Background(), "not-a-real-url://invalid", []string{"main"}, nil)
