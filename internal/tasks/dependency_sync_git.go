@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -95,10 +96,10 @@ func (d *DependencySyncGit) buildProbeTargets(refs []model.DependencyRef) []prob
 	targetMap := make(map[targetKey]*probeTarget)
 
 	for _, ref := range refs {
-		fleetName := deref(ref.FleetName)
-		deviceName := deref(ref.DeviceName)
-		repoName := deref(ref.RepositoryName)
-		revision := deref(ref.Revision)
+		fleetName := lo.FromPtr(ref.FleetName)
+		deviceName := lo.FromPtr(ref.DeviceName)
+		repoName := lo.FromPtr(ref.RepositoryName)
+		revision := lo.FromPtr(ref.Revision)
 
 		if containsTemplateParam(revision) {
 			continue
@@ -214,9 +215,3 @@ func containsTemplateParam(s string) bool {
 	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
 }
 
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}

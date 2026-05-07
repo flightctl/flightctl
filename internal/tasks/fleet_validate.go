@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -33,8 +32,8 @@ import (
 // This design avoids unnecessary object creation, ensures consistency, and allows
 // safe reprocessing of the task without side effects.
 
-func fleetValidate(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, depRefStore store.DependencyRef, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(log, serviceHandler, k8sClient, depRefStore, orgId, event)
+func fleetValidate(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(log, serviceHandler, k8sClient, orgId, event)
 	switch {
 	case event.InvolvedObject.Kind == domain.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -51,14 +50,13 @@ type FleetValidateLogic struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	k8sClient      k8sclient.K8SClient
-	depRefStore    store.DependencyRef
 	orgId          uuid.UUID
 	event          domain.Event
 	templateConfig *[]domain.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, depRefStore store.DependencyRef, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
-	return FleetValidateLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, depRefStore: depRefStore, orgId: orgId, event: event}
+func NewFleetValidateLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
+	return FleetValidateLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, orgId: orgId, event: event}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
@@ -298,18 +296,14 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 // with the current set extracted from the template config. This gives the
 // sync controller an up-to-date polling work list.
 func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetName string) error {
-	if t.depRefStore == nil {
-		return nil
-	}
-
 	refs := t.collectDependencyRefs(fleetName)
 
-	if err := t.depRefStore.DeleteByFleet(ctx, t.orgId, fleetName); err != nil {
-		return fmt.Errorf("deleting stale dependency refs: %w", err)
+	if status := t.serviceHandler.DeleteDependencyRefsByFleet(ctx, t.orgId, fleetName); status.Code != http.StatusOK {
+		return fmt.Errorf("deleting stale dependency refs: %s", status.Message)
 	}
 	for i := range refs {
-		if err := t.depRefStore.Upsert(ctx, t.orgId, &refs[i]); err != nil {
-			return fmt.Errorf("upserting dependency ref: %w", err)
+		if status := t.serviceHandler.UpsertDependencyRef(ctx, t.orgId, &refs[i]); status.Code != http.StatusOK {
+			return fmt.Errorf("upserting dependency ref: %s", status.Message)
 		}
 	}
 	return nil
