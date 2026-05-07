@@ -38,6 +38,7 @@ type Config struct {
 	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
 	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -572,6 +573,24 @@ type periodicConfig struct {
 
 type organizationsConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
+}
+
+// DependenciesSyncConfig holds global settings for automated dependency synchronization.
+type DependenciesSyncConfig struct {
+	// PollInterval is the polling interval for git/HTTP dependency probes (e.g. "15m", "1h").
+	// Default: 15m.
+	PollInterval util.Duration `json:"pollInterval,omitempty"`
+}
+
+// DefaultDependenciesSyncPollInterval is the default polling interval for dependency probes.
+const DefaultDependenciesSyncPollInterval = 15 * time.Minute
+
+// GetDependenciesSyncPollInterval returns the configured poll interval, or the default if unset.
+func (c *Config) GetDependenciesSyncPollInterval() time.Duration {
+	if c.DependenciesSync != nil && c.DependenciesSync.PollInterval > 0 {
+		return time.Duration(c.DependenciesSync.PollInterval)
+	}
+	return DefaultDependenciesSyncPollInterval
 }
 
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.

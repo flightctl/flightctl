@@ -1022,15 +1022,6 @@ type CronExpression = string
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
 
-// DependenciesSync Configuration for automated dependency synchronization.
-type DependenciesSync struct {
-	// Enabled Whether automated dependency synchronization is enabled.
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// PollInterval The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	PollInterval *Duration `json:"pollInterval,omitempty"`
-}
-
 // DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
 type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -1309,9 +1300,6 @@ type DeviceSpec struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
-
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
 
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`
@@ -1856,9 +1844,6 @@ type FleetRolloutStatus struct {
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
-
 	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
 	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
 
@@ -2922,9 +2907,6 @@ type TemplateVersionStatus struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
-
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
 
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`

@@ -151,6 +151,11 @@ prometheus:
 #       # client_id and client_secret are supplied via FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
 #       # and FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET environment variables.
 
+# Automated dependency synchronization (optional).
+# Controls the global polling interval for git/HTTP dependency probes.
+# dependenciesSync:
+#   pollInterval: 15m
+
 telemetryGateway:
   forward:
     endpoint:

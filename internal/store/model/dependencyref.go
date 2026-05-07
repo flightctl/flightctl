@@ -17,7 +17,6 @@ type DependencyRef struct {
 	HTTPSuffix      *string
 	SecretName      *string `gorm:"primaryKey;default:''"`
 	SecretNamespace *string `gorm:"primaryKey;default:''"`
-	SyncInterval    *string // Go duration string, e.g. "5m"
 }
 
 func (DependencyRef) TableName() string {
