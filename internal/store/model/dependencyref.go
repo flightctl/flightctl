@@ -2,6 +2,7 @@ package model
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -50,6 +51,7 @@ type DependencyRef struct {
 	FleetName       *string   `gorm:"primaryKey;default:''"`
 	DeviceName      *string   `gorm:"primaryKey;default:''"`
 	RefType         string    `gorm:"primaryKey"` // "git", "http", "secret"
+	ResourceKey     string    // Stable key matching sync_state, e.g. "git:repo/ref"
 	RepositoryName  *string   `gorm:"primaryKey;default:''"`
 	Revision        *string
 	HTTPSuffix      *string
@@ -64,10 +66,13 @@ func (DependencyRef) TableName() string {
 // GitDependencyProbe is the result of ListDueGitDependencies — one row per
 // unique (repository_name, revision) pair that is due for polling. FleetNames
 // and DeviceNames carry the fan-out targets collected via array_agg.
+// RepoSpec carries the repository's JSONB spec so callers can extract the
+// URL and auth without a separate GetRepository round-trip.
 type GitDependencyProbe struct {
 	RepositoryName string
 	Revision       string
 	Fingerprint    *string
 	FleetNames     StringArray
 	DeviceNames    StringArray
+	RepoSpec       json.RawMessage
 }

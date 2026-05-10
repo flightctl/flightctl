@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -81,7 +82,7 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			res := d.probeRepo(ctx, orgId, repoName, group)
+			res := d.probeRepo(ctx, repoName, group)
 			mu.Lock()
 			results = append(results, res...)
 			mu.Unlock()
@@ -93,23 +94,30 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	d.reconcile(ctx, orgId, results)
 }
 
-// probeRepo fetches the repository once, calls ls-remote for all revisions
-// in the group, and returns a probeResult per revision.
-func (d *DependencySyncGit) probeRepo(ctx context.Context, orgId uuid.UUID,
+// probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
+// to extract the URL and auth, calls ls-remote for all revisions in the group,
+// and returns a probeResult per revision.
+func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	repoName string, group []*model.GitDependencyProbe) []probeResult {
 
-	repo, status := d.serviceHandler.GetRepository(ctx, orgId, repoName)
-	if status.Code != http.StatusOK {
-		d.log.Warnf("failed fetching repository %s: %s", repoName, status.Message)
+	if len(group[0].RepoSpec) == 0 {
+		d.log.Warnf("repository %s not found (no spec in JOIN result)", repoName)
 		return nil
 	}
 
-	repoURL, err := repo.Spec.GetRepoURL()
+	var spec domain.RepositorySpec
+	if err := json.Unmarshal(group[0].RepoSpec, &spec); err != nil {
+		d.log.WithError(err).Warnf("failed decoding spec for repository %s", repoName)
+		return nil
+	}
+
+	repoURL, err := spec.GetRepoURL()
 	if err != nil {
 		d.log.WithError(err).Warnf("failed getting URL for repository %s", repoName)
 		return nil
 	}
 
+	repo := &domain.Repository{Spec: spec}
 	auth, err := GetAuth(repo, d.cfg)
 	if err != nil {
 		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)

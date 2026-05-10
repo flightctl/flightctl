@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -297,7 +296,7 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 // with the current set extracted from the template config. This gives the
 // sync controller an up-to-date polling work list.
 func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetName string) error {
-	refs := t.collectDependencyRefs(ctx, fleetName)
+	refs := t.collectDependencyRefs(fleetName)
 
 	if status := t.serviceHandler.ReplaceDependencyRefsByFleet(ctx, t.orgId, fleetName, refs); status.Code != http.StatusOK {
 		return fmt.Errorf("replacing dependency refs: %s", status.Message)
@@ -306,11 +305,11 @@ func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetNa
 }
 
 // collectDependencyRefs iterates the template config and builds a
-// DependencyRef for each external dependency (git, HTTP, K8s secret).
-// Inline config items produce no refs. When a git targetRevision contains
-// template parameters ({{ }}), the revision is resolved per device owned
-// by the fleet, producing device-level refs instead of a single fleet-level ref.
-func (t *FleetValidateLogic) collectDependencyRefs(ctx context.Context, fleetName string) []model.DependencyRef {
+// DependencyRef for each non-parameterized external dependency (git, HTTP,
+// K8s secret). Parameterized git revisions are skipped here — device-level
+// refs for those are populated during fleet rollout, which already iterates
+// devices and resolves templates.
+func (t *FleetValidateLogic) collectDependencyRefs(fleetName string) []model.DependencyRef {
 	if t.templateConfig == nil {
 		return nil
 	}
@@ -331,24 +330,29 @@ func (t *FleetValidateLogic) collectDependencyRefs(ctx context.Context, fleetNam
 				continue
 			}
 			if isParameterized(gitSpec.GitRef.TargetRevision) {
-				refs = append(refs, t.resolveParameterizedGitRefs(ctx, fleetName, &gitSpec)...)
-			} else {
-				refs = append(refs, model.DependencyRef{
-					FleetName:      &fleetName,
-					RefType:        "git",
-					RepositoryName: &gitSpec.GitRef.Repository,
-					Revision:       &gitSpec.GitRef.TargetRevision,
-				})
+				continue // device-level refs are populated during fleet rollout
 			}
+			refs = append(refs, model.DependencyRef{
+				FleetName:      &fleetName,
+				RefType:        "git",
+				ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+				RepositoryName: &gitSpec.GitRef.Repository,
+				Revision:       &gitSpec.GitRef.TargetRevision,
+			})
 		case domain.HttpConfigProviderType:
 			httpSpec, err := configItem.AsHttpConfigProviderSpec()
 			if err != nil {
 				t.log.WithError(err).Warn("skipping HTTP config item that failed to decode")
 				continue
 			}
+			suffix := ""
+			if httpSpec.HttpRef.Suffix != nil {
+				suffix = *httpSpec.HttpRef.Suffix
+			}
 			refs = append(refs, model.DependencyRef{
 				FleetName:      &fleetName,
 				RefType:        "http",
+				ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, suffix),
 				RepositoryName: &httpSpec.HttpRef.Repository,
 				HTTPSuffix:     httpSpec.HttpRef.Suffix,
 			})
@@ -361,57 +365,12 @@ func (t *FleetValidateLogic) collectDependencyRefs(ctx context.Context, fleetNam
 			refs = append(refs, model.DependencyRef{
 				FleetName:       &fleetName,
 				RefType:         "secret",
+				ResourceKey:     fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name),
 				SecretName:      &k8sSpec.SecretRef.Name,
 				SecretNamespace: &k8sSpec.SecretRef.Namespace,
 			})
 		}
 	}
-	return refs
-}
-
-// resolveParameterizedGitRefs resolves a parameterized targetRevision for
-// each device owned by the fleet, returning one DependencyRef per
-// (device, repo, resolved-revision). FleetName is set for cleanup via
-// ReplaceByFleet; DeviceName carries the event target.
-func (t *FleetValidateLogic) resolveParameterizedGitRefs(ctx context.Context,
-	fleetName string, gitSpec *domain.GitConfigProviderSpec) []model.DependencyRef {
-
-	var refs []model.DependencyRef
-	listParams := domain.ListDevicesParams{
-		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(domain.FleetKind, fleetName))),
-		Limit:         lo.ToPtr(int32(ItemsPerPage)),
-	}
-
-	for {
-		devices, status := t.serviceHandler.ListDevices(ctx, t.orgId, listParams, nil)
-		if status.Code != http.StatusOK {
-			t.log.Errorf("failed listing devices for fleet %s during dependency ref resolution: %s", fleetName, status.Message)
-			break
-		}
-
-		for i := range devices.Items {
-			device := &devices.Items[i]
-			resolved, err := ReplaceParametersInString(gitSpec.GitRef.TargetRevision, device)
-			if err != nil {
-				t.log.WithError(err).Warnf("failed resolving parameterized revision for device %s", lo.FromPtr(device.Metadata.Name))
-				continue
-			}
-			deviceName := lo.FromPtr(device.Metadata.Name)
-			refs = append(refs, model.DependencyRef{
-				FleetName:      &fleetName,
-				DeviceName:     &deviceName,
-				RefType:        "git",
-				RepositoryName: &gitSpec.GitRef.Repository,
-				Revision:       &resolved,
-			})
-		}
-
-		if devices.Metadata.Continue == nil {
-			break
-		}
-		listParams.Continue = devices.Metadata.Continue
-	}
-
 	return refs
 }
 
