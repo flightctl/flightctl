@@ -238,7 +238,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			templateVersion.Status.Config = nil
 			templateVersion.Status.Applications = nil
 			mockService.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), fleetName).Return(templateVersion, domain.Status{Code: http.StatusOK})
-			mockService.EXPECT().DeleteDeviceDependencyRefsByFleet(gomock.Any(), gomock.Any(), fleetName).Return(domain.Status{Code: http.StatusOK})
+			mockService.EXPECT().ReplaceDeviceDependencyRefsByFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create test device with owner that matches what f.owner will be set to
 			// f.owner will be set to "Fleet/test-fleet" from util.SetResourceOwner(domain.FleetKind, "test-fleet")
@@ -1095,14 +1095,6 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 		mockSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, okStatus).AnyTimes()
 		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(okStatus).AnyTimes()
 
-		var upsertedRefs []model.DependencyRef
-		mockSvc.EXPECT().BulkUpsertDeviceDependencyRefs(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
-			func(_ context.Context, _ uuid.UUID, refs []model.DependencyRef) domain.Status {
-				upsertedRefs = refs
-				return okStatus
-			},
-		)
-
 		logic := FleetRolloutsLogic{
 			log:            logrus.New(),
 			serviceHandler: mockSvc,
@@ -1113,7 +1105,7 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 			},
 		}
 
-		pageFailures, nextContinue, err := logic.rolloutFleetPage(
+		pageFailures, pageRefs, nextContinue, err := logic.rolloutFleetPage(
 			context.Background(),
 			tv,
 			domain.ListDevicesParams{},
@@ -1124,10 +1116,10 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, pageFailures)
 		assert.Nil(t, nextContinue)
-		require.Len(t, upsertedRefs, 2)
+		require.Len(t, pageRefs, 2)
 
 		refsByDevice := map[string]model.DependencyRef{}
-		for _, r := range upsertedRefs {
+		for _, r := range pageRefs {
 			refsByDevice[*r.DeviceName] = r
 		}
 		assert.Equal(t, "feature-a", *refsByDevice["device-1"].Revision)

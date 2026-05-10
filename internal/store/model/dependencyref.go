@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	domain "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 )
 
