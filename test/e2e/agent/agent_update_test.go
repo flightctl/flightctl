@@ -195,7 +195,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Or(Equal(v1beta1.ConditionStatusTrue), Equal(v1beta1.ConditionStatusFalse)))
 				repositoryAccessible = cond.Status == v1beta1.ConditionStatusTrue
-			}, "1m", POLLING).Should(Succeed())
+			}, MEDIUMTIMEOUT, TENSECPOLLING).Should(Succeed())
 
 			// Add more factories here if desired. In disconnected environments the public
 			// repository-backed config is not reachable, so use a local inline config instead.
