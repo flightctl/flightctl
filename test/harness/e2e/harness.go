@@ -553,15 +553,23 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 	cmd := exec.Command(flightctlPath()) //nolint:gosec // flightctlPath constructs path from project directory structure for test purposes
 	h.setArgsInCmd(cmd, args...)
 
-	// create a pty/tty pair
-	ptmx, tty, err := pty.Open()
-	if err != nil {
-		return nil, nil, err
-	}
+	// create a pty/tty pair (requires /dev/ptmx + devpts so slaves exist under /dev/pts/)
 
+	var ptmx, tty *os.File
+	var err error
+
+	Eventually(func() error {
+		ptmx, tty, err = pty.Open()
+		if err != nil {
+			return err
+		}
+		return nil
+	}, TIMEOUT, POLLING).Should(Succeed(), "failed to open pty/tty pair")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 
 	if err := cmd.Start(); err != nil {
+		_ = ptmx.Close()
+		_ = tty.Close()
 		return nil, nil, fmt.Errorf("error starting interactive process: %w", err)
 	}
 	go func() {
