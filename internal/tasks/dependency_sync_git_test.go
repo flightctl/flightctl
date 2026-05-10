@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -27,7 +26,7 @@ type emittedEvent struct {
 	name string
 }
 
-func gitRepoSpecJSON(t *testing.T, url string) json.RawMessage {
+func gitRepoSpec(t *testing.T, url string) *model.JSONField[api.RepositorySpec] {
 	t.Helper()
 	spec := api.RepositorySpec{}
 	err := spec.FromGitRepoSpec(api.GitRepoSpec{
@@ -35,12 +34,10 @@ func gitRepoSpecJSON(t *testing.T, url string) json.RawMessage {
 		Url:  url,
 	})
 	require.NoError(t, err)
-	data, err := json.Marshal(spec)
-	require.NoError(t, err)
-	return data
+	return model.MakeJSONField(spec)
 }
 
-func makeProbe(repoName, revision string, fingerprint *string, fleetNames, deviceNames model.StringArray, repoSpec json.RawMessage) model.GitDependencyProbe {
+func makeProbe(repoName, revision string, fingerprint *string, fleetNames, deviceNames model.StringArray, repoSpec *model.JSONField[api.RepositorySpec]) model.GitDependencyProbe {
 	return model.GitDependencyProbe{
 		RepositoryName: repoName,
 		Revision:       revision,
@@ -63,9 +60,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("my-repo", "main", lo.ToPtr("oldsha999"), model.StringArray{"fleet-1"}, nil, specJSON),
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha999"), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -102,9 +99,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("my-repo", "main", lo.ToPtr("samesha123"), model.StringArray{"fleet-1"}, nil, specJSON),
+			makeProbe("my-repo", "main", lo.ToPtr("samesha123"), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -131,9 +128,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("my-repo", "main", nil, model.StringArray{"fleet-1"}, nil, specJSON),
+			makeProbe("my-repo", "main", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -170,9 +167,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("shared-repo", "main", lo.ToPtr("oldsha"), model.StringArray{"fleet-a", "fleet-b"}, nil, specJSON),
+			makeProbe("shared-repo", "main", lo.ToPtr("oldsha"), model.StringArray{"fleet-a", "fleet-b"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -200,9 +197,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("my-repo", "main", lo.ToPtr("oldsha"), nil, model.StringArray{"device-standalone"}, specJSON),
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha"), nil, model.StringArray{"device-standalone"}, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -233,9 +230,9 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("new-repo", "main", nil, model.StringArray{"fleet-1"}, nil, specJSON),
+			makeProbe("new-repo", "main", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
@@ -262,10 +259,10 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		specJSON := gitRepoSpecJSON(t, "https://example.com/repo.git")
+		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
-			makeProbe("my-repo", "main", lo.ToPtr("oldsha1"), model.StringArray{"fleet-1"}, nil, specJSON),
-			makeProbe("my-repo", "v1.0", lo.ToPtr("oldsha2"), model.StringArray{"fleet-2"}, nil, specJSON),
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha1"), model.StringArray{"fleet-1"}, nil, repoSpec),
+			makeProbe("my-repo", "v1.0", lo.ToPtr("oldsha2"), model.StringArray{"fleet-2"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
