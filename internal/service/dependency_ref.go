@@ -19,6 +19,11 @@ func (h *ServiceHandler) ListDependencyRefsByRefType(ctx context.Context, orgId 
 	return refs, StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status) {
+	probes, err := h.store.DependencyRef().ListDueGitDependencies(ctx, orgId, pollInterval)
+	return probes, StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	state, err := h.store.SyncState().Get(ctx, orgId, resourceKey)
 	return state, StoreErrorToApiStatus(err, false, "", nil)
@@ -31,5 +36,15 @@ func (h *ServiceHandler) SetSyncState(ctx context.Context, orgId uuid.UUID, stat
 
 func (h *ServiceHandler) SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, t time.Time) domain.Status {
 	err := h.store.SyncState().SetLastCheckedAt(ctx, orgId, resourceKey, t)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
+func (h *ServiceHandler) BulkUpsertSyncState(ctx context.Context, orgId uuid.UUID, states []model.SyncState) domain.Status {
+	err := h.store.SyncState().BulkUpsert(ctx, orgId, states)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
+func (h *ServiceHandler) BulkUpdateSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKeys []string, t time.Time) domain.Status {
+	err := h.store.SyncState().BulkUpdateLastCheckedAt(ctx, orgId, resourceKeys, t)
 	return StoreErrorToApiStatus(err, false, "", nil)
 }
