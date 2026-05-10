@@ -17,6 +17,7 @@ type DependencyRef interface {
 	Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
 	ListByRefType(ctx context.Context, orgID uuid.UUID, refType string) ([]model.DependencyRef, error)
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
+	DeleteDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
@@ -64,6 +65,17 @@ func (s *DependencyRefStore) ListByRefType(ctx context.Context, orgID uuid.UUID,
 
 func (s *DependencyRefStore) DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error {
 	result := s.getDB(ctx).Where("org_id = ? AND fleet_name = ?", orgID, fleetName).Delete(&model.DependencyRef{})
+	if result.Error != nil {
+		return ErrorFromGormError(result.Error)
+	}
+	return nil
+}
+
+// DeleteDeviceRefsByFleet removes all device-level dependency refs for a fleet.
+// Called at the start of fleet rollout so stale refs (from changed or removed
+// config items) are cleaned up before re-population.
+func (s *DependencyRefStore) DeleteDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error {
+	result := s.getDB(ctx).Where("org_id = ? AND fleet_name = ? AND device_name <> ''", orgID, fleetName).Delete(&model.DependencyRef{})
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}
