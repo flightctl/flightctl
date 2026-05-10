@@ -144,6 +144,11 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
+	// Clean up stale device-level dependency refs before re-populating.
+	if st := f.serviceHandler.DeleteDeviceDependencyRefsByFleet(ctx, f.orgId, f.event.InvolvedObject.Name); st.Code != http.StatusOK {
+		f.log.Errorf("failed to delete device dependency refs for fleet %s: %s", f.event.InvolvedObject.Name, st.Message)
+	}
+
 	failureCount := 0
 	for {
 		pageFailures, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
