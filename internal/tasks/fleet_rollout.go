@@ -144,22 +144,26 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
-	// Clean up stale device-level dependency refs before re-populating.
-	if st := f.serviceHandler.DeleteDeviceDependencyRefsByFleet(ctx, f.orgId, f.event.InvolvedObject.Name); st.Code != http.StatusOK {
-		f.log.Errorf("failed to delete device dependency refs for fleet %s: %s", f.event.InvolvedObject.Name, st.Message)
-	}
-
 	failureCount := 0
+	var allDeviceRefs []model.DependencyRef
 	for {
-		pageFailures, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
+		pageFailures, pageRefs, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
 		if err != nil {
 			return err
 		}
 		failureCount += pageFailures
+		allDeviceRefs = append(allDeviceRefs, pageRefs...)
 		if nextContinue == nil {
 			break
 		}
 		listParams.Continue = nextContinue
+	}
+
+	// Transactionally replace all device-level dependency refs for this fleet
+	// so readers never see a partially empty set.
+	fleetName := f.event.InvolvedObject.Name
+	if st := f.serviceHandler.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
+		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
 
 	if failureCount != 0 {
@@ -178,17 +182,16 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 	listParams domain.ListDevicesParams,
 	annotationSelector *selector.AnnotationSelector,
 	delayDeviceRender bool,
-) (pageFailures int, nextContinue *string, err error) {
+) (pageFailures int, pageRefs []model.DependencyRef, nextContinue *string, err error) {
 	iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
 	defer cancel()
 
 	devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)
 	if status.Code != http.StatusOK {
 		// TODO: Retry when we have a mechanism that allows it
-		return 0, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
+		return 0, nil, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
 	}
 
-	var pageRefs []model.DependencyRef
 	for devIndex := range devices.Items {
 		device := &devices.Items[devIndex]
 		refs, updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
@@ -199,14 +202,7 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 		pageRefs = append(pageRefs, refs...)
 	}
 
-	if len(pageRefs) > 0 {
-		st := f.serviceHandler.BulkUpsertDeviceDependencyRefs(iterCtx, f.orgId, pageRefs)
-		if st.Code != http.StatusOK {
-			f.log.Errorf("failed to upsert device dependency refs for fleet %s: %s", f.event.InvolvedObject.Name, st.Message)
-		}
-	}
-
-	return pageFailures, devices.Metadata.Continue, nil
+	return pageFailures, pageRefs, devices.Metadata.Continue, nil
 }
 
 // The device's owner was changed, roll out if necessary

@@ -17,8 +17,8 @@ type DependencyRef interface {
 	Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
 	ListByRefType(ctx context.Context, orgID uuid.UUID, refType string) ([]model.DependencyRef, error)
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
-	DeleteDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
+	ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 }
@@ -71,22 +71,31 @@ func (s *DependencyRefStore) DeleteByFleet(ctx context.Context, orgID uuid.UUID,
 	return nil
 }
 
-// DeleteDeviceRefsByFleet removes all device-level dependency refs for a fleet.
-// Called at the start of fleet rollout so stale refs (from changed or removed
-// config items) are cleaned up before re-population.
-func (s *DependencyRefStore) DeleteDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error {
-	result := s.getDB(ctx).Where("org_id = ? AND fleet_name = ? AND device_name <> ''", orgID, fleetName).Delete(&model.DependencyRef{})
-	if result.Error != nil {
-		return ErrorFromGormError(result.Error)
-	}
-	return nil
-}
-
 // ReplaceByFleet atomically replaces fleet-level dependency refs (device_name = ”).
 // Device-level refs (populated during fleet rollout) are left untouched.
 func (s *DependencyRefStore) ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
 	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("org_id = ? AND fleet_name = ? AND device_name = ''", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		if len(refs) == 0 {
+			return nil
+		}
+		for i := range refs {
+			refs[i].OrgID = orgID
+		}
+		if err := tx.Create(&refs).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		return nil
+	})
+}
+
+// ReplaceDeviceRefsByFleet atomically replaces all device-level dependency refs
+// for a fleet. Fleet-level refs (device_name = ”) are left untouched.
+func (s *DependencyRefStore) ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
+	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("org_id = ? AND fleet_name = ? AND device_name <> ''", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
 			return ErrorFromGormError(err)
 		}
 		if len(refs) == 0 {

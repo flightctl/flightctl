@@ -640,9 +640,9 @@ func (t *TracedService) ReplaceDependencyRefsByFleet(ctx context.Context, orgId 
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) DeleteDeviceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
-	ctx, span := startSpan(ctx, "DeleteDeviceDependencyRefsByFleet")
-	st := t.inner.DeleteDeviceDependencyRefsByFleet(ctx, orgId, fleetName)
+func (t *TracedService) ReplaceDeviceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceDeviceDependencyRefsByFleet")
+	st := t.inner.ReplaceDeviceDependencyRefsByFleet(ctx, orgId, fleetName, refs)
 	endSpan(span, st)
 	return st
 }
