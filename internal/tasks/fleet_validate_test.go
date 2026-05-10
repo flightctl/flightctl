@@ -329,6 +329,7 @@ func TestCollectDependencyRefs(t *testing.T) {
 				tt.expected = []model.DependencyRef{{
 					FleetName:      lo.ToPtr("my-fleet"),
 					RefType:        "git",
+					ResourceKey:    "git:my-repo/main",
 					RepositoryName: lo.ToPtr("my-repo"),
 					Revision:       lo.ToPtr("main"),
 				}}
@@ -339,6 +340,7 @@ func TestCollectDependencyRefs(t *testing.T) {
 				tt.expected = []model.DependencyRef{{
 					FleetName:      lo.ToPtr("my-fleet"),
 					RefType:        "http",
+					ResourceKey:    "http:http-repo//api/config",
 					RepositoryName: lo.ToPtr("http-repo"),
 					HTTPSuffix:     lo.ToPtr("/api/config"),
 				}}
@@ -348,6 +350,7 @@ func TestCollectDependencyRefs(t *testing.T) {
 				tt.expected = []model.DependencyRef{{
 					FleetName:       lo.ToPtr("my-fleet"),
 					RefType:         "secret",
+					ResourceKey:     "secret:prod/db-creds",
 					SecretName:      lo.ToPtr("db-creds"),
 					SecretNamespace: lo.ToPtr("prod"),
 				}}
@@ -360,9 +363,9 @@ func TestCollectDependencyRefs(t *testing.T) {
 					makeK8sSecretConfigItem(t, "secret-cfg", "api-key", "default"),
 				}
 				tt.expected = []model.DependencyRef{
-					{FleetName: lo.ToPtr("my-fleet"), RefType: "git", RepositoryName: lo.ToPtr("repo-a"), Revision: lo.ToPtr("v1.0")},
-					{FleetName: lo.ToPtr("my-fleet"), RefType: "http", RepositoryName: lo.ToPtr("repo-b"), HTTPSuffix: nil},
-					{FleetName: lo.ToPtr("my-fleet"), RefType: "secret", SecretName: lo.ToPtr("api-key"), SecretNamespace: lo.ToPtr("default")},
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "git", ResourceKey: "git:repo-a/v1.0", RepositoryName: lo.ToPtr("repo-a"), Revision: lo.ToPtr("v1.0")},
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "http", ResourceKey: "http:repo-b/", RepositoryName: lo.ToPtr("repo-b"), HTTPSuffix: nil},
+					{FleetName: lo.ToPtr("my-fleet"), RefType: "secret", ResourceKey: "secret:default/api-key", SecretName: lo.ToPtr("api-key"), SecretNamespace: lo.ToPtr("default")},
 				}
 			}
 
@@ -370,49 +373,25 @@ func TestCollectDependencyRefs(t *testing.T) {
 				log:            logrus.New(),
 				templateConfig: tt.config,
 			}
-			refs := logic.collectDependencyRefs(context.Background(), tt.fleetName)
+			refs := logic.collectDependencyRefs(tt.fleetName)
 			assert.Equal(t, tt.expected, refs)
 		})
 	}
 }
 
 func TestCollectDependencyRefs_ParameterizedRevision(t *testing.T) {
-	orgId := uuid.New()
-	okStatus := domain.Status{Code: http.StatusOK}
-
-	t.Run("When targetRevision is parameterized it should resolve per device", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
-
-		devices := &domain.DeviceList{
-			Items: []domain.Device{
-				makeTestDevice("device-1", map[string]string{"branch": "feature-a"}),
-				makeTestDevice("device-2", map[string]string{"branch": "feature-b"}),
-			},
-		}
-		mockSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(devices, okStatus)
-
+	t.Run("When targetRevision is parameterized it should be skipped", func(t *testing.T) {
 		config := &[]domain.ConfigProviderSpec{
 			makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
 		}
 
 		logic := FleetValidateLogic{
 			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
 			templateConfig: config,
 		}
 
-		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
-
-		require.Len(t, refs, 2)
-		assert.Equal(t, "my-fleet", *refs[0].FleetName)
-		assert.Equal(t, "device-1", *refs[0].DeviceName)
-		assert.Equal(t, "feature-a", *refs[0].Revision)
-		assert.Equal(t, "my-fleet", *refs[1].FleetName)
-		assert.Equal(t, "device-2", *refs[1].DeviceName)
-		assert.Equal(t, "feature-b", *refs[1].Revision)
+		refs := logic.collectDependencyRefs("my-fleet")
+		assert.Empty(t, refs, "parameterized revisions should be skipped in fleet_validate")
 	})
 
 	t.Run("When targetRevision has no template params it should use fleet-level ref", func(t *testing.T) {
@@ -425,55 +404,32 @@ func TestCollectDependencyRefs_ParameterizedRevision(t *testing.T) {
 			templateConfig: config,
 		}
 
-		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
+		refs := logic.collectDependencyRefs("my-fleet")
 
 		require.Len(t, refs, 1)
 		assert.Equal(t, "my-fleet", *refs[0].FleetName)
 		assert.Nil(t, refs[0].DeviceName)
 		assert.Equal(t, "main", *refs[0].Revision)
+		assert.Equal(t, "git:my-repo/main", refs[0].ResourceKey)
 	})
 
-	t.Run("When devices resolve to the same branch it should create one ref per device", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
-
-		devices := &domain.DeviceList{
-			Items: []domain.Device{
-				makeTestDevice("device-1", map[string]string{"branch": "main"}),
-				makeTestDevice("device-2", map[string]string{"branch": "main"}),
-			},
-		}
-		mockSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(devices, okStatus)
-
+	t.Run("When config has mixed parameterized and non-parameterized it should only return non-parameterized", func(t *testing.T) {
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
+			makeGitConfigItem(t, "git-param", "repo-a", "{{ .metadata.labels.branch }}"),
+			makeGitConfigItem(t, "git-fixed", "repo-b", "v1.0"),
 		}
 
 		logic := FleetValidateLogic{
 			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
 			templateConfig: config,
 		}
 
-		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
+		refs := logic.collectDependencyRefs("my-fleet")
 
-		require.Len(t, refs, 2)
-		assert.Equal(t, "device-1", *refs[0].DeviceName)
-		assert.Equal(t, "main", *refs[0].Revision)
-		assert.Equal(t, "device-2", *refs[1].DeviceName)
-		assert.Equal(t, "main", *refs[1].Revision)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "git:repo-b/v1.0", refs[0].ResourceKey)
+		assert.Equal(t, "v1.0", *refs[0].Revision)
 	})
-}
-
-func makeTestDevice(name string, labels map[string]string) domain.Device {
-	return domain.Device{
-		Metadata: domain.ObjectMeta{
-			Name:   lo.ToPtr(name),
-			Labels: &labels,
-		},
-	}
 }
 
 func TestPopulateDependencyRefs(t *testing.T) {

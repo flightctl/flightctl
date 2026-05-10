@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -182,12 +183,21 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 		return 0, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
 	}
 
+	var pageRefs []model.DependencyRef
 	for devIndex := range devices.Items {
 		device := &devices.Items[devIndex]
-		updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
+		refs, updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
 		if updateErr != nil {
 			f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
 			pageFailures++
+		}
+		pageRefs = append(pageRefs, refs...)
+	}
+
+	if len(pageRefs) > 0 {
+		st := f.serviceHandler.BulkUpsertDeviceDependencyRefs(iterCtx, f.orgId, pageRefs)
+		if st.Code != http.StatusOK {
+			f.log.Errorf("failed to upsert device dependency refs for fleet %s: %s", f.event.InvolvedObject.Name, st.Message)
 		}
 	}
 
@@ -240,10 +250,20 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
-	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
+	refs, err := f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
+	if err != nil {
+		return err
+	}
+	if len(refs) > 0 {
+		st := f.serviceHandler.BulkUpsertDeviceDependencyRefs(ctx, f.orgId, refs)
+		if st.Code != http.StatusOK {
+			f.log.Errorf("failed to upsert device dependency refs for device %s: %s", f.event.InvolvedObject.Name, st.Message)
+		}
+	}
+	return nil
 }
 
-func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) error {
+func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
 	currentVersion := ""
 	if device.Metadata.Annotations != nil {
 		v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationTemplateVersion]
@@ -263,7 +283,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		}
 	}
 
-	deviceConfig, configErrs := f.getDeviceConfig(device, templateVersion)
+	deviceConfig, depRefs, configErrs := f.getDeviceConfig(device, templateVersion)
 	errs = append(errs, configErrs...)
 
 	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
@@ -277,7 +297,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		if status.Code != http.StatusOK {
 			errs = append(errs, service.ApiStatusToErr(status))
 		}
-		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
+		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	newDeviceSpec := domain.DeviceSpec{
@@ -291,18 +311,18 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 
 	errs = newDeviceSpec.Validate(false)
 	if len(errs) > 0 {
-		return fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
+		return nil, fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
-		return nil
+		return depRefs, nil
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
 	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, delayDeviceRender)
 	if err != nil {
-		return fmt.Errorf("failed updating device spec: %w", err)
+		return nil, fmt.Errorf("failed updating device spec: %w", err)
 	}
 
 	annotations := map[string]string{
@@ -310,10 +330,10 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
 	if status.Code != http.StatusOK {
-		return fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
+		return nil, fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
 	}
 
-	return err
+	return depRefs, nil
 }
 
 func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ApplicationProviderSpec, []error) {
@@ -686,12 +706,13 @@ func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appNa
 	return newVolumes, errs
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	if templateVersion.Status.Config == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	deviceConfig := []domain.ConfigProviderSpec{}
+	var depRefs []model.DependencyRef
 	configErrs := []error{}
 	for _, configItem := range *templateVersion.Status.Config {
 		var newConfigItem *domain.ConfigProviderSpec
@@ -705,7 +726,9 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 
 		switch configType {
 		case domain.GitConfigProviderType:
-			newConfigItem, errs = f.replaceGitConfigParameters(device, configItem)
+			var refs []model.DependencyRef
+			newConfigItem, refs, errs = f.replaceGitConfigParameters(device, configItem)
+			depRefs = append(depRefs, refs...)
 		case domain.KubernetesSecretProviderType:
 			newConfigItem, errs = f.replaceKubeSecretConfigParameters(device, configItem)
 		case domain.InlineConfigProviderType:
@@ -723,19 +746,20 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 	}
 
 	if len(configErrs) > 0 {
-		return nil, configErrs
+		return nil, nil, configErrs
 	}
 
-	return &deviceConfig, nil
+	return &deviceConfig, depRefs, nil
 }
 
-func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
 	}
 
 	errs := []error{}
+	originalRevision := gitSpec.GitRef.TargetRevision
 
 	gitSpec.GitRef.TargetRevision, err = ReplaceParametersInString(gitSpec.GitRef.TargetRevision, device)
 	if err != nil {
@@ -748,16 +772,30 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, co
 	}
 
 	if len(errs) > 0 {
-		return nil, errs
+		return nil, nil, errs
+	}
+
+	var refs []model.DependencyRef
+	if isParameterized(originalRevision) {
+		deviceName := lo.FromPtr(device.Metadata.Name)
+		fleetName := f.event.InvolvedObject.Name
+		refs = append(refs, model.DependencyRef{
+			FleetName:      &fleetName,
+			DeviceName:     &deviceName,
+			RefType:        "git",
+			ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+			RepositoryName: &gitSpec.GitRef.Repository,
+			Revision:       &gitSpec.GitRef.TargetRevision,
+		})
 	}
 
 	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed converting git config: %w", err)}
 	}
 
-	return &newConfigItem, nil
+	return &newConfigItem, refs, nil
 }
 
 func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {

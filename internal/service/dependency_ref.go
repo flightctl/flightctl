@@ -14,6 +14,11 @@ func (h *ServiceHandler) ReplaceDependencyRefsByFleet(ctx context.Context, orgId
 	return StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) BulkUpsertDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, refs []model.DependencyRef) domain.Status {
+	err := h.store.DependencyRef().BulkUpsertDeviceRefs(ctx, orgId, refs)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status) {
 	refs, err := h.store.DependencyRef().ListByRefType(ctx, orgId, refType)
 	return refs, StoreErrorToApiStatus(err, false, "", nil)
