@@ -585,6 +585,12 @@ type DependenciesSyncConfig struct {
 // DefaultDependenciesSyncPollInterval is the default polling interval for dependency probes.
 const DefaultDependenciesSyncPollInterval = 15 * time.Minute
 
+// DefaultDependencySyncTaskInterval is how often the dependency-sync periodic
+// task executes. This is intentionally shorter than the poll interval so that
+// newly added refs are discovered quickly and partial failures are retried
+// within minutes rather than waiting for the full poll interval.
+const DefaultDependencySyncTaskInterval = 3 * time.Minute
+
 // GetDependenciesSyncPollInterval returns the configured poll interval, or the default if unset.
 func (c *Config) GetDependenciesSyncPollInterval() time.Duration {
 	if c.DependenciesSync != nil && c.DependenciesSync.PollInterval > 0 {
