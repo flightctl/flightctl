@@ -298,13 +298,8 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetName string) error {
 	refs := t.collectDependencyRefs(fleetName)
 
-	if status := t.serviceHandler.DeleteDependencyRefsByFleet(ctx, t.orgId, fleetName); status.Code != http.StatusOK {
-		return fmt.Errorf("deleting stale dependency refs: %s", status.Message)
-	}
-	for i := range refs {
-		if status := t.serviceHandler.UpsertDependencyRef(ctx, t.orgId, &refs[i]); status.Code != http.StatusOK {
-			return fmt.Errorf("upserting dependency ref: %s", status.Message)
-		}
+	if status := t.serviceHandler.ReplaceDependencyRefsByFleet(ctx, t.orgId, fleetName, refs); status.Code != http.StatusOK {
+		return fmt.Errorf("replacing dependency refs: %s", status.Message)
 	}
 	return nil
 }

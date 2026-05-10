@@ -323,20 +323,6 @@ func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
 }
 
-// DeleteDependencyRefsByFleet mocks base method.
-func (m *MockService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteDependencyRefsByFleet", ctx, orgId, fleetName)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// DeleteDependencyRefsByFleet indicates an expected call of DeleteDependencyRefsByFleet.
-func (mr *MockServiceMockRecorder) DeleteDependencyRefsByFleet(ctx, orgId, fleetName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDependencyRefsByFleet", reflect.TypeOf((*MockService)(nil).DeleteDependencyRefsByFleet), ctx, orgId, fleetName)
-}
-
 // DeleteDevice mocks base method.
 func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
@@ -1583,6 +1569,20 @@ func (mr *MockServiceMockRecorder) ReplaceCertificateSigningRequest(ctx, orgId, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).ReplaceCertificateSigningRequest), ctx, orgId, name, csr)
 }
 
+// ReplaceDependencyRefsByFleet mocks base method.
+func (m *MockService) ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceDependencyRefsByFleet", ctx, orgId, fleetName, refs)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// ReplaceDependencyRefsByFleet indicates an expected call of ReplaceDependencyRefsByFleet.
+func (mr *MockServiceMockRecorder) ReplaceDependencyRefsByFleet(ctx, orgId, fleetName, refs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDependencyRefsByFleet", reflect.TypeOf((*MockService)(nil).ReplaceDependencyRefsByFleet), ctx, orgId, fleetName, refs)
+}
+
 // ReplaceDevice mocks base method.
 func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1944,18 +1944,4 @@ func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, orgId u
 func (mr *MockServiceMockRecorder) UpdateServiceSideDeviceStatus(ctx, orgId, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServiceSideDeviceStatus), ctx, orgId, device)
-}
-
-// UpsertDependencyRef mocks base method.
-func (m *MockService) UpsertDependencyRef(ctx context.Context, orgId uuid.UUID, ref *model.DependencyRef) domain.Status {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertDependencyRef", ctx, orgId, ref)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// UpsertDependencyRef indicates an expected call of UpsertDependencyRef.
-func (mr *MockServiceMockRecorder) UpsertDependencyRef(ctx, orgId, ref any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDependencyRef", reflect.TypeOf((*MockService)(nil).UpsertDependencyRef), ctx, orgId, ref)
 }
