@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SyncState interface {
@@ -17,6 +18,8 @@ type SyncState interface {
 	Get(ctx context.Context, orgID uuid.UUID, resourceKey string) (*model.SyncState, error)
 	Set(ctx context.Context, orgID uuid.UUID, state *model.SyncState) error
 	SetLastCheckedAt(ctx context.Context, orgID uuid.UUID, resourceKey string, t time.Time) error
+	BulkUpsert(ctx context.Context, orgID uuid.UUID, states []model.SyncState) error
+	BulkUpdateLastCheckedAt(ctx context.Context, orgID uuid.UUID, resourceKeys []string, t time.Time) error
 }
 
 type SyncStateStore struct {
@@ -70,4 +73,29 @@ func (s *SyncStateStore) SetLastCheckedAt(ctx context.Context, orgID uuid.UUID, 
 		return ErrorFromGormError(result.Error)
 	}
 	return nil
+}
+
+// BulkUpsert inserts or updates multiple sync state rows in a single batch.
+func (s *SyncStateStore) BulkUpsert(ctx context.Context, orgID uuid.UUID, states []model.SyncState) error {
+	if len(states) == 0 {
+		return nil
+	}
+	for i := range states {
+		states[i].OrgID = orgID
+	}
+	return s.getDB(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"fingerprint", "last_checked_at", "last_change_at"}),
+	}).Create(&states).Error
+}
+
+// BulkUpdateLastCheckedAt updates last_checked_at for all given resource keys
+// in a single statement.
+func (s *SyncStateStore) BulkUpdateLastCheckedAt(ctx context.Context, orgID uuid.UUID, resourceKeys []string, t time.Time) error {
+	if len(resourceKeys) == 0 {
+		return nil
+	}
+	return s.getDB(ctx).Model(&model.SyncState{}).
+		Where("org_id = ? AND resource_key IN ?", orgID, resourceKeys).
+		Update("last_checked_at", t).Error
 }

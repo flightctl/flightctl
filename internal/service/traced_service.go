@@ -646,6 +646,12 @@ func (t *TracedService) ListDependencyRefsByRefType(ctx context.Context, orgId u
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDueGitDependencies")
+	resp, st := t.inner.ListDueGitDependencies(ctx, orgId, pollInterval)
+	endSpan(span, st)
+	return resp, st
+}
 
 // --- SyncState ---
 func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
@@ -663,6 +669,18 @@ func (t *TracedService) SetSyncState(ctx context.Context, orgId uuid.UUID, state
 func (t *TracedService) SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, tm time.Time) domain.Status {
 	ctx, span := startSpan(ctx, "SetSyncStateLastCheckedAt")
 	st := t.inner.SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, tm)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) BulkUpsertSyncState(ctx context.Context, orgId uuid.UUID, states []model.SyncState) domain.Status {
+	ctx, span := startSpan(ctx, "BulkUpsertSyncState")
+	st := t.inner.BulkUpsertSyncState(ctx, orgId, states)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) BulkUpdateSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKeys []string, tm time.Time) domain.Status {
+	ctx, span := startSpan(ctx, "BulkUpdateSyncStateLastCheckedAt")
+	st := t.inner.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, resourceKeys, tm)
 	endSpan(span, st)
 	return st
 }

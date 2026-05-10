@@ -57,32 +57,41 @@ func makeGitRepo(t *testing.T, url string) *domain.Repository {
 	return &domain.Repository{Spec: spec}
 }
 
+func makeProbe(repoName, revision string, fingerprint *string, fleetNames, deviceNames model.StringArray) model.GitDependencyProbe {
+	return model.GitDependencyProbe{
+		RepositoryName: repoName,
+		Revision:       revision,
+		Fingerprint:    fingerprint,
+		FleetNames:     fleetNames,
+		DeviceNames:    deviceNames,
+	}
+}
+
 var statusOK = domain.Status{Code: http.StatusOK}
 
 func TestDependencySyncGit_Poll(t *testing.T) {
 	orgId := uuid.New()
 	ctx := context.Background()
+	pollInterval := 15 * time.Minute
 
-	t.Run("When a change is detected it should update sync_state and emit events", func(t *testing.T) {
+	t.Run("When a change is detected it should bulk upsert sync state and emit events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{makeGitDepRef("fleet-1", "my-repo", "main")}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		existingState := &model.SyncState{
-			OrgID: orgId, ResourceKey: "git:my-repo/main", Fingerprint: "oldsha999",
-			LastCheckedAt: time.Now().Add(-30 * time.Minute),
+		probes := []model.GitDependencyProbe{
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha999"), model.StringArray{"fleet-1"}, nil),
 		}
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:my-repo/main").Return(existingState, statusOK)
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "my-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
 
-		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
-			func(_ context.Context, _ uuid.UUID, state *model.SyncState) domain.Status {
-				assert.Equal(t, "newsha123456789", state.Fingerprint)
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
+				require.Len(t, states, 1)
+				assert.Equal(t, "newsha123456789", states[0].Fingerprint)
+				assert.Equal(t, "git:my-repo/main", states[0].ResourceKey)
 				return statusOK
 			})
 
@@ -91,7 +100,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "newsha123456789"}, nil
 		}
 
@@ -106,24 +115,25 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		assert.Equal(t, "fleet-1", events[0].name)
 	})
 
-	t.Run("When no change is detected it should update last_checked_at only", func(t *testing.T) {
+	t.Run("When no change is detected it should bulk update last_checked_at only", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{makeGitDepRef("fleet-1", "my-repo", "main")}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		existingState := &model.SyncState{
-			OrgID: orgId, ResourceKey: "git:my-repo/main", Fingerprint: "samesha123",
-			LastCheckedAt: time.Now().Add(-30 * time.Minute),
+		probes := []model.GitDependencyProbe{
+			makeProbe("my-repo", "main", lo.ToPtr("samesha123"), model.StringArray{"fleet-1"}, nil),
 		}
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:my-repo/main").Return(existingState, statusOK)
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "my-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
 
-		mockService.EXPECT().SetSyncStateLastCheckedAt(gomock.Any(), orgId, "git:my-repo/main", gomock.Any()).Return(statusOK)
+		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
+				require.Len(t, keys, 1)
+				assert.Equal(t, "git:my-repo/main", keys[0])
+				return statusOK
+			})
 
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "samesha123"}, nil
@@ -141,10 +151,10 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{makeGitDepRef("fleet-1", "my-repo", "main")}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:my-repo/main").Return(nil, statusOK)
+		probes := []model.GitDependencyProbe{
+			makeProbe("my-repo", "main", nil, model.StringArray{"fleet-1"}, nil),
+		}
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "my-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
@@ -165,7 +175,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return([]model.DependencyRef{}, statusOK)
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return([]model.GitDependencyProbe{}, statusOK)
 
 		d := &DependencySyncGit{
 			log: logrus.New(), serviceHandler: mockService,
@@ -182,22 +192,15 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{
-			makeGitDepRef("fleet-a", "shared-repo", "main"),
-			makeGitDepRef("fleet-b", "shared-repo", "main"),
+		probes := []model.GitDependencyProbe{
+			makeProbe("shared-repo", "main", lo.ToPtr("oldsha"), model.StringArray{"fleet-a", "fleet-b"}, nil),
 		}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		existingState := &model.SyncState{
-			OrgID: orgId, ResourceKey: "git:shared-repo/main", Fingerprint: "oldsha",
-			LastCheckedAt: time.Now().Add(-30 * time.Minute),
-		}
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:shared-repo/main").Return(existingState, statusOK)
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "shared-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
 
-		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
@@ -221,19 +224,15 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{makeDeviceDepRef("device-standalone", "my-repo", "main")}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		existingState := &model.SyncState{
-			OrgID: orgId, ResourceKey: "git:my-repo/main", Fingerprint: "oldsha",
-			LastCheckedAt: time.Now().Add(-30 * time.Minute),
+		probes := []model.GitDependencyProbe{
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha"), nil, model.StringArray{"device-standalone"}),
 		}
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:my-repo/main").Return(existingState, statusOK)
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "my-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
 
-		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
@@ -260,17 +259,18 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.DependencyRef{makeGitDepRef("fleet-1", "new-repo", "main")}
-		mockService.EXPECT().ListDependencyRefsByRefType(gomock.Any(), orgId, "git").Return(refs, statusOK)
-
-		mockService.EXPECT().GetSyncState(gomock.Any(), orgId, "git:new-repo/main").Return(nil, statusOK)
+		probes := []model.GitDependencyProbe{
+			makeProbe("new-repo", "main", nil, model.StringArray{"fleet-1"}, nil),
+		}
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "new-repo").Return(
 			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
 
-		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
-			func(_ context.Context, _ uuid.UUID, state *model.SyncState) domain.Status {
-				assert.Equal(t, "initialsha123", state.Fingerprint)
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
+				require.Len(t, states, 1)
+				assert.Equal(t, "initialsha123", states[0].Fingerprint)
 				return statusOK
 			})
 
@@ -283,6 +283,47 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
+	})
+
+	t.Run("When multiple revisions exist for the same repo it should call ls-remote once", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockService := service.NewMockService(ctrl)
+
+		probes := []model.GitDependencyProbe{
+			makeProbe("my-repo", "main", lo.ToPtr("oldsha1"), model.StringArray{"fleet-1"}, nil),
+			makeProbe("my-repo", "v1.0", lo.ToPtr("oldsha2"), model.StringArray{"fleet-2"}, nil),
+		}
+		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+
+		lsRemoteCalls := 0
+		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
+			lsRemoteCalls++
+			assert.Len(t, refs, 2)
+			return map[string]string{
+				"main": "newsha1",
+				"v1.0": "newsha2",
+			}, nil
+		}
+
+		mockService.EXPECT().GetRepository(gomock.Any(), orgId, "my-repo").Return(
+			makeGitRepo(t, "https://example.com/repo.git"), statusOK)
+
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
+				assert.Len(t, states, 2)
+				return statusOK
+			})
+
+		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
+
+		d := &DependencySyncGit{
+			log: logrus.New(), serviceHandler: mockService,
+			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
+		}
+		d.Poll(ctx, orgId)
+
+		assert.Equal(t, 1, lsRemoteCalls, "ls-remote should be called once per repo, not per revision")
 	})
 }
 

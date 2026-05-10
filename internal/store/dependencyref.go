@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ type DependencyRef interface {
 	ListByRefType(ctx context.Context, orgID uuid.UUID, refType string) ([]model.DependencyRef, error)
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
+	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 }
 
 type DependencyRefStore struct {
@@ -85,4 +87,31 @@ func (s *DependencyRefStore) ReplaceByFleet(ctx context.Context, orgID uuid.UUID
 		}
 		return nil
 	})
+}
+
+// ListDueGitDependencies returns git dependency probes that are due for
+// polling. It LEFT JOINs dependency_refs with sync_states so that refs
+// without a sync state row (never polled) are included, filters out
+// parameterized revisions, applies the poll-interval time gate, and groups
+// by (repository_name, revision) with array_agg for fan-out targets.
+func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error) {
+	var probes []model.GitDependencyProbe
+	err := s.getDB(ctx).
+		Table("dependency_refs dr").
+		Select(
+			"dr.repository_name, dr.revision, ss.fingerprint, "+
+				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
+				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names",
+		).
+		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = 'git:' || dr.repository_name || '/' || dr.revision").
+		Where("dr.org_id = ?", orgID).
+		Where("dr.ref_type = 'git'").
+		Where("dr.revision NOT LIKE ?", "%{{%").
+		Where("ss.last_checked_at IS NULL OR ss.last_checked_at + ? * INTERVAL '1 second' < NOW()", pollInterval.Seconds()).
+		Group("dr.repository_name, dr.revision, ss.fingerprint").
+		Scan(&probes).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return probes, nil
 }

@@ -60,6 +60,34 @@ func (mr *MockServiceMockRecorder) ApproveEnrollmentRequest(ctx, orgId, name, ap
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ApproveEnrollmentRequest), ctx, orgId, name, approval)
 }
 
+// BulkUpdateSyncStateLastCheckedAt mocks base method.
+func (m *MockService) BulkUpdateSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKeys []string, t time.Time) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BulkUpdateSyncStateLastCheckedAt", ctx, orgId, resourceKeys, t)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// BulkUpdateSyncStateLastCheckedAt indicates an expected call of BulkUpdateSyncStateLastCheckedAt.
+func (mr *MockServiceMockRecorder) BulkUpdateSyncStateLastCheckedAt(ctx, orgId, resourceKeys, t any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkUpdateSyncStateLastCheckedAt", reflect.TypeOf((*MockService)(nil).BulkUpdateSyncStateLastCheckedAt), ctx, orgId, resourceKeys, t)
+}
+
+// BulkUpsertSyncState mocks base method.
+func (m *MockService) BulkUpsertSyncState(ctx context.Context, orgId uuid.UUID, states []model.SyncState) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BulkUpsertSyncState", ctx, orgId, states)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// BulkUpsertSyncState indicates an expected call of BulkUpsertSyncState.
+func (mr *MockServiceMockRecorder) BulkUpsertSyncState(ctx, orgId, states any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkUpsertSyncState", reflect.TypeOf((*MockService)(nil).BulkUpsertSyncState), ctx, orgId, states)
+}
+
 // CountDevices mocks base method.
 func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1125,6 +1153,21 @@ func (m *MockService) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid
 func (mr *MockServiceMockRecorder) ListDisruptionBudgetFleets(ctx, orgId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisruptionBudgetFleets", reflect.TypeOf((*MockService)(nil).ListDisruptionBudgetFleets), ctx, orgId)
+}
+
+// ListDueGitDependencies mocks base method.
+func (m *MockService) ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDueGitDependencies", ctx, orgId, pollInterval)
+	ret0, _ := ret[0].([]model.GitDependencyProbe)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDueGitDependencies indicates an expected call of ListDueGitDependencies.
+func (mr *MockServiceMockRecorder) ListDueGitDependencies(ctx, orgId, pollInterval any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueGitDependencies", reflect.TypeOf((*MockService)(nil).ListDueGitDependencies), ctx, orgId, pollInterval)
 }
 
 // ListEnrollmentRequests mocks base method.

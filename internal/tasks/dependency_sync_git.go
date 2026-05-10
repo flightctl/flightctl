@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,170 +39,169 @@ func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service
 	}
 }
 
-// probeTarget groups refs by (repo, revision) to avoid redundant ls-remote calls.
-type probeTarget struct {
-	repoName string
-	revision string
-	// fleets/devices that will receive events if this target changes
-	fleetNames  []string
-	deviceNames []string
+// probeResult holds the outcome of a single (repo, revision) probe.
+type probeResult struct {
+	probe       *model.GitDependencyProbe
+	resourceKey string
+	newSHA      string
+	changed     bool
+	firstSeen   bool
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
-	refs, status := d.serviceHandler.ListDependencyRefsByRefType(ctx, orgId, "git")
-	if status.Code != http.StatusOK {
-		d.log.Errorf("failed listing git dependency refs: %s", status.Message)
-		return
-	}
-	if len(refs) == 0 {
-		return
-	}
-
-	targets := d.buildProbeTargets(refs)
-	if len(targets) == 0 {
-		return
-	}
-
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
+
+	probes, status := d.serviceHandler.ListDueGitDependencies(ctx, orgId, pollInterval)
+	if status.Code != http.StatusOK {
+		d.log.Errorf("failed listing due git dependencies: %s", status.Message)
+		return
+	}
+	if len(probes) == 0 {
+		return
+	}
+
+	// Group probes by repository so we fetch each repo's URL and auth once,
+	// then call ls-remote with all revisions for that repo in one call.
+	repoGroups := make(map[string][]*model.GitDependencyProbe)
+	for i := range probes {
+		repoGroups[probes[i].RepositoryName] = append(repoGroups[probes[i].RepositoryName], &probes[i])
+	}
+
+	var (
+		mu      sync.Mutex
+		results []probeResult
+	)
 
 	sem := make(chan struct{}, d.maxConcurrent)
 	var wg sync.WaitGroup
 
-	for i := range targets {
-		target := &targets[i]
+	for repoName, group := range repoGroups {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			d.probeAndReconcile(ctx, orgId, target, pollInterval)
+			res := d.probeRepo(ctx, orgId, repoName, group)
+			mu.Lock()
+			results = append(results, res...)
+			mu.Unlock()
 		}()
 	}
 
 	wg.Wait()
+
+	d.reconcile(ctx, orgId, results)
 }
 
-// buildProbeTargets groups refs by (repo, revision), skipping parameterized revisions.
-func (d *DependencySyncGit) buildProbeTargets(refs []model.DependencyRef) []probeTarget {
-	type targetKey struct{ repo, rev string }
-	targetMap := make(map[targetKey]*probeTarget)
+// probeRepo fetches the repository once, calls ls-remote for all revisions
+// in the group, and returns a probeResult per revision.
+func (d *DependencySyncGit) probeRepo(ctx context.Context, orgId uuid.UUID,
+	repoName string, group []*model.GitDependencyProbe) []probeResult {
 
-	for _, ref := range refs {
-		fleetName := lo.FromPtr(ref.FleetName)
-		deviceName := lo.FromPtr(ref.DeviceName)
-		repoName := lo.FromPtr(ref.RepositoryName)
-		revision := lo.FromPtr(ref.Revision)
-
-		if containsTemplateParam(revision) {
-			continue
-		}
-
-		key := targetKey{repo: repoName, rev: revision}
-		t, ok := targetMap[key]
-		if !ok {
-			t = &probeTarget{repoName: repoName, revision: revision}
-			targetMap[key] = t
-		}
-
-		if fleetName != "" {
-			t.fleetNames = append(t.fleetNames, fleetName)
-		}
-		if deviceName != "" {
-			t.deviceNames = append(t.deviceNames, deviceName)
-		}
-	}
-
-	result := make([]probeTarget, 0, len(targetMap))
-	for _, t := range targetMap {
-		result = append(result, *t)
-	}
-	return result
-}
-
-func (d *DependencySyncGit) probeAndReconcile(ctx context.Context, orgId uuid.UUID, target *probeTarget, pollInterval time.Duration) {
-	resourceKey := fmt.Sprintf("git:%s/%s", target.repoName, target.revision)
-
-	existing, status := d.serviceHandler.GetSyncState(ctx, orgId, resourceKey)
+	repo, status := d.serviceHandler.GetRepository(ctx, orgId, repoName)
 	if status.Code != http.StatusOK {
-		d.log.Errorf("failed reading sync state for %s: %s", resourceKey, status.Message)
-		return
-	}
-
-	if existing != nil && time.Since(existing.LastCheckedAt) < pollInterval {
-		return
-	}
-
-	repo, status := d.serviceHandler.GetRepository(ctx, orgId, target.repoName)
-	if status.Code != http.StatusOK {
-		d.log.Warnf("failed fetching repository %s: %s", target.repoName, status.Message)
-		return
+		d.log.Warnf("failed fetching repository %s: %s", repoName, status.Message)
+		return nil
 	}
 
 	repoURL, err := repo.Spec.GetRepoURL()
 	if err != nil {
-		d.log.WithError(err).Warnf("failed getting URL for repository %s", target.repoName)
-		return
+		d.log.WithError(err).Warnf("failed getting URL for repository %s", repoName)
+		return nil
 	}
 
 	auth, err := GetAuth(repo, d.cfg)
 	if err != nil {
-		d.log.WithError(err).Warnf("failed getting auth for repository %s", target.repoName)
-		return
+		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)
+		return nil
 	}
 
-	resolved, err := d.lsRemote(ctx, repoURL, []string{target.revision}, auth)
+	revisions := make([]string, len(group))
+	for i, p := range group {
+		revisions[i] = p.Revision
+	}
+
+	resolved, err := d.lsRemote(ctx, repoURL, revisions, auth)
 	if err != nil {
-		d.log.WithError(err).Warnf("git ls-remote failed for %s ref %s", target.repoName, target.revision)
-		return
+		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
+		return nil
 	}
 
-	newSHA, found := resolved[target.revision]
-	if !found {
-		d.log.Warnf("ref %s not found in repository %s", target.revision, target.repoName)
-		return
-	}
-
-	now := time.Now().UTC()
-
-	if existing == nil {
-		if st := d.serviceHandler.SetSyncState(ctx, orgId, &model.SyncState{
-			OrgID: orgId, ResourceKey: resourceKey,
-			Fingerprint: newSHA, LastCheckedAt: now, LastChangeAt: &now,
-		}); st.Code != http.StatusOK {
-			d.log.Errorf("failed creating sync state for %s: %s", resourceKey, st.Message)
+	var results []probeResult
+	for _, p := range group {
+		newSHA, found := resolved[p.Revision]
+		if !found {
+			d.log.Warnf("ref %s not found in repository %s", p.Revision, repoName)
+			continue
 		}
-		return
-	}
 
-	if newSHA == existing.Fingerprint {
-		if st := d.serviceHandler.SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, now); st.Code != http.StatusOK {
-			d.log.Errorf("failed updating last_checked_at for %s: %s", resourceKey, st.Message)
+		rk := fmt.Sprintf("git:%s/%s", repoName, p.Revision)
+		r := probeResult{
+			probe:       p,
+			resourceKey: rk,
+			newSHA:      newSHA,
 		}
-		return
-	}
 
-	if st := d.serviceHandler.SetSyncState(ctx, orgId, &model.SyncState{
-		OrgID: orgId, ResourceKey: resourceKey,
-		Fingerprint: newSHA, LastCheckedAt: now, LastChangeAt: &now,
-	}); st.Code != http.StatusOK {
-		d.log.Errorf("failed updating sync state for %s: %s", resourceKey, st.Message)
-		return
-	}
+		if p.Fingerprint == nil {
+			r.firstSeen = true
+		} else if newSHA != *p.Fingerprint {
+			r.changed = true
+		}
 
-	for _, fleetName := range target.fleetNames {
-		event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, resourceKey, newSHA)
-		if event != nil {
-			d.serviceHandler.CreateEvent(ctx, orgId, event)
-		}
+		results = append(results, r)
 	}
-	for _, deviceName := range target.deviceNames {
-		event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, resourceKey, newSHA)
-		if event != nil {
-			d.serviceHandler.CreateEvent(ctx, orgId, event)
-		}
-	}
+	return results
 }
 
-func containsTemplateParam(s string) bool {
-	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
+// reconcile batch-updates sync states and emits events for changed probes.
+func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, results []probeResult) {
+	now := time.Now().UTC()
+
+	var upsertStates []model.SyncState
+	var unchangedKeys []string
+
+	for _, r := range results {
+		if r.firstSeen || r.changed {
+			upsertStates = append(upsertStates, model.SyncState{
+				OrgID:         orgId,
+				ResourceKey:   r.resourceKey,
+				Fingerprint:   r.newSHA,
+				LastCheckedAt: now,
+				LastChangeAt:  &now,
+			})
+		} else {
+			unchangedKeys = append(unchangedKeys, r.resourceKey)
+		}
+	}
+
+	if len(upsertStates) > 0 {
+		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
+			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
+			return
+		}
+	}
+
+	if len(unchangedKeys) > 0 {
+		if st := d.serviceHandler.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
+			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
+		}
+	}
+
+	for _, r := range results {
+		if !r.changed {
+			continue
+		}
+		for _, fleetName := range r.probe.FleetNames {
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
+			if event != nil {
+				d.serviceHandler.CreateEvent(ctx, orgId, event)
+			}
+		}
+		for _, deviceName := range r.probe.DeviceNames {
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
+			if event != nil {
+				d.serviceHandler.CreateEvent(ctx, orgId, event)
+			}
+		}
+	}
 }
