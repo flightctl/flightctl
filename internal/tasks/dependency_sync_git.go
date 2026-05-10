@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -100,17 +99,12 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	repoName string, group []*model.GitDependencyProbe) []probeResult {
 
-	if len(group[0].RepoSpec) == 0 {
+	if group[0].RepoSpec == nil {
 		d.log.Warnf("repository %s not found (no spec in JOIN result)", repoName)
 		return nil
 	}
 
-	var spec domain.RepositorySpec
-	if err := json.Unmarshal(group[0].RepoSpec, &spec); err != nil {
-		d.log.WithError(err).Warnf("failed decoding spec for repository %s", repoName)
-		return nil
-	}
-
+	spec := group[0].RepoSpec.Data
 	repoURL, err := spec.GetRepoURL()
 	if err != nil {
 		d.log.WithError(err).Warnf("failed getting URL for repository %s", repoName)

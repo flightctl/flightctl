@@ -2,10 +2,10 @@ package model
 
 import (
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"strings"
 
+	domain "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/google/uuid"
 )
 
@@ -75,5 +75,5 @@ type GitDependencyProbe struct {
 	Fingerprint    *string
 	FleetNames     StringArray
 	DeviceNames    StringArray
-	RepoSpec       json.RawMessage
+	RepoSpec       *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
 }
