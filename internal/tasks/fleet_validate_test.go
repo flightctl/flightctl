@@ -370,9 +370,109 @@ func TestCollectDependencyRefs(t *testing.T) {
 				log:            logrus.New(),
 				templateConfig: tt.config,
 			}
-			refs := logic.collectDependencyRefs(tt.fleetName)
+			refs := logic.collectDependencyRefs(context.Background(), tt.fleetName)
 			assert.Equal(t, tt.expected, refs)
 		})
+	}
+}
+
+func TestCollectDependencyRefs_ParameterizedRevision(t *testing.T) {
+	orgId := uuid.New()
+	okStatus := domain.Status{Code: http.StatusOK}
+
+	t.Run("When targetRevision is parameterized it should resolve per device", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+
+		devices := &domain.DeviceList{
+			Items: []domain.Device{
+				makeTestDevice("device-1", map[string]string{"branch": "feature-a"}),
+				makeTestDevice("device-2", map[string]string{"branch": "feature-b"}),
+			},
+		}
+		mockSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(devices, okStatus)
+
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
+		}
+
+		logic := FleetValidateLogic{
+			log:            logrus.New(),
+			serviceHandler: mockSvc,
+			orgId:          orgId,
+			templateConfig: config,
+		}
+
+		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
+
+		require.Len(t, refs, 2)
+		assert.Equal(t, "my-fleet", *refs[0].FleetName)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, "feature-a", *refs[0].Revision)
+		assert.Equal(t, "my-fleet", *refs[1].FleetName)
+		assert.Equal(t, "device-2", *refs[1].DeviceName)
+		assert.Equal(t, "feature-b", *refs[1].Revision)
+	})
+
+	t.Run("When targetRevision has no template params it should use fleet-level ref", func(t *testing.T) {
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "git-cfg", "my-repo", "main"),
+		}
+
+		logic := FleetValidateLogic{
+			log:            logrus.New(),
+			templateConfig: config,
+		}
+
+		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
+
+		require.Len(t, refs, 1)
+		assert.Equal(t, "my-fleet", *refs[0].FleetName)
+		assert.Nil(t, refs[0].DeviceName)
+		assert.Equal(t, "main", *refs[0].Revision)
+	})
+
+	t.Run("When devices resolve to the same branch it should create one ref per device", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+
+		devices := &domain.DeviceList{
+			Items: []domain.Device{
+				makeTestDevice("device-1", map[string]string{"branch": "main"}),
+				makeTestDevice("device-2", map[string]string{"branch": "main"}),
+			},
+		}
+		mockSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(devices, okStatus)
+
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
+		}
+
+		logic := FleetValidateLogic{
+			log:            logrus.New(),
+			serviceHandler: mockSvc,
+			orgId:          orgId,
+			templateConfig: config,
+		}
+
+		refs := logic.collectDependencyRefs(context.Background(), "my-fleet")
+
+		require.Len(t, refs, 2)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, "main", *refs[0].Revision)
+		assert.Equal(t, "device-2", *refs[1].DeviceName)
+		assert.Equal(t, "main", *refs[1].Revision)
+	})
+}
+
+func makeTestDevice(name string, labels map[string]string) domain.Device {
+	return domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name:   lo.ToPtr(name),
+			Labels: &labels,
+		},
 	}
 }
 

@@ -21,26 +21,6 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func makeGitDepRef(fleetName, repoName, revision string) model.DependencyRef {
-	return model.DependencyRef{
-		FleetName:      lo.ToPtr(fleetName),
-		DeviceName:     lo.ToPtr(""),
-		RefType:        "git",
-		RepositoryName: lo.ToPtr(repoName),
-		Revision:       lo.ToPtr(revision),
-	}
-}
-
-func makeDeviceDepRef(deviceName, repoName, revision string) model.DependencyRef {
-	return model.DependencyRef{
-		FleetName:      lo.ToPtr(""),
-		DeviceName:     lo.ToPtr(deviceName),
-		RefType:        "git",
-		RepositoryName: lo.ToPtr(repoName),
-		Revision:       lo.ToPtr(revision),
-	}
-}
-
 type emittedEvent struct {
 	kind string
 	name string
