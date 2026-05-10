@@ -219,6 +219,14 @@ func (h *Harness) RefreshClient() error {
 	return nil
 }
 
+// GetV1Alpha1Client returns the v1alpha1 API client for alpha resources like vulnerabilities.
+func (h *Harness) GetV1Alpha1Client() interface{} {
+	if h.clientWrapper == nil {
+		return nil
+	}
+	return h.clientWrapper.V1Alpha1()
+}
+
 // GetDefaultK8sContext returns the current kubectl context name.
 func (h *Harness) GetDefaultK8sContext() (string, error) {
 	out, err := h.SH("kubectl", "config", "current-context")

@@ -105,7 +105,7 @@ func (p *ServiceLifecycleProvider) Stop(service infra.ServiceName) error {
 	return nil
 }
 
-// Restart restarts a service by deleting its pod.
+// Restart restarts a service by deleting its pod and waiting for termination.
 func (p *ServiceLifecycleProvider) Restart(service infra.ServiceName) error {
 	if p.client == nil {
 		return fmt.Errorf("no Kubernetes client")
@@ -116,13 +116,61 @@ func (p *ServiceLifecycleProvider) Restart(service infra.ServiceName) error {
 	}
 	ctx := context.Background()
 
+	oldPods, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label})
+	if err != nil {
+		return fmt.Errorf("failed to list pods for %s: %w", service, err)
+	}
+
+	oldUIDs := make(map[string]bool)
+	for _, pod := range oldPods.Items {
+		oldUIDs[string(pod.UID)] = true
+	}
+
 	err = p.client.CoreV1().Pods(ns).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: label})
 	if err != nil {
 		return fmt.Errorf("failed to delete pod for %s: %w", service, err)
 	}
 	p.infraP.InvalidateExposeCache(service)
-	logrus.Infof("K8s: deleted pod with label %s in namespace %s", label, ns)
+	logrus.Infof("K8s: deleted pod with label %s in namespace %s, waiting for termination...", label, ns)
+
+	if len(oldUIDs) > 0 {
+		if err := p.waitForPodsTerminated(ns, label, oldUIDs, 2*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for old pods to terminate: %w", err)
+		}
+	}
+
+	logrus.Infof("K8s: old pods terminated for service %s", service)
 	return nil
+}
+
+// waitForPodsTerminated waits until all pods with the given UIDs are gone.
+func (p *ServiceLifecycleProvider) waitForPodsTerminated(ns, label string, oldUIDs map[string]bool, timeout time.Duration) error {
+	ctx := context.Background()
+	deadline := time.Now().Add(timeout)
+	polling := 250 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		list, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label})
+		if err != nil {
+			return fmt.Errorf("failed to list pods: %w", err)
+		}
+
+		oldStillRunning := 0
+		for _, pod := range list.Items {
+			if oldUIDs[string(pod.UID)] {
+				oldStillRunning++
+			}
+		}
+
+		if oldStillRunning == 0 {
+			return nil
+		}
+
+		logrus.Debugf("K8s: waiting for %d old pods to terminate...", oldStillRunning)
+		time.Sleep(polling)
+	}
+
+	return fmt.Errorf("timeout waiting for old pods to terminate")
 }
 
 // WaitForReady waits for a service to be ready: pod Running and Ready (K8s readiness).
