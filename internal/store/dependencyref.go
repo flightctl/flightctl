@@ -101,8 +101,8 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 		refs[i].OrgID = orgID
 	}
 	return s.getDB(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "org_id"}, {Name: "fleet_name"}, {Name: "device_name"}, {Name: "ref_type"}, {Name: "repository_name"}, {Name: "secret_name"}, {Name: "secret_namespace"}},
-		DoUpdates: clause.AssignmentColumns([]string{"revision", "resource_key"}),
+		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}, {Name: "fleet_name"}, {Name: "device_name"}},
+		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name"}),
 	}).Create(&refs).Error
 }
 

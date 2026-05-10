@@ -47,16 +47,17 @@ func (a StringArray) Value() (driver.Value, error) {
 // HTTP resource, or K8s secret). The sync controller reads these rows as a
 // polling work list (git/HTTP) and fan-out lookup (all types).
 type DependencyRef struct {
-	OrgID           uuid.UUID `gorm:"type:uuid;primaryKey"`
-	FleetName       *string   `gorm:"primaryKey;default:''"`
-	DeviceName      *string   `gorm:"primaryKey;default:''"`
-	RefType         string    `gorm:"primaryKey"` // "git", "http", "secret"
-	ResourceKey     string    // Stable key matching sync_state, e.g. "git:repo/ref"
-	RepositoryName  *string   `gorm:"primaryKey;default:''"`
+	OrgID       uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ResourceKey string    `gorm:"primaryKey"` // e.g. "git:repo/ref", "http:repo/path", "secret:ns/name"
+	FleetName   *string   `gorm:"primaryKey;default:''"`
+	DeviceName  *string   `gorm:"primaryKey;default:''"`
+
+	RefType         string // "git", "http", "secret"
+	RepositoryName  *string
 	Revision        *string
 	HTTPSuffix      *string
-	SecretName      *string `gorm:"primaryKey;default:''"`
-	SecretNamespace *string `gorm:"primaryKey;default:''"`
+	SecretName      *string
+	SecretNamespace *string
 }
 
 func (DependencyRef) TableName() string {

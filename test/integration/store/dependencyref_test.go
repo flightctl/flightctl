@@ -49,6 +49,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should return only refs matching the requested type", func() {
 			gitRef := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "git:my-repo/main",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "git",
@@ -57,6 +58,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			httpRef := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "http:my-http-repo//config.json",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -93,6 +95,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should update the existing row", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "git:my-repo/main",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "git",
@@ -117,6 +120,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should remove all refs for that fleet and leave others", func() {
 			ref1 := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "git:repo-a/main",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "git",
@@ -125,6 +129,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			ref2 := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "http:repo-b//data",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -133,6 +138,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			ref3 := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "git:repo-c/main",
 				FleetName:      lo.ToPtr("fleet-2"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "git",
@@ -162,6 +168,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should not return refs from a different org", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
+				ResourceKey:    "git:my-repo/main",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "git",
