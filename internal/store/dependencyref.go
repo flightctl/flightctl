@@ -15,6 +15,7 @@ type DependencyRef interface {
 	Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
 	ListByRefType(ctx context.Context, orgID uuid.UUID, refType string) ([]model.DependencyRef, error)
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
+	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 }
 
 type DependencyRefStore struct {
@@ -63,4 +64,25 @@ func (s *DependencyRefStore) DeleteByFleet(ctx context.Context, orgID uuid.UUID,
 		return ErrorFromGormError(result.Error)
 	}
 	return nil
+}
+
+// ReplaceByFleet atomically replaces all dependency refs for a fleet.
+// The delete and bulk insert run in a single transaction so readers never
+// see a partially updated set.
+func (s *DependencyRefStore) ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
+	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("org_id = ? AND fleet_name = ?", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		if len(refs) == 0 {
+			return nil
+		}
+		for i := range refs {
+			refs[i].OrgID = orgID
+		}
+		if err := tx.Create(&refs).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		return nil
+	})
 }

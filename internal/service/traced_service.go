@@ -634,15 +634,9 @@ func (t *TracedService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, 
 }
 
 // --- DependencyRef ---
-func (t *TracedService) UpsertDependencyRef(ctx context.Context, orgId uuid.UUID, ref *model.DependencyRef) domain.Status {
-	ctx, span := startSpan(ctx, "UpsertDependencyRef")
-	st := t.inner.UpsertDependencyRef(ctx, orgId, ref)
-	endSpan(span, st)
-	return st
-}
-func (t *TracedService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
-	ctx, span := startSpan(ctx, "DeleteDependencyRefsByFleet")
-	st := t.inner.DeleteDependencyRefsByFleet(ctx, orgId, fleetName)
+func (t *TracedService) ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceDependencyRefsByFleet")
+	st := t.inner.ReplaceDependencyRefsByFleet(ctx, orgId, fleetName, refs)
 	endSpan(span, st)
 	return st
 }

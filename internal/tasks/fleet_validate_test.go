@@ -71,7 +71,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			mockService.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Mock DependencyRef operations to succeed
-			mockService.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), gomock.Any(), fleetName).Return(domain.Status{Code: http.StatusOK})
+			mockService.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Mock CreateTemplateVersion to capture the immediateRollout parameter
 			var capturedImmediateRollout bool
@@ -381,17 +381,16 @@ func TestPopulateDependencyRefs(t *testing.T) {
 	okStatus := domain.Status{Code: http.StatusOK}
 	failStatus := domain.Status{Code: http.StatusInternalServerError, Message: "db error"}
 
-	t.Run("When config has refs it should delete then upsert each", func(t *testing.T) {
+	t.Run("When config has refs it should replace them transactionally", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockSvc := service.NewMockService(ctrl)
 
-		var upsertedRefs []model.DependencyRef
-		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet").Return(okStatus)
-		mockSvc.EXPECT().UpsertDependencyRef(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
-			func(_ context.Context, _ uuid.UUID, ref *model.DependencyRef) domain.Status {
-				upsertedRefs = append(upsertedRefs, *ref)
+		var replacedRefs []model.DependencyRef
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet", gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
+				replacedRefs = refs
 				return okStatus
-			}).Times(2)
+			})
 
 		logic := FleetValidateLogic{
 			log:            logrus.New(),
@@ -405,18 +404,18 @@ func TestPopulateDependencyRefs(t *testing.T) {
 		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
 		require.NoError(t, err)
 
-		require.Len(t, upsertedRefs, 2)
-		assert.Equal(t, "git", upsertedRefs[0].RefType)
-		assert.Equal(t, "my-repo", *upsertedRefs[0].RepositoryName)
-		assert.Equal(t, "secret", upsertedRefs[1].RefType)
-		assert.Equal(t, "my-secret", *upsertedRefs[1].SecretName)
+		require.Len(t, replacedRefs, 2)
+		assert.Equal(t, "git", replacedRefs[0].RefType)
+		assert.Equal(t, "my-repo", *replacedRefs[0].RepositoryName)
+		assert.Equal(t, "secret", replacedRefs[1].RefType)
+		assert.Equal(t, "my-secret", *replacedRefs[1].SecretName)
 	})
 
-	t.Run("When config is empty it should delete then upsert nothing", func(t *testing.T) {
+	t.Run("When config is empty it should replace with empty list", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockSvc := service.NewMockService(ctrl)
 
-		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet").Return(okStatus)
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet", gomock.Any()).Return(okStatus)
 
 		logic := FleetValidateLogic{
 			log:            logrus.New(),
@@ -428,11 +427,11 @@ func TestPopulateDependencyRefs(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("When DeleteDependencyRefsByFleet fails it should return error", func(t *testing.T) {
+	t.Run("When ReplaceDependencyRefsByFleet fails it should return error", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockSvc := service.NewMockService(ctrl)
 
-		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet").Return(failStatus)
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet", gomock.Any()).Return(failStatus)
 
 		logic := FleetValidateLogic{
 			log:            logrus.New(),
@@ -444,26 +443,6 @@ func TestPopulateDependencyRefs(t *testing.T) {
 		}
 		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "deleting stale dependency refs")
-	})
-
-	t.Run("When UpsertDependencyRef fails it should return error", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		mockSvc := service.NewMockService(ctrl)
-
-		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, "my-fleet").Return(okStatus)
-		mockSvc.EXPECT().UpsertDependencyRef(gomock.Any(), orgId, gomock.Any()).Return(failStatus)
-
-		logic := FleetValidateLogic{
-			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
-			templateConfig: &[]domain.ConfigProviderSpec{
-				makeGitConfigItem(t, "cfg", "repo", "main"),
-			},
-		}
-		err := logic.populateDependencyRefs(context.Background(), "my-fleet")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "upserting dependency ref")
+		assert.Contains(t, err.Error(), "replacing dependency refs")
 	})
 }
