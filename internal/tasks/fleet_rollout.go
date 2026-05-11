@@ -256,14 +256,8 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return err
 	}
 	deviceName := f.event.InvolvedObject.Name
-	if st := f.serviceHandler.DeleteDependencyRefsByDevice(ctx, f.orgId, deviceName); st.Code != http.StatusOK {
-		f.log.Errorf("failed to delete old dependency refs for device %s: %s", deviceName, st.Message)
-	}
-	if len(refs) > 0 {
-		st := f.serviceHandler.BulkUpsertDeviceDependencyRefs(ctx, f.orgId, refs)
-		if st.Code != http.StatusOK {
-			f.log.Errorf("failed to upsert device dependency refs for device %s: %s", deviceName, st.Message)
-		}
+	if st := f.serviceHandler.ReplaceFleetDeviceDependencyRefs(ctx, f.orgId, ownerName, deviceName, refs); st.Code != http.StatusOK {
+		f.log.Errorf("failed to replace dependency refs for device %s in fleet %s: %s", deviceName, ownerName, st.Message)
 	}
 	return nil
 }

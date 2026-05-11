@@ -1134,6 +1134,229 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 	})
 }
 
+func TestDeviceDependencyRefLifecycle(t *testing.T) {
+	fleetName := "fleet-a"
+	owner := util.SetResourceOwner(domain.FleetKind, fleetName)
+
+	t.Run("When device is standalone it should produce only device-level refs with empty fleet name", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: "standalone-dev"},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("standalone-dev"),
+			},
+		}
+		configItem := makeGitConfigItem(t, "git-cfg", "my-repo", "main")
+		_, refs, errs := logic.replaceGitConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		assert.Empty(t, refs, "non-parameterized revision should not produce device-level refs")
+	})
+
+	t.Run("When device is owned by fleet A it should produce refs scoped to fleet A", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "main"},
+			},
+		}
+		configItem := makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}")
+		_, refs, errs := logic.replaceGitConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, fleetName, *refs[0].FleetName)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, "git:my-repo/main", refs[0].ResourceKey)
+	})
+
+	t.Run("When fleet config has parameterized ref it should create device-level ref with resolved value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "feature-x"},
+			},
+		}
+		tv := &domain.TemplateVersion{
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
+				},
+			},
+		}
+		_, refs, errs := logic.getDeviceConfig(device, tv)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, fleetName, *refs[0].FleetName)
+		assert.Equal(t, "feature-x", *refs[0].Revision)
+		assert.Equal(t, "git:my-repo/feature-x", refs[0].ResourceKey)
+	})
+
+	t.Run("When parameterized ref becomes non-parameterized it should produce no device-level refs", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "main"},
+			},
+		}
+		tv := &domain.TemplateVersion{
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeGitConfigItem(t, "git-cfg", "my-repo", "main"),
+				},
+			},
+		}
+		_, refs, errs := logic.getDeviceConfig(device, tv)
+		require.Empty(t, errs)
+		assert.Empty(t, refs, "non-parameterized revision should not produce device-level refs")
+	})
+
+	t.Run("When device label changes it should update parameterized ref value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		configItem := makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}")
+
+		deviceBefore := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "main"},
+			},
+		}
+		_, refsBefore, errsBefore := logic.replaceGitConfigParameters(deviceBefore, configItem)
+		require.Empty(t, errsBefore)
+		require.Len(t, refsBefore, 1)
+		assert.Equal(t, "git:my-repo/main", refsBefore[0].ResourceKey)
+
+		deviceAfter := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "feature-x"},
+			},
+		}
+		_, refsAfter, errsAfter := logic.replaceGitConfigParameters(deviceAfter, configItem)
+		require.Empty(t, errsAfter)
+		require.Len(t, refsAfter, 1)
+		assert.Equal(t, "git:my-repo/feature-x", refsAfter[0].ResourceKey)
+		assert.NotEqual(t, refsBefore[0].ResourceKey, refsAfter[0].ResourceKey)
+	})
+
+	t.Run("When device label changes on irrelevant key it should not change ref value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		configItem := makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}")
+
+		deviceBefore := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "main", "env": "prod"},
+			},
+		}
+		_, refsBefore, errsBefore := logic.replaceGitConfigParameters(deviceBefore, configItem)
+		require.Empty(t, errsBefore)
+		require.Len(t, refsBefore, 1)
+
+		deviceAfter := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "main", "env": "staging"},
+			},
+		}
+		_, refsAfter, errsAfter := logic.replaceGitConfigParameters(deviceAfter, configItem)
+		require.Empty(t, errsAfter)
+		require.Len(t, refsAfter, 1)
+		assert.Equal(t, refsBefore[0].ResourceKey, refsAfter[0].ResourceKey)
+	})
+
+	t.Run("When RolloutDevice is called it should use transactional ReplaceFleetDeviceDependencyRefs", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+		orgId := uuid.New()
+		okStatus := domain.Status{Code: http.StatusOK}
+
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"branch": "feature-a"},
+			},
+			Spec: &domain.DeviceSpec{},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{},
+			},
+		}
+		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, "device-1").Return(device, okStatus)
+
+		tv := &domain.TemplateVersion{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("v1")},
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeGitConfigItem(t, "git-cfg", "my-repo", "{{ .metadata.labels.branch }}"),
+				},
+			},
+		}
+		mockSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, fleetName).Return(tv, okStatus)
+
+		fleet := createTestFleetForRollout(fleetName, nil)
+		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+
+		mockSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).Return(okStatus)
+
+		mockSvc.EXPECT().ReplaceFleetDeviceDependencyRefs(
+			gomock.Any(), orgId, fleetName, "device-1",
+			gomock.Len(1),
+		).Return(okStatus)
+
+		logic := FleetRolloutsLogic{
+			log:            logrus.New(),
+			serviceHandler: mockSvc,
+			orgId:          orgId,
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: "device-1", Kind: domain.DeviceKind},
+			},
+		}
+		err := logic.RolloutDevice(context.Background())
+		require.NoError(t, err)
+	})
+}
+
 func TestFleetRolloutIterationContext(t *testing.T) {
 	t.Run("child not expired when parent deadline passed", func(t *testing.T) {
 		parent, cancel := context.WithTimeout(context.Background(), 0)
