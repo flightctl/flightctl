@@ -1339,8 +1339,8 @@ func TestDeviceDependencyRefLifecycle(t *testing.T) {
 		mockSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
 		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).Return(okStatus)
 
-		mockSvc.EXPECT().ReplaceFleetDeviceDependencyRefs(
-			gomock.Any(), orgId, fleetName, "device-1",
+		mockSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(
+			gomock.Any(), orgId, "device-1",
 			gomock.Len(1),
 		).Return(okStatus)
 

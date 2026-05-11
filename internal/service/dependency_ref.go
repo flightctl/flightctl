@@ -34,6 +34,11 @@ func (h *ServiceHandler) ReplaceFleetDeviceDependencyRefs(ctx context.Context, o
 	return StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ReplaceFleetScopedDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	err := h.store.DependencyRef().ReplaceFleetScopedDeviceRefs(ctx, orgId, deviceName, refs)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
 	err := h.store.DependencyRef().ReplaceByStandaloneDevice(ctx, orgId, deviceName, refs)
 	return StoreErrorToApiStatus(err, false, "", nil)

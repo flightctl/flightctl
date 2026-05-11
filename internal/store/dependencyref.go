@@ -21,6 +21,7 @@ type DependencyRef interface {
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	ReplaceByFleetDevice(ctx context.Context, orgID uuid.UUID, fleetName, deviceName string, refs []model.DependencyRef) error
+	ReplaceFleetScopedDeviceRefs(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
 	ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
@@ -102,6 +103,14 @@ func (s *DependencyRefStore) ReplaceDeviceRefsByFleet(ctx context.Context, orgID
 // stale refs are cleaned when a device's resolved revision changes.
 func (s *DependencyRefStore) ReplaceByFleetDevice(ctx context.Context, orgID uuid.UUID, fleetName, deviceName string, refs []model.DependencyRef) error {
 	return s.transactionalReplace(ctx, orgID, "org_id = ? AND fleet_name = ? AND device_name = ?", []interface{}{orgID, fleetName, deviceName}, refs)
+}
+
+// ReplaceFleetScopedDeviceRefs atomically replaces all fleet-scoped refs for a
+// device (any fleet). Used by RolloutDevice to handle fleet-move scenarios
+// where the device's old-fleet refs must be cleaned alongside inserting new-fleet refs.
+// Standalone refs (fleet_name=”) are left untouched.
+func (s *DependencyRefStore) ReplaceFleetScopedDeviceRefs(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error {
+	return s.transactionalReplace(ctx, orgID, "org_id = ? AND device_name = ? AND fleet_name <> ''", []interface{}{orgID, deviceName}, refs)
 }
 
 // ReplaceByStandaloneDevice atomically replaces all dependency refs for a
