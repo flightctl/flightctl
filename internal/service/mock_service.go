@@ -365,6 +365,20 @@ func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
 }
 
+// DeleteDependencyRefsByFleet mocks base method.
+func (m *MockService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDependencyRefsByFleet", ctx, orgId, fleetName)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteDependencyRefsByFleet indicates an expected call of DeleteDependencyRefsByFleet.
+func (mr *MockServiceMockRecorder) DeleteDependencyRefsByFleet(ctx, orgId, fleetName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDependencyRefsByFleet", reflect.TypeOf((*MockService)(nil).DeleteDependencyRefsByFleet), ctx, orgId, fleetName)
+}
+
 // DeleteDevice mocks base method.
 func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()

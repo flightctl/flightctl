@@ -16,6 +16,11 @@ import (
 
 func populateDependencyRefs(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
 	logic := NewPopulateDependencyRefsLogic(log, serviceHandler, orgId)
+
+	if event.Reason == domain.EventReasonResourceDeleted {
+		return logic.HandleDeletion(ctx, event)
+	}
+
 	switch event.InvolvedObject.Kind {
 	case domain.FleetKind:
 		return logic.PopulateForFleet(ctx, event.InvolvedObject.Name)
@@ -42,7 +47,7 @@ func (p PopulateDependencyRefsLogic) PopulateForFleet(ctx context.Context, fleet
 		return fmt.Errorf("failed getting fleet %s: %s", fleetName, st.Message)
 	}
 
-	refs := collectConfigRefs(p.log, fleet.Spec.Template.Spec.Config, &fleetName, nil)
+	refs := collectConfigRefs(p.log, fleet.Spec.Template.Spec.Config, fleetName, "")
 	if st := p.serviceHandler.ReplaceDependencyRefsByFleet(ctx, p.orgId, fleetName, refs); st.Code != http.StatusOK {
 		return fmt.Errorf("replacing dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
@@ -56,6 +61,12 @@ func (p PopulateDependencyRefsLogic) PopulateForDevice(ctx context.Context, devi
 	}
 
 	if isFleetOwned(device) {
+		// Clean up any leftover standalone refs from before the device was
+		// adopted by a fleet. Fleet-owned devices get their refs from
+		// fleet validation (non-parameterized) or fleet rollout (parameterized).
+		if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, nil); st.Code != http.StatusOK {
+			return fmt.Errorf("cleaning standalone refs for fleet-owned device %s: %s", deviceName, st.Message)
+		}
 		return nil
 	}
 
@@ -64,10 +75,25 @@ func (p PopulateDependencyRefsLogic) PopulateForDevice(ctx context.Context, devi
 		config = device.Spec.Config
 	}
 
-	emptyFleet := ""
-	refs := collectConfigRefs(p.log, config, &emptyFleet, &deviceName)
+	refs := collectConfigRefs(p.log, config, "", deviceName)
 	if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, refs); st.Code != http.StatusOK {
 		return fmt.Errorf("replacing dependency refs for standalone device %s: %s", deviceName, st.Message)
+	}
+	return nil
+}
+
+// HandleDeletion cleans up all dependency_refs for a deleted fleet or device.
+func (p PopulateDependencyRefsLogic) HandleDeletion(ctx context.Context, event domain.Event) error {
+	name := event.InvolvedObject.Name
+	switch event.InvolvedObject.Kind {
+	case domain.FleetKind:
+		if st := p.serviceHandler.DeleteDependencyRefsByFleet(ctx, p.orgId, name); st.Code != http.StatusOK {
+			return fmt.Errorf("deleting dependency refs for fleet %s: %s", name, st.Message)
+		}
+	case domain.DeviceKind:
+		if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, name, nil); st.Code != http.StatusOK {
+			return fmt.Errorf("deleting dependency refs for device %s: %s", name, st.Message)
+		}
 	}
 	return nil
 }
@@ -83,14 +109,9 @@ func isFleetOwned(device *domain.Device) bool {
 	return ownerType == domain.FleetKind
 }
 
-func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSpec, fleetName *string, deviceName *string) []model.DependencyRef {
+func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSpec, fleetName string, deviceName string) []model.DependencyRef {
 	if config == nil {
 		return nil
-	}
-
-	dn := ""
-	if deviceName != nil {
-		dn = *deviceName
 	}
 
 	var refs []model.DependencyRef
@@ -111,8 +132,10 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if isParameterized(gitSpec.GitRef.TargetRevision) {
 				continue
 			}
+			fn := fleetName
+			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:      fleetName,
+				FleetName:      &fn,
 				DeviceName:     &dn,
 				RefType:        "git",
 				ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
@@ -129,8 +152,10 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if httpSpec.HttpRef.Suffix != nil {
 				suffix = *httpSpec.HttpRef.Suffix
 			}
+			fn := fleetName
+			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:      fleetName,
+				FleetName:      &fn,
 				DeviceName:     &dn,
 				RefType:        "http",
 				ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, suffix),
@@ -143,8 +168,10 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 				log.WithError(err).Warn("skipping K8s secret config item that failed to decode")
 				continue
 			}
+			fn := fleetName
+			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:       fleetName,
+				FleetName:       &fn,
 				DeviceName:      &dn,
 				RefType:         "secret",
 				ResourceKey:     fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name),
@@ -163,18 +190,22 @@ func isParameterized(s string) bool {
 func shouldPopulateDependencyRefs(_ context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	switch event.InvolvedObject.Kind {
 	case domain.FleetKind:
-		if event.Reason == domain.EventReasonResourceCreated {
+		switch event.Reason {
+		case domain.EventReasonResourceCreated:
 			return true
-		}
-		if event.Reason == domain.EventReasonResourceUpdated {
+		case domain.EventReasonResourceUpdated:
 			return hasUpdatedFields(event.Details, log, domain.SpecTemplate)
+		case domain.EventReasonResourceDeleted:
+			return true
 		}
 	case domain.DeviceKind:
-		if event.Reason == domain.EventReasonResourceCreated {
+		switch event.Reason {
+		case domain.EventReasonResourceCreated:
 			return true
-		}
-		if event.Reason == domain.EventReasonResourceUpdated {
+		case domain.EventReasonResourceUpdated:
 			return hasUpdatedFields(event.Details, log, domain.Spec)
+		case domain.EventReasonResourceDeleted:
+			return true
 		}
 	}
 	return false
