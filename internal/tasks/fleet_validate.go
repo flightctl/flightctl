@@ -284,4 +284,3 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 	}
 	return base + "-" + shortHash
 }
-
