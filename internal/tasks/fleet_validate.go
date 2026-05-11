@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -75,12 +74,6 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	status = t.serviceHandler.OverwriteFleetRepositoryRefs(ctx, t.orgId, *fleet.Metadata.Name, referencedRepos...)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting repository references: %s", status.Message)
-	}
-
-	// Populate dependency_refs for the sync controller's polling work list.
-	// Done even if validation failed — same rationale as OverwriteFleetRepositoryRefs.
-	if err := t.populateDependencyRefs(ctx, *fleet.Metadata.Name); err != nil {
-		return fmt.Errorf("failed populating dependency refs for fleet %s: %w", *fleet.Metadata.Name, err)
 	}
 
 	if validationErr != nil {
@@ -292,88 +285,3 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 	return base + "-" + shortHash
 }
 
-// populateDependencyRefs replaces all dependency_refs rows for the fleet
-// with the current set extracted from the template config. This gives the
-// sync controller an up-to-date polling work list.
-func (t *FleetValidateLogic) populateDependencyRefs(ctx context.Context, fleetName string) error {
-	refs := t.collectDependencyRefs(fleetName)
-
-	if status := t.serviceHandler.ReplaceDependencyRefsByFleet(ctx, t.orgId, fleetName, refs); status.Code != http.StatusOK {
-		return fmt.Errorf("replacing dependency refs: %s", status.Message)
-	}
-	return nil
-}
-
-// collectDependencyRefs iterates the template config and builds a
-// DependencyRef for each non-parameterized external dependency (git, HTTP,
-// K8s secret). Parameterized git revisions are skipped here — device-level
-// refs for those are populated during fleet rollout, which already iterates
-// devices and resolves templates.
-func (t *FleetValidateLogic) collectDependencyRefs(fleetName string) []model.DependencyRef {
-	if t.templateConfig == nil {
-		return nil
-	}
-
-	var refs []model.DependencyRef
-	for i := range *t.templateConfig {
-		configItem := (*t.templateConfig)[i]
-		configType, err := configItem.Type()
-		if err != nil {
-			t.log.WithError(err).Warn("skipping config item with unknown type during dependency ref collection")
-			continue
-		}
-		switch configType {
-		case domain.GitConfigProviderType:
-			gitSpec, err := configItem.AsGitConfigProviderSpec()
-			if err != nil {
-				t.log.WithError(err).Warn("skipping git config item that failed to decode")
-				continue
-			}
-			if isParameterized(gitSpec.GitRef.TargetRevision) {
-				continue // device-level refs are populated during fleet rollout
-			}
-			refs = append(refs, model.DependencyRef{
-				FleetName:      &fleetName,
-				RefType:        "git",
-				ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
-				RepositoryName: &gitSpec.GitRef.Repository,
-				Revision:       &gitSpec.GitRef.TargetRevision,
-			})
-		case domain.HttpConfigProviderType:
-			httpSpec, err := configItem.AsHttpConfigProviderSpec()
-			if err != nil {
-				t.log.WithError(err).Warn("skipping HTTP config item that failed to decode")
-				continue
-			}
-			suffix := ""
-			if httpSpec.HttpRef.Suffix != nil {
-				suffix = *httpSpec.HttpRef.Suffix
-			}
-			refs = append(refs, model.DependencyRef{
-				FleetName:      &fleetName,
-				RefType:        "http",
-				ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, suffix),
-				RepositoryName: &httpSpec.HttpRef.Repository,
-				HTTPSuffix:     httpSpec.HttpRef.Suffix,
-			})
-		case domain.KubernetesSecretProviderType:
-			k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				t.log.WithError(err).Warn("skipping K8s secret config item that failed to decode")
-				continue
-			}
-			refs = append(refs, model.DependencyRef{
-				FleetName:       &fleetName,
-				RefType:         "secret",
-				ResourceKey:     fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name),
-				SecretName:      &k8sSpec.SecretRef.Name,
-				SecretNamespace: &k8sSpec.SecretRef.Namespace,
-			})
-		}
-	}
-	return refs
-}
-
-func isParameterized(s string) bool {
-	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
-}

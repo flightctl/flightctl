@@ -90,6 +90,13 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
+		if shouldPopulateDependencyRefs(ctx, eventWithOrgId.Event, log) {
+			taskName = "populateDependencyRefs"
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return populateDependencyRefs(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {

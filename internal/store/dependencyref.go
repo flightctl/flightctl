@@ -19,6 +19,7 @@ type DependencyRef interface {
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
+	ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 }
@@ -96,6 +97,26 @@ func (s *DependencyRefStore) ReplaceByFleet(ctx context.Context, orgID uuid.UUID
 func (s *DependencyRefStore) ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
 	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("org_id = ? AND fleet_name = ? AND device_name <> ''", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		if len(refs) == 0 {
+			return nil
+		}
+		for i := range refs {
+			refs[i].OrgID = orgID
+		}
+		if err := tx.Create(&refs).Error; err != nil {
+			return ErrorFromGormError(err)
+		}
+		return nil
+	})
+}
+
+// ReplaceByStandaloneDevice atomically replaces all dependency refs for a
+// standalone device (fleet_name = ”, device_name = deviceName).
+func (s *DependencyRefStore) ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error {
+	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("org_id = ? AND fleet_name = '' AND device_name = ?", orgID, deviceName).Delete(&model.DependencyRef{}).Error; err != nil {
 			return ErrorFromGormError(err)
 		}
 		if len(refs) == 0 {
