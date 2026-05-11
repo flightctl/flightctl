@@ -244,23 +244,3 @@ func makeHttpConfigItem(t *testing.T, name, repo string, suffix *string) domain.
 	require.NoError(t, item.FromHttpConfigProviderSpec(*httpSpec))
 	return item
 }
-
-func makeK8sSecretConfigItem(t *testing.T, name, secretName, secretNamespace string) domain.ConfigProviderSpec {
-	t.Helper()
-	k8sSpec := &domain.KubernetesSecretProviderSpec{Name: name}
-	k8sSpec.SecretRef.Name = secretName
-	k8sSpec.SecretRef.Namespace = secretNamespace
-	k8sSpec.SecretRef.MountPath = "/etc/secret"
-	item := domain.ConfigProviderSpec{}
-	require.NoError(t, item.FromKubernetesSecretProviderSpec(*k8sSpec))
-	return item
-}
-
-func makeInlineConfigItem(t *testing.T, name string) domain.ConfigProviderSpec {
-	t.Helper()
-	inlineSpec := &domain.InlineConfigProviderSpec{Name: name}
-	item := domain.ConfigProviderSpec{}
-	require.NoError(t, item.FromInlineConfigProviderSpec(*inlineSpec))
-	return item
-}
-
