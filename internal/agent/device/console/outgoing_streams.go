@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -167,8 +168,16 @@ func (o *outgoingErrorStream) emit(err error) {
 	case *exec.ExitError:
 		exitCode = actual.ExitCode()
 	default:
-		o.log.Errorf("unexpected error type %T: %v", err, err)
-		exitCode = 255
+		if errors.Is(err, context.Canceled) {
+			o.log.Debugf("console command wait ended after disconnect: %v", err)
+			exitCode = 0
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			o.log.Debugf("console command wait with exceeded context deadline: %v", err)
+			exitCode = 0
+		} else {
+			o.log.Errorf("unexpected error type %T: %v", err, err)
+			exitCode = 255
+		}
 	}
 	status := metav1.Status{
 		Status: lo.Ternary[string](exitCode == 0, metav1.StatusSuccess, metav1.StatusFailure),
