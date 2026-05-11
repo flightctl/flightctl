@@ -3,6 +3,8 @@ package fips_test
 import (
 	"context"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -34,6 +36,14 @@ var _ = BeforeSuite(func() {
 	if !testutil.BinaryExistsOnPath("oc") {
 		Skip("FIPS suite requires 'oc' on PATH for OpenShift cluster checks")
 	}
+
+	installConfig, err := getClusterInstallConfig()
+	if err != nil {
+		Skip("could not read cluster-config-v1: " + err.Error())
+	}
+	if !strings.Contains(strings.ToLower(installConfig), "fips: true") {
+		Skip("FIPS suite requires a cluster installed with FIPS enabled (fips: true in install-config)")
+	}
 })
 
 var _ = BeforeEach(func() {
@@ -49,6 +59,14 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred(), "login to API with token")
 })
+
+func getClusterInstallConfig() (string, error) {
+	out, err := exec.Command("oc", "get", "cm", "cluster-config-v1", "-n", "kube-system", "-o", "jsonpath={.data.install-config}").CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
 
 var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
