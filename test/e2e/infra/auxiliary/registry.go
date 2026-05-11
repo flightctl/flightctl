@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	registryImage         = "registry:2"
+	registryImage         = "quay.io/flightctl/e2eregistry:2"
 	registryContainerName = "e2e-registry"
 	registryPort          = "5000/tcp"
 	registryHostPort      = "5000"

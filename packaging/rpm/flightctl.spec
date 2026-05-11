@@ -356,6 +356,8 @@ fi
         --var-tmp-dir "%{buildroot}%{_var}/tmp" \
         --var-lib-dir "%{buildroot}/var/lib"
 
+    mkdir -p %{buildroot}%{_sysconfdir}/flightctl/tpm-cas
+
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
@@ -521,6 +523,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/tpm-cas
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate

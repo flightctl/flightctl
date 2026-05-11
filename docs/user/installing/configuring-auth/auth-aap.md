@@ -286,15 +286,8 @@ Flight Control validates these existing AAP tokens rather than providing a separ
 
 ## Multi-Organization Access
 
-Users with access to multiple AAP organizations will have access to multiple Flight Control organizations:
-
-```bash
-# User has access to org-a and org-b in AAP
-# After authentication, they can access both organizations in Flight Control
-
-flightctl get devices --org org-a
-flightctl get devices --org org-b
-```
+Users with access to multiple AAP organizations will have access to multiple Flight Control organizations.
+For CLI organization selection and `--org` usage, see [Usage with multiple organizations](organizations.md#usage-with-multiple-organizations).
 
 ## Related Documentation
 
