@@ -75,48 +75,27 @@ func (s *DependencyRefStore) DeleteByFleet(ctx context.Context, orgID uuid.UUID,
 // ReplaceByFleet atomically replaces fleet-level dependency refs (device_name = ”).
 // Device-level refs (populated during fleet rollout) are left untouched.
 func (s *DependencyRefStore) ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
-	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("org_id = ? AND fleet_name = ? AND device_name = ''", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		if len(refs) == 0 {
-			return nil
-		}
-		for i := range refs {
-			refs[i].OrgID = orgID
-		}
-		if err := tx.Create(&refs).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		return nil
-	})
+	return s.transactionalReplace(ctx, orgID, "org_id = ? AND fleet_name = ? AND device_name = ''", []interface{}{orgID, fleetName}, refs)
 }
 
 // ReplaceDeviceRefsByFleet atomically replaces all device-level dependency refs
 // for a fleet. Fleet-level refs (device_name = ”) are left untouched.
 func (s *DependencyRefStore) ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error {
-	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("org_id = ? AND fleet_name = ? AND device_name <> ''", orgID, fleetName).Delete(&model.DependencyRef{}).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		if len(refs) == 0 {
-			return nil
-		}
-		for i := range refs {
-			refs[i].OrgID = orgID
-		}
-		if err := tx.Create(&refs).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		return nil
-	})
+	return s.transactionalReplace(ctx, orgID, "org_id = ? AND fleet_name = ? AND device_name <> ''", []interface{}{orgID, fleetName}, refs)
 }
 
 // ReplaceByStandaloneDevice atomically replaces all dependency refs for a
 // standalone device (fleet_name = ”, device_name = deviceName).
 func (s *DependencyRefStore) ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error {
+	return s.transactionalReplace(ctx, orgID, "org_id = ? AND fleet_name = '' AND device_name = ?", []interface{}{orgID, deviceName}, refs)
+}
+
+// transactionalReplace atomically deletes rows matching the WHERE clause and
+// inserts the replacement refs, all within a single transaction so readers
+// never see a partially empty set.
+func (s *DependencyRefStore) transactionalReplace(ctx context.Context, orgID uuid.UUID, where string, whereArgs []interface{}, refs []model.DependencyRef) error {
 	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("org_id = ? AND fleet_name = '' AND device_name = ?", orgID, deviceName).Delete(&model.DependencyRef{}).Error; err != nil {
+		if err := tx.Where(where, whereArgs...).Delete(&model.DependencyRef{}).Error; err != nil {
 			return ErrorFromGormError(err)
 		}
 		if len(refs) == 0 {

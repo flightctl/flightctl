@@ -9,6 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
+func (h *ServiceHandler) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
+	err := h.store.DependencyRef().DeleteByFleet(ctx, orgId, fleetName)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
 	err := h.store.DependencyRef().ReplaceByFleet(ctx, orgId, fleetName, refs)
 	return StoreErrorToApiStatus(err, false, "", nil)
