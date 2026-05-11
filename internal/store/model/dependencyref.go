@@ -43,6 +43,10 @@ func (a StringArray) Value() (driver.Value, error) {
 	return "{" + strings.Join(a, ",") + "}", nil
 }
 
+func (StringArray) GormDataType() string {
+	return "text[]"
+}
+
 // DependencyRef maps a fleet or device to an external dependency (git repo,
 // HTTP resource, or K8s secret). The sync controller reads these rows as a
 // polling work list (git/HTTP) and fan-out lookup (all types).
