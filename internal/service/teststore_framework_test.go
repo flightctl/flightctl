@@ -26,6 +26,7 @@ const statusCreatedCode = int32(http.StatusCreated)
 const statusFailedCode = int32(http.StatusInternalServerError)
 const statusBadRequestCode = int32(http.StatusBadRequest)
 const statusNotFoundCode = int32(http.StatusNotFound)
+const statusConflictCode = int32(http.StatusConflict)
 
 type TestStore struct {
 	store.Store
@@ -660,15 +661,42 @@ func (s *DummyEnrollmentRequest) CreateWithFromAPI(ctx context.Context, orgId uu
 func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UUID, er *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
 	for i, e := range *s.enrollmentRequests {
 		if *er.Metadata.Name == *e.Metadata.Name {
-			oldEr := (*s.enrollmentRequests)[i]
+			var oldEr domain.EnrollmentRequest
+			deepCopy(e, &oldEr)
 			if callbackEvent != nil {
-				callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), oldEr, er, false, nil)
+				callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), &oldEr, er, false, nil)
 			}
-			oldEr.Status = er.Status
+			(*s.enrollmentRequests)[i].Status = er.Status
 			return er, nil
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyEnrollmentRequest) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error) {
+	// Filter out enrollment requests with "Denied" condition (same logic as real store)
+	filteredERs := []domain.EnrollmentRequest{}
+	for _, er := range *s.enrollmentRequests {
+		// Exclude enrollment requests with "Denied" condition
+		shouldExclude := false
+		if er.Status != nil && er.Status.Conditions != nil {
+			for _, condition := range er.Status.Conditions {
+				if condition.Type == domain.ConditionTypeEnrollmentRequestDenied && condition.Status == domain.ConditionStatusTrue {
+					shouldExclude = true
+					break
+				}
+			}
+		}
+		if !shouldExclude {
+			var erCopy domain.EnrollmentRequest
+			deepCopy(er, &erCopy)
+			filteredERs = append(filteredERs, erCopy)
+		}
+	}
+
+	return &domain.EnrollmentRequestList{
+		Items: filteredERs,
+	}, nil
 }
 
 // --------------------------------------> Organization

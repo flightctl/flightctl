@@ -6945,6 +6945,7 @@ components:
       description: Type of condition in CamelCase.
       enum:
       - 'Approved'              # EnrollmentRequest
+      - 'Denied'                # EnrollmentRequest
       - 'TPMVerified'           # EnrollmentRequest
       - 'Approved'              # CertificateSigningRequest
       - 'Denied'                # CertificateSigningRequest
@@ -6962,6 +6963,7 @@ components:
       - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
+      - EnrollmentRequestDenied
       - EnrollmentRequestTPMVerified
       - CertificateSigningRequestApproved
       - CertificateSigningRequestDenied

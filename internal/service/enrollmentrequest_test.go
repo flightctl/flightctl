@@ -254,3 +254,84 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 	require.NotNil(device.Status.Integrity.Tpm)
 	require.Equal(domain.DeviceIntegrityCheckStatusUnsupported, device.Status.Integrity.Tpm.Status)
 }
+
+func TestDeleteEnrollmentRequest(t *testing.T) {
+	require := require.New(t)
+	serviceHandler, ctx, testOrgId, _ := createTestEnrollmentRequest(t, "test-delete", nil)
+
+	// Verify the enrollment request exists before deletion
+	existingER, err := serviceHandler.store.EnrollmentRequest().Get(ctx, testOrgId, "test-delete")
+	require.NoError(err)
+	require.NotNil(existingER)
+
+	// Delete the enrollment request (which should add a "Denied" condition instead of actually deleting)
+	status := serviceHandler.DeleteEnrollmentRequest(ctx, testOrgId, "test-delete")
+	require.Equal(domain.StatusOK(), status)
+
+	// Verify the enrollment request still exists in the database
+	afterDeleteER, err := serviceHandler.store.EnrollmentRequest().Get(ctx, testOrgId, "test-delete")
+	require.NoError(err)
+	require.NotNil(afterDeleteER)
+
+	// Verify that a "Denied" condition was added
+	require.NotNil(afterDeleteER.Status)
+	require.NotNil(afterDeleteER.Status.Conditions)
+	deniedCondition := domain.FindStatusCondition(afterDeleteER.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+	require.NotNil(deniedCondition)
+	require.Equal(domain.ConditionTypeEnrollmentRequestDenied, deniedCondition.Type)
+	require.Equal(domain.ConditionStatusTrue, deniedCondition.Status)
+	require.Equal("AdminDeleted", deniedCondition.Reason)
+	require.Equal("Enrollment request denied via deletion", deniedCondition.Message)
+
+	// Verify that the deleted enrollment request does not appear in the list
+	listResult, listStatus := serviceHandler.ListEnrollmentRequests(ctx, testOrgId, domain.ListEnrollmentRequestsParams{})
+	require.Equal(domain.StatusOK(), listStatus)
+	require.NotNil(listResult)
+
+	// The "test-delete" enrollment request should not appear in the list because it's been denied/filtered out
+	for _, er := range listResult.Items {
+		require.NotEqual("test-delete", *er.Metadata.Name, "denied enrollment request should not appear in list")
+	}
+}
+
+func TestDeleteEnrollmentRequestAlreadyDenied(t *testing.T) {
+	require := require.New(t)
+
+	// Create enrollment request with already denied status
+	deniedStatus := &domain.EnrollmentRequestStatus{
+		Conditions: []domain.Condition{{
+			Type:    domain.ConditionTypeEnrollmentRequestDenied,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "ManuallyDenied",
+			Message: "Denied by admin"}},
+	}
+
+	serviceHandler, ctx, testOrgId, _ := createTestEnrollmentRequest(t, "test-already-denied", deniedStatus)
+
+	// Attempt to delete the already denied enrollment request
+	status := serviceHandler.DeleteEnrollmentRequest(ctx, testOrgId, "test-already-denied")
+	require.Equal(statusConflictCode, status.Code)
+	require.Contains(status.Message, "enrollment request \"test-already-denied\" is already denied")
+}
+
+func TestDeleteEnrollmentRequestWithDevice(t *testing.T) {
+	require := require.New(t)
+	serviceHandler, ctx, testOrgId, _ := createTestEnrollmentRequest(t, "test-device-conflict", nil)
+
+	// Create a device with the same name to simulate the conflict case
+	device := domain.Device{
+		ApiVersion: "v1beta1",
+		Kind:       "Device",
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr("test-device-conflict"),
+		},
+		Spec: &domain.DeviceSpec{},
+	}
+	_, err := serviceHandler.store.Device().Create(ctx, testOrgId, &device, nil)
+	require.NoError(err)
+
+	// Attempt to delete enrollment request when device exists
+	status := serviceHandler.DeleteEnrollmentRequest(ctx, testOrgId, "test-device-conflict")
+	require.Equal(statusConflictCode, status.Code)
+	require.Contains(status.Message, "cannot delete ER \"test-device-conflict\": device exists")
+}

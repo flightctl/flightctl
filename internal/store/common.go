@@ -126,6 +126,10 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 		query = query.Where(q, p...)
 	}
 
+	if listParams.Exclude != nil {
+		query = query.Where(*listParams.Exclude)
+	}
+
 	return query, nil
 }
 

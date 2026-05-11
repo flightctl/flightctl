@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store/model"
 	. "github.com/onsi/ginkgo/v2"
@@ -337,9 +338,20 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 
-			By("verifying the EnrollmentRequest is deleted")
-			_, status = suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
-			Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+			By("verifying the EnrollmentRequest has Denied condition")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(retrieved).ToNot(BeNil())
+			Expect(retrieved.Status).ToNot(BeNil())
+			Expect(retrieved.Status.Conditions).ToNot(BeNil())
+
+			// Verify it has a "Denied" condition
+			deniedCondition := domain.FindStatusCondition(retrieved.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied)
+			Expect(deniedCondition).ToNot(BeNil())
+			Expect(deniedCondition.Type).To(Equal(domain.ConditionTypeEnrollmentRequestDenied))
+			Expect(deniedCondition.Status).To(Equal(domain.ConditionStatusTrue))
+			Expect(deniedCondition.Reason).To(Equal("AdminDeleted"))
+			Expect(deniedCondition.Message).To(Equal("Enrollment request denied via deletion"))
 		})
 
 		It("should prevent deletion when live device exists", func() {

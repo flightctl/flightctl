@@ -420,7 +420,31 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 		return domain.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
 	}
 
-	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
+	// Get the enrollment request first
+	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+	}
+
+	// Add status if needed
+	addStatusIfNeeded(enrollmentReq)
+
+	// Check if it's already denied to avoid duplicate conditions
+	if domain.IsStatusConditionTrue(enrollmentReq.Status.Conditions, domain.ConditionTypeEnrollmentRequestDenied) {
+		return domain.StatusConflict(fmt.Sprintf("enrollment request %q is already denied", name))
+	}
+
+	// Add a "Denied" condition instead of deleting
+	condition := domain.Condition{
+		Type:    domain.ConditionTypeEnrollmentRequestDenied,
+		Status:  domain.ConditionStatusTrue,
+		Reason:  "AdminDeleted",
+		Message: "Enrollment request denied via deletion",
+	}
+	domain.SetStatusCondition(&enrollmentReq.Status.Conditions, condition)
+
+	// Update the enrollment request status
+	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.callbackEnrollmentRequestDeleted)
 	return StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 

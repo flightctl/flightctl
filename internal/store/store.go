@@ -277,6 +277,7 @@ type ListParams struct {
 	AnnotationSelector *selector.AnnotationSelector
 	SortOrder          *SortOrder
 	SortColumns        []SortColumn
+	Exclude            *string // SQL WHERE clause to exclude records
 }
 
 type Continue struct {

@@ -122,6 +122,10 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 }
 
 func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.EnrollmentRequestList, error) {
+	// Exclude enrollment requests with "Denied" condition
+	// Handle cases where status or conditions might be null
+	excludeClause := `(status IS NULL OR status->'conditions' IS NULL OR NOT (status->'conditions' @> '[{"type": "Denied", "status": "True"}]'::jsonb))`
+	listParams.Exclude = lo.ToPtr(excludeClause)
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 

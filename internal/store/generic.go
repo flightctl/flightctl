@@ -389,6 +389,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	if hasSpecColumn[M]() {
 		query = query.Where("spec IS NOT NULL")
 	}
+	if listParams.Exclude != nil {
+		query = query.Where(*listParams.Exclude)
+	}
 
 	result := query.Find(&resourceList)
 	if result.Error != nil {
@@ -427,6 +430,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 			countQuery, err := ListQuery(&resource).Build(ctx, s.getDB(ctx), orgId, listParams)
 			if err != nil {
 				return nil, err
+			}
+			if listParams.Exclude != nil {
+				countQuery = countQuery.Where(*listParams.Exclude)
 			}
 			numRemainingVal = CountRemainingItems(countQuery, continueValues, listParams)
 		}

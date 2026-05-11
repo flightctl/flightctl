@@ -32,6 +32,7 @@ const (
 	ConditionTypeDeviceSpecValid                      = v1beta1.ConditionTypeDeviceSpecValid
 	ConditionTypeDeviceUpdating                       = v1beta1.ConditionTypeDeviceUpdating
 	ConditionTypeEnrollmentRequestApproved            = v1beta1.ConditionTypeEnrollmentRequestApproved
+	ConditionTypeEnrollmentRequestDenied              = v1beta1.ConditionTypeEnrollmentRequestDenied
 	ConditionTypeEnrollmentRequestTPMVerified         = v1beta1.ConditionTypeEnrollmentRequestTPMVerified
 	ConditionTypeFleetRolloutInProgress               = v1beta1.ConditionTypeFleetRolloutInProgress
 	ConditionTypeFleetValid                           = v1beta1.ConditionTypeFleetValid
