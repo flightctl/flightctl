@@ -508,6 +508,45 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// BuiltinDatabaseWorkloadAvailable reports whether service-config uses the built-in DB container.
+// When db.type is external (see deploy/podman/service-config.yaml), there is no local flightctl-db
+// workload to exec pg_dump into, matching Helm external DB behavior.
+func (p *InfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
+	data, err := p.runCommand("cat", p.serviceConfigPath())
+	if err != nil {
+		logrus.Warnf("BuiltinDatabaseWorkloadAvailable: read %s: %v (assuming builtin DB)", p.serviceConfigPath(), err)
+		return true
+	}
+	switch quadletServiceConfigDBType([]byte(data)) {
+	case "external":
+		return false
+	default:
+		// builtin, empty, or unknown — same default as yaml_helpers.py --default "builtin"
+		return true
+	}
+}
+
+// quadletServiceConfigDBType returns the lowercase db.type value from service-config.yaml, or "" if missing.
+func quadletServiceConfigDBType(serviceConfigYAML []byte) string {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(serviceConfigYAML, &root); err != nil {
+		return ""
+	}
+	dbVal, ok := root["db"]
+	if !ok || dbVal == nil {
+		return ""
+	}
+	db, ok := dbVal.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	tRaw, ok := db["type"]
+	if !ok || tRaw == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", tRaw)))
+}
+
 // SetServiceConfig writes the config content to the service's config file on the host.
 // Quadlet has a single config file per service; configKey is ignored (callers may pass
 // "" or "config.yaml" for API compatibility). For services with a section mapping
