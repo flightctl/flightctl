@@ -155,9 +155,32 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	return results
 }
 
-// reconcile batch-updates sync states and emits events for changed probes.
+// reconcile emits events for changed probes, then updates sync states.
+// Events are emitted before updating the fingerprint so that ordering is
+// correct for consumers: by the time sync state shows the new SHA, all
+// downstream consumers have already been notified.
 func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, results []probeResult) {
 	now := time.Now().UTC()
+
+	// Emit events before persisting sync state — consumers must see events
+	// before the fingerprint is updated.
+	for _, r := range results {
+		if !r.changed {
+			continue
+		}
+		for _, fleetName := range r.probe.FleetNames {
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
+			if event != nil {
+				d.serviceHandler.CreateEvent(ctx, orgId, event)
+			}
+		}
+		for _, deviceName := range r.probe.DeviceNames {
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
+			if event != nil {
+				d.serviceHandler.CreateEvent(ctx, orgId, event)
+			}
+		}
+	}
 
 	var upsertStates []model.SyncState
 	var unchangedKeys []string
@@ -186,24 +209,6 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	if len(unchangedKeys) > 0 {
 		if st := d.serviceHandler.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
-		}
-	}
-
-	for _, r := range results {
-		if !r.changed {
-			continue
-		}
-		for _, fleetName := range r.probe.FleetNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
-			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
-			}
-		}
-		for _, deviceName := range r.probe.DeviceNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
-			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
-			}
 		}
 	}
 }

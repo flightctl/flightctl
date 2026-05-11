@@ -91,7 +91,9 @@ func (p PopulateDependencyRefsLogic) HandleDeletion(ctx context.Context, event d
 			return fmt.Errorf("deleting dependency refs for fleet %s: %s", name, st.Message)
 		}
 	case domain.DeviceKind:
-		if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, name, nil); st.Code != http.StatusOK {
+		// DeleteByDevice removes ALL refs for this device — both standalone
+		// (fleet_name='') and fleet-rollout refs (fleet_name='some-fleet').
+		if st := p.serviceHandler.DeleteDependencyRefsByDevice(ctx, p.orgId, name); st.Code != http.StatusOK {
 			return fmt.Errorf("deleting dependency refs for device %s: %s", name, st.Message)
 		}
 	}

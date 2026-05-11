@@ -14,6 +14,11 @@ func (h *ServiceHandler) DeleteDependencyRefsByFleet(ctx context.Context, orgId 
 	return StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) DeleteDependencyRefsByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) domain.Status {
+	err := h.store.DependencyRef().DeleteByDevice(ctx, orgId, deviceName)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
 	err := h.store.DependencyRef().ReplaceByFleet(ctx, orgId, fleetName, refs)
 	return StoreErrorToApiStatus(err, false, "", nil)
