@@ -33,6 +33,39 @@ type Issuer struct {
 	Website *string `json:"website"`
 }
 
+// PurlBase defines model for PurlBase.
+type PurlBase struct {
+	// Purl Base PURL without version or qualifiers
+	Purl string `json:"purl"`
+	Uuid string `json:"uuid"`
+}
+
+// PurlListResponse defines model for PurlListResponse.
+type PurlListResponse struct {
+	Items []PurlSummary `json:"items"`
+	Total int64         `json:"total"`
+}
+
+// PurlSummary defines model for PurlSummary.
+type PurlSummary struct {
+	Base *PurlBase `json:"base,omitempty"`
+
+	// Purl The Package URL string
+	Purl       string             `json:"purl"`
+	Qualifiers *map[string]string `json:"qualifiers"`
+
+	// Uuid Unique identifier for this PURL
+	Uuid    string       `json:"uuid"`
+	Version *PurlVersion `json:"version,omitempty"`
+}
+
+// PurlVersion defines model for PurlVersion.
+type PurlVersion struct {
+	Purl    string `json:"purl"`
+	Uuid    string `json:"uuid"`
+	Version string `json:"version"`
+}
+
 // SbomAdvisory defines model for SbomAdvisory.
 type SbomAdvisory struct {
 	// DocumentId CVE ID (e.g., CVE-2023-44487)
@@ -98,6 +131,18 @@ type SbomUploadResponse struct {
 // Severity Qualitative Severity Rating Scale
 type Severity string
 
+// ListPurlsParams defines parameters for ListPurls.
+type ListPurlsParams struct {
+	// Q Search query (text search across PURL fields). Use pipe for OR (e.g., digest1|digest2).
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Maximum number of results to return
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of results to skip
+	Offset *int64 `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListSbomsParams defines parameters for ListSboms.
 type ListSbomsParams struct {
 	// Q Search query (e.g., sha256~<digest> or name~<image>)
@@ -117,6 +162,18 @@ type UploadSbomJSONBody = string
 type UploadSbomParams struct {
 	// Labels Labels to associate with the SBOM (e.g., image digest as sha256~<digest>)
 	Labels *string `form:"labels,omitempty" json:"labels,omitempty"`
+}
+
+// ListSbomsByPackageParams defines parameters for ListSbomsByPackage.
+type ListSbomsByPackageParams struct {
+	// Purl Package URL to search for
+	Purl string `form:"purl" json:"purl"`
+
+	// Limit Maximum number of results to return
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of results to skip
+	Offset *int64 `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // UploadSbomJSONRequestBody defines body for UploadSbom for application/json ContentType.
