@@ -620,10 +620,18 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 	}
 
 	se := errors.FormatError(syncErr)
-	if !errors.IsRetryable(syncErr) {
+
+	// Handle critical resource alerts differently from update failures
+	if errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
+		msg := fmt.Sprintf("Update to renderedVersion %s deferred due to critical resource alerts. Will retry when resources are available.", version)
+		conditionUpdate.Reason = string(v1beta1.UpdateStateApplyingUpdate)
+		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
+		conditionUpdate.Status = v1beta1.ConditionStatusTrue
+		a.log.Warn(msg, se.Timestamp)
+	} else if !errors.IsRetryable(syncErr) {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
-		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
+		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
@@ -631,11 +639,10 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateApplyingUpdate)
-		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
+		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg, se.Timestamp)
 	}
-	conditionUpdate.Message = se.Message()
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
