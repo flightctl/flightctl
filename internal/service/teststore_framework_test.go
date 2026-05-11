@@ -723,13 +723,16 @@ func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings [
 		updated := false
 		for i, existing := range d.findings {
 			if existing.ImageDigest == f.ImageDigest && existing.CveID == f.CveID {
-				// Track if severity or status changed
-				if string(existing.Severity) != string(f.Severity) || string(existing.Status) != string(f.Status) {
+				severityChanged := string(existing.Severity) != string(f.Severity)
+				statusChanged := string(existing.Status) != string(f.Status)
+				if severityChanged || statusChanged {
 					changed = append(changed, model.ChangedFinding{
-						ImageDigest: f.ImageDigest,
-						CveID:       f.CveID,
-						Severity:    string(f.Severity),
-						Status:      string(f.Status),
+						ImageDigest:     f.ImageDigest,
+						CveID:           f.CveID,
+						Severity:        string(f.Severity),
+						Status:          string(f.Status),
+						SeverityChanged: severityChanged,
+						StatusChanged:   statusChanged,
 					})
 				}
 				d.findings[i] = f
@@ -738,12 +741,14 @@ func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings [
 			}
 		}
 		if !updated {
-			// New finding
+			// New finding - both severity and status are "changed" (from nothing)
 			changed = append(changed, model.ChangedFinding{
-				ImageDigest: f.ImageDigest,
-				CveID:       f.CveID,
-				Severity:    string(f.Severity),
-				Status:      string(f.Status),
+				ImageDigest:     f.ImageDigest,
+				CveID:           f.CveID,
+				Severity:        string(f.Severity),
+				Status:          string(f.Status),
+				SeverityChanged: true,
+				StatusChanged:   true,
 			})
 			d.findings = append(d.findings, f)
 		}

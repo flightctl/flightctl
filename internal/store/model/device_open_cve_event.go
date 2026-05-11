@@ -27,10 +27,12 @@ func (DeviceOpenCveEvent) TableName() string {
 // ChangedFinding represents a vulnerability finding that was inserted or updated
 // during the Trustify sync. Used to compute CVE event actions.
 type ChangedFinding struct {
-	ImageDigest string
-	CveID       string
-	Severity    string // Current: Critical, High, Medium, Low, None, Unknown
-	Status      string // Current: affected, not_affected, fixed, unknown
+	ImageDigest     string
+	CveID           string
+	Severity        string // Current: Critical, High, Medium, Low, None, Unknown
+	Status          string // Current: affected, not_affected, fixed, unknown
+	SeverityChanged bool   // True if severity changed (or new insert)
+	StatusChanged   bool   // True if status changed (or new insert)
 }
 
 // CVEEventAction represents an action to be performed on device_open_cve_events
