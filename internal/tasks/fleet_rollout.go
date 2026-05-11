@@ -255,10 +255,14 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	deviceName := f.event.InvolvedObject.Name
+	if st := f.serviceHandler.DeleteDependencyRefsByDevice(ctx, f.orgId, deviceName); st.Code != http.StatusOK {
+		f.log.Errorf("failed to delete old dependency refs for device %s: %s", deviceName, st.Message)
+	}
 	if len(refs) > 0 {
 		st := f.serviceHandler.BulkUpsertDeviceDependencyRefs(ctx, f.orgId, refs)
 		if st.Code != http.StatusOK {
-			f.log.Errorf("failed to upsert device dependency refs for device %s: %s", f.event.InvolvedObject.Name, st.Message)
+			f.log.Errorf("failed to upsert device dependency refs for device %s: %s", deviceName, st.Message)
 		}
 	}
 	return nil
@@ -779,9 +783,9 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, co
 	var refs []model.DependencyRef
 	if isParameterized(originalRevision) {
 		deviceName := lo.FromPtr(device.Metadata.Name)
-		fleetName := f.event.InvolvedObject.Name
+		ownerFleetName, _, _ := getOwnerFleet(device)
 		refs = append(refs, model.DependencyRef{
-			FleetName:      &fleetName,
+			FleetName:      &ownerFleetName,
 			DeviceName:     &deviceName,
 			RefType:        "git",
 			ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),

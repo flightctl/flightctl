@@ -1757,6 +1757,20 @@ func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), ctx, orgId, name, fleet)
 }
 
+// ReplaceFleetDeviceDependencyRefs mocks base method.
+func (m *MockService) ReplaceFleetDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, fleetName, deviceName string, refs []model.DependencyRef) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceFleetDeviceDependencyRefs", ctx, orgId, fleetName, deviceName, refs)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// ReplaceFleetDeviceDependencyRefs indicates an expected call of ReplaceFleetDeviceDependencyRefs.
+func (mr *MockServiceMockRecorder) ReplaceFleetDeviceDependencyRefs(ctx, orgId, fleetName, deviceName, refs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetDeviceDependencyRefs", reflect.TypeOf((*MockService)(nil).ReplaceFleetDeviceDependencyRefs), ctx, orgId, fleetName, deviceName, refs)
+}
+
 // ReplaceFleetStatus mocks base method.
 func (m *MockService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -985,9 +986,11 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 	}
 
 	t.Run("When targetRevision is parameterized it should return a device-level DependencyRef", func(t *testing.T) {
+		owner := util.SetResourceOwner(domain.FleetKind, fleetName)
 		device := &domain.Device{
 			Metadata: domain.ObjectMeta{
 				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
 				Labels: &map[string]string{"branch": "feature-a"},
 			},
 		}
@@ -1020,9 +1023,11 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 	})
 
 	t.Run("When multiple git configs have parameterized revisions getDeviceConfig collects all refs", func(t *testing.T) {
+		owner := util.SetResourceOwner(domain.FleetKind, fleetName)
 		device := &domain.Device{
 			Metadata: domain.ObjectMeta{
 				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
 				Labels: &map[string]string{"branch": "dev", "env": "staging"},
 			},
 		}
