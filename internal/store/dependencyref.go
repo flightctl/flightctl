@@ -17,6 +17,7 @@ type DependencyRef interface {
 	Upsert(ctx context.Context, orgID uuid.UUID, ref *model.DependencyRef) error
 	ListByRefType(ctx context.Context, orgID uuid.UUID, refType string) ([]model.DependencyRef, error)
 	DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error
+	DeleteByDevice(ctx context.Context, orgID uuid.UUID, deviceName string) error
 	ReplaceByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	ReplaceDeviceRefsByFleet(ctx context.Context, orgID uuid.UUID, fleetName string, refs []model.DependencyRef) error
 	ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
@@ -66,6 +67,17 @@ func (s *DependencyRefStore) ListByRefType(ctx context.Context, orgID uuid.UUID,
 
 func (s *DependencyRefStore) DeleteByFleet(ctx context.Context, orgID uuid.UUID, fleetName string) error {
 	result := s.getDB(ctx).Where("org_id = ? AND fleet_name = ?", orgID, fleetName).Delete(&model.DependencyRef{})
+	if result.Error != nil {
+		return ErrorFromGormError(result.Error)
+	}
+	return nil
+}
+
+// DeleteByDevice removes all dependency refs where device_name matches,
+// regardless of fleet_name. This handles both standalone refs and
+// fleet-rollout refs created for parameterized revisions.
+func (s *DependencyRefStore) DeleteByDevice(ctx context.Context, orgID uuid.UUID, deviceName string) error {
+	result := s.getDB(ctx).Where("org_id = ? AND device_name = ?", orgID, deviceName).Delete(&model.DependencyRef{})
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}

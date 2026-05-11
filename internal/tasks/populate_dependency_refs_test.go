@@ -294,7 +294,7 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("When device is deleted it should delete standalone refs", func(t *testing.T) {
+	t.Run("When device is deleted it should delete all refs for that device", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockSvc := service.NewMockService(ctrl)
@@ -305,7 +305,7 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 			InvolvedObject: domain.ObjectReference{Kind: domain.DeviceKind, Name: deviceName},
 		}
 
-		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Nil()).Return(okStatus)
+		mockSvc.EXPECT().DeleteDependencyRefsByDevice(gomock.Any(), orgId, deviceName).Return(okStatus)
 
 		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
 		err := logic.HandleDeletion(context.Background(), event)
