@@ -150,10 +150,45 @@ func StoreCSR(rw fileio.ReadWriter, csrPath string, csr []byte) error {
 	return rw.WriteFile(csrPath, csr, 0600)
 }
 
-// ValidateCSRIdentity checks that the Subject CN in the persisted CSR matches
-// the current device name. A mismatch indicates inconsistent identity state
-// (e.g., keys were regenerated but a stale CSR was left on disk).
-func ValidateCSRIdentity(csrBytes []byte, deviceName string) error {
+var errCSRIdentityMismatch = errors.New("CSR identity mismatch")
+
+// ResolveCSR loads a persisted CSR or generates a new one. If a persisted CSR
+// exists but its Subject CN does not match the current device name, the stale
+// CSR is deleted and a new one is generated. Parse or read failures are
+// returned as-is without regeneration.
+func ResolveCSR(rw fileio.ReadWriter, dataDir string, provider Provider, deviceName string, log *log.PrefixLogger) ([]byte, error) {
+	csrPath := GetCSRPath(dataDir)
+	csr, found, err := LoadCSR(rw, csrPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading CSR: %w", err)
+	}
+
+	if found {
+		err := validateCSRIdentity(csr, deviceName)
+		if err == nil {
+			log.Infof("Using persisted CSR for enrollment")
+			return csr, nil
+		}
+		if !errors.Is(err, errCSRIdentityMismatch) {
+			return nil, fmt.Errorf("validating persisted CSR: %w", err)
+		}
+		log.Warnf("Persisted CSR identity mismatch: %v — regenerating", err)
+	} else {
+		log.Infof("No persisted CSR found, generating new CSR for enrollment")
+	}
+
+	csr, err = provider.GenerateCSR(deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("generating CSR: %w", err)
+	}
+	if err := StoreCSR(rw, csrPath, csr); err != nil {
+		return nil, fmt.Errorf("storing CSR: %w", err)
+	}
+	log.Infof("CSR generated and persisted successfully")
+	return csr, nil
+}
+
+func validateCSRIdentity(csrBytes []byte, deviceName string) error {
 	standardCSR, _, err := tpm.NormalizeEnrollmentCSR(string(csrBytes))
 	if err != nil {
 		return fmt.Errorf("extracting standard CSR: %w", err)
@@ -165,7 +200,7 @@ func ValidateCSRIdentity(csrBytes []byte, deviceName string) error {
 	}
 
 	if parsed.Subject.CommonName != deviceName {
-		return fmt.Errorf("persisted CSR CN %q does not match device name %q", parsed.Subject.CommonName, deviceName)
+		return fmt.Errorf("%w: persisted CSR CN %q does not match device name %q", errCSRIdentityMismatch, parsed.Subject.CommonName, deviceName)
 	}
 
 	return nil
