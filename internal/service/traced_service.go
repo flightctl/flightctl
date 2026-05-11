@@ -646,6 +646,13 @@ func (t *TracedService) ReplaceDeviceDependencyRefsByFleet(ctx context.Context, 
 	endSpan(span, st)
 	return st
 }
+func (t *TracedService) ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceStandaloneDeviceDependencyRefs")
+	st := t.inner.ReplaceStandaloneDeviceDependencyRefs(ctx, orgId, deviceName, refs)
+	endSpan(span, st)
+	return st
+}
+
 func (t *TracedService) BulkUpsertDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, refs []model.DependencyRef) domain.Status {
 	ctx, span := startSpan(ctx, "BulkUpsertDeviceDependencyRefs")
 	st := t.inner.BulkUpsertDeviceDependencyRefs(ctx, orgId, refs)

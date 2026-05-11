@@ -1804,6 +1804,20 @@ func (mr *MockServiceMockRecorder) ReplaceResourceSyncStatus(ctx, orgId, name, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceResourceSyncStatus", reflect.TypeOf((*MockService)(nil).ReplaceResourceSyncStatus), ctx, orgId, name, resourceSync)
 }
 
+// ReplaceStandaloneDeviceDependencyRefs mocks base method.
+func (m *MockService) ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceStandaloneDeviceDependencyRefs", ctx, orgId, deviceName, refs)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// ReplaceStandaloneDeviceDependencyRefs indicates an expected call of ReplaceStandaloneDeviceDependencyRefs.
+func (mr *MockServiceMockRecorder) ReplaceStandaloneDeviceDependencyRefs(ctx, orgId, deviceName, refs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceStandaloneDeviceDependencyRefs", reflect.TypeOf((*MockService)(nil).ReplaceStandaloneDeviceDependencyRefs), ctx, orgId, deviceName, refs)
+}
+
 // ResumeDevices mocks base method.
 func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	m.ctrl.T.Helper()

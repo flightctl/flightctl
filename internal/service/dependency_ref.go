@@ -19,6 +19,11 @@ func (h *ServiceHandler) ReplaceDeviceDependencyRefsByFleet(ctx context.Context,
 	return StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	err := h.store.DependencyRef().ReplaceByStandaloneDevice(ctx, orgId, deviceName, refs)
+	return StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) BulkUpsertDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, refs []model.DependencyRef) domain.Status {
 	err := h.store.DependencyRef().BulkUpsertDeviceRefs(ctx, orgId, refs)
 	return StoreErrorToApiStatus(err, false, "", nil)
