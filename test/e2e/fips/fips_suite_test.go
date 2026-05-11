@@ -62,13 +62,9 @@ var _ = BeforeEach(func() {
 })
 
 func getClusterInstallConfig() (string, error) {
-<<<<<<< HEAD
-	out, err := exec.Command("oc", "get", "cm", "cluster-config-v1", "-n", "kube-system", "-o", "jsonpath={.data.install-config}").CombinedOutput()
-=======
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "oc", "get", "cm", "cluster-config-v1", "-n", "kube-system", "-o", "jsonpath={.data.install-config}").CombinedOutput()
->>>>>>> 9225615f (EDM-3877: Added fips check on BeforeSuite to avoid run on non fips)
 	if err != nil {
 		return "", err
 	}
