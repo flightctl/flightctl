@@ -90,6 +90,7 @@ type DummyCatalog struct {
 	store.Catalog
 	catalogs *[]domain.Catalog
 	items    *[]domain.CatalogItem
+	getErr   error
 }
 
 type DummyOrganization struct {
@@ -345,6 +346,9 @@ func (s *DummyFleet) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 // --------------------------------------> Catalog
 
 func (s *DummyCatalog) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	for _, catalog := range *s.catalogs {
 		if name == *catalog.Metadata.Name {
 			var c domain.Catalog

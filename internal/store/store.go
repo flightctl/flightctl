@@ -5,13 +5,17 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -186,6 +190,11 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 }
 
 func (s *DataStore) RunMigrations(ctx context.Context) error {
+	// schema_migrations must exist before any backfill step that uses it as a guard.
+	if err := s.db.WithContext(ctx).AutoMigrate(&model.SchemaMigration{}); err != nil {
+		return err
+	}
+
 	if err := s.Device().InitialMigration(ctx); err != nil {
 		return err
 	}
@@ -247,7 +256,41 @@ func (s *DataStore) customizeMigration(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+
+	return s.backfillDefaultCatalogs(ctx)
+}
+
+// backfillDefaultCatalogs creates a default catalog for every organization that has no
+// catalogs at all. This covers existing installations that pre-date catalog support.
+// The migration key acts as a distributed once-only guard: concurrent replicas race on
+// the unique primary key; the loser sees 0 RowsAffected and skips the backfill.
+func (s *DataStore) backfillDefaultCatalogs(ctx context.Context) error {
+	const migrationKey = "backfill_default_catalogs_v1"
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).
+			Create(&model.SchemaMigration{Key: migrationKey, AppliedAt: time.Now()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			// Another replica already ran this migration.
+			return nil
+		}
+
+		displayName := domain.DefaultCatalogDisplayName
+		name := domain.DefaultCatalogName
+		return tx.Exec(`
+			INSERT INTO catalogs (org_id, name, spec, labels, annotations, created_at, updated_at)
+			SELECT o.id, ?, ?, '{}'::jsonb, '{}'::jsonb, NOW(), NOW()
+			FROM organizations o
+			WHERE NOT EXISTS (
+				SELECT 1 FROM catalogs c WHERE c.org_id = o.id AND c.owner IS NULL
+			)`,
+			name,
+			model.MakeJSONField(domain.CatalogSpec{DisplayName: &displayName}),
+		).Error
+	})
 }
 
 func (s *DataStore) Close() error {

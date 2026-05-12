@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -46,7 +47,7 @@ func (m *mockIdentity) GetIssuer() *identity.Issuer {
 }
 
 func createTestIdentityMapper(mockStore *TestStore) *IdentityMapper {
-	return NewIdentityMapper(mockStore, logrus.New())
+	return NewIdentityMapper(mockStore, NewOrgProvisioner(mockStore, logrus.New()), logrus.New())
 }
 
 func TestMapIdentityToDB_SuperAdmin_NoReportedOrgs(t *testing.T) {
@@ -342,6 +343,106 @@ func (s *DummyOrganization) ListByIDs(ctx context.Context, ids []string) ([]*mod
 	}
 
 	return result, nil
+}
+
+func TestMapIdentityToDB_RegularUser_NewOrg_CreatesDefaultCatalog(t *testing.T) {
+	mockStore := &TestStore{}
+	mapper := createTestIdentityMapper(mockStore)
+
+	// No pre-existing organizations
+	setupMockStoreWithOrganizations(mockStore, []*model.Organization{})
+
+	identity := &mockIdentity{
+		username: "user",
+		uid:      "user-uid",
+		organizations: []common.ReportedOrganization{
+			{ID: "org-new", Name: "New Organization", IsInternalID: false},
+		},
+		isSuperAdmin: false,
+	}
+
+	ctx := context.Background()
+	result, err := mapper.MapIdentityToDB(ctx, identity)
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, "org-new", result[0].ExternalID)
+
+	// Verify the default catalog was created for the new organization
+	catalog, err := mockStore.Catalog().Get(ctx, result[0].ID, domain.DefaultCatalogName)
+	require.NoError(t, err)
+	require.NotNil(t, catalog)
+	require.Equal(t, domain.DefaultCatalogName, *catalog.Metadata.Name)
+	require.Equal(t, domain.DefaultCatalogDisplayName, *catalog.Spec.DisplayName)
+}
+
+func TestMapIdentityToDB_RegularUser_ExistingOrg_DoesNotCreateDefaultCatalog(t *testing.T) {
+	mockStore := &TestStore{}
+	mapper := createTestIdentityMapper(mockStore)
+
+	org1 := createTestOrganizationModel(uuid.New(), "org-1", "Organization 1")
+	setupMockStoreWithOrganizations(mockStore, []*model.Organization{org1})
+
+	identity := &mockIdentity{
+		username: "user",
+		uid:      "user-uid",
+		organizations: []common.ReportedOrganization{
+			{ID: "org-1", Name: "Organization 1", IsInternalID: false},
+		},
+		isSuperAdmin: false,
+	}
+
+	ctx := context.Background()
+	result, err := mapper.MapIdentityToDB(ctx, identity)
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, org1.ID, result[0].ID)
+
+	// Verify no default catalog was created for the existing organization
+	_, err = mockStore.Catalog().Get(ctx, org1.ID, domain.DefaultCatalogName)
+	require.Error(t, err, "Default catalog should not be created for an existing organization")
+}
+
+func TestMapIdentityToDB_SuperAdmin_NewReportedOrg_CreatesDefaultCatalog(t *testing.T) {
+	mockStore := &TestStore{}
+	mapper := createTestIdentityMapper(mockStore)
+
+	// One pre-existing organization
+	org1 := createTestOrganizationModel(uuid.New(), "org-1", "Organization 1")
+	setupMockStoreWithOrganizations(mockStore, []*model.Organization{org1})
+
+	identity := &mockIdentity{
+		username: "admin",
+		uid:      "admin-uid",
+		organizations: []common.ReportedOrganization{
+			{ID: "org-new", Name: "New Organization", IsInternalID: false},
+		},
+		isSuperAdmin: true,
+	}
+
+	ctx := context.Background()
+	result, err := mapper.MapIdentityToDB(ctx, identity)
+
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+
+	// Find the newly created org
+	var newOrg *model.Organization
+	for _, org := range result {
+		if org.ExternalID == "org-new" {
+			newOrg = org
+			break
+		}
+	}
+	require.NotNil(t, newOrg, "New organization should be created")
+
+	// Verify the default catalog was created for the new organization
+	catalog, err := mockStore.Catalog().Get(ctx, newOrg.ID, domain.DefaultCatalogName)
+	require.NoError(t, err)
+	require.NotNil(t, catalog)
+	require.Equal(t, domain.DefaultCatalogName, *catalog.Metadata.Name)
+	require.Equal(t, domain.DefaultCatalogDisplayName, *catalog.Spec.DisplayName)
 }
 
 func (s *DummyOrganization) GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error) {

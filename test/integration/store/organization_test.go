@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -43,6 +44,29 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
 			Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
+		})
+
+		It("When initial migration runs, it should seed the default catalog for the default organization", func() {
+			catalog, err := storeInst.Catalog().Get(ctx, store.NullOrgId, domain.DefaultCatalogName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(catalog).ToNot(BeNil())
+			Expect(*catalog.Metadata.Name).To(Equal(domain.DefaultCatalogName))
+			Expect(*catalog.Spec.DisplayName).To(Equal(domain.DefaultCatalogDisplayName))
+		})
+
+		It("When initial migration runs again, it should not duplicate the default catalog", func() {
+			err := storeInst.Organization().InitialMigration(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			catalogs, err := storeInst.Catalog().List(ctx, store.NullOrgId, store.ListParams{})
+			Expect(err).ToNot(HaveOccurred())
+			defaultCatalogs := 0
+			for _, c := range catalogs.Items {
+				if *c.Metadata.Name == domain.DefaultCatalogName {
+					defaultCatalogs++
+				}
+			}
+			Expect(defaultCatalogs).To(Equal(1), "Default catalog should not be duplicated on repeated InitialMigration")
 		})
 
 		It("Should create a new organization with provided ID", func() {

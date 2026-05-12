@@ -192,7 +192,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware
-	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.store, s.log)
+	identityMapper := service.NewIdentityMapper(s.store, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
@@ -314,7 +315,6 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Group(func(r chi.Router) {
 			r.Use(negotiator.NegotiateMiddleware)
 			r.Use(v1beta1OapiMiddleware)
-			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 			ConfigureRateLimiterFromConfig(
 				r,
 				s.cfg.Service.RateLimit,
@@ -353,7 +353,6 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
-		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 		// Add websocket rate limiting (only if configured and enabled)
 		ConfigureRateLimiterFromConfig(
 			r,
