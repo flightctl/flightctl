@@ -289,7 +289,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("84938", "sanity", "slow"), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("84938", "slow"), func() {
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1

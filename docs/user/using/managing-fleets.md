@@ -33,6 +33,9 @@ The same thing happens when an individually managed device joins a fleet or a de
 
 In Flight Control, devices are not explicitly assigned to a fleet. Instead, each fleet has a "selector" that defines which labels a device must have to be selected into the fleet. This allows decoupling the concerns of organizing devices from operating them.
 
+> [!TIP]
+> Devices can automatically populate their labels during enrollment based on system information (hardware, OS, custom attributes) using the agent's `label-from-systeminfo` configuration. This enables zero-touch fleet assignment based on device characteristics. See [Enrollment-time label mapping](../installing/installing-agent.md#enrollment-time-label-mapping) for details.
+
 Let us have a look at a practical example. Assume the following list of point-of-sales (PoS) terminal devices and their labels:
 
 | Device | Labels |

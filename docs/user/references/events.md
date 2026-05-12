@@ -64,6 +64,17 @@ details:
 | **Application Status** | `DeviceApplicationError`, `DeviceApplicationDegraded`, `DeviceApplicationHealthy`              |
 | **Device Lifecycle**  | `DeviceIsRebooting`, `DeviceDecommissioned`, `DeviceDecommissionFailed`, `DeviceMultipleOwnersDetected`, `DeviceMultipleOwnersResolved`, `DeviceSpecInvalid`, `DeviceSpecValid` |
 | **Content Management** | `DeviceContentUpdating`, `DeviceContentUpToDate`, `DeviceContentOutOfDate`                     |
+| **Vulnerability (CVE)** | `DeviceVulnerabilityCVEWarning`, `DeviceVulnerabilityCVECritical`, `DeviceVulnerabilityCVEResolved` *(see below)* |
+
+### Vulnerability (CVE) events
+
+When [vulnerability integration](../installing/configuring-vulnerability-integration.md) is enabled, Flight Control emits per-device lifecycle events for high-severity CVEs detected on OS images in use. Each event has `involvedObject.kind` set to `Device` and `involvedObject.name` set to the device name.
+
+The event `details` contain `detailType: DeviceVulnerabilityCVE` with the following fields:
+
+- `cveId` — the CVE identifier
+- `imageRef` — the human-readable image reference
+- `imageDigest` — the image digest the device is running
 
 ### Resource Lifecycle Events
 
@@ -130,7 +141,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 - `reason` – Event reason (e.g., `DeviceDisconnected`)  
 - `type` – Event type (`Normal` or `Warning`)  
 - `actor` – Event actor (`user:admin`, `service:api-server`)  
-- `involvedObject.kind` – Kind of resource (`Device`, `Fleet`)  
+- `involvedObject.kind` – Kind of resource (`Device`, `Fleet`, …)  
 - `involvedObject.name` – Resource name  
 - `metadata.creationTimestamp` – Creation timestamp
 

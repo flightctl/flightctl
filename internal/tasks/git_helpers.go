@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,6 +22,7 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	gitplumbing "github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
@@ -85,6 +88,92 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int, cfg *co
 	}
 
 	return mfs, hash, nil
+}
+
+// GitLsRemote resolves one or more git refs (branch name, tag name, or full
+// ref path) to their commit SHAs without cloning the repository. A single
+// remote.List call is made regardless of how many refs are requested. The
+// returned map contains only the refs that were found. Error messages are
+// sanitized to prevent credential leakage.
+func GitLsRemote(ctx context.Context, repoURL string, refs []string, auth transport.AuthMethod) (map[string]string, error) {
+	if repoURL == "" {
+		return nil, fmt.Errorf("repository URL must not be empty")
+	}
+	if len(refs) == 0 {
+		return map[string]string{}, nil
+	}
+
+	remote := git.NewRemote(gitmemory.NewStorage(), &gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{repoURL},
+	})
+
+	remoteRefs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list remote refs: %s", sanitizeGitError(err))
+	}
+
+	wanted := make(map[string]bool, len(refs)*3)
+	refLookup := make(map[string]string, len(refs)*3)
+	for _, ref := range refs {
+		for _, candidate := range []string{ref, "refs/heads/" + ref, "refs/tags/" + ref} {
+			wanted[candidate] = true
+			refLookup[candidate] = ref
+		}
+	}
+
+	resolved := make(map[string]string, len(refs))
+	for _, r := range remoteRefs {
+		refName := r.Name().String()
+		if wanted[refName] {
+			originalRef := refLookup[refName]
+			if _, exists := resolved[originalRef]; !exists {
+				resolved[originalRef] = r.Hash().String()
+			}
+		}
+	}
+
+	return resolved, nil
+}
+
+func sanitizeGitError(err error) string {
+	msg := err.Error()
+	if idx := strings.LastIndex(msg, ": "); idx != -1 && idx+2 < len(msg) {
+		msg = strings.TrimSpace(msg[idx+2:])
+	}
+	msg = strings.TrimSuffix(msg, ".")
+	return redactURLsInString(msg)
+}
+
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = url.User("redacted")
+	return u.String()
+}
+
+func redactURLsInString(s string) string {
+	for _, scheme := range []string{"https://", "http://"} {
+		for {
+			idx := strings.Index(s, scheme)
+			if idx == -1 {
+				break
+			}
+			end := strings.IndexAny(s[idx:], " \t\n")
+			if end == -1 {
+				end = len(s) - idx
+			}
+			rawURL := s[idx : idx+end]
+			redacted := redactURL(rawURL)
+			if rawURL == redacted {
+				break
+			}
+			s = strings.Replace(s, rawURL, redacted, 1)
+		}
+	}
+	return s
 }
 
 // sshAuthWrapper wraps an SSH auth method to apply additional crypto settings

@@ -50,13 +50,14 @@ const (
 // ========== Condition Reason Constants ==========
 
 const (
-	ImageBuildConditionReasonPending   = api.ImageBuildConditionReasonPending
-	ImageBuildConditionReasonBuilding  = api.ImageBuildConditionReasonBuilding
-	ImageBuildConditionReasonPushing   = api.ImageBuildConditionReasonPushing
-	ImageBuildConditionReasonCompleted = api.ImageBuildConditionReasonCompleted
-	ImageBuildConditionReasonFailed    = api.ImageBuildConditionReasonFailed
-	ImageBuildConditionReasonCanceling = api.ImageBuildConditionReasonCanceling
-	ImageBuildConditionReasonCanceled  = api.ImageBuildConditionReasonCanceled
+	ImageBuildConditionReasonPending        = api.ImageBuildConditionReasonPending
+	ImageBuildConditionReasonBuilding       = api.ImageBuildConditionReasonBuilding
+	ImageBuildConditionReasonPushing        = api.ImageBuildConditionReasonPushing
+	ImageBuildConditionReasonGeneratingSBOM = api.ImageBuildConditionReasonGeneratingSBOM
+	ImageBuildConditionReasonCompleted      = api.ImageBuildConditionReasonCompleted
+	ImageBuildConditionReasonFailed         = api.ImageBuildConditionReasonFailed
+	ImageBuildConditionReasonCanceling      = api.ImageBuildConditionReasonCanceling
+	ImageBuildConditionReasonCanceled       = api.ImageBuildConditionReasonCanceled
 )
 
 // ========== API Parameters ==========

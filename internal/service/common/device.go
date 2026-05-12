@@ -332,11 +332,21 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
-	resourceUpdates := make(ResourceUpdates, 0, 6)
+	resourceUpdates := make(ResourceUpdates, 0, 7)
 
 	// Don't generate status change events during device creation (when oldDevice is nil)
 	if oldDevice == nil {
 		return resourceUpdates
+	}
+
+	// Check if OS image digest changed (used for CVE lifecycle event processing)
+	oldDigest := getOSImageDigest(oldDevice)
+	newDigest := getOSImageDigest(newDevice)
+	if oldDigest != newDigest && newDigest != "" {
+		resourceUpdates = append(resourceUpdates, ResourceUpdate{
+			Reason:  domain.EventReasonDeviceOSImageChanged,
+			Details: fmt.Sprintf("OS image changed from %s to %s", oldDigest, newDigest),
+		})
 	}
 
 	if hasStatusChanged(oldDevice, newDevice, domain.DeviceSummaryStatusUnknown, func(d *domain.Device) domain.DeviceSummaryStatusType { return d.Status.Summary.Status }) {
@@ -504,6 +514,15 @@ func getOwnerFleet(device *domain.Device) (string, bool, error) {
 	}
 
 	return ownerName, true, nil
+}
+
+// getOSImageDigest extracts the OS image digest from a device's status.
+// Returns empty string if the device or status is nil or digest is not set.
+func getOSImageDigest(device *domain.Device) string {
+	if device == nil || device.Status == nil {
+		return ""
+	}
+	return device.Status.Os.ImageDigest
 }
 
 // EmitSpecValidEvents emits events for SpecValid condition changes

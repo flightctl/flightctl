@@ -31,6 +31,7 @@ const (
 	API_RESOURCE_ORGANIZATIONS = "organizations"
 	API_RESOURCE_REPOSITORIES = "repositories"
 	API_RESOURCE_RESOURCESYNCS = "resourcesyncs"
+	API_RESOURCE_VULNERABILITIES = "vulnerabilities"
 )
 const (
 	API_ACTION_CREATE = "create"
@@ -740,6 +741,62 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Action:      "list",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities": {
+		OperationID: "listVulnerabilities",
+		Resource:    "vulnerabilities",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/cves/{cveId}/impact": {
+		OperationID: "getVulnerabilityImpact",
+		Resource:    "vulnerabilities",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/devices/{name}": {
+		OperationID: "getDeviceVulnerabilities",
+		Resource:    "vulnerabilities",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/devices/{name}/summary": {
+		OperationID: "getDeviceVulnerabilitySummary",
+		Resource:    "vulnerabilities",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/fleets/{name}": {
+		OperationID: "getFleetVulnerabilities",
+		Resource:    "vulnerabilities",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/fleets/{name}/summary": {
+		OperationID: "getFleetVulnerabilitySummary",
+		Resource:    "vulnerabilities",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/vulnerabilities/summary": {
+		OperationID: "getVulnerabilitySummary",
+		Resource:    "vulnerabilities",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
 		},
 	},
 }

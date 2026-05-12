@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -632,6 +633,103 @@ func (t *TracedService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, 
 	return st
 }
 
+// --- DependencyRef ---
+func (t *TracedService) DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
+	ctx, span := startSpan(ctx, "DeleteDependencyRefsByFleet")
+	st := t.inner.DeleteDependencyRefsByFleet(ctx, orgId, fleetName)
+	endSpan(span, st)
+	return st
+}
+
+func (t *TracedService) DeleteDependencyRefsByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) domain.Status {
+	ctx, span := startSpan(ctx, "DeleteDependencyRefsByDevice")
+	st := t.inner.DeleteDependencyRefsByDevice(ctx, orgId, deviceName)
+	endSpan(span, st)
+	return st
+}
+
+func (t *TracedService) ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceDependencyRefsByFleet")
+	st := t.inner.ReplaceDependencyRefsByFleet(ctx, orgId, fleetName, refs)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) ReplaceDeviceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceDeviceDependencyRefsByFleet")
+	st := t.inner.ReplaceDeviceDependencyRefsByFleet(ctx, orgId, fleetName, refs)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) ReplaceFleetDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, fleetName, deviceName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceFleetDeviceDependencyRefs")
+	st := t.inner.ReplaceFleetDeviceDependencyRefs(ctx, orgId, fleetName, deviceName, refs)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) ReplaceFleetScopedDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceFleetScopedDeviceDependencyRefs")
+	st := t.inner.ReplaceFleetScopedDeviceDependencyRefs(ctx, orgId, deviceName, refs)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "ReplaceStandaloneDeviceDependencyRefs")
+	st := t.inner.ReplaceStandaloneDeviceDependencyRefs(ctx, orgId, deviceName, refs)
+	endSpan(span, st)
+	return st
+}
+
+func (t *TracedService) BulkUpsertDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, refs []model.DependencyRef) domain.Status {
+	ctx, span := startSpan(ctx, "BulkUpsertDeviceDependencyRefs")
+	st := t.inner.BulkUpsertDeviceDependencyRefs(ctx, orgId, refs)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDependencyRefsByRefType")
+	resp, st := t.inner.ListDependencyRefsByRefType(ctx, orgId, refType)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDueGitDependencies")
+	resp, st := t.inner.ListDueGitDependencies(ctx, orgId, pollInterval)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- SyncState ---
+func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
+	ctx, span := startSpan(ctx, "GetSyncState")
+	resp, st := t.inner.GetSyncState(ctx, orgId, resourceKey)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status {
+	ctx, span := startSpan(ctx, "SetSyncState")
+	st := t.inner.SetSyncState(ctx, orgId, state)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, tm time.Time) domain.Status {
+	ctx, span := startSpan(ctx, "SetSyncStateLastCheckedAt")
+	st := t.inner.SetSyncStateLastCheckedAt(ctx, orgId, resourceKey, tm)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) BulkUpsertSyncState(ctx context.Context, orgId uuid.UUID, states []model.SyncState) domain.Status {
+	ctx, span := startSpan(ctx, "BulkUpsertSyncState")
+	st := t.inner.BulkUpsertSyncState(ctx, orgId, states)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) BulkUpdateSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKeys []string, tm time.Time) domain.Status {
+	ctx, span := startSpan(ctx, "BulkUpdateSyncStateLastCheckedAt")
+	st := t.inner.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, resourceKeys, tm)
+	endSpan(span, st)
+	return st
+}
+
 // --- TemplateVersion ---
 func (t *TracedService) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
 	ctx, span := startSpan(ctx, "CreateTemplateVersion")
@@ -773,6 +871,67 @@ func (t *TracedService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID,
 	st := t.inner.DeleteAuthProvider(ctx, orgId, name)
 	endSpan(span, st)
 	return st
+}
+
+// --- Vulnerability ---
+func (t *TracedService) GetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID) (*domain.VulnerabilitySummaryResponse, domain.Status) {
+	ctx, span := startSpan(ctx, "GetVulnerabilitySummary")
+	resp, st := t.inner.GetVulnerabilitySummary(ctx, orgId)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ListVulnerabilities(ctx context.Context, orgId uuid.UUID, params domain.ListVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListVulnerabilities")
+	resp, st := t.inner.ListVulnerabilities(ctx, orgId, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetVulnerabilityImpact(ctx context.Context, orgId uuid.UUID, cveId string, params domain.GetVulnerabilityImpactParams) (*domain.VulnerabilityImpact, domain.Status) {
+	ctx, span := startSpan(ctx, "GetVulnerabilityImpact")
+	resp, st := t.inner.GetVulnerabilityImpact(ctx, orgId, cveId, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetDeviceVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitiesParams) (*domain.VulnerabilityList, domain.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceVulnerabilities")
+	resp, st := t.inner.GetDeviceVulnerabilities(ctx, orgId, name, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetDeviceVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitySummaryParams) (*domain.DeviceVulnerabilitySummaryResponse, domain.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceVulnerabilitySummary")
+	resp, st := t.inner.GetDeviceVulnerabilitySummary(ctx, orgId, name, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetFleetVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status) {
+	ctx, span := startSpan(ctx, "GetFleetVulnerabilities")
+	resp, st := t.inner.GetFleetVulnerabilities(ctx, orgId, name, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetFleetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitySummaryParams) (*domain.FleetVulnerabilitySummaryResponse, domain.Status) {
+	ctx, span := startSpan(ctx, "GetFleetVulnerabilitySummary")
+	resp, st := t.inner.GetFleetVulnerabilitySummary(ctx, orgId, name, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) SyncDeviceCVELifecycleEvents(ctx context.Context) error {
+	ctx, span := startSpan(ctx, "SyncDeviceCVELifecycleEvents")
+	defer span.End()
+	err := t.inner.SyncDeviceCVELifecycleEvents(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return err
 }
 
 // --- Auth ---

@@ -111,7 +111,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -202,7 +202,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
 		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {
@@ -215,7 +215,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]

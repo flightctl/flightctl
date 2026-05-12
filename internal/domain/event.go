@@ -61,6 +61,10 @@ const (
 	EventReasonDeviceSpecInvalid               = v1beta1.EventReasonDeviceSpecInvalid
 	EventReasonDeviceSpecValid                 = v1beta1.EventReasonDeviceSpecValid
 	EventReasonDeviceUpdateFailed              = v1beta1.EventReasonDeviceUpdateFailed
+	EventReasonDeviceVulnerabilityCVECritical  = v1beta1.EventReasonDeviceVulnerabilityCVECritical
+	EventReasonDeviceVulnerabilityCVEResolved  = v1beta1.EventReasonDeviceVulnerabilityCVEResolved
+	EventReasonDeviceVulnerabilityCVEWarning   = v1beta1.EventReasonDeviceVulnerabilityCVEWarning
+	EventReasonDeviceOSImageChanged            = v1beta1.EventReasonDeviceOSImageChanged
 	EventReasonEnrollmentRequestApprovalFailed = v1beta1.EventReasonEnrollmentRequestApprovalFailed
 	EventReasonEnrollmentRequestApproved       = v1beta1.EventReasonEnrollmentRequestApproved
 	EventReasonFleetInvalid                    = v1beta1.EventReasonFleetInvalid
@@ -74,6 +78,7 @@ const (
 	EventReasonFleetValid                      = v1beta1.EventReasonFleetValid
 	EventReasonInternalTaskFailed              = v1beta1.EventReasonInternalTaskFailed
 	EventReasonInternalTaskPermanentlyFailed   = v1beta1.EventReasonInternalTaskPermanentlyFailed
+	EventReasonDependencyChangeDetected        = v1beta1.EventReasonDependencyChangeDetected
 	EventReasonReferencedRepositoryUpdated     = v1beta1.EventReasonReferencedRepositoryUpdated
 	EventReasonRepositoryAccessible            = v1beta1.EventReasonRepositoryAccessible
 	EventReasonRepositoryInaccessible          = v1beta1.EventReasonRepositoryInaccessible
@@ -99,15 +104,20 @@ type InternalTaskFailedDetails = v1beta1.InternalTaskFailedDetails
 type InternalTaskFailedDetailsDetailType = v1beta1.InternalTaskFailedDetailsDetailType
 type InternalTaskPermanentlyFailedDetails = v1beta1.InternalTaskPermanentlyFailedDetails
 type InternalTaskPermanentlyFailedDetailsDetailType = v1beta1.InternalTaskPermanentlyFailedDetailsDetailType
+type DependencyChangeDetectedDetails = v1beta1.DependencyChangeDetectedDetails
+type DependencyChangeDetectedDetailsDetailType = v1beta1.DependencyChangeDetectedDetailsDetailType
 type ReferencedRepositoryUpdatedDetails = v1beta1.ReferencedRepositoryUpdatedDetails
 type ReferencedRepositoryUpdatedDetailsDetailType = v1beta1.ReferencedRepositoryUpdatedDetailsDetailType
 type ResourceUpdatedDetails = v1beta1.ResourceUpdatedDetails
 type ResourceUpdatedDetailsDetailType = v1beta1.ResourceUpdatedDetailsDetailType
 type ResourceUpdatedDetailsUpdatedFields = v1beta1.ResourceUpdatedDetailsUpdatedFields
+type DeviceVulnerabilityCveDetails = v1beta1.DeviceVulnerabilityCveDetails
+type DeviceVulnerabilityCveDetailsDetailType = v1beta1.DeviceVulnerabilityCveDetailsDetailType
 
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed
 	InternalTaskPermanentlyFailed = v1beta1.InternalTaskPermanentlyFailed
+	DependencyChangeDetected      = v1beta1.DependencyChangeDetected
 	ReferencedRepositoryUpdated   = v1beta1.ReferencedRepositoryUpdated
 	ResourceUpdated               = v1beta1.ResourceUpdated
 
@@ -143,6 +153,8 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceMemoryWarning:             {},
 	EventReasonDeviceDiskCritical:              {},
 	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceVulnerabilityCVECritical:  {},
+	EventReasonDeviceVulnerabilityCVEWarning:   {},
 	EventReasonDeviceDisconnected:              {},
 	EventReasonDeviceConflictPaused:            {},
 	EventReasonDeviceSpecInvalid:               {},

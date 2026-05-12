@@ -71,6 +71,7 @@ func createTestExecutors() map[PeriodicTaskType]PeriodicTaskExecutor {
 		PeriodicTaskTypeRolloutDeviceSelection: &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeDisruptionBudget:       &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeEventCleanup:           &mockPeriodicTaskExecutor{},
+		PeriodicTaskTypeDependencySyncGit:      &mockPeriodicTaskExecutor{},
 	}
 }
 

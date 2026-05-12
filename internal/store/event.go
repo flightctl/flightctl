@@ -51,7 +51,21 @@ func (s *EventStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	return nil
+	return s.createEventCVELifecycleIndexes(db)
+}
+
+func (s *EventStore) createEventCVELifecycleIndexes(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_events_device_cve_lifecycle
+		ON events (org_id, involved_object_name, reason, (details->>'cveId'), created_at DESC)
+		WHERE involved_object_kind = 'Device'
+		  AND reason IN (
+		    'DeviceVulnerabilityCVEWarning',
+		    'DeviceVulnerabilityCVECritical',
+		    'DeviceVulnerabilityCVEResolved'
+		  )`).Error
 }
 
 func (s *EventStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Event) error {

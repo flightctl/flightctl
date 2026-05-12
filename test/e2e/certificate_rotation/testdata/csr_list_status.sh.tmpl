@@ -1,0 +1,12 @@
+set +e
+rm -f /tmp/renewal-503-check-body.txt /tmp/renewal-503-check-stderr.txt
+code=$(curl -sS -o /tmp/renewal-503-check-body.txt -w "%{http_code}" -k \
+  --cert /var/lib/flightctl/certs/agent.crt \
+  --key /var/lib/flightctl/certs/agent.key \
+  --resolve {{ .APIHost }}:{{ .APIPort }}:{{ .APIIP }} \
+  --connect-timeout 10 \
+  --max-time 15 \
+  "https://{{ .APIHost }}:{{ .APIPort }}/api/v1/certificatesigningrequests?limit=1" 2>/tmp/renewal-503-check-stderr.txt)
+curl_rc=$?
+stderr=$(cat /tmp/renewal-503-check-stderr.txt 2>/dev/null || true)
+printf '%s\n__CURL_RC__\n%s\n__STDERR__\n%s' "${code:-}" "$curl_rc" "$stderr"

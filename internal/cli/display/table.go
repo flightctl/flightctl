@@ -96,6 +96,26 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printCatalogsTable(w, data.(*apiclientv1alpha1.ListCatalogsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
 		return f.printCatalogItemsTable(w, options.CatalogName == "", data.(*apiclientv1alpha1.ListAllCatalogItemsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, apiv1alpha1.VulnerabilityGroupKind):
+		if resp, ok := data.(*apiclientv1alpha1.ListVulnerabilitiesResponse); ok {
+			return f.printVulnerabilityGroupsTable(w, false, resp.JSON200.Items...)
+		}
+		return fmt.Errorf("unexpected data type for %s", apiv1alpha1.VulnerabilityGroupKind)
+	case strings.EqualFold(options.Kind, apiv1alpha1.FleetVulnerabilityGroupKind):
+		if resp, ok := data.(*apiclientv1alpha1.GetFleetVulnerabilitiesResponse); ok {
+			return f.printVulnerabilityGroupsTable(w, true, resp.JSON200.Items...)
+		}
+		return fmt.Errorf("unexpected data type for %s", apiv1alpha1.FleetVulnerabilityGroupKind)
+	case strings.EqualFold(options.Kind, apiv1alpha1.VulnerabilityKind):
+		return f.printVulnerabilitiesTable(w, data.(*apiclientv1alpha1.GetDeviceVulnerabilitiesResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, apiv1alpha1.VulnerabilityImpactKind):
+		return f.printVulnerabilityImpactTable(w, data.(*apiclientv1alpha1.GetVulnerabilityImpactResponse).JSON200)
+	case strings.EqualFold(options.Kind, apiv1alpha1.VulnerabilitySummaryKind):
+		return f.printVulnerabilitySummaryTable(w, data.(*apiclientv1alpha1.GetVulnerabilitySummaryResponse).JSON200)
+	case strings.EqualFold(options.Kind, apiv1alpha1.DeviceVulnerabilitySummaryKind):
+		return f.printDeviceVulnerabilitySummaryTable(w, data.(*apiclientv1alpha1.GetDeviceVulnerabilitySummaryResponse).JSON200)
+	case strings.EqualFold(options.Kind, apiv1alpha1.FleetVulnerabilitySummaryKind):
+		return f.printFleetVulnerabilitySummaryTable(w, data.(*apiclientv1alpha1.GetFleetVulnerabilitySummaryResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -783,5 +803,248 @@ func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, showCatalog
 			}
 		}
 	}
+	return nil
+}
+
+func (f *TableFormatter) printVulnerabilitiesTable(w *tabwriter.Writer, vulns ...apiv1alpha1.Vulnerability) error {
+	if f.wide {
+		f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "PUBLISHED", "DESCRIPTION")
+	} else {
+		f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "PUBLISHED")
+	}
+	if len(vulns) == 0 {
+		return nil
+	}
+	for _, v := range vulns {
+		cvss := NoneString
+		if v.CvssScore != nil {
+			cvss = fmt.Sprintf("%.1f", *v.CvssScore)
+		}
+		published := NoneString
+		if v.PublishedAt != nil {
+			published = humanize.Time(*v.PublishedAt)
+		}
+		advisory := NoneString
+		if v.AdvisoryId != nil {
+			advisory = *v.AdvisoryId
+		}
+
+		if f.wide {
+			description := NoneString
+			if v.Description != nil {
+				desc := *v.Description
+				if len(desc) > 60 {
+					desc = desc[:57] + "..."
+				}
+				description = desc
+			}
+			f.printTableRowLn(w, v.CveId, string(v.Severity), cvss, advisory, published, description)
+		} else {
+			f.printTableRowLn(w, v.CveId, string(v.Severity), cvss, advisory, published)
+		}
+	}
+	return nil
+}
+
+func (f *TableFormatter) printVulnerabilityGroupsTable(w *tabwriter.Writer, showImages bool, groups ...apiv1alpha1.VulnerabilityGroup) error {
+	if showImages {
+		if f.wide {
+			f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "IMAGES", "PUBLISHED", "DESCRIPTION")
+		} else {
+			f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "IMAGES", "PUBLISHED")
+		}
+	} else {
+		if f.wide {
+			f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "DEVICES", "PUBLISHED", "DESCRIPTION")
+		} else {
+			f.printHeaderRowLn(w, "CVE ID", "SEVERITY", "CVSS", "ADVISORY", "DEVICES", "PUBLISHED")
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+
+	for _, g := range groups {
+		cvss := NoneString
+		if g.MaxCvssScore != nil {
+			cvss = fmt.Sprintf("%.1f", *g.MaxCvssScore)
+		}
+		advisory := NoneString
+		if len(g.Findings) > 0 && g.Findings[0].AdvisoryId != nil {
+			advisory = *g.Findings[0].AdvisoryId
+		}
+		published := NoneString
+		if g.MaxPublishedAt != nil {
+			published = humanize.Time(*g.MaxPublishedAt)
+		}
+
+		countCol := "0"
+		if showImages {
+			countCol = fmt.Sprintf("%d", len(g.Findings))
+		} else if g.AffectedDevices != nil {
+			countCol = fmt.Sprintf("%d", *g.AffectedDevices)
+		}
+
+		if f.wide {
+			description := NoneString
+			if len(g.Findings) > 0 && g.Findings[0].Description != nil {
+				desc := *g.Findings[0].Description
+				if len(desc) > 60 {
+					desc = desc[:57] + "..."
+				}
+				description = desc
+			}
+			f.printTableRowLn(w, g.CveId, string(g.Severity), cvss, advisory, countCol, published, description)
+		} else {
+			f.printTableRowLn(w, g.CveId, string(g.Severity), cvss, advisory, countCol, published)
+		}
+	}
+	return nil
+}
+
+func (f *TableFormatter) printVulnerabilityImpactTable(w *tabwriter.Writer, impact *apiv1alpha1.VulnerabilityImpact) error {
+	fmt.Fprintf(w, "CVE ID\t%s\n", impact.CveId)
+
+	severity := string(impact.Severity)
+	if impact.MaxCvssScore != nil {
+		severity = fmt.Sprintf("%s (CVSS %.1f)", impact.Severity, *impact.MaxCvssScore)
+	}
+	fmt.Fprintf(w, "SEVERITY\t%s\n", severity)
+
+	advisory := NoneString
+	if len(impact.Items) > 0 && len(impact.Items[0].Findings) > 0 && impact.Items[0].Findings[0].AdvisoryId != nil {
+		advisory = *impact.Items[0].Findings[0].AdvisoryId
+	}
+	fmt.Fprintf(w, "ADVISORY\t%s\n", advisory)
+
+	description := findImpactDescription(impact)
+	if description == "" {
+		fmt.Fprintf(w, "DESCRIPTION\t%s\n", NoneString)
+	} else {
+		fmt.Fprintln(w, "DESCRIPTION")
+		for _, line := range wrapText(description, 80) {
+			fmt.Fprintln(w, line)
+		}
+	}
+
+	fmt.Fprintln(w)
+
+	if len(impact.Items) == 0 {
+		fmt.Fprintln(w, "No affected fleets or devices found.")
+		return nil
+	}
+
+	f.printHeaderRowLn(w, "FLEET", "AFFECTED DEVICES", "IMAGES")
+	for _, fleet := range impact.Items {
+		fleetName := fleet.FleetName
+		if fleet.Fleetless {
+			fleetName = "(fleetless)"
+		}
+		images := formatImpactImages(fleet.Findings, f.wide)
+		f.printTableRowLn(w, fleetName, fmt.Sprintf("%d", fleet.AffectedDevices), images)
+	}
+	return nil
+}
+
+func findImpactDescription(impact *apiv1alpha1.VulnerabilityImpact) string {
+	for _, fleet := range impact.Items {
+		for _, finding := range fleet.Findings {
+			if finding.Description != nil && *finding.Description != "" {
+				return *finding.Description
+			}
+		}
+	}
+	return ""
+}
+
+func wrapText(text string, width int) []string {
+	if width <= 0 || len(text) <= width {
+		return []string{text}
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{text}
+	}
+
+	currentLine := words[0]
+	for _, word := range words[1:] {
+		if len(currentLine)+1+len(word) <= width {
+			currentLine += " " + word
+		} else {
+			lines = append(lines, currentLine)
+			currentLine = word
+		}
+	}
+	lines = append(lines, currentLine)
+	return lines
+}
+
+func formatImpactImages(findings []apiv1alpha1.VulnerabilityGroupItem, wide bool) string {
+	if len(findings) == 0 {
+		return NoneString
+	}
+
+	var parts []string
+	for _, finding := range findings {
+		imageRef := finding.ImageDigest
+		if len(finding.ImageRefs) > 0 {
+			imageRef = finding.ImageRefs[0]
+		}
+		count := int64(0)
+		if finding.AffectedDevices != nil {
+			count = *finding.AffectedDevices
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d)", imageRef, count))
+	}
+
+	result := strings.Join(parts, ", ")
+	if !wide && len(result) > 60 {
+		result = result[:57] + "..."
+	}
+	return result
+}
+
+func (f *TableFormatter) printVulnerabilitySummaryTable(w *tabwriter.Writer, summary *apiv1alpha1.VulnerabilitySummaryResponse) error {
+	f.printHeaderRowLn(w, "", "CRITICAL", "HIGH", "MEDIUM", "LOW", "TOTAL")
+	f.printTableRowLn(w, "CVEs",
+		fmt.Sprintf("%d", summary.CvesBySeverity.Critical),
+		fmt.Sprintf("%d", summary.CvesBySeverity.High),
+		fmt.Sprintf("%d", summary.CvesBySeverity.Medium),
+		fmt.Sprintf("%d", summary.CvesBySeverity.Low),
+		fmt.Sprintf("%d", summary.CvesBySeverity.Total))
+	return nil
+}
+
+func (f *TableFormatter) printDeviceVulnerabilitySummaryTable(w *tabwriter.Writer, summary *apiv1alpha1.DeviceVulnerabilitySummaryResponse) error {
+	if summary.Image != nil {
+		imageStr := *summary.Image
+		if summary.ImageDigest != nil {
+			digest := *summary.ImageDigest
+			if len(digest) > 20 {
+				digest = digest[:17] + "..."
+			}
+			imageStr = fmt.Sprintf("%s (%s)", imageStr, digest)
+		}
+		fmt.Fprintf(w, "IMAGE\t%s\n", imageStr)
+	}
+	fmt.Fprintf(w, "SUMMARY\tCritical: %d  High: %d  Medium: %d  Low: %d  Total: %d\n",
+		summary.Summary.Critical,
+		summary.Summary.High,
+		summary.Summary.Medium,
+		summary.Summary.Low,
+		summary.Summary.Total)
+	return nil
+}
+
+func (f *TableFormatter) printFleetVulnerabilitySummaryTable(w *tabwriter.Writer, summary *apiv1alpha1.FleetVulnerabilitySummaryResponse) error {
+	fmt.Fprintf(w, "SUMMARY\tCritical: %d  High: %d  Medium: %d  Low: %d  Total: %d  Images: %d\n",
+		summary.Summary.Critical,
+		summary.Summary.High,
+		summary.Summary.Medium,
+		summary.Summary.Low,
+		summary.Summary.Total,
+		summary.Summary.UniqueDigests)
 	return nil
 }

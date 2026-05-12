@@ -37,10 +37,8 @@ func getPrometheusURL() (string, error) {
 var _ = Describe("Device observability", func() {
 	BeforeEach(func() {
 		p := setup.GetDefaultProviders()
-		envType := p.Infra.GetEnvironmentType()
-		// Allow KIND and Quadlet environments
-		if envType != infra.EnvironmentKind && envType != infra.EnvironmentQuadlet {
-			Skip("KIND or Quadlet context required for telemetry gateway metrics")
+		if p.Infra.GetEnvironmentType() != infra.EnvironmentKind {
+			Skip("KIND context required for telemetry gateway metrics")
 		}
 	})
 
@@ -240,9 +238,8 @@ var _ = Describe("Device observability", func() {
 var _ = Describe("Service observability", func() {
 	BeforeEach(func() {
 		p := setup.GetDefaultProviders()
-		envType := p.Infra.GetEnvironmentType()
-		if envType != infra.EnvironmentKind && envType != infra.EnvironmentQuadlet {
-			Skip("KIND or Quadlet context required for service observability metrics")
+		if p.Infra.GetEnvironmentType() != infra.EnvironmentKind {
+			Skip("KIND context required for service observability metrics")
 		}
 	})
 

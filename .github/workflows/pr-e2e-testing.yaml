@@ -20,6 +20,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 # Optional repo variable E2E_RUN_ON_MAIN_PRS=true: PRs to main run E2E without run-e2e; label still forces E2E when false.
 
 env:

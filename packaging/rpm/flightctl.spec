@@ -356,6 +356,8 @@ fi
         --var-tmp-dir "%{buildroot}%{_var}/tmp" \
         --var-lib-dir "%{buildroot}/var/lib"
 
+    mkdir -p %{buildroot}%{_sysconfdir}/flightctl/tpm-cas
+
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
@@ -492,6 +494,18 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
+# Disable bootc automatic updates on bootc systems (flightctl manages updates)
+# Only masks the timer if it exists; silently succeeds otherwise
+systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
+
+%postun agent
+# Restore bootc automatic-update timer only on full removal (not upgrade)
+if [ "$1" -eq 0 ]; then
+    systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
+    systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
+    loginctl disable-linger flightctl || :
+fi
+
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
@@ -509,6 +523,7 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/tpm-cas
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
@@ -620,6 +635,12 @@ if [ "$1" -eq 2 ]; then
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
     if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
         IMAGE_TAG="$IMAGE_TAG" \
+        DB_SETUP_REGISTRY="quay.io" \
+%if 0%{?rhel} == 10
+        DB_SETUP_IMAGE="flightctl/flightctl-db-setup-el10" \
+%else
+        DB_SETUP_IMAGE="flightctl/flightctl-db-setup-el9" \
+%endif
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
         "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
             echo "flightctl: dry-run failed; aborting upgrade." >&2

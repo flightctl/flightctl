@@ -3,6 +3,7 @@ package authn
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/auth/common/cookies"
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/samber/lo"
@@ -853,9 +855,19 @@ func (m *MultiAuth) GetIdentity(ctx context.Context, token string) (common.Ident
 	return nil, fmt.Errorf("no identity found for token")
 }
 
-// GetAuthToken extracts the auth token from the request
+// GetAuthToken extracts the auth token from the request, either from the Authorization header or
+// session cookie from the UI.
 func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
-	return common.ExtractBearerToken(r)
+	token, err := common.ExtractBearerToken(r)
+	if errors.Is(err, common.ErrNoAuthHeader) {
+		var tokenVal cookies.TokenData
+		tokenVal, err := cookies.ParseSessionCookie(r)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse session cookie: %w", err)
+		}
+		return tokenVal.Token, nil
+	}
+	return token, err
 }
 
 // GetAuthConfig returns the auth configuration with all available providers

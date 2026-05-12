@@ -45,19 +45,13 @@ data:
         endpoint: {{ .Values.dev.tracing.endpoint }}
         insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
-    {{- $vuln := default dict .Values.vulnerability }}
+    {{- $vuln := default dict .Values.vulnerabilityReporting }}
     {{- $trustify := default dict $vuln.trustify }}
     {{- $auth := default dict $trustify.auth }}
     {{- if default false $vuln.enabled }}
-    vulnerability:
+    vulnerabilityReporting:
         enabled: true
         syncInterval: {{ $vuln.syncInterval | default "15m" | quote }}
-        {{- if $vuln.alerting }}
-        alerting:
-            enabled: {{ $vuln.alerting.enabled }}
-            warningCvssThreshold: {{ $vuln.alerting.warningCvssThreshold }}
-            criticalCvssThreshold: {{ $vuln.alerting.criticalCvssThreshold }}
-        {{- end }}
         {{- if $vuln.trustify }}
         trustify:
             endpoint: {{ $trustify.endpoint | quote }}

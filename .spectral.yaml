@@ -518,8 +518,20 @@ overrides:
       - "**#/paths/~1organizations"
       - "**#/paths/~1imagepipelines"
       - "**#/paths/~1catalogitems"
+      - "**/api/core/v1alpha1/openapi.yaml#/paths/~1vulnerabilities"
+      - "**/api/core/v1alpha1/openapi.yaml#/paths/~1vulnerabilities~1summary"
     rules:
       collection-verbs-required: off
+  # /vulnerabilities returns 501 when the feature is disabled.
+  - files:
+      - "**/api/core/v1alpha1/openapi.yaml#/paths/~1vulnerabilities"
+    rules:
+      responses-collection-get-allowed: off
+  # Vulnerability read-only paths under core v1alpha1.
+  - files:
+      - "**/api/core/v1alpha1/openapi.yaml#/paths/~1vulnerabilities~1cves~1%7BcveId%7D~1impact"
+    rules:
+      paths-are-lowercase: off
   # /version endpoint doesn't need 400 response (no query params)
   - files:
       - "**#/paths/~1version"

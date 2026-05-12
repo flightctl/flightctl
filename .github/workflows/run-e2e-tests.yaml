@@ -43,7 +43,7 @@ jobs:
           echo "Generated nodes matrix: ${nodes}"
 
   e2e-test:
-    runs-on: ubuntu-24.04
+    runs-on: flightctl-ci-runner
     needs: generate-matrix
     strategy:
       fail-fast: false

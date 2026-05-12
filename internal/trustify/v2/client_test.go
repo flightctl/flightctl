@@ -3,85 +3,15 @@ package trustifyv2
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/stretchr/testify/require"
 )
-
-// ---- helpers ----------------------------------------------------------------
-
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
-}
-
-// makeAnalysisResponse builds an AnalysisResponse payload for one PURL with a
-// single CVE finding.
-func makeAnalysisResponse(purl, cveID, status, advisoryID, severity string, score float64, published *time.Time) AnalysisResponse {
-	desc := "test description"
-	return AnalysisResponse{
-		purl: {
-			Details: []AnalysisDetails{
-				{
-					Identifier:  cveID,
-					Description: &desc,
-					Status: map[string][]AnalysisAdvisory{
-						status: {
-							{
-								Identifier: advisoryID,
-								Published:  published,
-								Scores: []Score{
-									{
-										Value:    score,
-										Severity: Severity(severity),
-										Type:     "3.1",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			Warnings: []string{},
-		},
-	}
-}
-
-// newTrustifyServer starts an httptest.Server that serves the provided payload
-// and captures the incoming request for inspection.
-type requestCapture struct {
-	Method string
-	URL    string
-	Body   []byte
-	Header http.Header
-}
-
-func newTrustifyServer(t *testing.T, statusCode int, payload []byte) (*httptest.Server, *requestCapture) {
-	t.Helper()
-	reqCap := &requestCapture{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqCap.Method = r.Method
-		reqCap.URL = r.URL.String()
-		reqCap.Header = r.Header.Clone()
-		defer r.Body.Close()
-		body, err := io.ReadAll(r.Body)
-		if err == nil {
-			reqCap.Body = body
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(statusCode)
-		_, _ = w.Write(payload)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, reqCap
-}
 
 // newOIDCServer starts a minimal OIDC discovery + token server.
 func newOIDCServer(t *testing.T) *httptest.Server {
@@ -109,6 +39,56 @@ func newOIDCServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// newTrustifyServer creates a mock Trustify server that handles SBOM list and advisory endpoints.
+type mockTrustifyServer struct {
+	sboms      map[string]SbomSummary    // digest -> SBOM
+	advisories map[string][]SbomAdvisory // sbomID -> advisories
+}
+
+func newMockTrustifyServer(t *testing.T, mock *mockTrustifyServer) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Handle SBOM list: GET /api/v2/sbom?q=sha256~...
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/sbom" {
+			query := r.URL.Query().Get("q")
+			var items []SbomSummary
+			if strings.HasPrefix(query, "sha256~") {
+				digests := strings.Split(strings.TrimPrefix(query, "sha256~"), "|")
+				for _, d := range digests {
+					for digestKey, sbom := range mock.sboms {
+						if strings.Contains(digestKey, d) || strings.Contains(d, digestKey) {
+							items = append(items, sbom)
+						}
+					}
+				}
+			}
+			resp := SbomListResponse{Items: items, Total: int64(len(items))}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Handle SBOM advisories: GET /api/v2/sbom/{id}/advisory
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/advisory") {
+			parts := strings.Split(r.URL.Path, "/")
+			if len(parts) >= 5 {
+				sbomID := parts[4] // /api/v2/sbom/{id}/advisory
+				if advisories, ok := mock.advisories[sbomID]; ok {
+					_ = json.NewEncoder(w).Encode(advisories)
+					return
+				}
+			}
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // ---- NewVulnerabilityClient -------------------------------------------------
 
 func TestNewVulnerabilityClient_NilConfig(t *testing.T) {
@@ -118,7 +98,7 @@ func TestNewVulnerabilityClient_NilConfig(t *testing.T) {
 }
 
 func TestNewVulnerabilityClient_NoneAuthMode(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, AnalysisResponse{}))
+	srv := newMockTrustifyServer(t, &mockTrustifyServer{})
 	cfg := &config.TrustifyConfig{
 		Endpoint: srv.URL,
 		Auth:     &config.TrustifyAuthConfig{Mode: AuthModeNone},
@@ -129,7 +109,7 @@ func TestNewVulnerabilityClient_NoneAuthMode(t *testing.T) {
 }
 
 func TestNewVulnerabilityClient_EmptyAuthMode(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, AnalysisResponse{}))
+	srv := newMockTrustifyServer(t, &mockTrustifyServer{})
 	cfg := &config.TrustifyConfig{
 		Endpoint: srv.URL,
 		Auth:     &config.TrustifyAuthConfig{},
@@ -140,7 +120,7 @@ func TestNewVulnerabilityClient_EmptyAuthMode(t *testing.T) {
 }
 
 func TestNewVulnerabilityClient_NilAuth(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, AnalysisResponse{}))
+	srv := newMockTrustifyServer(t, &mockTrustifyServer{})
 	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
 	c, err := NewVulnerabilityClient(context.Background(), cfg)
 	require.NoError(t, err)
@@ -149,7 +129,7 @@ func TestNewVulnerabilityClient_NilAuth(t *testing.T) {
 
 func TestNewVulnerabilityClient_ClientCredentials_OIDCDiscovery(t *testing.T) {
 	oidcSrv := newOIDCServer(t)
-	trustifySrv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, AnalysisResponse{}))
+	trustifySrv := newMockTrustifyServer(t, &mockTrustifyServer{})
 
 	cfg := &config.TrustifyConfig{
 		Endpoint: trustifySrv.URL,
@@ -194,107 +174,37 @@ func TestNewVulnerabilityClient_UnsupportedAuthMode(t *testing.T) {
 	require.Equal(t, "magic-token", authErr.Mode)
 }
 
-// ---- GetVulnerabilities (none auth) ----------------------------------------
+// ---- GetVulnerabilitiesForDigests -------------------------------------------
 
-func TestGetVulnerabilities_ReturnsFindings(t *testing.T) {
+func TestGetVulnerabilitiesForDigests_ReturnsFindings(t *testing.T) {
+	digest := "sha256:abc123def456"
+	sbomID := "urn:uuid:test-sbom-1"
 	published := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
-	digest := "sha256:abc123"
-	purl := ociPURL(digest)
-	payload := makeAnalysisResponse(purl, "CVE-2024-1234", "affected", "RHSA-2024:001", "high", 8.1, &published)
+	title := "HTTP/2 Rapid Reset Attack"
 
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, payload))
-	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
-	c, err := NewVulnerabilityClient(context.Background(), cfg)
-	require.NoError(t, err)
-
-	findings, err := c.GetVulnerabilities(context.Background(), digest)
-	require.NoError(t, err)
-	require.Len(t, findings, 1)
-
-	f := findings[0]
-	require.Equal(t, digest, f.ImageDigest)
-	require.Equal(t, "CVE-2024-1234", f.CVEID)
-	require.Equal(t, "affected", f.Status)
-	require.Equal(t, "high", f.Severity)
-	require.Equal(t, "RHSA-2024:001", f.AdvisoryID)
-	require.Equal(t, "test description", f.Description)
-	require.NotNil(t, f.CVSSScore)
-	require.InDelta(t, 8.1, *f.CVSSScore, 0.001)
-	require.NotNil(t, f.PublishedAt)
-	require.True(t, f.PublishedAt.Equal(published))
-}
-
-func TestGetVulnerabilities_EmptyResponse(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, AnalysisResponse{}))
-	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
-	c, err := NewVulnerabilityClient(context.Background(), cfg)
-	require.NoError(t, err)
-
-	findings, err := c.GetVulnerabilities(context.Background(), "sha256:deadbeef")
-	require.NoError(t, err)
-	require.Empty(t, findings)
-}
-
-func TestGetVulnerabilities_MultipleCVEs(t *testing.T) {
-	digest := "sha256:multi"
-	purl := ociPURL(digest)
-
-	desc1, desc2 := "desc1", "desc2"
-	payload := AnalysisResponse{
-		purl: {
-			Details: []AnalysisDetails{
-				{
-					Identifier:  "CVE-2024-0001",
-					Description: &desc1,
-					Status: map[string][]AnalysisAdvisory{
-						"affected": {{Identifier: "RHSA-2024:001", Scores: []Score{{Value: 9.8, Severity: "critical", Type: "3.1"}}}},
-					},
-				},
-				{
-					Identifier:  "CVE-2024-0002",
-					Description: &desc2,
-					Status: map[string][]AnalysisAdvisory{
-						"under_investigation": {{Identifier: "RHSA-2024:002", Scores: []Score{{Value: 5.4, Severity: "medium", Type: "3.1"}}}},
-					},
-				},
+	sha256Val := "sha256:" + "abc123def456"
+	mock := &mockTrustifyServer{
+		sboms: map[string]SbomSummary{
+			"abc123def456": {
+				Id:     sbomID,
+				Name:   "test-image",
+				Sha256: &sha256Val,
 			},
-			Warnings: []string{},
 		},
-	}
-
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, payload))
-	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
-	c, err := NewVulnerabilityClient(context.Background(), cfg)
-	require.NoError(t, err)
-
-	findings, err := c.GetVulnerabilities(context.Background(), digest)
-	require.NoError(t, err)
-	require.Len(t, findings, 2)
-	for _, f := range findings {
-		require.Equal(t, digest, f.ImageDigest)
-	}
-}
-
-func TestGetVulnerabilities_CVSSScorePicksHighest(t *testing.T) {
-	digest := "sha256:scores"
-	purl := ociPURL(digest)
-	desc := "desc"
-	payload := AnalysisResponse{
-		purl: {
-			Details: []AnalysisDetails{
+		advisories: map[string][]SbomAdvisory{
+			sbomID: {
 				{
-					Identifier:  "CVE-2024-9999",
-					Description: &desc,
-					Status: map[string][]AnalysisAdvisory{
-						"affected": {
-							{
-								Identifier: "RHSA-2024:001",
-								Scores: []Score{
-									{Value: 6.5, Severity: "medium", Type: "2.0"},
-									{Value: 8.8, Severity: "high", Type: "3.1"},
-									{Value: 7.0, Severity: "high", Type: "3.0"},
-								},
-							},
+					Uuid:       "adv-1",
+					Identifier: "https://www.redhat.com/#CVE-2024-1234",
+					DocumentId: "CVE-2024-1234",
+					Title:      &title,
+					Published:  &published,
+					Status: []SbomStatus{
+						{
+							Identifier:      "CVE-2024-1234",
+							Status:          "affected",
+							AverageSeverity: High,
+							AverageScore:    7.5,
 						},
 					},
 				},
@@ -302,180 +212,188 @@ func TestGetVulnerabilities_CVSSScorePicksHighest(t *testing.T) {
 		},
 	}
 
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, payload))
+	srv := newMockTrustifyServer(t, mock)
 	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
 	c, err := NewVulnerabilityClient(context.Background(), cfg)
 	require.NoError(t, err)
 
-	findings, err := c.GetVulnerabilities(context.Background(), digest)
+	results, err := c.GetVulnerabilitiesForDigests(context.Background(), []string{digest})
 	require.NoError(t, err)
+	require.Contains(t, results, digest)
+
+	findings := results[digest]
 	require.Len(t, findings, 1)
-	require.NotNil(t, findings[0].CVSSScore)
-	require.InDelta(t, 8.8, *findings[0].CVSSScore, 0.001)
-	require.Equal(t, "high", findings[0].Severity)
+
+	f := findings[0]
+	require.Equal(t, digest, f.ImageDigest)
+	require.Equal(t, "CVE-2024-1234", f.CVEID)
+	require.Equal(t, "affected", f.Status)
+	require.Equal(t, "high", f.Severity)
+	require.NotNil(t, f.CVSSScore)
+	require.InDelta(t, 7.5, *f.CVSSScore, 0.001)
+	require.Equal(t, title, f.Description)
 }
 
-func TestGetVulnerabilities_NoScores(t *testing.T) {
-	digest := "sha256:noscores"
-	purl := ociPURL(digest)
-	desc := "desc"
-	payload := AnalysisResponse{
-		purl: {
-			Details: []AnalysisDetails{
+func TestGetVulnerabilitiesForDigests_EmptyDigests(t *testing.T) {
+	srv := newMockTrustifyServer(t, &mockTrustifyServer{})
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	results, err := c.GetVulnerabilitiesForDigests(context.Background(), nil)
+	require.NoError(t, err)
+	require.Empty(t, results)
+}
+
+func TestGetVulnerabilitiesForDigests_NoMatchingSBOM(t *testing.T) {
+	mock := &mockTrustifyServer{
+		sboms: map[string]SbomSummary{}, // No SBOMs
+	}
+
+	srv := newMockTrustifyServer(t, mock)
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	results, err := c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:unknown"})
+	require.NoError(t, err)
+	require.Contains(t, results, "sha256:unknown")
+	require.Nil(t, results["sha256:unknown"], "Digest without SBOM should have nil findings")
+}
+
+func TestGetVulnerabilitiesForDigests_MultipleDigests(t *testing.T) {
+	digest1 := "sha256:aaaa1111"
+	digest2 := "sha256:bbbb2222"
+	sbomID1 := "urn:uuid:sbom-1"
+	sbomID2 := "urn:uuid:sbom-2"
+
+	sha1 := "sha256:aaaa1111"
+	sha2 := "sha256:bbbb2222"
+	mock := &mockTrustifyServer{
+		sboms: map[string]SbomSummary{
+			"aaaa1111": {Id: sbomID1, Name: "image-1", Sha256: &sha1},
+			"bbbb2222": {Id: sbomID2, Name: "image-2", Sha256: &sha2},
+		},
+		advisories: map[string][]SbomAdvisory{
+			sbomID1: {
 				{
-					Identifier:  "CVE-2024-0001",
-					Description: &desc,
-					Status: map[string][]AnalysisAdvisory{
-						"affected": {{Identifier: "RHSA-2024:001"}},
+					DocumentId: "CVE-2024-0001",
+					Identifier: "RHSA-1",
+					Status:     []SbomStatus{{Status: "affected", AverageSeverity: High, AverageScore: 8.0}},
+				},
+			},
+			sbomID2: {
+				{
+					DocumentId: "CVE-2024-0002",
+					Identifier: "RHSA-2",
+					Status:     []SbomStatus{{Status: "fixed", AverageSeverity: Medium, AverageScore: 5.0}},
+				},
+			},
+		},
+	}
+
+	srv := newMockTrustifyServer(t, mock)
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	results, err := c.GetVulnerabilitiesForDigests(context.Background(), []string{digest1, digest2})
+	require.NoError(t, err)
+
+	require.Len(t, results[digest1], 1)
+	require.Equal(t, "CVE-2024-0001", results[digest1][0].CVEID)
+
+	require.Len(t, results[digest2], 1)
+	require.Equal(t, "CVE-2024-0002", results[digest2][0].CVEID)
+}
+
+func TestGetVulnerabilitiesForDigests_MultipleStatusEntries(t *testing.T) {
+	digest := "sha256:multi"
+	sbomID := "urn:uuid:sbom-multi"
+	sha := "sha256:multi"
+
+	mock := &mockTrustifyServer{
+		sboms: map[string]SbomSummary{
+			"multi": {Id: sbomID, Name: "image-multi", Sha256: &sha},
+		},
+		advisories: map[string][]SbomAdvisory{
+			sbomID: {
+				{
+					DocumentId: "CVE-2024-9999",
+					Identifier: "RHSA-9999",
+					Status: []SbomStatus{
+						{Status: "affected", AverageSeverity: High, AverageScore: 8.0},
+						{Status: "fixed", AverageSeverity: High, AverageScore: 8.0},
 					},
 				},
 			},
 		},
 	}
 
-	srv, _ := newTrustifyServer(t, http.StatusOK, mustJSON(t, payload))
+	srv := newMockTrustifyServer(t, mock)
 	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
 	c, err := NewVulnerabilityClient(context.Background(), cfg)
 	require.NoError(t, err)
 
-	findings, err := c.GetVulnerabilities(context.Background(), digest)
+	results, err := c.GetVulnerabilitiesForDigests(context.Background(), []string{digest})
 	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	require.Nil(t, findings[0].CVSSScore)
-	require.Empty(t, findings[0].Severity)
+
+	// Should have 2 findings (one for each status entry)
+	require.Len(t, results[digest], 2)
 }
 
-// ---- Error handling ---------------------------------------------------------
+func TestGetVulnerabilitiesForDigests_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
 
-func TestGetVulnerabilities_ServerError(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusInternalServerError, []byte(`{"error":"boom"}`))
 	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
 	c, err := NewVulnerabilityClient(context.Background(), cfg)
 	require.NoError(t, err)
 
-	_, err = c.GetVulnerabilities(context.Background(), "sha256:err")
-	require.Error(t, err)
-
-	var connErr *ConnectionError
-	require.ErrorAs(t, err, &connErr)
-	require.Contains(t, connErr.Error(), "500")
-}
-
-func TestGetVulnerabilities_InvalidJSON(t *testing.T) {
-	srv, _ := newTrustifyServer(t, http.StatusOK, []byte(`not-json`))
-	cfg := &config.TrustifyConfig{Endpoint: srv.URL}
-	c, err := NewVulnerabilityClient(context.Background(), cfg)
-	require.NoError(t, err)
-
-	_, err = c.GetVulnerabilities(context.Background(), "sha256:bad")
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:test"})
 	require.Error(t, err)
 
 	var connErr *ConnectionError
 	require.ErrorAs(t, err, &connErr)
 }
 
-func TestGetVulnerabilities_Unreachable(t *testing.T) {
+func TestGetVulnerabilitiesForDigests_Unreachable(t *testing.T) {
 	cfg := &config.TrustifyConfig{Endpoint: "http://127.0.0.1:1"}
 	c, err := NewVulnerabilityClient(context.Background(), cfg)
 	require.NoError(t, err)
 
-	_, err = c.GetVulnerabilities(context.Background(), "sha256:x")
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:x"})
 	require.Error(t, err)
 
 	var connErr *ConnectionError
 	require.ErrorAs(t, err, &connErr)
 }
 
-// ---- client-credentials auth ------------------------------------------------
+// ---- helper functions -------------------------------------------------------
 
-func TestGetVulnerabilities_ClientCredentials_SendsBearerToken(t *testing.T) {
-	oidcSrv := newOIDCServer(t)
-
-	var capturedAuth string
-	trustifySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(AnalysisResponse{})
-	}))
-	t.Cleanup(trustifySrv.Close)
-
-	cfg := &config.TrustifyConfig{
-		Endpoint: trustifySrv.URL,
-		Auth: &config.TrustifyAuthConfig{
-			Mode:          AuthModeClientCredentials,
-			OIDCIssuerURL: oidcSrv.URL,
-			ClientID:      "my-client",
-			ClientSecret:  "my-secret",
-		},
-	}
-	c, err := NewVulnerabilityClient(context.Background(), cfg)
-	require.NoError(t, err)
-
-	_, err = c.GetVulnerabilities(context.Background(), "sha256:auth")
-	require.NoError(t, err)
-	require.Equal(t, "Bearer fake-token", capturedAuth)
-}
-
-// ---- ociPURL ----------------------------------------------------------------
-
-func TestOciPURL(t *testing.T) {
+func TestDigestMatches(t *testing.T) {
 	tests := []struct {
-		name   string
-		digest string
-		want   string
+		name string
+		a, b string
+		want bool
 	}{
-		{
-			name:   "When digest has sha256 prefix it should produce a valid OCI PURL",
-			digest: "sha256:abc123",
-			want:   "pkg:oci/unknown@sha256:abc123",
-		},
-		{
-			name:   "When digest is empty the PURL still has the prefix",
-			digest: "",
-			want:   "pkg:oci/unknown@",
-		},
+		{"same digest with prefix", "sha256:abc123", "sha256:abc123", true},
+		{"same digest without prefix", "abc123", "abc123", true},
+		{"one with prefix one without", "sha256:abc123", "abc123", true},
+		{"different digests", "sha256:abc123", "sha256:def456", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, ociPURL(tt.digest))
+			require.Equal(t, tt.want, digestMatches(tt.a, tt.b))
 		})
 	}
 }
 
-// ---- bestScore --------------------------------------------------------------
-
-func TestBestScore(t *testing.T) {
-	tests := []struct {
-		name      string
-		scores    []Score
-		wantNil   bool
-		wantValue float64
-	}{
-		{
-			name:    "When scores is empty it should return nil",
-			scores:  nil,
-			wantNil: true,
-		},
-		{
-			name:      "When there is one score it should return it",
-			scores:    []Score{{Value: 7.5}},
-			wantValue: 7.5,
-		},
-		{
-			name:      "When multiple scores it should return the highest",
-			scores:    []Score{{Value: 5.0}, {Value: 9.8}, {Value: 7.0}},
-			wantValue: 9.8,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := bestScore(tt.scores)
-			if tt.wantNil {
-				require.Nil(t, got)
-				return
-			}
-			require.NotNil(t, got)
-			require.InDelta(t, tt.wantValue, got.Value, 0.001)
-		})
-	}
+func TestStripSHA256Prefix(t *testing.T) {
+	require.Equal(t, "abc123", stripSHA256Prefix("sha256:abc123"))
+	require.Equal(t, "abc123", stripSHA256Prefix("abc123"))
+	require.Equal(t, "", stripSHA256Prefix("sha256:"))
+	require.Equal(t, "", stripSHA256Prefix(""))
 }

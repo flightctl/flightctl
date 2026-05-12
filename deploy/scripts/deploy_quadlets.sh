@@ -10,6 +10,9 @@ OS="${OS:-el9}"
 
 echo "Starting Deployment"
 
+# Host directory for TPM manufacturer / swtpm CA PEMs (mounted read-only into flightctl-api)
+install -d -m 0755 /etc/flightctl/tpm-cas
+
 # Render quadlet files
 bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 

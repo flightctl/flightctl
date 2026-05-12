@@ -371,7 +371,7 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
-  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  # -- Builder images (podman, bootc-image-builder, syft) and skip-TLS options
   serviceImages:
     podman:
       # -- Podman builder image (leave empty to use default).
@@ -383,6 +383,22 @@ imageBuilderWorker:
       image: ""
       # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
       skipTlsVerify: false
+    syft:
+      # -- Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`.
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Syft image.
+      skipTlsVerify: false
+  # -- SBOM generation after image push (Syft produces CycloneDX JSON; PURL normalization; optional OCI referrer push and Trustify upload when configured).
+  sbom:
+    # -- Run SBOM generation after a successful image push.
+    enabled: true
+    # -- Attach the SBOM to the pushed image as an OCI 1.1 referrer artifact on the destination registry.
+    pushToRegistry: true
+    # -- Upload the SBOM to Trustify when vulnerability reporting is enabled and Trustify is configured (same settings as `vulnerabilityReporting` elsewhere in this chart).
+    uploadToTrustify: true
+    purlTransform:
+      # -- Normalize RPM PURLs (namespace/distro/qualifiers) before push/upload for advisory matching.
+      enabled: true
   # -- Resource requests and limits
   resources: {}
 
@@ -458,20 +474,13 @@ dbSetup:
     activeDeadlineSeconds: 0
 
 # -- Vulnerability Integration Configuration
-vulnerability:
+vulnerabilityReporting:
   # -- Enable vulnerability integration (sync task + API endpoints).
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  alerting:
-    # -- Enable CVE alerting (emits per-device events for high-CVSS findings).
-    enabled: true
-    # -- Minimum CVSS base score to trigger a per-device alert.
-    warningCvssThreshold: 4.0
-    # -- Minimum CVSS base score to trigger a critical per-device alert.
-    criticalCvssThreshold: 7.0
   trustify:
-    # -- Trustify API endpoint URL.
+    # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
     endpoint: ""
     auth:
       # -- Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'.

@@ -1083,6 +1083,14 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: cveId
+          in: query
+          description: Filter devices by CVE ID. Only returns devices whose OS image digest has the specified vulnerability. Must be a MITRE-style identifier (CVE-YYYY-sequence, e.g. CVE-2024-12345).
+          required: false
+          schema:
+            type: string
+            pattern: '^CVE-[0-9]{4}-[0-9]{4,}$'
+            maxLength: 64
       responses:
         "200":
           description: OK
@@ -7137,6 +7145,10 @@ components:
             - DeviceContentOutOfDate
             - DeviceContentUpdating
             - DeviceUpdateFailed
+            - DeviceVulnerabilityCVECritical
+            - DeviceVulnerabilityCVEResolved
+            - DeviceVulnerabilityCVEWarning
+            - DeviceOSImageChanged
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
             - DeviceMultipleOwnersDetected
@@ -7164,6 +7176,7 @@ components:
             - ResourceSyncParsingFailed
             - ResourceSyncSynced
             - ResourceSyncSyncFailed
+            - DependencyChangeDetected
             - SystemRestored
         message:
           type: string
@@ -7246,6 +7259,8 @@ components:
           FleetRolloutBatchDispatched: "#/components/schemas/FleetRolloutBatchDispatchedDetails"
           FleetRolloutBatchCompleted: "#/components/schemas/FleetRolloutBatchCompletedDetails"
           FleetRolloutDeviceSelected: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
+          DeviceVulnerabilityCVE: "#/components/schemas/DeviceVulnerabilityCveDetails"
+          DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -7261,6 +7276,31 @@ components:
         - $ref: "#/components/schemas/FleetRolloutBatchDispatchedDetails"
         - $ref: "#/components/schemas/FleetRolloutBatchCompletedDetails"
         - $ref: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
+        - $ref: "#/components/schemas/DeviceVulnerabilityCveDetails"
+        - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
+    DeviceVulnerabilityCveDetails:
+      type: object
+      description: Structured details for per-device CVE vulnerability events.
+      required:
+        - detailType
+        - cveId
+      properties:
+        detailType:
+          type: string
+          enum: [DeviceVulnerabilityCVE]
+          description: The type of detail for discriminator purposes.
+        cveId:
+          type: string
+          description: CVE identifier (e.g. CVE-2024-1234). MITRE-style CVE-YYYY-sequence identifier, matching device list filter validation.
+          pattern: '^CVE-[0-9]{4}-[0-9]{4,}$'
+          maxLength: 64
+        firstImageRef:
+          type: string
+          description: Human-readable OS image reference when the CVE was first detected on this device (historical/audit field).
+        firstImageDigest:
+          type: string
+          description: Image digest when the CVE was first detected on this device (historical/audit field, e.g. sha256:...).
+
     ResourceUpdatedDetails:
       type: object
       required:
@@ -7533,6 +7573,23 @@ components:
         repository:
           type: string
           description: The name of the repository that was updated.
+    DependencyChangeDetectedDetails:
+      type: object
+      required:
+        - detailType
+        - resourceKey
+        - fingerprint
+      properties:
+        detailType:
+          type: string
+          enum: [DependencyChangeDetected]
+          description: The type of detail for discriminator purposes.
+        resourceKey:
+          type: string
+          description: The resource key identifying the dependency that changed (e.g. "git:my-repo/main").
+        fingerprint:
+          type: string
+          description: The new fingerprint (e.g. commit SHA) of the changed dependency.
     Organization:
       type: object
       required:

@@ -184,10 +184,12 @@ func GetIdentity(ctx context.Context) (Identity, error) {
 	return identity, nil
 }
 
+var ErrNoAuthHeader = fmt.Errorf("empty %s header", AuthHeader)
+
 func ExtractBearerToken(r *http.Request) (string, error) {
 	authHeader := r.Header.Get(AuthHeader)
 	if authHeader == "" {
-		return "", fmt.Errorf("empty %s header", AuthHeader)
+		return "", ErrNoAuthHeader
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token == authHeader {

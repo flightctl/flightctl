@@ -3,6 +3,7 @@ package auxiliary
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func (p *Prometheus) Start(ctx context.Context, network string, reuse bool) erro
 	p.Host = GetHostIP()
 	port, _ := container.MappedPort(ctx, "9090")
 	p.Port = port.Port()
-	p.URL = fmt.Sprintf("http://%s:%s", p.Host, p.Port)
+	p.URL = fmt.Sprintf("http://%s", net.JoinHostPort(p.Host, p.Port))
 	logrus.Infof("Prometheus container started: %s", p.URL)
 	return nil
 }

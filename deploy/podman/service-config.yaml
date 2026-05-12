@@ -75,6 +75,11 @@ db:
   type: "builtin"
 
 service:
+  # Optional: TPM manufacturer / swtpm CA PEM paths for device enrollment (rendered into flightctl-api config).
+  # Must be a YAML list, e.g.:
+  # tpmCAPaths:
+  #   - /etc/flightctl/tpm-cas/swtpm-localca-rootca-cert.pem
+  #   - /etc/flightctl/tpm-cas/issuercert.pem
   # Rate limiting configuration
   # Note: Only flightctl-api and flightctl-alertmanager-proxy services use rate limiting
   # Other services ignore this configuration
@@ -102,7 +107,7 @@ grafana:
 
 prometheus:
 
-# ImageBuilder Worker (optional). Uncomment and set when using custom builder images or skip-TLS.
+# ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.
 # imagebuilderWorker:
 #   logLevel: info
 #   maxConcurrentBuilds: 2
@@ -117,29 +122,39 @@ prometheus:
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
+#     syft:
+#       image: ""           # Override Syft image for SBOM generation (optional)
+#       skipTlsVerify: false
+#   sbom:
+#     enabled: true
+#     pushToRegistry: true
+#     uploadToTrustify: true
+#     purlTransform:
+#       enabled: true
 
 # Vulnerability integration (optional). Uncomment and configure to enable.
-# vulnerability:
+# When enabled, flightctl-imagebuilder-worker also receives trustify settings (SBOM upload uses the same client as periodic).
+# vulnerabilityReporting:
 #   # Enable vulnerability integration (sync task in flightctl-periodic + API endpoints in flightctl-api).
 #   enabled: false
 #   # Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
 #   syncInterval: 15m
-#   alerting:
-#     # Enable per-device CVE alerting for findings above the CVSS threshold.
-#     enabled: true
-#     # Minimum CVSS base score required to emit a per-device alert.
-#     warningCvssThreshold: 4.0
-#     criticalCvssThreshold: 7.0
 #   trustify:
 #     # Trustify API base URL (used by flightctl-periodic only).
-#     endpoint: https://trustify.example.com/api/v1
+#     # NOTE: Do not include the API path; the client appends /api/v2/vulnerability/analyze automatically.
+#     endpoint: https://trustify.example.com
 #     auth:
 #       # Authentication mode. Allowed values: 'client-credentials', 'none'.
 #       mode: none
 #       # OIDC issuer URL (required when mode is 'client-credentials').
 #       oidcIssuerUrl: https://keycloak.example.com/realms/trustify
-#       # client_id and client_secret are supplied via FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_ID
-#       # and FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_SECRET environment variables.
+#       # client_id and client_secret are supplied via FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
+#       # and FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET environment variables.
+
+# Automated dependency synchronization (optional).
+# Controls the global polling interval for git/HTTP dependency probes.
+# dependenciesSync:
+#   pollInterval: 15m
 
 telemetryGateway:
   forward:

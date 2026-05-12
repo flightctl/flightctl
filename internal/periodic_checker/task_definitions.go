@@ -2,10 +2,13 @@ package periodic
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
@@ -37,6 +40,7 @@ const (
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
 	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
+	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
 )
 
 type PeriodicTaskMetadata struct {
@@ -53,6 +57,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
+	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -76,9 +81,9 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 		}
 	}
 
-	if cfg.Vulnerability != nil && cfg.Vulnerability.SyncInterval > 0 {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.SyncInterval > 0 {
 		meta := merged[PeriodicTaskTypeVulnerabilitySync]
-		meta.Interval = time.Duration(cfg.Vulnerability.SyncInterval)
+		meta.Interval = time.Duration(cfg.VulnerabilityReporting.SyncInterval)
 		merged[PeriodicTaskTypeVulnerabilitySync] = meta
 	}
 
@@ -198,15 +203,60 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 }
 
 type VulnerabilitySyncExecutor struct {
-	log          logrus.FieldLogger
-	vulnClient   trustifyv2.VulnerabilityClient
-	findingStore store.VulnerabilityFinding
+	log            logrus.FieldLogger
+	vulnClient     trustifyv2.VulnerabilityClient
+	findingStore   store.VulnerabilityFinding
+	serviceHandler service.Service
 }
 
 func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
-	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore)
+	checkpoint := &serviceCheckpointAdapter{svc: e.serviceHandler}
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore, checkpoint, e.serviceHandler)
 	vulnSync.Poll(taskCtx)
+}
+
+// serviceCheckpointAdapter adapts service.Service to tasks.CheckpointStore interface.
+type serviceCheckpointAdapter struct {
+	svc service.Service
+}
+
+func (a *serviceCheckpointAdapter) Set(ctx context.Context, consumer, key string, value []byte) error {
+	st := a.svc.SetCheckpoint(ctx, consumer, key, value)
+	return statusToError(st)
+}
+
+func (a *serviceCheckpointAdapter) Get(ctx context.Context, consumer, key string) ([]byte, error) {
+	data, st := a.svc.GetCheckpoint(ctx, consumer, key)
+	return data, statusToError(st)
+}
+
+func (a *serviceCheckpointAdapter) GetDatabaseTime(ctx context.Context) (time.Time, error) {
+	t, st := a.svc.GetDatabaseTime(ctx)
+	return t, statusToError(st)
+}
+
+// statusToError converts a domain.Status to an error if it indicates a failure.
+func statusToError(st domain.Status) error {
+	if st.Code >= 200 && st.Code < 300 {
+		return nil
+	}
+	if st.Code == 404 {
+		return flterrors.ErrResourceNotFound
+	}
+	return fmt.Errorf("%s: %s", st.Reason, st.Message)
+}
+
+type DependencySyncGitExecutor struct {
+	log            logrus.FieldLogger
+	serviceHandler service.Service
+	cfg            *config.Config
+}
+
+func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncGit)
+	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.cfg)
+	depSync.Poll(taskCtx, orgId)
 }
 
 func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient) map[PeriodicTaskType]PeriodicTaskExecutor {
@@ -246,12 +296,19 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		},
 	}
 
-	if cfg.Vulnerability != nil && cfg.Vulnerability.Enabled && vulnClient != nil && findingStore != nil {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && vulnClient != nil && findingStore != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
-			log:          log.WithField("pkg", "vulnerability-sync"),
-			vulnClient:   vulnClient,
-			findingStore: findingStore,
+			log:            log.WithField("pkg", "vulnerability-sync"),
+			vulnClient:     vulnClient,
+			findingStore:   findingStore,
+			serviceHandler: serviceHandler,
 		}
+	}
+
+	executors[PeriodicTaskTypeDependencySyncGit] = &DependencySyncGitExecutor{
+		log:            log.WithField("pkg", "dependency-sync-git"),
+		serviceHandler: serviceHandler,
+		cfg:            cfg,
 	}
 
 	return executors

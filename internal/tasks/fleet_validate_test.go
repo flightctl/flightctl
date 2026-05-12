@@ -115,35 +115,132 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		fleetName  string
-		generation int64
-		expected   string
+		name        string
+		fleetName   string
+		generation  int64
+		fingerprint string
+		expected    string
 	}{
 		{
-			name:       "generation 1",
-			fleetName:  "my-fleet",
-			generation: 1,
-			expected:   "v1",
+			name:        "When fingerprint is empty it should return v{generation}",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: "",
+			expected:    "v1",
 		},
 		{
-			name:       "large generation",
-			fleetName:  "my-fleet",
-			generation: 9999999999,
-			expected:   "v9999999999",
+			name:        "When fingerprint is empty with large generation it should return v{generation}",
+			fleetName:   "my-fleet",
+			generation:  9999999999,
+			fingerprint: "",
+			expected:    "v9999999999",
 		},
 		{
-			name:       "253-char fleet name",
-			fleetName:  strings.Repeat("a", 253),
-			generation: 42,
-			expected:   "v42",
+			name:        "When fingerprint is empty with 253-char fleet name it should return v{generation}",
+			fleetName:   strings.Repeat("a", 253),
+			generation:  42,
+			fingerprint: "",
+			expected:    "v42",
+		},
+		{
+			name:        "When fingerprint is provided it should return v{generation}-{short-hash}",
+			fleetName:   "my-fleet",
+			generation:  3,
+			fingerprint: "abc123def456789",
+			expected:    "v3-abc123de",
+		},
+		{
+			name:        "When fingerprint is shorter than 8 chars it should use full fingerprint",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: "abc",
+			expected:    "v1-abc",
+		},
+		{
+			name:        "When fingerprint is exactly 8 chars it should use full fingerprint",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: "abcd1234",
+			expected:    "v1-abcd1234",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation))
+			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation), tt.fingerprint)
 			require.Equal(tt.expected, result)
 		})
 	}
+}
+
+func TestFleetValidateLogic_GetFingerprint(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    domain.Event
+		expected string
+	}{
+		{
+			name: "When event is DependencyChangeDetected it should return the fingerprint",
+			event: func() domain.Event {
+				details := domain.EventDetails{}
+				_ = details.FromDependencyChangeDetectedDetails(domain.DependencyChangeDetectedDetails{
+					DetailType:  domain.DependencyChangeDetected,
+					ResourceKey: "git:my-repo/main",
+					Fingerprint: "abc123def456",
+				})
+				return domain.Event{
+					Reason:  domain.EventReasonDependencyChangeDetected,
+					Details: &details,
+				}
+			}(),
+			expected: "abc123def456",
+		},
+		{
+			name: "When event is ResourceUpdated it should return empty string",
+			event: domain.Event{
+				Reason: domain.EventReasonResourceUpdated,
+			},
+			expected: "",
+		},
+		{
+			name: "When event is DependencyChangeDetected with nil details it should return empty string",
+			event: domain.Event{
+				Reason: domain.EventReasonDependencyChangeDetected,
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := FleetValidateLogic{
+				log:   logrus.New(),
+				event: tt.event,
+			}
+			result := logic.getFingerprint()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func makeGitConfigItem(t *testing.T, name, repo, revision string) domain.ConfigProviderSpec {
+	t.Helper()
+	gitSpec := &domain.GitConfigProviderSpec{Name: name}
+	gitSpec.GitRef.Repository = repo
+	gitSpec.GitRef.TargetRevision = revision
+	gitSpec.GitRef.Path = "/etc/config"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromGitConfigProviderSpec(*gitSpec))
+	return item
+}
+
+func makeHttpConfigItem(t *testing.T, name, repo string, suffix *string) domain.ConfigProviderSpec {
+	t.Helper()
+	httpSpec := &domain.HttpConfigProviderSpec{Name: name}
+	httpSpec.HttpRef.Repository = repo
+	httpSpec.HttpRef.FilePath = "/etc/http-config"
+	httpSpec.HttpRef.Suffix = suffix
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromHttpConfigProviderSpec(*httpSpec))
+	return item
 }

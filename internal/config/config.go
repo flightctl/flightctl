@@ -22,22 +22,23 @@ const (
 )
 
 type Config struct {
-	Database            *dbConfig                  `json:"database,omitempty"`
-	Service             *svcConfig                 `json:"service,omitempty"`
-	ImageBuilderService *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	KV                  *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                *authConfig                `json:"auth,omitempty"`
-	Metrics             *metricsConfig             `json:"metrics,omitempty"`
-	CA                  *ca.Config                 `json:"ca,omitempty"`
-	Tracing             *TracingConfig             `json:"tracing,omitempty"`
-	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic            *periodicConfig            `json:"periodic,omitempty"`
-	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	Vulnerability       *VulnerabilityConfig       `json:"vulnerability,omitempty"`
+	Database               *dbConfig                  `json:"database,omitempty"`
+	Service                *svcConfig                 `json:"service,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
+	KV                     *kvConfig                  `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                `json:"auth,omitempty"`
+	Metrics                *metricsConfig             `json:"metrics,omitempty"`
+	CA                     *ca.Config                 `json:"ca,omitempty"`
+	Tracing                *TracingConfig             `json:"tracing,omitempty"`
+	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig            `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -175,11 +176,13 @@ type serviceImageConfig struct {
 type serviceImagesConfig struct {
 	Podman            *serviceImageConfig `json:"podman,omitempty"`
 	BootcImageBuilder *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
+	Syft              *serviceImageConfig `json:"syft,omitempty"`
 }
 
 const (
 	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
 	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
 )
 
 type imageBuilderWorkerConfig struct {
@@ -193,18 +196,115 @@ type imageBuilderWorkerConfig struct {
 	RPMRepoURL               string               `json:"rpmRepoUrl,omitempty"`
 	RPMRepoAdd               *bool                `json:"rpmRepoAdd,omitempty"`
 	RPMRepoEnable            string               `json:"rpmRepoEnable,omitempty"`
+	SBOM                     *SBOMConfig          `json:"sbom,omitempty"`
+}
+
+// SBOMConfig holds configuration for SBOM generation during image builds.
+type SBOMConfig struct {
+	Enabled          bool                 `json:"enabled,omitempty"`
+	PushToRegistry   bool                 `json:"pushToRegistry,omitempty"`
+	UploadToTrustify bool                 `json:"uploadToTrustify,omitempty"`
+	PurlTransform    *PurlTransformConfig `json:"purlTransform,omitempty"`
+}
+
+// PurlTransformTypeRules defines namespace, distro, and qualifier rules for one PURL package type
+// (map key and segment after "pkg:" in pkg:type/..., e.g. "rpm").
+type PurlTransformTypeRules struct {
+	NamespaceMapping  map[string]string `json:"namespaceMapping,omitempty"`
+	DistroMapping     map[string]string `json:"distroMapping,omitempty"`
+	AllowedQualifiers []string          `json:"allowedQualifiers,omitempty"`
+}
+
+// PurlTransformConfig holds configuration for PURL normalization.
+type PurlTransformConfig struct {
+	// Enabled, when nil, means enabled (default). Set to false to disable PURL normalization.
+	Enabled *bool `json:"enabled,omitempty"`
+	// ByType maps package type ID (e.g. "rpm") to rules for that type only.
+	ByType map[string]PurlTransformTypeRules `json:"byType,omitempty"`
+}
+
+// EffectivePurlTransformEnabled returns whether PURL normalization is enabled.
+func (p *PurlTransformConfig) EffectivePurlTransformEnabled() bool {
+	if p == nil {
+		return true
+	}
+	if p.Enabled == nil {
+		return true
+	}
+	return *p.Enabled
+}
+
+func normalizePURLPackageTypeID(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	return strings.TrimPrefix(s, "pkg:")
+}
+
+// NormalizedPURLPackageTypeID returns the package type key for lookups (after "pkg:", lowercased).
+func NormalizedPURLPackageTypeID(s string) string {
+	return normalizePURLPackageTypeID(s)
+}
+
+// NewDefaultSBOMConfig returns the default SBOM configuration.
+func NewDefaultSBOMConfig() *SBOMConfig {
+	return &SBOMConfig{
+		Enabled:          true,
+		PushToRegistry:   true,
+		UploadToTrustify: true,
+		PurlTransform:    NewDefaultPurlTransformConfig(),
+	}
+}
+
+// NewDefaultPurlTransformConfig returns default PURL transformation config for RHEL-based distros.
+func NewDefaultPurlTransformConfig() *PurlTransformConfig {
+	enabled := true
+	return &PurlTransformConfig{
+		Enabled: &enabled,
+		ByType: map[string]PurlTransformTypeRules{
+			"rpm": {
+				NamespaceMapping: map[string]string{
+					"centos":     "redhat",
+					"rocky":      "redhat",
+					"rockylinux": "redhat",
+					"alma":       "redhat",
+					"almalinux":  "redhat",
+					"oracle":     "redhat",
+				},
+				DistroMapping: map[string]string{
+					"centos-7":        "rhel-7",
+					"centos-8":        "rhel-8",
+					"centos-9":        "rhel-9",
+					"centos-stream-8": "rhel-8",
+					"centos-stream-9": "rhel-9",
+					"rocky-8":         "rhel-8",
+					"rocky-9":         "rhel-9",
+					"alma-8":          "rhel-8",
+					"alma-9":          "rhel-9",
+					"almalinux-8":     "rhel-8",
+					"almalinux-9":     "rhel-9",
+					"oracle-8":        "rhel-8",
+					"oracle-9":        "rhel-9",
+				},
+				AllowedQualifiers: []string{"arch", "distro"},
+			},
+		},
+	}
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	return &imageBuilderWorkerConfig{
-		LogLevel:                 "info",
-		MaxConcurrentBuilds:      2,
-		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
-		ServiceImages:            &serviceImagesConfig{Podman: &serviceImageConfig{Image: defaultPodmanImage}, BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage}},
+		LogLevel:            "info",
+		MaxConcurrentBuilds: 2,
+		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
+		ServiceImages: &serviceImagesConfig{
+			Podman:            &serviceImageConfig{Image: defaultPodmanImage},
+			BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage},
+			Syft:              &serviceImageConfig{Image: defaultSyftImage},
+		},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
+		SBOM:                     NewDefaultSBOMConfig(),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
 	}
 }
@@ -233,6 +333,43 @@ func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderImage() string {
 // EffectiveBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the bootc-image-builder image.
 func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderSkipTLSVerify() bool {
 	return c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.SkipTLSVerify
+}
+
+// EffectiveSyftImage returns the Syft image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectiveSyftImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.Image != "" {
+		return c.ServiceImages.Syft.Image
+	}
+	return defaultSyftImage
+}
+
+// EffectiveSyftSkipTLSVerify returns whether to skip TLS verification when pulling the Syft image.
+func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.SkipTLSVerify
+}
+
+// IsSBOMEnabled returns whether SBOM generation is enabled.
+func (c *imageBuilderWorkerConfig) IsSBOMEnabled() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.Enabled
+}
+
+// SBOMPushToRegistry returns whether to push SBOM to OCI registry as referrer.
+func (c *imageBuilderWorkerConfig) SBOMPushToRegistry() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.PushToRegistry
+}
+
+// SBOMUploadToTrustify returns whether to upload SBOM to Trustify.
+func (c *imageBuilderWorkerConfig) SBOMUploadToTrustify() bool {
+	if c == nil || c.SBOM == nil {
+		return true // Enabled by default
+	}
+	return c.SBOM.UploadToTrustify
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
@@ -441,31 +578,44 @@ type organizationsConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 }
 
+// DependenciesSyncConfig holds global settings for automated dependency synchronization.
+type DependenciesSyncConfig struct {
+	// PollInterval is the polling interval for git/HTTP dependency probes (e.g. "15m", "1h").
+	// Default: 15m.
+	PollInterval util.Duration `json:"pollInterval,omitempty"`
+}
+
+// DefaultDependenciesSyncPollInterval is the default polling interval for dependency probes.
+const DefaultDependenciesSyncPollInterval = 15 * time.Minute
+
+// DefaultDependencySyncTaskInterval is how often the dependency-sync periodic
+// task executes. This is intentionally shorter than the poll interval so that
+// newly added refs are discovered quickly and partial failures are retried
+// within minutes rather than waiting for the full poll interval.
+const DefaultDependencySyncTaskInterval = 3 * time.Minute
+
+// GetDependenciesSyncPollInterval returns the configured poll interval, or the default if unset.
+func (c *Config) GetDependenciesSyncPollInterval() time.Duration {
+	if c.DependenciesSync != nil && c.DependenciesSync.PollInterval > 0 {
+		return time.Duration(c.DependenciesSync.PollInterval)
+	}
+	return DefaultDependenciesSyncPollInterval
+}
+
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.
 type VulnerabilityConfig struct {
 	// Enabled enables vulnerability integration (sync task + API endpoints).
 	Enabled bool `json:"enabled,omitempty"`
 	// SyncInterval is the interval between Trustify sync runs (e.g. "15m", "1h").
 	SyncInterval util.Duration `json:"syncInterval,omitempty"`
-	// Alerting configures CVE alerting behaviour.
-	Alerting *VulnerabilityAlertingConfig `json:"alerting,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
 }
 
-// VulnerabilityAlertingConfig configures per-device CVE alerting.
-type VulnerabilityAlertingConfig struct {
-	// Enabled enables CVE alerting (emits per-device events for high-CVSS findings).
-	Enabled bool `json:"enabled,omitempty"`
-	// WarningCVSSThreshold is the minimum CVSS base score required to emit a Warning-level event.
-	WarningCVSSThreshold float64 `json:"warningCvssThreshold,omitempty"`
-	// CriticalCVSSThreshold is the minimum CVSS base score required to emit a Critical-level event.
-	CriticalCVSSThreshold float64 `json:"criticalCvssThreshold,omitempty"`
-}
-
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
-	// Endpoint is the Trustify API base URL.
+	// Endpoint is the Trustify API base URL (e.g. "https://trustify.example.com").
+	// Do not include the /api/v1 or /api/v2 paths; the client appends them automatically.
 	Endpoint string `json:"endpoint,omitempty"`
 	// Auth configures how the periodic service authenticates to Trustify.
 	Auth *TrustifyAuthConfig `json:"auth,omitempty"`
@@ -795,7 +945,7 @@ func applyEnvVarOverrides(c *Config) {
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
-	applyVulnerabilityEnvVarOverrides(c)
+	applyVulnerabilityReportingEnvVarOverrides(c)
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.
 	// Valid values: "true", "1" (enable), "false", "0" (disable)
@@ -821,52 +971,47 @@ func applyEnvVarOverrides(c *Config) {
 	}
 }
 
-func applyVulnerabilityEnvVarOverrides(c *Config) {
-	enabled := os.Getenv("FLIGHTCTL_VULNERABILITY_ENABLED")
-	syncInterval := os.Getenv("FLIGHTCTL_VULNERABILITY_SYNC_INTERVAL")
-	trustifyEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_ENDPOINT")
-	trustifyAuthMode := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_AUTH_MODE")
-	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_OIDC_ISSUER_URL")
-	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_ID")
-	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_TRUSTIFY_CLIENT_SECRET")
-	alertingEnabled := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_ENABLED")
-	alertingWarningThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_WARNING_CVSS_THRESHOLD")
-	alertingCriticalThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_ALERTING_CRITICAL_CVSS_THRESHOLD")
+func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
+	enabled := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ENABLED")
+	syncInterval := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_SYNC_INTERVAL")
+	trustifyEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_ENDPOINT")
+	trustifyAuthMode := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_AUTH_MODE")
+	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
+	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
+	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
 
 	if enabled == "" && syncInterval == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
-		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
-		alertingEnabled == "" && alertingWarningThreshold == "" && alertingCriticalThreshold == "" {
+		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" {
 		return
 	}
 
-	if c.Vulnerability == nil {
-		c.Vulnerability = &VulnerabilityConfig{}
+	if c.VulnerabilityReporting == nil {
+		c.VulnerabilityReporting = &VulnerabilityConfig{}
 	}
 
 	switch enabled {
 	case "true", "1":
-		c.Vulnerability.Enabled = true
+		c.VulnerabilityReporting.Enabled = true
 	case "false", "0":
-		c.Vulnerability.Enabled = false
+		c.VulnerabilityReporting.Enabled = false
 	case "":
 	default:
-		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ENABLED value %q (expected: true/1/false/0), ignoring\n", enabled)
+		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", enabled)
 	}
 
 	if syncInterval != "" {
 		d, err := time.ParseDuration(syncInterval)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_SYNC_INTERVAL value %q: %v, ignoring\n", syncInterval, err)
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_SYNC_INTERVAL value %q: %v, ignoring\n", syncInterval, err)
 		} else {
-			c.Vulnerability.SyncInterval = util.Duration(d)
+			c.VulnerabilityReporting.SyncInterval = util.Duration(d)
 		}
 	}
 
-	applyVulnerabilityTrustifyEnvVarOverrides(c.Vulnerability, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
-	applyVulnerabilityAlertingEnvVarOverrides(c.Vulnerability, alertingEnabled, alertingWarningThreshold, alertingCriticalThreshold)
+	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
 }
 
-func applyVulnerabilityTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
+func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
 	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
 		return
 	}
@@ -893,40 +1038,6 @@ func applyVulnerabilityTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint,
 	}
 	if clientSecret != "" {
 		v.Trustify.Auth.ClientSecret = api.SecureString(clientSecret)
-	}
-}
-
-func applyVulnerabilityAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingEnabled, warningThreshold, criticalThreshold string) {
-	if alertingEnabled == "" && warningThreshold == "" && criticalThreshold == "" {
-		return
-	}
-	if v.Alerting == nil {
-		v.Alerting = &VulnerabilityAlertingConfig{}
-	}
-	switch alertingEnabled {
-	case "true", "1":
-		v.Alerting.Enabled = true
-	case "false", "0":
-		v.Alerting.Enabled = false
-	case "":
-	default:
-		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", alertingEnabled)
-	}
-	if warningThreshold != "" {
-		var threshold float64
-		if _, err := fmt.Sscanf(warningThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_WARNING_CVSS_THRESHOLD value %q: %v, ignoring\n", warningThreshold, err)
-		} else {
-			v.Alerting.WarningCVSSThreshold = threshold
-		}
-	}
-	if criticalThreshold != "" {
-		var threshold float64
-		if _, err := fmt.Sscanf(criticalThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_ALERTING_CRITICAL_CVSS_THRESHOLD value %q: %v, ignoring\n", criticalThreshold, err)
-		} else {
-			v.Alerting.CriticalCVSSThreshold = threshold
-		}
 	}
 }
 

@@ -174,6 +174,14 @@ func (m *MockFleetStoreWrapper) VulnerabilityFinding() store.VulnerabilityFindin
 	return nil
 }
 
+func (m *MockFleetStoreWrapper) SyncState() store.SyncState {
+	return nil
+}
+
+func (m *MockFleetStoreWrapper) DependencyRef() store.DependencyRef {
+	return nil
+}
+
 func (m *MockFleetStoreWrapper) RunMigrations(context.Context) error {
 	return nil
 }

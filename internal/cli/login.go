@@ -464,24 +464,36 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	if err != nil {
 		// Translate TLS errors during token validation and offer interactive prompt
 		errorInfo := classifyTLSError(err)
-		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
-			if o.promptUseInsecure(errorInfo) {
-				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
-				if cerr == nil {
-					c.Start(ctx)
-					defer c.Stop()
-					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
-				}
-			}
-		}
-		if err != nil {
+
+		// Guard: can't handle this TLS error or shouldn't offer insecure prompt
+		if errorInfo.Type == TLSErrorUnknown || !o.shouldOfferInsecurePrompt() || o.InsecureSkipVerify {
 			friendlyErr := getUserFriendlyTLSError(err)
 			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
 		}
+
+		// Guard: user declined insecure prompt
+		if !o.promptUseInsecure(errorInfo) {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
+		}
+
+		// User accepted insecure prompt - create new client and retry
+		o.enableInsecure()
+		newClient, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
+		if cerr != nil {
+			return nil, fmt.Errorf("creating insecure client: %w", cerr)
+		}
+		newClient.Start(ctx)
+		defer newClient.Stop()
+		c = newClient.ClientWithResponses
+		res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("validating token after TLS retry:\n%s", friendlyErr)
+		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 	return c, nil
 }

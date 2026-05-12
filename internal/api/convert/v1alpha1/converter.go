@@ -11,18 +11,21 @@ import (
 type Converter interface {
 	Catalog() CatalogConverter
 	Common() CommonConverter
+	Vulnerability() VulnerabilityConverter
 }
 
 type converterImpl struct {
-	catalog CatalogConverter
-	common  CommonConverter
+	catalog       CatalogConverter
+	common        CommonConverter
+	vulnerability VulnerabilityConverter
 }
 
 // NewConverter creates a new Converter instance with all resource converters.
 func NewConverter() Converter {
 	return &converterImpl{
-		catalog: NewCatalogConverter(),
-		common:  NewCommonConverter(),
+		catalog:       NewCatalogConverter(),
+		common:        NewCommonConverter(),
+		vulnerability: NewVulnerabilityConverter(),
 	}
 }
 
@@ -32,6 +35,10 @@ func (c *converterImpl) Catalog() CatalogConverter {
 
 func (c *converterImpl) Common() CommonConverter {
 	return c.common
+}
+
+func (c *converterImpl) Vulnerability() VulnerabilityConverter {
+	return c.vulnerability
 }
 
 // CommonConverter converts common types shared across API versions.

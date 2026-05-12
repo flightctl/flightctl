@@ -289,7 +289,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s://%s:%d", protocol, host, port), func() {}, nil
+		return fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(port))), func() {}, nil
 	}
 	cacheKey := string(service) + ":" + protocol
 	p.exposeCacheMu.Lock()
@@ -312,7 +312,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 		if host == "localhost" {
 			host = "127.0.0.1"
 		}
-		url := fmt.Sprintf("%s://%s:%d", protocol, host, hostPort)
+		url := fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(hostPort)))
 		p.exposeCacheMu.Lock()
 		if e, ok := p.exposeCache[cacheKey]; ok {
 			p.exposeCacheMu.Unlock()

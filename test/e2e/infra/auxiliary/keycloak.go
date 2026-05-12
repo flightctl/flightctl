@@ -3,6 +3,7 @@ package auxiliary
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -77,7 +78,7 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		return fmt.Errorf("failed to get Keycloak mapped port: %w", err)
 	}
 	k.Port = port.Port()
-	k.URL = fmt.Sprintf("http://%s:%s", k.Host, k.Port)
+	k.URL = fmt.Sprintf("http://%s", net.JoinHostPort(k.Host, k.Port))
 	logrus.Infof("Keycloak container started: %s (realm: %s)", k.URL, keycloakRealmName)
 
 	// Wait until the realm is reachable from the host (same path the CLI will use).
