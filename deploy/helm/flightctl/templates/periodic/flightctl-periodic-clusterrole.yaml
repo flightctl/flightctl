@@ -1,0 +1,13 @@
+{{ if .Values.periodic.clusterLevelSecretAccess }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-periodic
+  name: flightctl-periodic-{{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list", "watch"]
+{{ end }}

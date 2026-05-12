@@ -50,14 +50,17 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	)
 
 	secretInformer := factory.Core().V1().Secrets().Informer()
-	secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			d.handleSecretEvent(ctx, obj)
 		},
 		UpdateFunc: func(_, newObj interface{}) {
 			d.handleSecretEvent(ctx, newObj)
 		},
-	})
+	}); err != nil {
+		d.log.WithError(err).Error("Failed to add secret informer event handler")
+		return
+	}
 
 	factory.Start(ctx.Done())
 	factory.WaitForCacheSync(ctx.Done())
@@ -167,4 +170,3 @@ func hashSecretData(data map[string][]byte) string {
 
 	return fmt.Sprintf("sha256:%x", h.Sum(nil))
 }
-
