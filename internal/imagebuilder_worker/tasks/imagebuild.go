@@ -229,7 +229,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	}
 
 	// Step 4: Push image to registry
-	imageRef, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
+	imageRef, manifestDigest, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
 		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
 			return nil // Cancellation handled
@@ -242,7 +242,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
 	if c.shouldRunSBOMPipeline() {
-		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, podmanWorker, statusUpdater, log)
+		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, manifestDigest, podmanWorker, statusUpdater, log)
 	}
 
 	// Mark as Completed
@@ -268,6 +268,7 @@ func (c *Consumer) processSBOM(
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
 	imageRef string,
+	manifestDigest string,
 	podmanWorker *podmanWorker,
 	statusUpdater *statusUpdater,
 	log logrus.FieldLogger,
@@ -286,7 +287,7 @@ func (c *Consumer) processSBOM(
 	log.Info("Phase: SBOM Generation Started")
 
 	// Generate SBOM
-	sbomResult, err := c.generateSBOM(buildCtx, imageRef, podmanWorker, log)
+	sbomResult, err := c.generateSBOM(buildCtx, imageRef, manifestDigest, podmanWorker, log)
 	if err != nil {
 		log.WithError(err).Warn("SBOM generation failed (non-fatal)")
 		return
@@ -1108,17 +1109,17 @@ func (c *Consumer) buildImageWithPodman(
 }
 
 // pushImageWithPodman pushes the built image to the destination registry.
-// It returns the image reference that was pushed.
+// It returns the image reference and manifest digest of the pushed image.
 func (c *Consumer) pushImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
-) (string, error) {
+) (string, string, error) {
 	// Check context before starting work
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	spec := imageBuild.Spec
@@ -1126,12 +1127,12 @@ func (c *Consumer) pushImageWithPodman(
 	// Get and validate destination repository
 	ociSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Destination.Repository, "destination")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Validate image reference components (defense-in-depth)
 	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
-		return "", fmt.Errorf("invalid image reference components: %w", err)
+		return "", "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
@@ -1144,7 +1145,7 @@ func (c *Consumer) pushImageWithPodman(
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
 			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
-				return "", fmt.Errorf("failed to login to destination registry: %w", err)
+				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
 	}
@@ -1154,10 +1155,12 @@ func (c *Consumer) pushImageWithPodman(
 	// ---------------------------------------------------------
 	log.Info("Phase: Push Started")
 
-	// Push
+	// Push with --digestfile to capture the manifest digest
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
 	// Authentication is handled via podman login above
-	pushArgs := []string{"push"}
+	const digestFileName = "push-digest.txt"
+	workerDigestPath := filepath.Join("/output", digestFileName)
+	pushArgs := []string{"push", "--digestfile", workerDigestPath}
 
 	// Disable TLS verification for HTTP registries or when explicitly requested
 	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
@@ -1170,10 +1173,21 @@ func (c *Consumer) pushImageWithPodman(
 
 	pushArgs = append(pushArgs, imageRef)
 	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	log.WithField("imageRef", imageRef).Info("Phase: Push Completed - Image pushed successfully")
+	// Read the manifest digest from the digest file (host path maps to /output in worker)
+	hostDigestPath := filepath.Join(podmanWorker.TmpOutDir, digestFileName)
+	digestBytes, err := os.ReadFile(hostDigestPath)
+	if err != nil {
+		return "", "", fmt.Errorf("reading manifest digest file: %w", err)
+	}
+	manifestDigest := strings.TrimSpace(string(digestBytes))
 
-	return imageRef, nil
+	log.WithFields(logrus.Fields{
+		"imageRef":       imageRef,
+		"manifestDigest": manifestDigest,
+	}).Info("Phase: Push Completed - Image pushed successfully")
+
+	return imageRef, manifestDigest, nil
 }
