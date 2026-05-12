@@ -1332,6 +1332,21 @@ func (mr *MockServiceMockRecorder) ListResourceSyncs(ctx, orgId, params any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceSyncs", reflect.TypeOf((*MockService)(nil).ListResourceSyncs), ctx, orgId, params)
 }
 
+// ListSecretDependencyTargets mocks base method.
+func (m *MockService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName string) ([]model.SecretDependencyRef, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSecretDependencyTargets", ctx, secretNamespace, secretName)
+	ret0, _ := ret[0].([]model.SecretDependencyRef)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListSecretDependencyTargets indicates an expected call of ListSecretDependencyTargets.
+func (mr *MockServiceMockRecorder) ListSecretDependencyTargets(ctx, secretNamespace, secretName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecretDependencyTargets", reflect.TypeOf((*MockService)(nil).ListSecretDependencyTargets), ctx, secretNamespace, secretName)
+}
+
 // ListTemplateVersions mocks base method.
 func (m *MockService) ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params domain.ListTemplateVersionsParams) (*domain.TemplateVersionList, domain.Status) {
 	m.ctrl.T.Helper()

@@ -697,6 +697,12 @@ func (t *TracedService) ListDueGitDependencies(ctx context.Context, orgId uuid.U
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName string) ([]model.SecretDependencyRef, domain.Status) {
+	ctx, span := startSpan(ctx, "ListSecretDependencyTargets")
+	resp, st := t.inner.ListSecretDependencyTargets(ctx, secretNamespace, secretName)
+	endSpan(span, st)
+	return resp, st
+}
 
 // --- SyncState ---
 func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
