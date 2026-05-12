@@ -1,5 +1,5 @@
 {{- $root := . -}}
-{{- $baseName := printf "flightctl-db-migration-%d" .Release.Revision -}}
+{{- $baseName := "flightctl-db-migration" -}}
 
 {{- /* Defaults applied if any key along the path is missing */ -}}
 {{- $dbSetup := default (dict) .Values.dbSetup -}}
@@ -22,20 +22,12 @@
 ---
 {{- end }}
 
-{{- if .Release.IsUpgrade }}
+{{- $hookPhase := ternary "pre-upgrade" "post-install" .Release.IsUpgrade }}
 {{- include "flightctl.dbMigrationJob" (dict
   "context" $root
   "name" $baseName
-  "hooks" (list "pre-upgrade")
+  "hooks" (list $hookPhase)
   "hookWeight" "10"
   "hookDeletePolicy" "before-hook-creation"
   "isDryRun" false
 ) }}
-{{- else if .Release.IsInstall }}
-{{- include "flightctl.dbMigrationJob" (dict
-  "context" $root
-  "name" $baseName
-  "hooks" (list)
-  "isDryRun" false
-) }}
-{{- end }}
