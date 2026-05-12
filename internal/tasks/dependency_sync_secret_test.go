@@ -29,7 +29,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		refs := []model.SecretDependencyRef{
 			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "", Fingerprint: lo.ToPtr("sha256:oldfingerprint")},
 		}
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds").Return(refs, statusOK)
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "sha256:newfingerprint").Return(refs, statusOK)
 
 		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, state *model.SyncState) domain.Status {
@@ -59,10 +59,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		refs := []model.SecretDependencyRef{
-			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "", Fingerprint: lo.ToPtr("sha256:samefingerprint")},
-		}
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds").Return(refs, statusOK)
+		// SQL filters out unchanged rows — query returns empty
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "sha256:samefingerprint").Return([]model.SecretDependencyRef{}, statusOK)
 
 		d := &DependencySyncSecret{
 			log:            logrus.New(),
@@ -79,7 +77,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		refs := []model.SecretDependencyRef{
 			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "", Fingerprint: nil},
 		}
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds").Return(refs, statusOK)
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "sha256:initialfingerprint").Return(refs, statusOK)
 
 		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, state *model.SyncState) domain.Status {
@@ -94,24 +92,25 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		d.reconcile(ctx, "prod", "db-creds", "sha256:initialfingerprint")
 	})
 
-	t.Run("When multiple orgs reference the same secret with different fingerprints it should compare per org", func(t *testing.T) {
+	t.Run("When multiple orgs reference the same secret it should emit events and update sync_state per org", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
 		org1 := uuid.New()
 		org2 := uuid.New()
+		// SQL already filtered out unchanged — both orgs returned have stale fingerprints
 		refs := []model.SecretDependencyRef{
 			{OrgID: org1, FleetName: "fleet-a", DeviceName: "", Fingerprint: lo.ToPtr("sha256:old1")},
-			{OrgID: org2, FleetName: "fleet-b", DeviceName: "", Fingerprint: lo.ToPtr("sha256:newfingerprint")},
+			{OrgID: org2, FleetName: "fleet-b", DeviceName: "", Fingerprint: lo.ToPtr("sha256:old2")},
 		}
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds").Return(refs, statusOK)
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "sha256:newfingerprint").Return(refs, statusOK)
 
-		// org1 changed, org2 unchanged — only org1 gets sync_state update and event
 		mockService.EXPECT().SetSyncState(gomock.Any(), org1, gomock.Any()).Return(statusOK)
+		mockService.EXPECT().SetSyncState(gomock.Any(), org2, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), org1, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -121,8 +120,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		}
 		d.reconcile(ctx, "prod", "db-creds", "sha256:newfingerprint")
 
-		require.Len(t, events, 1)
-		assert.Equal(t, "fleet-a", events[0].name)
+		require.Len(t, events, 2)
 	})
 
 	t.Run("When fan-out includes fleet and device rows it should emit correct event kinds", func(t *testing.T) {
@@ -134,7 +132,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "", Fingerprint: lo.ToPtr("sha256:old")},
 			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "device-x", Fingerprint: lo.ToPtr("sha256:old")},
 		}
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds").Return(refs, statusOK)
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "sha256:new").Return(refs, statusOK)
 		mockService.EXPECT().SetSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
@@ -160,7 +158,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
 
-		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "unknown").Return([]model.SecretDependencyRef{}, statusOK)
+		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "unknown", "sha256:anything").Return([]model.SecretDependencyRef{}, statusOK)
 
 		d := &DependencySyncSecret{
 			log:            logrus.New(),
