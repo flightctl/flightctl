@@ -90,10 +90,11 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 	d.reconcile(ctx, secret.Namespace, secret.Name, fingerprint)
 }
 
-// reconcile compares the new fingerprint against stored state per org and
-// emits DependencyChangeDetected events for affected fleets/devices.
+// reconcile queries for dependency targets whose stored fingerprint differs from
+// newFingerprint (or has no fingerprint yet), emits DependencyChangeDetected
+// events for changed targets, and updates sync_state.
 func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, newFingerprint string) {
-	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name)
+	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
 	if status.Code != http.StatusOK {
 		d.log.Errorf("failed listing secret dependency targets for %s/%s: %s", namespace, name, status.Message)
 		return
@@ -103,49 +104,32 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	}
 
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)
-
-	// Group refs by org — different orgs may have different stored fingerprints.
-	orgRefs := make(map[uuid.UUID][]model.SecretDependencyRef)
-	orgFingerprints := make(map[uuid.UUID]*string)
-	for _, ref := range refs {
-		orgRefs[ref.OrgID] = append(orgRefs[ref.OrgID], ref)
-		if _, seen := orgFingerprints[ref.OrgID]; !seen {
-			orgFingerprints[ref.OrgID] = ref.Fingerprint
-		}
-	}
-
 	now := time.Now().UTC()
 
-	for orgID, orgRefList := range orgRefs {
-		storedFingerprint := orgFingerprints[orgID]
+	orgsToUpdate := make(map[uuid.UUID]bool)
+	for _, ref := range refs {
+		firstSeen := ref.Fingerprint == nil
 
-		firstSeen := storedFingerprint == nil
-		changed := !firstSeen && *storedFingerprint != newFingerprint
-		unchanged := !firstSeen && !changed
-
-		if unchanged {
-			continue
-		}
-
-		// Emit events before updating sync_state (same ordering as git sync).
-		if changed {
-			for _, ref := range orgRefList {
-				var kind domain.ResourceKind
-				var targetName string
-				if ref.DeviceName != "" {
-					kind = domain.DeviceKind
-					targetName = ref.DeviceName
-				} else {
-					kind = domain.FleetKind
-					targetName = ref.FleetName
-				}
-				event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
-				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgID, event)
-				}
+		if !firstSeen {
+			var kind domain.ResourceKind
+			var targetName string
+			if ref.DeviceName != "" {
+				kind = domain.DeviceKind
+				targetName = ref.DeviceName
+			} else {
+				kind = domain.FleetKind
+				targetName = ref.FleetName
+			}
+			event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
+			if event != nil {
+				d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
 			}
 		}
 
+		orgsToUpdate[ref.OrgID] = true
+	}
+
+	for orgID := range orgsToUpdate {
 		state := &model.SyncState{
 			OrgID:         orgID,
 			ResourceKey:   resourceKey,

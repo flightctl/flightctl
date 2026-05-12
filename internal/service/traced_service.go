@@ -697,9 +697,9 @@ func (t *TracedService) ListDueGitDependencies(ctx context.Context, orgId uuid.U
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName string) ([]model.SecretDependencyRef, domain.Status) {
+func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status) {
 	ctx, span := startSpan(ctx, "ListSecretDependencyTargets")
-	resp, st := t.inner.ListSecretDependencyTargets(ctx, secretNamespace, secretName)
+	resp, st := t.inner.ListSecretDependencyTargets(ctx, secretNamespace, secretName, newFingerprint)
 	endSpan(span, st)
 	return resp, st
 }

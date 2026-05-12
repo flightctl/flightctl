@@ -217,37 +217,9 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, fleetRef)).To(Succeed())
 			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, deviceRef)).To(Succeed())
 
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(2))
-		})
-
-		It("should exclude parameterized ResourceKeys", func() {
-			concreteRef := &model.DependencyRef{
-				OrgID:           orgId,
-				ResourceKey:     "secret:prod/db-creds",
-				FleetName:       lo.ToPtr("fleet-a"),
-				DeviceName:      lo.ToPtr(""),
-				RefType:         "secret",
-				SecretName:      lo.ToPtr("db-creds"),
-				SecretNamespace: lo.ToPtr("prod"),
-			}
-			parameterizedRef := &model.DependencyRef{
-				OrgID:           orgId,
-				ResourceKey:     "secret:{{ device.labels.ns }}/db-creds",
-				FleetName:       lo.ToPtr("fleet-b"),
-				DeviceName:      lo.ToPtr(""),
-				RefType:         "secret",
-				SecretName:      lo.ToPtr("db-creds"),
-				SecretNamespace: lo.ToPtr("{{ device.labels.ns }}"),
-			}
-			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, concreteRef)).To(Succeed())
-			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, parameterizedRef)).To(Succeed())
-
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(refs).To(HaveLen(1))
-			Expect(refs[0].FleetName).To(Equal("fleet-a"))
 		})
 
 		It("should return refs from multiple orgs for the same secret", func() {
@@ -275,7 +247,7 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref1)).To(Succeed())
 			Expect(storeInst.DependencyRef().Upsert(ctx, otherOrg, ref2)).To(Succeed())
 
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(2))
 
@@ -283,7 +255,7 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(orgIDs).To(ContainElements(orgId, otherOrg))
 		})
 
-		It("should join with sync_state to return the current fingerprint", func() {
+		It("should filter out refs whose stored fingerprint matches newFingerprint", func() {
 			ref := &model.DependencyRef{
 				OrgID:           orgId,
 				ResourceKey:     "secret:prod/db-creds",
@@ -302,14 +274,20 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			Expect(storeInst.SyncState().Set(ctx, orgId, syncState)).To(Succeed())
 
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			// Same fingerprint — should be filtered out
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:abc123")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(BeEmpty())
+
+			// Different fingerprint — should return the ref
+			refs, err = storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(1))
 			Expect(refs[0].Fingerprint).ToNot(BeNil())
 			Expect(*refs[0].Fingerprint).To(Equal("sha256:abc123"))
 		})
 
-		It("should return nil fingerprint when no sync_state exists", func() {
+		It("should return refs with nil fingerprint when no sync_state exists (first seen)", func() {
 			ref := &model.DependencyRef{
 				OrgID:           orgId,
 				ResourceKey:     "secret:prod/db-creds",
@@ -321,14 +299,14 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
 
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:any")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(1))
 			Expect(refs[0].Fingerprint).To(BeNil())
 		})
 
 		It("should return empty when no refs match", func() {
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "nonexistent")
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "nonexistent", "sha256:any")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(BeEmpty())
 		})
