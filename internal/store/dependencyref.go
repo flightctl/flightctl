@@ -25,6 +25,7 @@ type DependencyRef interface {
 	ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
+	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName string) ([]model.SecretDependencyRef, error)
 }
 
 type DependencyRefStore struct {
@@ -182,4 +183,26 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 		return nil, ErrorFromGormError(err)
 	}
 	return probes, nil
+}
+
+// ListSecretDependencyTargets returns flat rows of (orgID, fleetName, deviceName,
+// fingerprint) for all non-parameterized dependency_refs matching the given secret.
+// The query is cross-org (no org_id filter) because the K8s informer has no org
+// context — it only receives (namespace, name) from the watch event. Rows with
+// parameterized ResourceKeys are excluded since they are resolved at device level.
+func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName string) ([]model.SecretDependencyRef, error) {
+	var refs []model.SecretDependencyRef
+	err := s.getDB(ctx).
+		Table("dependency_refs dr").
+		Select("dr.org_id, dr.fleet_name, dr.device_name, ss.fingerprint").
+		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
+		Where("dr.ref_type = 'secret'").
+		Where("dr.secret_namespace = ?", secretNamespace).
+		Where("dr.secret_name = ?", secretName).
+		Where("dr.resource_key NOT LIKE ?", "%{{%").
+		Scan(&refs).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return refs, nil
 }
