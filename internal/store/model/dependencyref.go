@@ -68,6 +68,17 @@ func (DependencyRef) TableName() string {
 	return "dependency_refs"
 }
 
+// SecretDependencyRef is a flat row returned by ListSecretDependencyTargets.
+// One row per (org, fleet/device) referencing the queried secret. The query is
+// cross-org because the K8s informer has no org context — it only knows
+// (namespace, name) from the watch event.
+type SecretDependencyRef struct {
+	OrgID       uuid.UUID
+	FleetName   string
+	DeviceName  string
+	Fingerprint *string
+}
+
 // GitDependencyProbe is the result of ListDueGitDependencies — one row per
 // unique (repository_name, revision) pair that is due for polling. FleetNames
 // and DeviceNames carry the fan-out targets collected via array_agg.
