@@ -227,7 +227,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
-	s.identityMapper = service.NewIdentityMapper(s.store, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.store, s.log)
+	s.identityMapper = service.NewIdentityMapper(s.store, orgProvisioner, s.log)
 	s.identityMapper.Start()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(s.identityMapper, s.log)
 

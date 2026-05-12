@@ -15,21 +15,23 @@ import (
 
 // IdentityMapper handles mapping from identity information to database entities
 type IdentityMapper struct {
-	store store.Store
-	log   logrus.FieldLogger
-	cache *ttlcache.Cache[string, *model.Organization]
+	store       store.Store
+	provisioner OrgProvisionerInterface
+	log         logrus.FieldLogger
+	cache       *ttlcache.Cache[string, *model.Organization]
 }
 
 // NewIdentityMapper creates a new IdentityMapper instance
-func NewIdentityMapper(store store.Store, log logrus.FieldLogger) *IdentityMapper {
+func NewIdentityMapper(store store.Store, provisioner OrgProvisionerInterface, log logrus.FieldLogger) *IdentityMapper {
 	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *model.Organization](10 * time.Minute),
 	)
 
 	return &IdentityMapper{
-		store: store,
-		log:   log,
-		cache: cache,
+		store:       store,
+		provisioner: provisioner,
+		log:         log,
+		cache:       cache,
 	}
 }
 
@@ -168,6 +170,7 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 		}
 		organizations = append(organizations, createdOrgs...)
 		m.log.Infof("Created %d new organizations", len(createdOrgs))
+		m.provisioner.EnsureDefaults(ctx, createdOrgs)
 	}
 
 	return organizations, nil
@@ -213,6 +216,7 @@ func (m *IdentityMapper) ensureOrganizationsForSuperAdmin(ctx context.Context, r
 		}
 		allOrgs = append(allOrgs, createdOrgs...)
 		m.log.Infof("Super admin: created %d new organizations", len(createdOrgs))
+		m.provisioner.EnsureDefaults(ctx, createdOrgs)
 	}
 
 	return allOrgs, nil
