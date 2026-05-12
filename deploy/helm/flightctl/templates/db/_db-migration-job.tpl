@@ -54,7 +54,7 @@ spec:
       {{- if eq $ctx.Values.db.type "builtin" }}
       {{- if not $isDryRun }}
       - name: setup-database-users
-        image: "{{ include "flightctl.ensureOsQualifiedImage" $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
+        image: "{{ include "flightctl.ensureOsQualifiedImage" (dict "root" $ctx "imageName" $ctx.Values.dbSetup.image.image) }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: DB_HOST
@@ -122,7 +122,7 @@ spec:
       {{- end }}
       containers:
       - name: run-migrations
-        image: "{{ include "flightctl.ensureOsQualifiedImage" $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
+        image: "{{ include "flightctl.ensureOsQualifiedImage" (dict "root" $ctx "imageName" $ctx.Values.dbSetup.image.image) }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: HOME
