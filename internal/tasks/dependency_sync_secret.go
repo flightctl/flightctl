@@ -70,6 +70,10 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 }
 
 func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interface{}) {
+	if ctx.Err() != nil {
+		return
+	}
+
 	secret, ok := obj.(*corev1.Secret)
 	if !ok {
 		d.log.Warn("Received non-Secret object from informer")

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestDependencySyncSecret_Reconcile(t *testing.T) {
@@ -165,6 +167,27 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 			serviceHandler: mockService,
 		}
 		d.reconcile(ctx, "prod", "unknown", "sha256:anything")
+	})
+}
+
+func TestDependencySyncSecret_ContextCancellation(t *testing.T) {
+	t.Run("When context is cancelled handleSecretEvent should return early without DB calls", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockService := service.NewMockService(ctrl)
+
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		d := &DependencySyncSecret{
+			log:            logrus.New(),
+			serviceHandler: mockService,
+			hashFunc:       hashSecretData,
+		}
+		d.handleSecretEvent(cancelledCtx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "db-creds"},
+			Data:       map[string][]byte{"key": []byte("value")},
+		})
 	})
 }
 
