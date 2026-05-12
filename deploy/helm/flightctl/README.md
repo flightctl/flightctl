@@ -381,7 +381,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
-| periodic | object | `{"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""}}` | Periodic Configuration |
+| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""}}` | Periodic Configuration |
+| periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic-el9"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |

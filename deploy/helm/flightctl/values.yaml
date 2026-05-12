@@ -307,6 +307,8 @@ periodic:
     pullPolicy: ""
   # -- Number of periodic consumers
   consumers: 5
+  # -- Allow flightctl-periodic to list/watch secrets at the cluster level for change detection
+  clusterLevelSecretAccess: false
 
 # -- Alert Exporter Configuration
 alertExporter:
