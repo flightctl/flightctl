@@ -244,3 +244,14 @@ func makeHttpConfigItem(t *testing.T, name, repo string, suffix *string) domain.
 	require.NoError(t, item.FromHttpConfigProviderSpec(*httpSpec))
 	return item
 }
+
+func makeSecretConfigItem(t *testing.T, name, namespace, secretName string) domain.ConfigProviderSpec {
+	t.Helper()
+	secretSpec := &domain.KubernetesSecretProviderSpec{Name: name}
+	secretSpec.SecretRef.Namespace = namespace
+	secretSpec.SecretRef.Name = secretName
+	secretSpec.SecretRef.MountPath = "/etc/secrets"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromKubernetesSecretProviderSpec(*secretSpec))
+	return item
+}
