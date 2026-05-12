@@ -567,8 +567,9 @@ type periodicTasksConfig struct {
 }
 
 type periodicConfig struct {
-	Consumers int                 `json:"consumers,omitempty"`
-	Tasks     periodicTasksConfig `json:"tasks,omitempty"`
+	Consumers                int                 `json:"consumers,omitempty"`
+	Tasks                    periodicTasksConfig `json:"tasks,omitempty"`
+	ClusterLevelSecretAccess bool                `json:"clusterLevelSecretAccess,omitempty"`
 }
 
 type organizationsConfig struct {

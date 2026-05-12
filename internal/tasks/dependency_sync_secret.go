@@ -63,7 +63,13 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	}
 
 	factory.Start(ctx.Done())
-	factory.WaitForCacheSync(ctx.Done())
+	synced := factory.WaitForCacheSync(ctx.Done())
+	for typ, ok := range synced {
+		if !ok {
+			d.log.WithField("type", typ).Error("Informer failed to sync cache")
+			return
+		}
+	}
 
 	<-ctx.Done()
 	d.log.Info("Secret informer stopped")
