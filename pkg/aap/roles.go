@@ -2,8 +2,8 @@ package aap
 
 import (
 	"context"
-	"fmt"
 	"net/url"
+	"strconv"
 )
 
 // RoleDefinition represents an AAP role definition
@@ -77,7 +77,7 @@ func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token st
 	query := url.Values{}
 	query.Set("user__id", userID)
 	if a.maxPageSize != nil {
-		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
 
 	endpoint := a.buildEndpoint("/api/controller/v2/role_user_assignments/", query)
@@ -89,7 +89,7 @@ func (a *AAPGatewayClient) ListTeamRoleAssignments(ctx context.Context, token st
 	query := url.Values{}
 	query.Set("team__id", teamID)
 	if a.maxPageSize != nil {
-		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
 
 	endpoint := a.buildEndpoint("/api/controller/v2/role_team_assignments/", query)
