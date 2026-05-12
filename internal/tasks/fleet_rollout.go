@@ -729,7 +729,9 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 			newConfigItem, refs, errs = f.replaceGitConfigParameters(device, configItem)
 			depRefs = append(depRefs, refs...)
 		case domain.KubernetesSecretProviderType:
-			newConfigItem, errs = f.replaceKubeSecretConfigParameters(device, configItem)
+			var refs []model.DependencyRef
+			newConfigItem, refs, errs = f.replaceKubeSecretConfigParameters(device, configItem)
+			depRefs = append(depRefs, refs...)
 		case domain.InlineConfigProviderType:
 			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
 		case domain.HttpConfigProviderType:
@@ -797,13 +799,15 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, co
 	return &newConfigItem, refs, nil
 }
 
-func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	secretSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert config to kubernetes secret config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed to convert config to kubernetes secret config: %w", err)}
 	}
 
 	errs := []error{}
+	originalNamespace := secretSpec.SecretRef.Namespace
+	originalName := secretSpec.SecretRef.Name
 
 	secretSpec.SecretRef.Name, err = ReplaceParametersInString(secretSpec.SecretRef.Name, device)
 	if err != nil {
@@ -821,16 +825,30 @@ func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Dev
 	}
 
 	if len(errs) > 0 {
-		return nil, errs
+		return nil, nil, errs
+	}
+
+	var refs []model.DependencyRef
+	if isParameterized(originalNamespace) || isParameterized(originalName) {
+		deviceName := lo.FromPtr(device.Metadata.Name)
+		ownerFleetName, _, _ := getOwnerFleet(device)
+		refs = append(refs, model.DependencyRef{
+			FleetName:       &ownerFleetName,
+			DeviceName:      &deviceName,
+			RefType:         "secret",
+			ResourceKey:     fmt.Sprintf("secret:%s/%s", secretSpec.SecretRef.Namespace, secretSpec.SecretRef.Name),
+			SecretName:      &secretSpec.SecretRef.Name,
+			SecretNamespace: &secretSpec.SecretRef.Namespace,
+		})
 	}
 
 	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromKubernetesSecretProviderSpec(secretSpec)
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed converting secret config: %w", err)}
 	}
 
-	return &newConfigItem, nil
+	return &newConfigItem, refs, nil
 }
 
 func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
