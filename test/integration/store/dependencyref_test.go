@@ -193,4 +193,144 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
+
+	Context("When listing secret dependency targets", func() {
+		It("should return matching fleet and device refs", func() {
+			fleetRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			deviceRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr("device-x"),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, fleetRef)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, deviceRef)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(2))
+		})
+
+		It("should exclude parameterized ResourceKeys", func() {
+			concreteRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			parameterizedRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:{{ device.labels.ns }}/db-creds",
+				FleetName:       lo.ToPtr("fleet-b"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("{{ device.labels.ns }}"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, concreteRef)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, parameterizedRef)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].FleetName).To(Equal("fleet-a"))
+		})
+
+		It("should return refs from multiple orgs for the same secret", func() {
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, storeInst, otherOrg)).To(Succeed())
+
+			ref1 := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			ref2 := &model.DependencyRef{
+				OrgID:           otherOrg,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-b"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref1)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, otherOrg, ref2)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(2))
+
+			orgIDs := []uuid.UUID{refs[0].OrgID, refs[1].OrgID}
+			Expect(orgIDs).To(ContainElements(orgId, otherOrg))
+		})
+
+		It("should join with sync_state to return the current fingerprint", func() {
+			ref := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			syncState := &model.SyncState{
+				OrgID:       orgId,
+				ResourceKey: "secret:prod/db-creds",
+				Fingerprint: "sha256:abc123",
+			}
+			Expect(storeInst.SyncState().Set(ctx, orgId, syncState)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Fingerprint).ToNot(BeNil())
+			Expect(*refs[0].Fingerprint).To(Equal("sha256:abc123"))
+		})
+
+		It("should return nil fingerprint when no sync_state exists", func() {
+			ref := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Fingerprint).To(BeNil())
+		})
+
+		It("should return empty when no refs match", func() {
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "nonexistent")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(BeEmpty())
+		})
+	})
 })
