@@ -88,17 +88,20 @@ func (s *Server) Run(ctx context.Context) error {
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
 
-	// Start the secret informer if running in-cluster.
 	var secretInformerClientset kubernetes.Interface
-	if restConfig, err := rest.InClusterConfig(); err != nil {
-		s.log.Debug("Not running in-cluster, secret informer will not start")
-	} else {
-		clientset, err := kubernetes.NewForConfig(restConfig)
-		if err != nil {
-			s.log.WithError(err).Error("Failed to create K8s clientset for secret informer")
+	if s.cfg.Periodic != nil && s.cfg.Periodic.ClusterLevelSecretAccess {
+		if restConfig, err := rest.InClusterConfig(); err != nil {
+			s.log.WithError(err).Warn("Secret informer enabled but in-cluster config is unavailable")
 		} else {
-			secretInformerClientset = clientset
+			clientset, err := kubernetes.NewForConfig(restConfig)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to create K8s clientset for secret informer")
+			} else {
+				secretInformerClientset = clientset
+			}
 		}
+	} else {
+		s.log.Debug("Secret informer disabled by configuration")
 	}
 
 	var vulnClient trustifyv2.VulnerabilityClient

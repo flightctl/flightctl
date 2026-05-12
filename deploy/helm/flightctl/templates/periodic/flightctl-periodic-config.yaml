@@ -31,6 +31,7 @@ data:
         port: 6379
     periodic:
         consumers: {{ .Values.periodic.consumers }}
+        clusterLevelSecretAccess: {{ .Values.periodic.clusterLevelSecretAccess }}
         {{ if .Values.periodic.tasks }}
         tasks:
           {{ if .Values.periodic.tasks.resourceSync }}
