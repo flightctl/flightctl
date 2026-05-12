@@ -694,15 +694,23 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 	cmd := exec.Command(flightctlPath()) //nolint:gosec // flightctlPath constructs path from project directory structure for test purposes
 	h.setArgsInCmd(cmd, args...)
 
-	// create a pty/tty pair
-	ptmx, tty, err := pty.Open()
-	if err != nil {
-		return nil, nil, err
-	}
+	// create a pty/tty pair (requires /dev/ptmx + devpts so slaves exist under /dev/pts/)
 
+	var ptmx, tty *os.File
+	var err error
+
+	Eventually(func() error {
+		ptmx, tty, err = pty.Open()
+		if err != nil {
+			return err
+		}
+		return nil
+	}, TIMEOUT, POLLING).Should(Succeed(), "failed to open pty/tty pair")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 
 	if err := cmd.Start(); err != nil {
+		_ = ptmx.Close()
+		_ = tty.Close()
 		return nil, nil, fmt.Errorf("error starting interactive process: %w", err)
 	}
 	go func() {
@@ -894,6 +902,21 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 		Approved: true,
 		Labels:   &mergedLabels,
 	}
+}
+
+// TestResourceLabels returns the test-id label used by e2e cleanup.
+func (h *Harness) TestResourceLabels() (map[string]string, error) {
+	if h == nil {
+		return nil, fmt.Errorf("harness is nil")
+	}
+	if h.Context == nil {
+		return nil, fmt.Errorf("test ID not found in harness context")
+	}
+	testID, ok := h.Context.Value(util.TestIDKey).(string)
+	if !ok || testID == "" {
+		return nil, fmt.Errorf("test ID not found in harness context")
+	}
+	return map[string]string{"test-id": testID}, nil
 }
 
 func (h *Harness) CleanUpAllTestResources() error {

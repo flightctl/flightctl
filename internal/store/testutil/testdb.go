@@ -72,6 +72,37 @@ func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, d
 	}
 	defer CloseDB(adminDB)
 
+	// Check for active connections before attempting to drop
+	var activeConns []struct {
+		Pid      int     `gorm:"column:pid"`
+		Usename  string  `gorm:"column:usename"`
+		State    string  `gorm:"column:state"`
+		QueryAge string  `gorm:"column:query_age"`
+		Query    *string `gorm:"column:query"`
+	}
+	adminDB.WithContext(ctx).Raw(fmt.Sprintf(`
+		SELECT pid, usename, state, query,
+		       COALESCE(now() - query_start, interval '0')::text AS query_age
+		FROM pg_stat_activity
+		WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName)).Scan(&activeConns)
+	if len(activeConns) > 0 {
+		log.Warnf("Found %d active connection(s) to %s before drop:", len(activeConns), dbName)
+		for _, c := range activeConns {
+			query := "<none>"
+			if c.Query != nil {
+				query = *c.Query
+			}
+			log.Warnf("  - pid=%d user=%s state=%s age=%s query=%s", c.Pid, c.Usename, c.State, c.QueryAge, query)
+		}
+	}
+
+	// Terminate any remaining connections to the test database.
+	// This only terminates connections we have permission to terminate (same role).
+	adminDB.WithContext(ctx).Exec(fmt.Sprintf(
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();",
+		dbName))
+
+	// Drop without FORCE - all our connections should be terminated at this point
 	adminDB = adminDB.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
 	if adminDB.Error != nil {
 		log.Fatalf("dropping database: %v", adminDB.Error)

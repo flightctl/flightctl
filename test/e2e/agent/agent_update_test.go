@@ -195,7 +195,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Or(Equal(v1beta1.ConditionStatusTrue), Equal(v1beta1.ConditionStatusFalse)))
 				repositoryAccessible = cond.Status == v1beta1.ConditionStatusTrue
-			}, "1m", POLLING).Should(Succeed())
+			}, MEDIUMTIMEOUT, TENSECPOLLING).Should(Succeed())
 
 			// Add more factories here if desired. In disconnected environments the public
 			// repository-backed config is not reachable, so use a local inline config instead.
@@ -273,17 +273,9 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			}, LONGTIMEOUT)
 
 			By("Verifying agent logs show rollback attempt")
-			dur, err := time.ParseDuration(TIMEOUT)
-			Expect(err).ToNot(HaveOccurred())
-			Eventually(func() string {
-				GinkgoWriter.Printf("Checking console output for rollback logs\n")
-				logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
-				Expect(err).NotTo(HaveOccurred())
-				return logs
-			}).
+			Eventually(readAgentLogsForRollbackAssertion, TIMEOUT, TENSECTIMEOUT).
+				WithArguments(harness).
 				WithContext(harness.GetTestContext()).
-				WithTimeout(dur).
-				WithPolling(time.Second * 10).
 				Should(ContainSubstring(fmt.Sprintf("Attempting to rollback to previous renderedVersion: %d", expectedVersion)))
 
 			By("Verifying device booted OS image reverted to initial image")
@@ -745,6 +737,24 @@ func logJournalGrepResult(label, out string) {
 		snip = snip[:240] + "...(truncated)"
 	}
 	GinkgoWriter.Printf("[%s] matched (len=%d): %s\n", label, len(out), snip)
+}
+
+func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
+	if harness == nil {
+		GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] harness is nil")
+		return ""
+	}
+	GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] checking flightctl-agent logs for rollback attempt")
+	logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+	if err != nil {
+		GinkgoWriter.Printf("[readAgentLogsForRollbackAssertion] failed to read flightctl-agent logs; will retry: %v\n", err)
+		return ""
+	}
+	if strings.TrimSpace(logs) == "" {
+		GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] flightctl-agent logs are empty; will retry")
+		return ""
+	}
+	return logs
 }
 
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),

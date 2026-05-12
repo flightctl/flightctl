@@ -84,7 +84,6 @@ func (d *Device) ValidateUpdate(newObj *Device) []error {
 
 func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, r.DependenciesSync.Validate()...)
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
 	}
@@ -567,27 +566,6 @@ func (d *DisruptionBudget) Validate() []error {
 	return errs
 }
 
-func (d *DependenciesSync) Validate() []error {
-	if d == nil {
-		return nil
-	}
-	var errs []error
-	if d.PollInterval != nil {
-		duration, err := time.ParseDuration(*d.PollInterval)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid pollInterval %q: %w", *d.PollInterval, err))
-			return errs
-		}
-		if duration < 30*time.Second {
-			errs = append(errs, fmt.Errorf("pollInterval %q below minimum of 30s", *d.PollInterval))
-		}
-		if duration > 24*time.Hour {
-			errs = append(errs, fmt.Errorf("pollInterval %q exceeds maximum of 24h", *d.PollInterval))
-		}
-	}
-	return errs
-}
-
 func (r *RolloutPolicy) Validate() []error {
 	var errs []error
 	if r == nil {
@@ -613,7 +591,6 @@ func (r Fleet) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	allErrs = append(allErrs, r.Spec.Selector.Validate()...)
 	allErrs = append(allErrs, r.Spec.RolloutPolicy.Validate()...)
-	allErrs = append(allErrs, r.Spec.DependenciesSync.Validate()...)
 
 	// Validate the Device spec settings
 	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)

@@ -366,7 +366,7 @@ var _ = Describe("DeviceStore create", func() {
 					Severity:    model.VulnerabilitySeverityMedium,
 				},
 			}
-			err := findingStore.UpsertFindings(ctx, findings)
+			_, err := findingStore.UpsertFindings(ctx, findings)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List without CVE filter - should return all devices with spec

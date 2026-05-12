@@ -479,13 +479,6 @@ vulnerabilityReporting:
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  alerting:
-    # -- Enable CVE alerting (emits per-device events for high-CVSS findings).
-    enabled: true
-    # -- Minimum CVSS base score to trigger a per-device alert.
-    warningCvssThreshold: 4.0
-    # -- Minimum CVSS base score to trigger a critical per-device alert.
-    criticalCvssThreshold: 7.0
   trustify:
     # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
     endpoint: ""

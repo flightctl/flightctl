@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -12,8 +13,10 @@ import (
 
 // ConsoleSession represents a PTY console session to a device
 type ConsoleSession struct {
-	Stdin  io.WriteCloser
-	Stdout *Buffer
+	Stdin            io.WriteCloser
+	Stdout           *Buffer
+	closeOnce        sync.Once
+	skipGracefulExit bool // when true, Close only releases fds (e.g. after flightctl "~." disconnect)
 }
 
 // NewConsoleSession starts a PTY console session to the specified device.
@@ -45,17 +48,30 @@ func (cs *ConsoleSession) MustExpect(pattern string) {
 	Expect(cs.Stdout.Clear()).To(Succeed())
 }
 
-// Close terminates the console session
-func (cs *ConsoleSession) Close() {
-	cs.MustSend("exit")
-	Consistently(cs.Stdout, 2*time.Second).ShouldNot(Say(".*panic:"))
+// When called set Close function not to semd the "exit" command before disconnecting the client
+// (e.g. flightctl "~." escape) and only release local PTY fds.
+func (cs *ConsoleSession) SkipGracefulExitOnClose() {
+	cs.skipGracefulExit = true
+}
 
-	if err := cs.Stdin.Close(); err != nil {
-		GinkgoWriter.Printf("failed to close console stdin: %v\n", err)
-	}
-	if err := cs.Stdout.Close(); err != nil {
-		GinkgoWriter.Printf("failed to close console stdout: %v\n", err)
-	}
+// Close terminates the console session. When SkipGracefulExitOnClose was set (e.g. after "~."),
+// it only closes stdin/stdout without sending "exit".
+func (cs *ConsoleSession) Close() {
+	cs.closeOnce.Do(func() {
+		if !cs.skipGracefulExit {
+			cs.MustSend("exit")
+			Consistently(cs.Stdout, 2*time.Second).ShouldNot(Say(".*panic:"))
+		}
+
+		if err := cs.Stdin.Close(); err != nil {
+			GinkgoWriter.Printf("failed to close console stdin: %v\n", err)
+		}
+		if cs.Stdout != nil {
+			if err := cs.Stdout.Close(); err != nil {
+				GinkgoWriter.Printf("failed to close console stdout: %v\n", err)
+			}
+		}
+	})
 }
 
 // RunConsoleCommand executes the flightctl console command for the given

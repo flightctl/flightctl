@@ -90,6 +90,13 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
+		if shouldPopulateDependencyRefs(ctx, eventWithOrgId.Event, log) {
+			taskName = "populateDependencyRefs"
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return populateDependencyRefs(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
@@ -236,6 +243,11 @@ func shouldValidateFleet(ctx context.Context, event domain.Event, log logrus.Fie
 		return true
 	}
 
+	// If a dependency change was detected for a fleet, return true
+	if event.Reason == domain.EventReasonDependencyChangeDetected && event.InvolvedObject.Kind == domain.FleetKind {
+		return true
+	}
+
 	return false
 }
 
@@ -245,6 +257,7 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 	}
 
 	if lo.Contains([]domain.EventReason{domain.EventReasonReferencedRepositoryUpdated,
+		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonResourceCreated,
 		domain.EventReasonFleetRolloutDeviceSelected, domain.EventReasonDeviceConflictResolved,
 		domain.EventReasonDeviceDecommissioned}, event.Reason) {

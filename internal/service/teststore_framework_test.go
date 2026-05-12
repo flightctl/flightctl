@@ -43,6 +43,17 @@ type TestStore struct {
 type DummyVulnerabilityFinding struct {
 	findings    []model.VulnerabilityFinding
 	deviceStore *DummyDevice
+
+	// StubCVELifecycleResponses switches ListCVEEvent* methods to return the fields below instead of empty (for CVE sync tests).
+	StubCVELifecycleResponses bool
+	CVELifecycleResolution    []store.CVEEventResolutionCandidate
+	CVELifecycleResolutionErr error
+	CVELifecycleSupersede     []store.CVEEventCandidate
+	CVELifecycleSupersedeErr  error
+	CVELifecycleCritical      []store.CVEEventCandidate
+	CVELifecycleCriticalErr   error
+	CVELifecycleWarning       []store.CVEEventCandidate
+	CVELifecycleWarningErr    error
 }
 
 type DummyDevice struct {
@@ -706,21 +717,43 @@ func (d *DummyVulnerabilityFinding) ListDeployedImageDigests(_ context.Context) 
 	return digests, nil
 }
 
-func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings []model.VulnerabilityFinding) error {
+func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings []model.VulnerabilityFinding) ([]model.ChangedFinding, error) {
+	var changed []model.ChangedFinding
 	for _, f := range findings {
 		updated := false
 		for i, existing := range d.findings {
 			if existing.ImageDigest == f.ImageDigest && existing.CveID == f.CveID {
+				severityChanged := string(existing.Severity) != string(f.Severity)
+				statusChanged := string(existing.Status) != string(f.Status)
+				if severityChanged || statusChanged {
+					changed = append(changed, model.ChangedFinding{
+						ImageDigest:     f.ImageDigest,
+						CveID:           f.CveID,
+						Severity:        string(f.Severity),
+						Status:          string(f.Status),
+						SeverityChanged: severityChanged,
+						StatusChanged:   statusChanged,
+					})
+				}
 				d.findings[i] = f
 				updated = true
 				break
 			}
 		}
 		if !updated {
+			// New finding - both severity and status are "changed" (from nothing)
+			changed = append(changed, model.ChangedFinding{
+				ImageDigest:     f.ImageDigest,
+				CveID:           f.CveID,
+				Severity:        string(f.Severity),
+				Status:          string(f.Status),
+				SeverityChanged: true,
+				StatusChanged:   true,
+			})
 			d.findings = append(d.findings, f)
 		}
 	}
-	return nil
+	return changed, nil
 }
 
 func (d *DummyVulnerabilityFinding) GetVulnerabilities(ctx context.Context, digest string, listParams store.ListParams) (*store.VulnerabilityListResult, error) {
@@ -1043,6 +1076,42 @@ func (d *DummyVulnerabilityFinding) GetVulnerabilityImpactPage(_ context.Context
 
 func (d *DummyVulnerabilityFinding) GetImpactDigestDetails(_ context.Context, _ uuid.UUID, _ string, _ []string, _ bool) ([]store.ImpactDigestDetail, error) {
 	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListCVEEventResolutionCandidates(_ context.Context) ([]store.CVEEventResolutionCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleResolution, d.CVELifecycleResolutionErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListOpenWarningSupersedeCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleSupersede, d.CVELifecycleSupersedeErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListCriticalCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleCritical, d.CVELifecycleCriticalErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListWarningCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleWarning, d.CVELifecycleWarningErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ComputeAllCVEActions(_ context.Context, _ []model.ChangedFinding, _ time.Time) ([]model.CVEEventAction, error) {
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) BatchUpdateOpenEvents(_ context.Context, actions []model.CVEEventAction) ([]model.CVEEventAction, error) {
+	return actions, nil
 }
 
 type vulnerabilityFindingFilter struct {

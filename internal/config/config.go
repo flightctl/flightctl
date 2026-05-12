@@ -38,6 +38,7 @@ type Config struct {
 	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
 	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -574,26 +575,38 @@ type organizationsConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 }
 
+// DependenciesSyncConfig holds global settings for automated dependency synchronization.
+type DependenciesSyncConfig struct {
+	// PollInterval is the polling interval for git/HTTP dependency probes (e.g. "15m", "1h").
+	// Default: 15m.
+	PollInterval util.Duration `json:"pollInterval,omitempty"`
+}
+
+// DefaultDependenciesSyncPollInterval is the default polling interval for dependency probes.
+const DefaultDependenciesSyncPollInterval = 15 * time.Minute
+
+// DefaultDependencySyncTaskInterval is how often the dependency-sync periodic
+// task executes. This is intentionally shorter than the poll interval so that
+// newly added refs are discovered quickly and partial failures are retried
+// within minutes rather than waiting for the full poll interval.
+const DefaultDependencySyncTaskInterval = 3 * time.Minute
+
+// GetDependenciesSyncPollInterval returns the configured poll interval, or the default if unset.
+func (c *Config) GetDependenciesSyncPollInterval() time.Duration {
+	if c.DependenciesSync != nil && c.DependenciesSync.PollInterval > 0 {
+		return time.Duration(c.DependenciesSync.PollInterval)
+	}
+	return DefaultDependenciesSyncPollInterval
+}
+
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.
 type VulnerabilityConfig struct {
 	// Enabled enables vulnerability integration (sync task + API endpoints).
 	Enabled bool `json:"enabled,omitempty"`
 	// SyncInterval is the interval between Trustify sync runs (e.g. "15m", "1h").
 	SyncInterval util.Duration `json:"syncInterval,omitempty"`
-	// Alerting configures CVE alerting behaviour.
-	Alerting *VulnerabilityAlertingConfig `json:"alerting,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
-}
-
-// VulnerabilityAlertingConfig configures per-device CVE alerting.
-type VulnerabilityAlertingConfig struct {
-	// Enabled enables CVE alerting (emits per-device events for high-CVSS findings).
-	Enabled bool `json:"enabled,omitempty"`
-	// WarningCVSSThreshold is the minimum CVSS base score required to emit a Warning-level event.
-	WarningCVSSThreshold float64 `json:"warningCvssThreshold,omitempty"`
-	// CriticalCVSSThreshold is the minimum CVSS base score required to emit a Critical-level event.
-	CriticalCVSSThreshold float64 `json:"criticalCvssThreshold,omitempty"`
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -977,13 +990,9 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
 	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
 	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
-	alertingEnabled := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_ENABLED")
-	alertingWarningThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_WARNING_CVSS_THRESHOLD")
-	alertingCriticalThreshold := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_CRITICAL_CVSS_THRESHOLD")
 
 	if enabled == "" && syncInterval == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
-		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
-		alertingEnabled == "" && alertingWarningThreshold == "" && alertingCriticalThreshold == "" {
+		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" {
 		return
 	}
 
@@ -1011,7 +1020,6 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	}
 
 	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
-	applyVulnerabilityReportingAlertingEnvVarOverrides(c.VulnerabilityReporting, alertingEnabled, alertingWarningThreshold, alertingCriticalThreshold)
 }
 
 func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
@@ -1041,40 +1049,6 @@ func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, 
 	}
 	if clientSecret != "" {
 		v.Trustify.Auth.ClientSecret = api.SecureString(clientSecret)
-	}
-}
-
-func applyVulnerabilityReportingAlertingEnvVarOverrides(v *VulnerabilityConfig, alertingEnabled, warningThreshold, criticalThreshold string) {
-	if alertingEnabled == "" && warningThreshold == "" && criticalThreshold == "" {
-		return
-	}
-	if v.Alerting == nil {
-		v.Alerting = &VulnerabilityAlertingConfig{}
-	}
-	switch alertingEnabled {
-	case "true", "1":
-		v.Alerting.Enabled = true
-	case "false", "0":
-		v.Alerting.Enabled = false
-	case "":
-	default:
-		fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_ENABLED value %q (expected: true/1/false/0), ignoring\n", alertingEnabled)
-	}
-	if warningThreshold != "" {
-		var threshold float64
-		if _, err := fmt.Sscanf(warningThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_WARNING_CVSS_THRESHOLD value %q: %v, ignoring\n", warningThreshold, err)
-		} else {
-			v.Alerting.WarningCVSSThreshold = threshold
-		}
-	}
-	if criticalThreshold != "" {
-		var threshold float64
-		if _, err := fmt.Sscanf(criticalThreshold, "%f", &threshold); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_ALERTING_CRITICAL_CVSS_THRESHOLD value %q: %v, ignoring\n", criticalThreshold, err)
-		} else {
-			v.Alerting.CriticalCVSSThreshold = threshold
-		}
 	}
 }
 

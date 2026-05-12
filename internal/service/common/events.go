@@ -573,6 +573,26 @@ func GetRepositoryInaccessibleEvent(ctx context.Context, name string, errorMessa
 	})
 }
 
+// GetDependencyChangeDetectedEvent creates an event when the sync controller detects an upstream change
+func GetDependencyChangeDetectedEvent(ctx context.Context, kind domain.ResourceKind, name, resourceKey, fingerprint string) *domain.Event {
+	details := domain.DependencyChangeDetectedDetails{
+		DetailType:  domain.DependencyChangeDetected,
+		ResourceKey: resourceKey,
+		Fingerprint: fingerprint,
+	}
+	eventDetails := domain.EventDetails{}
+	if err := eventDetails.FromDependencyChangeDetectedDetails(details); err != nil {
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: kind,
+		resourceName: name,
+		reason:       domain.EventReasonDependencyChangeDetected,
+		message:      fmt.Sprintf("Dependency change detected for %s (fingerprint: %.8s).", resourceKey, fingerprint),
+		details:      &eventDetails,
+	})
+}
+
 // GetReferencedRepositoryUpdatedEvent creates an event for a referenced repository being updated
 func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind domain.ResourceKind, name, repositoryName string) *domain.Event {
 	details := domain.ReferencedRepositoryUpdatedDetails{

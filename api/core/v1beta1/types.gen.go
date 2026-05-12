@@ -101,6 +101,11 @@ const (
 	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
 )
 
+// Defines values for DependencyChangeDetectedDetailsDetailType.
+const (
+	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
+)
+
 // Defines values for DeviceDecommissionTargetType.
 const (
 	DeviceDecommissionTargetTypeFactoryReset DeviceDecommissionTargetType = "FactoryReset"
@@ -190,6 +195,11 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for DeviceVulnerabilityCveDetailsDetailType.
+const (
+	DeviceVulnerabilityCVE DeviceVulnerabilityCveDetailsDetailType = "DeviceVulnerabilityCVE"
+)
+
 // Defines values for EncodingType.
 const (
 	EncodingBase64 EncodingType = "base64"
@@ -198,6 +208,7 @@ const (
 
 // Defines values for EventReason.
 const (
+	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
 	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
 	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
@@ -222,9 +233,13 @@ const (
 	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
 	EventReasonDeviceMultipleOwnersDetected    EventReason = "DeviceMultipleOwnersDetected"
 	EventReasonDeviceMultipleOwnersResolved    EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceOSImageChanged            EventReason = "DeviceOSImageChanged"
 	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
 	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
 	EventReasonDeviceUpdateFailed              EventReason = "DeviceUpdateFailed"
+	EventReasonDeviceVulnerabilityCVECritical  EventReason = "DeviceVulnerabilityCVECritical"
+	EventReasonDeviceVulnerabilityCVEResolved  EventReason = "DeviceVulnerabilityCVEResolved"
+	EventReasonDeviceVulnerabilityCVEWarning   EventReason = "DeviceVulnerabilityCVEWarning"
 	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
 	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
 	EventReasonFleetInvalid                    EventReason = "FleetInvalid"
@@ -1016,14 +1031,20 @@ type CronExpression = string
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
 
-// DependenciesSync Configuration for automated dependency synchronization.
-type DependenciesSync struct {
-	// Enabled Whether automated dependency synchronization is enabled.
-	Enabled *bool `json:"enabled,omitempty"`
+// DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
+type DependencyChangeDetectedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DependencyChangeDetectedDetailsDetailType `json:"detailType"`
 
-	// PollInterval The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	PollInterval *Duration `json:"pollInterval,omitempty"`
+	// Fingerprint The new fingerprint (e.g. commit SHA) of the changed dependency.
+	Fingerprint string `json:"fingerprint"`
+
+	// ResourceKey The resource key identifying the dependency that changed (e.g. "git:my-repo/main").
+	ResourceKey string `json:"resourceKey"`
 }
+
+// DependencyChangeDetectedDetailsDetailType The type of detail for discriminator purposes.
+type DependencyChangeDetectedDetailsDetailType string
 
 // Device Device represents a physical device.
 type Device struct {
@@ -1289,9 +1310,6 @@ type DeviceSpec struct {
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
 
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
-
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`
 
@@ -1401,6 +1419,24 @@ type DeviceUpdatedStatus struct {
 
 // DeviceUpdatedStatusType Status type of the device update.
 type DeviceUpdatedStatusType string
+
+// DeviceVulnerabilityCveDetails Structured details for per-device CVE vulnerability events.
+type DeviceVulnerabilityCveDetails struct {
+	// CveId CVE identifier (e.g. CVE-2024-1234). MITRE-style CVE-YYYY-sequence identifier, matching device list filter validation.
+	CveId string `json:"cveId"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceVulnerabilityCveDetailsDetailType `json:"detailType"`
+
+	// FirstImageDigest Image digest when the CVE was first detected on this device (historical/audit field, e.g. sha256:...).
+	FirstImageDigest *string `json:"firstImageDigest,omitempty"`
+
+	// FirstImageRef Human-readable OS image reference when the CVE was first detected on this device (historical/audit field).
+	FirstImageRef *string `json:"firstImageRef,omitempty"`
+}
+
+// DeviceVulnerabilityCveDetailsDetailType The type of detail for discriminator purposes.
+type DeviceVulnerabilityCveDetailsDetailType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
@@ -1835,9 +1871,6 @@ type FleetRolloutStatus struct {
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
-
 	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
 	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
 
@@ -2901,9 +2934,6 @@ type TemplateVersionStatus struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
-
-	// DependenciesSync Configuration for automated dependency synchronization.
-	DependenciesSync *DependenciesSync `json:"dependenciesSync,omitempty"`
 
 	// Os DeviceOsSpec describes the target OS for the device.
 	Os *DeviceOsSpec `json:"os,omitempty"`
@@ -4924,6 +4954,62 @@ func (t *EventDetails) MergeFleetRolloutDeviceSelectedDetails(v FleetRolloutDevi
 	return err
 }
 
+// AsDeviceVulnerabilityCveDetails returns the union data inside the EventDetails as a DeviceVulnerabilityCveDetails
+func (t EventDetails) AsDeviceVulnerabilityCveDetails() (DeviceVulnerabilityCveDetails, error) {
+	var body DeviceVulnerabilityCveDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceVulnerabilityCveDetails overwrites any union data inside the EventDetails as the provided DeviceVulnerabilityCveDetails
+func (t *EventDetails) FromDeviceVulnerabilityCveDetails(v DeviceVulnerabilityCveDetails) error {
+	v.DetailType = "DeviceVulnerabilityCVE"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceVulnerabilityCveDetails performs a merge with any union data inside the EventDetails, using the provided DeviceVulnerabilityCveDetails
+func (t *EventDetails) MergeDeviceVulnerabilityCveDetails(v DeviceVulnerabilityCveDetails) error {
+	v.DetailType = "DeviceVulnerabilityCVE"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDependencyChangeDetectedDetails returns the union data inside the EventDetails as a DependencyChangeDetectedDetails
+func (t EventDetails) AsDependencyChangeDetectedDetails() (DependencyChangeDetectedDetails, error) {
+	var body DependencyChangeDetectedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDependencyChangeDetectedDetails overwrites any union data inside the EventDetails as the provided DependencyChangeDetectedDetails
+func (t *EventDetails) FromDependencyChangeDetectedDetails(v DependencyChangeDetectedDetails) error {
+	v.DetailType = "DependencyChangeDetected"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDependencyChangeDetectedDetails performs a merge with any union data inside the EventDetails, using the provided DependencyChangeDetectedDetails
+func (t *EventDetails) MergeDependencyChangeDetectedDetails(v DependencyChangeDetectedDetails) error {
+	v.DetailType = "DependencyChangeDetected"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -4938,12 +5024,16 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return nil, err
 	}
 	switch discriminator {
+	case "DependencyChangeDetected":
+		return t.AsDependencyChangeDetectedDetails()
 	case "DeviceMultipleOwnersDetected":
 		return t.AsDeviceMultipleOwnersDetectedDetails()
 	case "DeviceMultipleOwnersResolved":
 		return t.AsDeviceMultipleOwnersResolvedDetails()
 	case "DeviceOwnershipChanged":
 		return t.AsDeviceOwnershipChangedDetails()
+	case "DeviceVulnerabilityCVE":
+		return t.AsDeviceVulnerabilityCveDetails()
 	case "FleetRolloutBatchCompleted":
 		return t.AsFleetRolloutBatchCompletedDetails()
 	case "FleetRolloutBatchDispatched":
