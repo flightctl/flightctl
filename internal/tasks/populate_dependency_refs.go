@@ -163,7 +163,7 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 				FleetName:      &fn,
 				DeviceName:     &dn,
 				RefType:        "http",
-				ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, suffix),
+				ResourceKey:    httpResourceKey(httpSpec.HttpRef.Repository, suffix),
 				RepositoryName: &httpSpec.HttpRef.Repository,
 				HTTPSuffix:     httpSpec.HttpRef.Suffix,
 			})

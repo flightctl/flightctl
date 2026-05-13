@@ -69,7 +69,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 		assert.Equal(t, &fleetName, capturedRefs[0].FleetName)
 
 		assert.Equal(t, "http", capturedRefs[1].RefType)
-		assert.Equal(t, "http:http-repo//config.yaml", capturedRefs[1].ResourceKey)
+		assert.Equal(t, "http:http-repo/config.yaml", capturedRefs[1].ResourceKey)
 	})
 
 	t.Run("When fleet has multiple git configs it should produce refs with independent pointers", func(t *testing.T) {
@@ -346,7 +346,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, capturedRefs, 1)
 		assert.Equal(t, "http", capturedRefs[0].RefType)
-		assert.Equal(t, "http:http-repo//config.json", capturedRefs[0].ResourceKey)
+		assert.Equal(t, "http:http-repo/config.json", capturedRefs[0].ResourceKey)
 	})
 
 	t.Run("When fleet has nil HTTP suffix it should create fleet-level ref with empty suffix", func(t *testing.T) {

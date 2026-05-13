@@ -948,7 +948,7 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, c
 			FleetName:      &ownerFleetName,
 			DeviceName:     &deviceName,
 			RefType:        "http",
-			ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, resolvedSuffix),
+			ResourceKey:    httpResourceKey(httpSpec.HttpRef.Repository, resolvedSuffix),
 			RepositoryName: &httpSpec.HttpRef.Repository,
 			HTTPSuffix:     httpSpec.HttpRef.Suffix,
 		})

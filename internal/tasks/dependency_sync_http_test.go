@@ -63,7 +63,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, `"new-etag"`, states[0].Fingerprint)
-				assert.Equal(t, "http:http-repo//config.json", states[0].ResourceKey)
+				assert.Equal(t, "http:http-repo/config.json", states[0].ResourceKey)
 				return statusOK
 			})
 
@@ -87,6 +87,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		assert.Equal(t, "fleet-1", events[0].name)
 	})
 
+	// gomock strict mode: any unexpected call (e.g. BulkUpsertSyncState, CreateEvent) fails the test.
 	t.Run("When no change is detected (304) it should bulk update last_checked_at only", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -101,7 +102,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
 				require.Len(t, keys, 1)
-				assert.Equal(t, "http:http-repo//config.json", keys[0])
+				assert.Equal(t, "http:http-repo/config.json", keys[0])
 				return statusOK
 			})
 
@@ -116,7 +117,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		d.Poll(ctx, orgId)
 	})
 
-	t.Run("When endpoint lacks ETag and Last-Modified it should log warning and skip", func(t *testing.T) {
+	t.Run("When endpoint lacks ETag and Last-Modified it should log warning and still update last_checked_at", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
@@ -126,6 +127,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			makeHttpProbe("http-repo", "/config.json", lo.ToPtr(`"old-etag"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+
+		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
+				require.Len(t, keys, 1)
+				assert.Equal(t, "http:http-repo/config.json", keys[0])
+				return statusOK
+			})
 
 		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return "", http.StatusOK, nil
@@ -154,6 +162,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, `"new-etag"`, states[0].Fingerprint)
+				return statusOK
+			})
+
+		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
+				require.Len(t, keys, 1)
+				assert.Equal(t, "http:failing-repo/fail", keys[0])
 				return statusOK
 			})
 
@@ -280,6 +295,27 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
 			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+		}
+		d.Poll(ctx, orgId)
+	})
+
+	t.Run("When repository spec is nil it should skip the probe entirely", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockService := service.NewMockService(ctrl)
+
+		probes := []model.HttpDependencyProbe{
+			makeHttpProbe("orphan-repo", "/config.json", nil, model.StringArray{"fleet-1"}, nil, nil),
+		}
+		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		// gomock strict mode: no BulkUpsert/BulkUpdate/CreateEvent calls expected.
+
+		d := &DependencySyncHttp{
+			log: logrus.New(), serviceHandler: mockService,
+			cfg: &config.Config{}, conditionalGet: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+				t.Fatal("conditionalGet should not be called when RepoSpec is nil")
+				return "", 0, nil
+			}, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 	})
