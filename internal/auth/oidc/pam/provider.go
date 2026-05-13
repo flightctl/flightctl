@@ -1063,7 +1063,7 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, encrypt
 	s.log.Debugf("Login: created encrypted session cookie for %s", username)
 
 	// Redirect back to authorization endpoint with all parameters
-	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
+	authURL := fmt.Sprintf("authorize?response_type=code&client_id=%s&redirect_uri=%s",
 		url.QueryEscape(pendingReq.ClientID), url.QueryEscape(pendingReq.RedirectURI))
 	if pendingReq.State != "" {
 		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(pendingReq.State))
@@ -1443,8 +1443,8 @@ func (s *PAMOIDCProvider) createEncryptedCookieAndReturnLoginForm(req *pamapi.Au
 
 const (
 	defaultDisplayName = "Flight Control"
-	defaultLogoSrc     = "/auth/assets/flight-control-logo.svg"
-	defaultFaviconSrc  = "/auth/assets/favicon.png"
+	defaultLogoSrc     = "../../../auth/assets/flight-control-logo.svg"
+	defaultFaviconSrc  = "../../../auth/assets/favicon.png"
 )
 
 // buildLoginFormData constructs the template data from the provider's branding config.
