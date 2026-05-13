@@ -145,12 +145,14 @@ func (p *ServiceLifecycleProvider) Restart(service infra.ServiceName) error {
 
 // waitForPodsTerminated waits until all pods with the given UIDs are gone.
 func (p *ServiceLifecycleProvider) waitForPodsTerminated(ns, label string, oldUIDs map[string]bool, timeout time.Duration) error {
-	ctx := context.Background()
 	deadline := time.Now().Add(timeout)
 	polling := 250 * time.Millisecond
 
 	for time.Now().Before(deadline) {
+		remaining := time.Until(deadline)
+		ctx, cancel := context.WithTimeout(context.Background(), remaining)
 		list, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label})
+		cancel()
 		if err != nil {
 			return fmt.Errorf("failed to list pods: %w", err)
 		}
@@ -182,13 +184,15 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
 	deadline := time.Now().Add(timeout)
 	polling := 250 * time.Millisecond
 
 	var list *corev1.PodList
 	for time.Now().Before(deadline) {
+		remaining := time.Until(deadline)
+		ctx, cancel := context.WithTimeout(context.Background(), remaining)
 		list, err = p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label})
+		cancel()
 		if err == nil && len(list.Items) > 0 {
 			pod := &list.Items[0]
 			if pod.Status.Phase == corev1.PodRunning {
