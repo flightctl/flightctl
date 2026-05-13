@@ -181,7 +181,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	if secretInformerClientset != nil {
-		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler)
+		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

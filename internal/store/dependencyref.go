@@ -187,14 +187,15 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 
 // ListSecretDependencyTargets returns flat rows of (orgID, fleetName, deviceName)
 // for all dependency_refs matching the given secret where the stored fingerprint
-// differs from newFingerprint (or no fingerprint exists yet). The query is cross-org
-// because the K8s informer has no org context — it only receives (namespace, name).
+// differs from newFingerprint (or no fingerprint exists yet). Secret sync_state
+// rows use uuid.Nil as org_id (secrets are globally unique, not per-org), so the
+// join matches on resource_key with the sentinel org_id.
 func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, error) {
 	var refs []model.SecretDependencyRef
 	err := s.getDB(ctx).
 		Table("dependency_refs dr").
 		Select("dr.org_id, dr.fleet_name, dr.device_name, ss.fingerprint").
-		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
+		Joins("LEFT JOIN sync_states ss ON ss.resource_key = dr.resource_key AND ss.org_id = '00000000-0000-0000-0000-000000000000'").
 		Where("dr.ref_type = 'secret'").
 		Where("dr.secret_namespace = ?", secretNamespace).
 		Where("dr.secret_name = ?", secretName).

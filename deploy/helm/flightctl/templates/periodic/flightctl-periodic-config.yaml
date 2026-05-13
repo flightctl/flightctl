@@ -32,6 +32,7 @@ data:
     periodic:
         consumers: {{ .Values.periodic.consumers }}
         clusterLevelSecretAccess: {{ .Values.periodic.clusterLevelSecretAccess }}
+        releaseNamespace: {{ .Release.Namespace }}
         {{ if .Values.periodic.tasks }}
         tasks:
           {{ if .Values.periodic.tasks.resourceSync }}
