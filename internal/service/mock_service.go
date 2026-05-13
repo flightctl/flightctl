@@ -1212,6 +1212,21 @@ func (mr *MockServiceMockRecorder) ListDueGitDependencies(ctx, orgId, pollInterv
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueGitDependencies", reflect.TypeOf((*MockService)(nil).ListDueGitDependencies), ctx, orgId, pollInterval)
 }
 
+// ListDueHttpDependencies mocks base method.
+func (m *MockService) ListDueHttpDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDueHttpDependencies", ctx, orgId, pollInterval)
+	ret0, _ := ret[0].([]model.HttpDependencyProbe)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDueHttpDependencies indicates an expected call of ListDueHttpDependencies.
+func (mr *MockServiceMockRecorder) ListDueHttpDependencies(ctx, orgId, pollInterval any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueHttpDependencies", reflect.TypeOf((*MockService)(nil).ListDueHttpDependencies), ctx, orgId, pollInterval)
+}
+
 // ListEnrollmentRequests mocks base method.
 func (m *MockService) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentRequestsParams) (*domain.EnrollmentRequestList, domain.Status) {
 	m.ctrl.T.Helper()
