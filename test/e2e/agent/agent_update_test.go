@@ -184,17 +184,43 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				}
 			}()
 
-			// Add more factories here if desired. The first spec applied will add a repo spec
-			// and the second a simple inline spec.
+			repositoryAccessible := false
+			By("Checking whether the shared HTTP repository is accessible")
+			Eventually(func(g Gomega) {
+				repo, err := harness.GetRepository(validRepoName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(repo.Status).NotTo(BeNil())
+
+				cond := v1beta1.FindStatusCondition(repo.Status.Conditions, v1beta1.ConditionTypeRepositoryAccessible)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Or(Equal(v1beta1.ConditionStatusTrue), Equal(v1beta1.ConditionStatusFalse)))
+				repositoryAccessible = cond.Status == v1beta1.ConditionStatusTrue
+			}, MEDIUMTIMEOUT, TENSECPOLLING).Should(Succeed())
+
+			// Add more factories here if desired. In disconnected environments the public
+			// repository-backed config is not reachable, so use a local inline config instead.
 			type providerFactory = func(providerSpec *v1beta1.ConfigProviderSpec) error
-			configFactories := []providerFactory{
-				func(providerSpec *v1beta1.ConfigProviderSpec) error {
+			configFactories := []providerFactory{}
+			if repositoryAccessible {
+				configFactories = append(configFactories, func(providerSpec *v1beta1.ConfigProviderSpec) error {
 					return providerSpec.FromHttpConfigProviderSpec(flightDemosHttpRepoConfig)
-				},
-				func(providerSpec *v1beta1.ConfigProviderSpec) error {
-					return providerSpec.FromInlineConfigProviderSpec(validInlineConfig)
-				},
+				})
+			} else {
+				GinkgoWriter.Printf("Repository %s is not accessible; using inline-only config updates for disconnected execution\n", validRepoName)
+				disconnectedInlineConfig := v1beta1.InlineConfigProviderSpec{
+					Name: "disconnected-inline-config",
+					Inline: []v1beta1.FileSpec{{
+						Path:    "/etc/motd.disconnected",
+						Content: "disconnected fallback config",
+					}},
+				}
+				configFactories = append(configFactories, func(providerSpec *v1beta1.ConfigProviderSpec) error {
+					return providerSpec.FromInlineConfigProviderSpec(disconnectedInlineConfig)
+				})
 			}
+			configFactories = append(configFactories, func(providerSpec *v1beta1.ConfigProviderSpec) error {
+				return providerSpec.FromInlineConfigProviderSpec(validInlineConfig)
+			})
 
 			// Build the device spec progressively and update through harness device-spec helpers,
 			// matching automation behavior.
@@ -247,17 +273,9 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			}, LONGTIMEOUT)
 
 			By("Verifying agent logs show rollback attempt")
-			dur, err := time.ParseDuration(TIMEOUT)
-			Expect(err).ToNot(HaveOccurred())
-			Eventually(func() string {
-				GinkgoWriter.Printf("Checking console output for rollback logs\n")
-				logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
-				Expect(err).NotTo(HaveOccurred())
-				return logs
-			}).
+			Eventually(readAgentLogsForRollbackAssertion, TIMEOUT, TENSECTIMEOUT).
+				WithArguments(harness).
 				WithContext(harness.GetTestContext()).
-				WithTimeout(dur).
-				WithPolling(time.Second * 10).
 				Should(ContainSubstring(fmt.Sprintf("Attempting to rollback to previous renderedVersion: %d", expectedVersion)))
 
 			By("Verifying device booted OS image reverted to initial image")
@@ -719,6 +737,24 @@ func logJournalGrepResult(label, out string) {
 		snip = snip[:240] + "...(truncated)"
 	}
 	GinkgoWriter.Printf("[%s] matched (len=%d): %s\n", label, len(out), snip)
+}
+
+func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
+	if harness == nil {
+		GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] harness is nil")
+		return ""
+	}
+	GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] checking flightctl-agent logs for rollback attempt")
+	logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+	if err != nil {
+		GinkgoWriter.Printf("[readAgentLogsForRollbackAssertion] failed to read flightctl-agent logs; will retry: %v\n", err)
+		return ""
+	}
+	if strings.TrimSpace(logs) == "" {
+		GinkgoWriter.Println("[readAgentLogsForRollbackAssertion] flightctl-agent logs are empty; will retry")
+		return ""
+	}
+	return logs
 }
 
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),

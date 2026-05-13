@@ -50,6 +50,21 @@ spec:
                 secretKeyRef:
                   name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
+            {{- $vuln := default dict .Values.vulnerabilityReporting -}}
+            {{- $trustify := default dict $vuln.trustify -}}
+            {{- $auth := default dict $trustify.auth -}}
+            {{- if and (default false $vuln.enabled) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_id
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_secret
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-imagebuilder-worker-config

@@ -35,6 +35,12 @@ service:
     window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
     authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
+  {{- with index .service "tpmCAPaths" }}
+  tpmCAPaths:
+  {{- range . }}
+    - {{ . }}
+  {{- end }}
+  {{- end }}
 kv:
   hostname: flightctl-kv
   port: 6379

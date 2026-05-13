@@ -452,7 +452,9 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 		readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 		if readyCondition != nil {
 			reason := readyCondition.Reason
-			if reason == string(domain.ImageBuildConditionReasonBuilding) || reason == string(domain.ImageBuildConditionReasonPushing) {
+			if reason == string(domain.ImageBuildConditionReasonBuilding) ||
+				reason == string(domain.ImageBuildConditionReasonPushing) ||
+				reason == string(domain.ImageBuildConditionReasonGeneratingSBOM) {
 				isActive = true
 			}
 		}

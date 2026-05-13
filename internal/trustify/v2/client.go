@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -17,6 +18,10 @@ const (
 	AuthModeClientCredentials = "client-credentials"
 
 	defaultHTTPTimeout = 30 * time.Second
+
+	// maxDigestsPerQuery limits how many digests we include in a single SBOM query
+	// to avoid URL length limits. 30 digests * ~70 chars each ≈ 2100 chars.
+	maxDigestsPerQuery = 30
 )
 
 // AuthError is returned when authentication against Trustify fails.
@@ -45,18 +50,24 @@ func (e *ConnectionError) Unwrap() error { return e.Err }
 
 // VulnerabilityClient queries the Trustify v2 API for vulnerability findings.
 type VulnerabilityClient interface {
-	GetVulnerabilities(ctx context.Context, imageDigest string) ([]Finding, error)
+	// GetVulnerabilitiesForDigests queries Trustify for all CVE findings associated
+	// with the given image digests. It returns a map from image digest to findings.
+	// Digests not found in Trustify will have an empty slice in the map.
+	GetVulnerabilitiesForDigests(ctx context.Context, digests []string) (map[string][]Finding, error)
+
+	// UploadSBOM uploads an SBOM document to Trustify, associating it with the
+	// given image digest. The SBOM should be in CycloneDX or SPDX JSON format.
+	UploadSBOM(ctx context.Context, sbomData []byte, imageDigest string) error
 }
 
 type vulnerabilityClient struct {
 	endpoint string
-	// ClientWithResponsesInterface is defined in client.gen.go (same package).
-	api ClientWithResponsesInterface
+	api      ClientWithResponsesInterface
 }
 
 // NewVulnerabilityClient creates a new Trustify v2 client from the provided
-// configuration.  Returns an AuthError if client-credentials mode is selected
-// but OIDC discovery fails.  Returns nil, nil when cfg is nil (feature disabled).
+// configuration. Returns an AuthError if client-credentials mode is selected
+// but OIDC discovery fails. Returns nil, nil when cfg is nil (feature disabled).
 func NewVulnerabilityClient(ctx context.Context, cfg *config.TrustifyConfig) (VulnerabilityClient, error) {
 	if cfg == nil {
 		return nil, nil
@@ -67,7 +78,6 @@ func NewVulnerabilityClient(ctx context.Context, cfg *config.TrustifyConfig) (Vu
 		return nil, err
 	}
 
-	// NewClientWithResponses and WithHTTPClient are defined in client.gen.go.
 	apiClient, err := NewClientWithResponses(cfg.Endpoint, WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, &ConnectionError{Endpoint: cfg.Endpoint, Err: fmt.Errorf("creating API client: %w", err)}
@@ -79,26 +89,152 @@ func NewVulnerabilityClient(ctx context.Context, cfg *config.TrustifyConfig) (Vu
 	}, nil
 }
 
-// GetVulnerabilities queries the Trustify /api/v2/vulnerability/analyze endpoint
-// for all CVE findings associated with the given image digest and returns them
-// as a slice of Finding.
-//
-// The image digest is wrapped as an OCI PURL (pkg:oci/unknown@<digest>) before
-// being sent to the analyze endpoint.
-func (c *vulnerabilityClient) GetVulnerabilities(ctx context.Context, imageDigest string) ([]Finding, error) {
-	purl := ociPURL(imageDigest)
+// GetVulnerabilitiesForDigests queries Trustify for CVE findings for the given
+// image digests using the 3-step PURL-based approach:
+// 1. Query PURLs by digest (batched) - finds OCI PURLs containing the image digest
+// 2. For each PURL found, query SBOMs containing that package
+// 3. For each SBOM, fetch its advisories
+func (c *vulnerabilityClient) GetVulnerabilitiesForDigests(ctx context.Context, digests []string) (map[string][]Finding, error) {
+	results := make(map[string][]Finding, len(digests))
+	for _, d := range digests {
+		results[d] = nil
+	}
 
-	resp, err := c.api.AnalyzeWithResponse(ctx, AnalysisRequest{
-		Purls: []string{purl},
-	})
+	if len(digests) == 0 {
+		return results, nil
+	}
+
+	// Step 1: Find PURLs for all digests (batched)
+	purlsByDigest, err := c.findPURLsForDigests(ctx, digests)
 	if err != nil {
-		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("executing request: %w", err)}
+		return nil, err
+	}
+
+	// Step 2: Find SBOMs for each PURL
+	sbomsByDigest := make(map[string]*SbomSummary, len(digests))
+	for digest, purl := range purlsByDigest {
+		if purl == "" {
+			continue
+		}
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		sbom, err := c.findSBOMByPURL(ctx, purl)
+		if err != nil {
+			return nil, fmt.Errorf("finding SBOM for digest %s: %w", digest, err)
+		}
+		if sbom != nil {
+			sbomsByDigest[digest] = sbom
+		}
+	}
+
+	// Step 3: Fetch advisories for each unique SBOM
+	uniqueSBOMs := make(map[string]string) // sbomID -> digest
+	for digest, sbom := range sbomsByDigest {
+		if sbom != nil {
+			uniqueSBOMs[sbom.Id] = digest
+		}
+	}
+
+	for sbomID, digest := range uniqueSBOMs {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		findings, err := c.getAdvisoriesForSBOM(ctx, sbomID, digest)
+		if err != nil {
+			return nil, fmt.Errorf("fetching advisories for SBOM %s: %w", sbomID, err)
+		}
+
+		results[digest] = findings
+	}
+
+	return results, nil
+}
+
+// UploadSBOM uploads an SBOM document to Trustify.
+func (c *vulnerabilityClient) UploadSBOM(ctx context.Context, sbomData []byte, imageDigest string) error {
+	// Build labels query parameter with the image digest
+	// Format: sha256~<digest> to match how Trustify indexes SBOMs
+	labels := "sha256~" + stripSHA256Prefix(imageDigest)
+
+	resp, err := c.api.UploadSbomWithBodyWithResponse(ctx, &UploadSbomParams{
+		Labels: &labels,
+	}, "application/json", strings.NewReader(string(sbomData)))
+	if err != nil {
+		return &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("uploading SBOM: %w", err)}
+	}
+
+	switch resp.StatusCode() {
+	case http.StatusOK, http.StatusCreated, http.StatusNoContent:
+		return nil
+	case http.StatusConflict:
+		// SBOM already exists, which is fine
+		return nil
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid SBOM format: %s", string(resp.Body))
+	default:
+		return &ConnectionError{
+			Endpoint: c.endpoint,
+			Err:      fmt.Errorf("unexpected status %d uploading SBOM: %s", resp.StatusCode(), resp.Body),
+		}
+	}
+}
+
+// findPURLsForDigests queries Trustify for OCI PURLs matching the given image digests.
+// Returns a map from digest to full PURL string (empty string if not found).
+func (c *vulnerabilityClient) findPURLsForDigests(ctx context.Context, digests []string) (map[string]string, error) {
+	result := make(map[string]string, len(digests))
+
+	// Process in batches to avoid URL length limits
+	for i := 0; i < len(digests); i += maxDigestsPerQuery {
+		end := i + maxDigestsPerQuery
+		if end > len(digests) {
+			end = len(digests)
+		}
+		batch := digests[i:end]
+
+		purls, err := c.queryPURLsByDigests(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+
+		// Match returned PURLs to requested digests
+		for _, purlItem := range purls {
+			for _, d := range batch {
+				hexDigest := stripSHA256Prefix(d)
+				if strings.Contains(purlItem.Purl, hexDigest) {
+					result[d] = purlItem.Purl
+					break
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// queryPURLsByDigests queries Trustify for PURLs containing any of the given digests.
+func (c *vulnerabilityClient) queryPURLsByDigests(ctx context.Context, digests []string) ([]PurlSummary, error) {
+	// Build query: digest1|digest2|digest3
+	// Use raw hex digests for text search (no sha256: prefix)
+	var queryParts []string
+	for _, d := range digests {
+		queryParts = append(queryParts, stripSHA256Prefix(d))
+	}
+	query := strings.Join(queryParts, "|")
+
+	resp, err := c.api.ListPurlsWithResponse(ctx, &ListPurlsParams{Q: &query})
+	if err != nil {
+		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("listing PURLs: %w", err)}
 	}
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, &ConnectionError{
 			Endpoint: c.endpoint,
-			Err:      fmt.Errorf("unexpected status %d: %s", resp.StatusCode(), resp.Body),
+			Err:      fmt.Errorf("unexpected status %d listing PURLs: %s", resp.StatusCode(), resp.Body),
 		}
 	}
 
@@ -106,19 +242,101 @@ func (c *vulnerabilityClient) GetVulnerabilities(ctx context.Context, imageDiges
 		return nil, nil
 	}
 
-	apiResp := *resp.JSON200
-	result, ok := apiResp[purl]
-	if !ok {
+	return resp.JSON200.Items, nil
+}
+
+// findSBOMByPURL queries Trustify for SBOMs containing the given PURL.
+func (c *vulnerabilityClient) findSBOMByPURL(ctx context.Context, purl string) (*SbomSummary, error) {
+	resp, err := c.api.ListSbomsByPackageWithResponse(ctx, &ListSbomsByPackageParams{Purl: purl})
+	if err != nil {
+		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("finding SBOM by PURL: %w", err)}
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, &ConnectionError{
+			Endpoint: c.endpoint,
+			Err:      fmt.Errorf("unexpected status %d finding SBOM by PURL: %s", resp.StatusCode(), resp.Body),
+		}
+	}
+
+	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
 		return nil, nil
 	}
 
-	return parseFindings(imageDigest, result), nil
+	// Return the first SBOM found (there should typically be only one for an OCI PURL)
+	return &resp.JSON200.Items[0], nil
 }
 
-// ociPURL wraps an image digest in the pkg:oci PURL scheme expected by the
-// Trustify analyze endpoint.
-func ociPURL(imageDigest string) string {
-	return "pkg:oci/unknown@" + imageDigest
+// getAdvisoriesForSBOM fetches all advisories for an SBOM and converts them to Findings.
+func (c *vulnerabilityClient) getAdvisoriesForSBOM(ctx context.Context, sbomID, imageDigest string) ([]Finding, error) {
+	resp, err := c.api.GetSbomAdvisoriesWithResponse(ctx, sbomID)
+	if err != nil {
+		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("fetching advisories: %w", err)}
+	}
+
+	if resp.StatusCode() == http.StatusNotFound {
+		return nil, nil
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, &ConnectionError{
+			Endpoint: c.endpoint,
+			Err:      fmt.Errorf("unexpected status %d fetching advisories: %s", resp.StatusCode(), resp.Body),
+		}
+	}
+
+	if resp.JSON200 == nil {
+		return nil, nil
+	}
+
+	return parseAdvisoriesToFindings(imageDigest, *resp.JSON200), nil
+}
+
+// parseAdvisoriesToFindings converts Trustify advisories to Finding records.
+func parseAdvisoriesToFindings(imageDigest string, advisories []SbomAdvisory) []Finding {
+	var findings []Finding
+
+	for i := range advisories {
+		adv := &advisories[i]
+
+		// Each advisory can have multiple status entries (one per CVE)
+		for j := range adv.Status {
+			st := &adv.Status[j]
+
+			finding := Finding{
+				ImageDigest: imageDigest,
+				CVEID:       st.Identifier, // CVE ID is in the status entry, not the advisory
+				Status:      st.Status,
+				Severity:    string(st.AverageSeverity),
+				AdvisoryID:  adv.Identifier,
+				PublishedAt: adv.Published,
+			}
+
+			if adv.Issuer != nil {
+				finding.Issuer = adv.Issuer
+			}
+
+			score := st.AverageScore
+			finding.CVSSScore = &score
+
+			if st.Description != nil {
+				finding.Description = *st.Description
+			} else if st.Title != nil {
+				finding.Description = *st.Title
+			} else if adv.Title != nil {
+				finding.Description = *adv.Title
+			}
+
+			findings = append(findings, finding)
+		}
+	}
+
+	return findings
+}
+
+// stripSHA256Prefix removes the "sha256:" prefix if present.
+func stripSHA256Prefix(s string) string {
+	return strings.TrimPrefix(s, "sha256:")
 }
 
 // buildHTTPClient constructs an http.Client according to the auth mode.
@@ -145,7 +363,6 @@ func buildHTTPClient(ctx context.Context, cfg *config.TrustifyConfig) (*http.Cli
 		TokenURL:     tokenURL,
 	}
 
-	// oauth2 transports handle token acquisition and caching automatically.
 	oauthClient := ccCfg.Client(ctx)
 	oauthClient.Timeout = defaultHTTPTimeout
 	return oauthClient, nil
@@ -183,7 +400,7 @@ func discoverTokenEndpoint(ctx context.Context, issuerURL string) (string, error
 	var doc struct {
 		TokenEndpoint string `json:"token_endpoint"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+	if err := decodeJSON(resp.Body, &doc); err != nil {
 		return "", fmt.Errorf("decoding discovery document: %w", err)
 	}
 	if doc.TokenEndpoint == "" {
@@ -193,62 +410,7 @@ func discoverTokenEndpoint(ctx context.Context, issuerURL string) (string, error
 	return doc.TokenEndpoint, nil
 }
 
-// parseFindings converts an AnalysisResult into Finding records for the given
-// image digest.
-//
-// AnalysisResult.Details has one AnalysisDetails per CVE.  Each detail's
-// Status map keys are status strings (e.g. "affected"); the values are the
-// advisories asserting that status.  We emit one Finding per (CVE × status ×
-// advisory) tuple, picking the highest-scoring Score for CVSSScore/Severity.
-func parseFindings(imageDigest string, result AnalysisResult) []Finding {
-	var findings []Finding
-
-	for i := range result.Details {
-		detail := &result.Details[i]
-
-		desc := ""
-		if detail.Description != nil {
-			desc = *detail.Description
-		}
-
-		for status, advisories := range detail.Status {
-			for j := range advisories {
-				adv := &advisories[j]
-
-				finding := Finding{
-					ImageDigest: imageDigest,
-					CVEID:       detail.Identifier,
-					Status:      status,
-					AdvisoryID:  adv.Identifier,
-					Description: desc,
-					PublishedAt: adv.Published,
-				}
-
-				if best := bestScore(adv.Scores); best != nil {
-					v := best.Value
-					finding.CVSSScore = &v
-					finding.Severity = string(best.Severity)
-				}
-
-				findings = append(findings, finding)
-			}
-		}
-	}
-
-	return findings
-}
-
-// bestScore returns the Score entry with the highest value, or nil when the
-// slice is empty.
-func bestScore(scores []Score) *Score {
-	if len(scores) == 0 {
-		return nil
-	}
-	best := &scores[0]
-	for i := 1; i < len(scores); i++ {
-		if scores[i].Value > best.Value {
-			best = &scores[i]
-		}
-	}
-	return best
+// decodeJSON is a helper to decode JSON from a reader.
+func decodeJSON(r interface{ Read([]byte) (int, error) }, v interface{}) error {
+	return json.NewDecoder(r).Decode(v)
 }

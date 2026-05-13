@@ -3,6 +3,7 @@ package authn
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -13,6 +14,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/auth/common/cookies"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/samber/lo"
@@ -327,7 +330,11 @@ func (m *MultiAuth) getProviderKey(provider *api.AuthProvider) (AuthProviderCach
 		if err != nil {
 			return AuthProviderCacheKey{}, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 		}
-		return AuthProviderCacheKey{Issuer: oidcSpec.Issuer, ClientId: oidcSpec.ClientId}, nil
+		issuer, err := authprovider.NormalizeIssuerURL(oidcSpec.Issuer)
+		if err != nil {
+			return AuthProviderCacheKey{}, fmt.Errorf("invalid OIDC issuer URL: %w", err)
+		}
+		return AuthProviderCacheKey{Issuer: issuer, ClientId: oidcSpec.ClientId}, nil
 
 	case string(api.Oauth2):
 		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
@@ -338,7 +345,11 @@ func (m *MultiAuth) getProviderKey(provider *api.AuthProvider) (AuthProviderCach
 		if issuer == "" {
 			issuer = oauth2Spec.AuthorizationUrl
 		}
-		return AuthProviderCacheKey{Issuer: issuer, ClientId: oauth2Spec.ClientId}, nil
+		normalizedIssuer, err := authprovider.NormalizeIssuerURL(issuer)
+		if err != nil {
+			return AuthProviderCacheKey{}, fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
+		}
+		return AuthProviderCacheKey{Issuer: normalizedIssuer, ClientId: oauth2Spec.ClientId}, nil
 
 	default:
 		return AuthProviderCacheKey{}, fmt.Errorf("unsupported provider type: %s", discriminator)
@@ -728,7 +739,11 @@ func (m *MultiAuth) createAuthMiddlewareFromProvider(ctx context.Context, provid
 		if err != nil {
 			return AuthProviderCacheKey{}, nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 		}
-		providerKey = AuthProviderCacheKey{Issuer: oidcSpec.Issuer, ClientId: oidcSpec.ClientId}
+		issuer, err := authprovider.NormalizeIssuerURL(oidcSpec.Issuer)
+		if err != nil {
+			return AuthProviderCacheKey{}, nil, fmt.Errorf("invalid OIDC issuer URL: %w", err)
+		}
+		providerKey = AuthProviderCacheKey{Issuer: issuer, ClientId: oidcSpec.ClientId}
 
 	case string(api.Oauth2):
 		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
@@ -739,7 +754,11 @@ func (m *MultiAuth) createAuthMiddlewareFromProvider(ctx context.Context, provid
 		if issuer == "" {
 			issuer = oauth2Spec.AuthorizationUrl
 		}
-		providerKey = AuthProviderCacheKey{Issuer: issuer, ClientId: oauth2Spec.ClientId}
+		normalizedIssuer, err := authprovider.NormalizeIssuerURL(issuer)
+		if err != nil {
+			return AuthProviderCacheKey{}, nil, fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
+		}
+		providerKey = AuthProviderCacheKey{Issuer: normalizedIssuer, ClientId: oauth2Spec.ClientId}
 
 	default:
 		return AuthProviderCacheKey{}, nil, fmt.Errorf("unsupported provider type: %s", discriminator)
@@ -853,9 +872,19 @@ func (m *MultiAuth) GetIdentity(ctx context.Context, token string) (common.Ident
 	return nil, fmt.Errorf("no identity found for token")
 }
 
-// GetAuthToken extracts the auth token from the request
+// GetAuthToken extracts the auth token from the request, either from the Authorization header or
+// session cookie from the UI.
 func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
-	return common.ExtractBearerToken(r)
+	token, err := common.ExtractBearerToken(r)
+	if errors.Is(err, common.ErrNoAuthHeader) {
+		var tokenVal cookies.TokenData
+		tokenVal, err := cookies.ParseSessionCookie(r)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse session cookie: %w", err)
+		}
+		return tokenVal.Token, nil
+	}
+	return token, err
 }
 
 // GetAuthConfig returns the auth configuration with all available providers
@@ -1030,7 +1059,10 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 
 	case TokenTypeOIDC:
 		// OIDC tokens: collect all enabled providers matching issuer+clientId
-		issuer := parsedToken.Issuer()
+		issuer, err := authprovider.NormalizeIssuerURL(parsedToken.Issuer())
+		if err != nil {
+			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("invalid OIDC token issuer: %w", err)
+		}
 		clientIds := parsedToken.Audience()
 		if len(clientIds) == 0 {
 			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("OIDC token missing audience claim")

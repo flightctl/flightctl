@@ -38,9 +38,12 @@ const (
 	FlagCatalogName = "catalog"      // for catalogitems
 	FlagRendered    = "rendered"     // for a single device
 	FlagSummary     = "summary"      // for listing devices and fleets
-	FlagSummaryOnly = "summary-only" // for listing devices
+	FlagSummaryOnly = "summary-only" // for listing devices and vulnerabilities
 	FlagLastSeen    = "last-seen"    // for a single device
 	FlagWithExports = "with-exports" // for imagebuilds
+	FlagSortBy      = "sort-by"      // for vulnerabilities
+	FlagOrder       = "order"        // for vulnerabilities
+	FlagCveId       = "cve-id"       // for filtering devices by CVE
 )
 
 type FlagContextualRule struct {
@@ -64,6 +67,9 @@ type GetOptions struct {
 	SummaryOnly   bool
 	LastSeen      bool
 	WithExports   bool
+	SortBy        string
+	Order         string
+	CveId         string
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -132,16 +138,22 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
 	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include related ImageExport resources when getting imagebuilds.")
+	fs.StringVar(&o.SortBy, FlagSortBy, o.SortBy, "Field to sort results by (for vulnerabilities).")
+	fs.StringVar(&o.Order, FlagOrder, o.Order, "Sort order: 'asc' or 'desc' (for vulnerabilities).")
+	fs.StringVar(&o.CveId, FlagCveId, o.CveId, "Filter devices by CVE ID (e.g., CVE-2023-44487).")
 	o.hideHelpContextualFlags(fs)
 }
 
 var flagContextualRules = []FlagContextualRule{
-	{FlagSummaryOnly, []ResourceKind{DeviceKind}, []string{"list"}},
-	{FlagSummary, []ResourceKind{DeviceKind, FleetKind}, []string{"list"}},
+	{FlagSummaryOnly, []ResourceKind{DeviceKind, VulnerabilityKind}, []string{"list", "any"}},
+	{FlagSummary, []ResourceKind{DeviceKind, FleetKind, VulnerabilityKind}, []string{"list", "any"}},
 	{FlagRendered, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagLastSeen, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
 	{FlagCatalogName, []ResourceKind{CatalogItemKind}, []string{"any"}},
+	{FlagSortBy, []ResourceKind{VulnerabilityKind}, []string{"any"}},
+	{FlagOrder, []ResourceKind{VulnerabilityKind}, []string{"any"}},
+	{FlagCveId, []ResourceKind{DeviceKind}, []string{"list"}},
 }
 
 func (o *GetOptions) hideHelpContextualFlags(fs *pflag.FlagSet) {
@@ -231,6 +243,11 @@ func (o *GetOptions) Validate(args []string) error {
 		return err
 	}
 
+	// Vulnerability kind has its own validation in ValidateVulnerability
+	if kind == VulnerabilityKind {
+		return o.validateOutputFormat()
+	}
+
 	// Validate all resource names
 	for _, resName := range names {
 		if errs := validation.ValidateResourceName(&resName); len(errs) > 0 {
@@ -250,6 +267,8 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateLimit() },
 		func() error { return o.validateLastSeen(kind, names) },
 		func() error { return o.validateWithExports(kind) },
+		func() error { return o.validateVulnerabilityFlags(kind) },
+		func() error { return o.validateCveId(kind, names) },
 	}
 
 	for _, v := range validators {
@@ -275,6 +294,10 @@ func (o *GetOptions) validateSelectors(names []string) error {
 // validateSummary validates the usage of the --summary flag.
 func (o *GetOptions) validateSummary(kind ResourceKind, names []string) error {
 	if !o.Summary {
+		return nil
+	}
+	// VulnerabilityKind has its own validation in ValidateVulnerability
+	if kind == VulnerabilityKind {
 		return nil
 	}
 	if kind != DeviceKind && kind != FleetKind {
@@ -380,10 +403,40 @@ func (o *GetOptions) validateWithExports(kind ResourceKind) error {
 	return nil
 }
 
+// validateVulnerabilityFlags checks that --sort-by and --order are only used with vulnerabilities.
+func (o *GetOptions) validateVulnerabilityFlags(kind ResourceKind) error {
+	if o.SortBy != "" && kind != VulnerabilityKind {
+		return fmt.Errorf("'--sort-by' can only be specified when getting vulnerabilities")
+	}
+	if o.Order != "" && kind != VulnerabilityKind {
+		return fmt.Errorf("'--order' can only be specified when getting vulnerabilities")
+	}
+	return nil
+}
+
+// validateCveId checks the usage of the --cve-id flag.
+func (o *GetOptions) validateCveId(kind ResourceKind, names []string) error {
+	if o.CveId == "" {
+		return nil
+	}
+	if kind != DeviceKind {
+		return fmt.Errorf("'--cve-id' can only be specified when listing devices")
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("cannot specify '--cve-id' when getting specific devices")
+	}
+	return nil
+}
+
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
 		return err
+	}
+
+	// Vulnerability kind has special argument parsing and handling
+	if kind == VulnerabilityKind {
+		return o.runVulnerability(ctx, names)
 	}
 
 	formatter := display.NewFormatter(display.OutputFormat(o.Output))
@@ -415,6 +468,18 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 		return o.handleSingle(ctx, formatter, kind, names[0], singleFetcher)
 	}
 	return o.handleMultiple(ctx, formatter, kind, names, listFetcher)
+}
+
+func (o *GetOptions) runVulnerability(ctx context.Context, args []string) error {
+	vulnOpts := NewVulnerabilityGetOptions(o)
+	vulnArgs, err := parseVulnerabilityArgs(args, o.SummaryOnly)
+	if err != nil {
+		return err
+	}
+	if err := vulnOpts.ValidateVulnerability(vulnArgs); err != nil {
+		return err
+	}
+	return vulnOpts.RunVulnerability(ctx, vulnArgs)
 }
 
 // ListFetcher fetches a list of resources and returns the validated response.
@@ -692,6 +757,7 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 			SummaryOnly:   lo.ToPtr(o.SummaryOnly),
+			CveId:         util.ToPtrWithNilDefault(o.CveId),
 		}
 		return c.ListDevicesWithResponse(ctx, &params)
 	case EnrollmentRequestKind:

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -117,6 +118,15 @@ type Config struct {
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
 
+	// LabelFromSystemInfo maps label names to systemInfo field names.
+	// Labels are populated at enrollment time from the device systemInfo.
+	// Supports both built-in fields and customInfo fields.
+	// Format: {"labelName": "fieldName"} for built-in, {"labelName": "customInfo.fieldName"} for custom.
+	// Example: {"alias": "hostname", "arch": "architecture", "site": "customInfo.siteId"}
+	// These labels are merged with DefaultLabels, with DefaultLabels taking precedence on conflicts.
+	// If no label with key "alias" is specified, the agent automatically adds alias=hostname.
+	LabelFromSystemInfo map[string]string `json:"label-from-systeminfo,omitempty"`
+
 	// SystemInfo lists built-in system information keys to collect.
 	SystemInfo []string `json:"system-info,omitempty"`
 
@@ -190,6 +200,7 @@ func NewDefault() *Config {
 		readWriter:           fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
+		LabelFromSystemInfo:  make(map[string]string),
 		ServiceConfig:        config.NewServiceConfig(),
 		SystemInfo:           DefaultSystemInfo,
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
@@ -371,7 +382,7 @@ func (cfg *Config) StringSanitized() string {
 		return "<error>"
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := json.Unmarshal(contents, &configMap); err != nil {
 		return "<error>"
 	}
@@ -471,9 +482,8 @@ func mergeConfigs(base, override *Config) {
 	// but a dropin with image-pruning.enabled: false will override to false.
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
 
-	for k, v := range override.DefaultLabels {
-		base.DefaultLabels[k] = v
-	}
+	maps.Copy(base.DefaultLabels, override.DefaultLabels)
+	maps.Copy(base.LabelFromSystemInfo, override.LabelFromSystemInfo)
 }
 
 func Load(configFile string) (*Config, error) {

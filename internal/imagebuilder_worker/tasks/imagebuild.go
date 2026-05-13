@@ -23,6 +23,7 @@ import (
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -78,6 +79,10 @@ func (c *Consumer) shouldProcessImageBuild(ctx context.Context, orgID uuid.UUID,
 
 	case string(domain.ImageBuildConditionReasonPushing):
 		log.Infof("ImageBuild %q is already being processed (Pushing), skipping", name)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonGeneratingSBOM):
+		log.Infof("ImageBuild %q is already being processed (GeneratingSBOM), skipping", name)
 		return false, nil
 
 	case string(domain.ImageBuildConditionReasonCanceling):
@@ -224,7 +229,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	}
 
 	// Step 4: Push image to registry
-	imageRef, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
+	imageRef, manifestDigest, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
 		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
 			return nil // Cancellation handled
@@ -232,8 +237,13 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
-	// Update ImageBuild status with the pushed image reference and mark as Completed
+	// Update ImageBuild status with the pushed image reference
 	statusUpdater.UpdateImageReference(imageRef)
+
+	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
+	if c.shouldRunSBOMPipeline() {
+		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, manifestDigest, podmanWorker, statusUpdater, log)
+	}
 
 	// Mark as Completed
 	now = time.Now().UTC()
@@ -248,6 +258,67 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	log.Info("ImageBuild marked as Completed")
 	return nil
+}
+
+// processSBOM handles SBOM generation and distribution.
+// SBOM failures are non-fatal - the build succeeds even if SBOM generation fails.
+func (c *Consumer) processSBOM(
+	buildCtx context.Context,
+	ctx context.Context,
+	orgID uuid.UUID,
+	imageBuild *domain.ImageBuild,
+	imageRef string,
+	manifestDigest string,
+	podmanWorker *podmanWorker,
+	statusUpdater *statusUpdater,
+	log logrus.FieldLogger,
+) {
+	// Update status to GeneratingSBOM
+	now := time.Now().UTC()
+	sbomCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonGeneratingSBOM),
+		Message:            "Scanning for vulnerabilities",
+		LastTransitionTime: now,
+	}
+	statusUpdater.UpdateCondition(sbomCondition)
+
+	log.Info("Phase: SBOM Generation Started")
+
+	// Generate SBOM
+	sbomResult, err := c.generateSBOM(buildCtx, imageRef, manifestDigest, podmanWorker, log)
+	if err != nil {
+		log.WithError(err).Warn("SBOM generation failed (non-fatal)")
+		return
+	}
+
+	log.WithFields(logrus.Fields{
+		"sbomPath":    sbomResult.SBOMPath,
+		"imageDigest": sbomResult.ImageDigest,
+	}).Info("SBOM generated successfully")
+
+	// Push SBOM to OCI registry as referrer (if enabled)
+	if c.shouldPushSBOMToRegistry() {
+		if err := c.pushSBOMAsReferrer(buildCtx, orgID, imageBuild, sbomResult, statusUpdater, log); err != nil {
+			log.WithError(err).Warn("SBOM push to registry failed (non-fatal)")
+		}
+	}
+
+	// Upload SBOM to Trustify (if enabled and configured)
+	if c.shouldUploadSBOMToTrustify() && c.cfg.VulnerabilityReporting != nil &&
+		c.cfg.VulnerabilityReporting.Enabled && c.cfg.VulnerabilityReporting.Trustify != nil {
+		trustifyClient, err := trustifyv2.NewVulnerabilityClient(ctx, c.cfg.VulnerabilityReporting.Trustify)
+		if err != nil {
+			log.WithError(err).Warn("Failed to create Trustify client for SBOM upload (non-fatal)")
+		} else if trustifyClient != nil {
+			if err := c.uploadSBOMToTrustify(buildCtx, trustifyClient, sbomResult, log); err != nil {
+				log.WithError(err).Warn("SBOM upload to Trustify failed (non-fatal)")
+			}
+		}
+	}
+
+	log.Info("Phase: SBOM Generation Completed")
 }
 
 // handleBuildError handles errors during the build process.
@@ -1038,17 +1109,17 @@ func (c *Consumer) buildImageWithPodman(
 }
 
 // pushImageWithPodman pushes the built image to the destination registry.
-// It returns the image reference that was pushed.
+// It returns the image reference and manifest digest of the pushed image.
 func (c *Consumer) pushImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
-) (string, error) {
+) (string, string, error) {
 	// Check context before starting work
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	spec := imageBuild.Spec
@@ -1056,12 +1127,12 @@ func (c *Consumer) pushImageWithPodman(
 	// Get and validate destination repository
 	ociSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Destination.Repository, "destination")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Validate image reference components (defense-in-depth)
 	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
-		return "", fmt.Errorf("invalid image reference components: %w", err)
+		return "", "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
@@ -1074,7 +1145,7 @@ func (c *Consumer) pushImageWithPodman(
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
 			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
-				return "", fmt.Errorf("failed to login to destination registry: %w", err)
+				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
 	}
@@ -1084,10 +1155,12 @@ func (c *Consumer) pushImageWithPodman(
 	// ---------------------------------------------------------
 	log.Info("Phase: Push Started")
 
-	// Push
+	// Push with --digestfile to capture the manifest digest
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
 	// Authentication is handled via podman login above
-	pushArgs := []string{"push"}
+	const digestFileName = "push-digest.txt"
+	workerDigestPath := filepath.Join("/output", digestFileName)
+	pushArgs := []string{"push", "--digestfile", workerDigestPath}
 
 	// Disable TLS verification for HTTP registries or when explicitly requested
 	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
@@ -1100,10 +1173,21 @@ func (c *Consumer) pushImageWithPodman(
 
 	pushArgs = append(pushArgs, imageRef)
 	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	log.WithField("imageRef", imageRef).Info("Phase: Push Completed - Image pushed successfully")
+	// Read the manifest digest from the digest file (host path maps to /output in worker)
+	hostDigestPath := filepath.Join(podmanWorker.TmpOutDir, digestFileName)
+	digestBytes, err := os.ReadFile(hostDigestPath)
+	if err != nil {
+		return "", "", fmt.Errorf("reading manifest digest file: %w", err)
+	}
+	manifestDigest := strings.TrimSpace(string(digestBytes))
 
-	return imageRef, nil
+	log.WithFields(logrus.Fields{
+		"imageRef":       imageRef,
+		"manifestDigest": manifestDigest,
+	}).Info("Phase: Push Completed - Image pushed successfully")
+
+	return imageRef, manifestDigest, nil
 }

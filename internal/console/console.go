@@ -147,11 +147,32 @@ func removeSession(sessionID string) func(string) (string, error) {
 }
 
 func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, domain.Status) {
+	// Guard: missing session metadata
 	if sessionMetadata == "" {
 		m.log.Error("incompatible client: missing session metadata")
 		return nil, domain.StatusBadRequest("incompatible client: missing session metadata")
 	}
+
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
+
+	// Guard: device doesn't exist - check once at the beginning
+	device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+
+	// Guard: device is in an invalid state for console access
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
+		return nil, domain.StatusConflict("Device is decommissioned")
+	}
+	annotations := util.EnsureMap(lo.FromPtr(device.Metadata.Annotations))
+	if waitingValue, exists := annotations[domain.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
+		return nil, domain.StatusConflict("Device is awaiting reconnection after restore")
+	}
+	if pausedValue, exists := annotations[domain.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
+		return nil, domain.StatusConflict("Device is paused due to conflicts")
+	}
+
 	session := &ConsoleSession{
 		OrgId:      orgId,
 		DeviceName: deviceName,
@@ -160,19 +181,20 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 		RecvCh:     make(chan []byte, ChannelSize),
 		ProtocolCh: make(chan string),
 	}
-	// we should move this to a separate table in the database
-	if _, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName); status.Code != http.StatusOK {
+
+	// Now that we know the device exists and is accessible, modify annotations
+	if status := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); status.Code != http.StatusOK {
+		// If modifyAnnotations fails, check if the device still exists to return the correct error
+		if _, deviceStatus := m.serviceHandler.GetDevice(ctx, orgId, deviceName); deviceStatus.Code != http.StatusOK {
+			return nil, deviceStatus
+		}
 		return nil, status
 	}
 
-	if status := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); status.Code != http.StatusOK {
-		return nil, status
-	}
-	// tell the gRPC service, or the message queue (in the future) that there is a session waiting, and provide
-	// the channels to read and write to the websocket session
+	// Register the session with the gRPC service
 	if err := m.sessionRegistration.StartSession(session); err != nil {
 		m.log.Errorf("Failed to start session %s for device %s: %v, rolling back device annotation", session.UUID, deviceName, err)
-		// if we fail to register the session we should remove the annotation (best effort)
+		// Best effort cleanup of annotations
 		if annStatus := m.modifyAnnotations(ctx, orgId, deviceName, removeSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annStatus)
 		}

@@ -295,14 +295,44 @@ func TestMultiAuth_GetAuthToken(t *testing.T) {
 	log := logrus.New()
 	multiAuth := NewMultiAuth(nil, nil, log)
 
-	// Create a mock request with Bearer token
-	req, err := http.NewRequest("GET", "/test", nil)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer test-token")
+	t.Run("No header returns err", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/test", nil)
+		require.NoError(t, err)
 
-	token, err := multiAuth.GetAuthToken(req)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-token", token)
+		_, err = multiAuth.GetAuthToken(req)
+		assert.Error(t, err)
+	})
+
+	t.Run("Authorization header", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/test", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer test-token")
+
+		token, err := multiAuth.GetAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-token", token)
+	})
+
+	t.Run("Cookie header", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/test", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"})
+
+		token, err := multiAuth.GetAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-token", token)
+	})
+
+	t.Run("Authorization and Cookie header prioritizes Authorization header", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/test", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer auth-header-token")
+		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"})
+
+		token, err := multiAuth.GetAuthToken(req)
+		assert.NoError(t, err)
+		assert.Equal(t, "auth-header-token", token)
+	})
 }
 
 func TestMultiAuth_GetAuthConfig(t *testing.T) {

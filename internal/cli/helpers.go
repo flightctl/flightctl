@@ -38,6 +38,7 @@ const (
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
 	TemplateVersionKind           ResourceKind = "templateversion"
+	VulnerabilityKind             ResourceKind = "vulnerability"
 )
 
 func (r ResourceKind) String() string {
@@ -78,6 +79,7 @@ var (
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
 		TemplateVersionKind:           {},
+		VulnerabilityKind:             {},
 	}
 
 	validResourceKinds = slices.Collect(maps.Keys(resourceKindSet))
@@ -97,6 +99,7 @@ var (
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
 		"templateversions":           TemplateVersionKind,
+		"vulnerabilities":            VulnerabilityKind,
 	}
 
 	kindToPlural = map[ResourceKind]string{
@@ -114,6 +117,7 @@ var (
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
+		VulnerabilityKind:             "vulnerabilities",
 	}
 
 	shortnameToKind = map[string]ResourceKind{
@@ -131,6 +135,7 @@ var (
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,
 		"tv":   TemplateVersionKind,
+		"vuln": VulnerabilityKind,
 	}
 )
 
@@ -256,9 +261,9 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 		var responseError api.Status
 		err := json.Unmarshal(responseBody, &responseError)
 		if err != nil {
-			return fmt.Errorf("%d %s", statusCode, string(responseBody))
+			return fmt.Errorf("server returned %d: %s", statusCode, string(responseBody))
 		}
-		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+		return fmt.Errorf("server returned %d: %s", statusCode, responseError.Message)
 	}
 	return nil
 }

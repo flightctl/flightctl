@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
@@ -63,6 +66,174 @@ func (h *Harness) RestartFlightCtlAgent() error {
 		return fmt.Errorf("failed to restart flightctl-agent: %w", err)
 	}
 	return nil
+}
+
+// ResetAgentEnrollmentState stops the agent and removes local enrollment identity state.
+func (h *Harness) ResetAgentEnrollmentState() error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return fmt.Errorf("harness VM is nil")
+	}
+
+	script := `
+set -e
+systemctl stop flightctl-agent || true
+rm -rf /var/lib/flightctl/*
+journalctl --rotate || true
+systemctl reset-failed flightctl-agent || true
+`
+	_, err := h.RunScriptOnVM(script)
+	if err != nil {
+		return fmt.Errorf("resetting agent enrollment state: %w", err)
+	}
+	return nil
+}
+
+// DeleteCurrentEnrollmentRequestFromAgentLogs deletes the latest pending EnrollmentRequest
+// identified in flightctl-agent logs. If no enrollment ID is present, it is a no-op.
+func (h *Harness) DeleteCurrentEnrollmentRequestFromAgentLogs() error {
+	logs, err := h.GetServiceLogs("flightctl-agent")
+	if err != nil {
+		return fmt.Errorf("reading flightctl-agent logs: %w", err)
+	}
+	enrollmentID := testutil.GetEnrollmentIdFromText(logs)
+	if enrollmentID == "" {
+		return nil
+	}
+
+	resp, err := h.Client.DeleteEnrollmentRequestWithResponse(h.Context, enrollmentID)
+	if err != nil {
+		return fmt.Errorf("deleting enrollment request %s: %w", enrollmentID, err)
+	}
+	if resp == nil {
+		return fmt.Errorf("deleting enrollment request %s returned nil response", enrollmentID)
+	}
+	if resp.StatusCode() != http.StatusOK && resp.StatusCode() != http.StatusNotFound && resp.StatusCode() != http.StatusConflict {
+		return fmt.Errorf("deleting enrollment request %s returned status %d: %s", enrollmentID, resp.StatusCode(), string(resp.Body))
+	}
+	return nil
+}
+
+// WaitForEnrollmentIDFromAgentLogs polls the flightctl-agent logs until an enrollment ID is present.
+func (h *Harness) WaitForEnrollmentIDFromAgentLogs(timeout, polling string) (string, error) {
+	return pollUntil(timeout, polling, "enrollment ID in agent logs", func() (string, bool, error) {
+		logs, err := h.GetServiceLogs("flightctl-agent")
+		if err != nil {
+			return "", false, err
+		}
+		enrollmentID := testutil.GetEnrollmentIdFromText(logs)
+		if enrollmentID != "" {
+			return enrollmentID, true, nil
+		}
+		return "", false, nil
+	})
+}
+
+// WaitForEnrollmentRequestResource polls until the expected EnrollmentRequest exists.
+func (h *Harness) WaitForEnrollmentRequestResource(enrollmentID, timeout, polling string) (*v1beta1.EnrollmentRequest, error) {
+	if strings.TrimSpace(enrollmentID) == "" {
+		return nil, fmt.Errorf("enrollment ID is empty")
+	}
+
+	return pollUntil(timeout, polling, fmt.Sprintf("enrollment request %s", enrollmentID), func() (*v1beta1.EnrollmentRequest, bool, error) {
+		resp, err := h.Client.GetEnrollmentRequestWithResponse(h.Context, enrollmentID)
+		if err != nil {
+			return nil, false, err
+		}
+		if resp != nil && resp.JSON200 != nil {
+			return resp.JSON200, true, nil
+		}
+		return nil, false, nil
+	})
+}
+
+// ApproveEnrollmentRequestWithLabels approves an EnrollmentRequest and returns the HTTP status code.
+func (h *Harness) ApproveEnrollmentRequestWithLabels(enrollmentID string, labels map[string]string) (int, error) {
+	if strings.TrimSpace(enrollmentID) == "" {
+		return 0, fmt.Errorf("enrollment ID is empty")
+	}
+
+	approvalLabels := map[string]string{}
+	maps.Copy(approvalLabels, labels)
+	approval := v1beta1.EnrollmentRequestApproval{
+		Approved: true,
+		Labels:   &approvalLabels,
+	}
+
+	resp, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, enrollmentID, approval)
+	if err != nil {
+		return 0, fmt.Errorf("approving enrollment request %s: %w", enrollmentID, err)
+	}
+	if resp == nil {
+		return 0, fmt.Errorf("approving enrollment request %s returned nil response", enrollmentID)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return resp.StatusCode(), fmt.Errorf("approving enrollment request %s returned status %d: %s", enrollmentID, resp.StatusCode(), string(resp.Body))
+	}
+	return resp.StatusCode(), nil
+}
+
+// WaitForDeviceWithSystemInfo polls until the Device exists and reports populated systemInfo.
+func (h *Harness) WaitForDeviceWithSystemInfo(deviceID, timeout, polling string) (*v1beta1.Device, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device ID is empty")
+	}
+
+	return pollUntil(timeout, polling, fmt.Sprintf("device %s systemInfo", deviceID), func() (*v1beta1.Device, bool, error) {
+		resp, err := h.Client.GetDeviceWithResponse(h.Context, deviceID)
+		if err != nil {
+			return nil, false, err
+		}
+		if resp != nil && resp.JSON200 != nil && resp.JSON200.Status != nil && !resp.JSON200.Status.SystemInfo.IsEmpty() {
+			return resp.JSON200, true, nil
+		}
+		return nil, false, nil
+	})
+}
+
+// pollUntil retries fetch until it reports success, the timeout expires, or the last error persists.
+func pollUntil[T any](timeout, polling, description string, fetch func() (T, bool, error)) (T, error) {
+	var zero T
+	if fetch == nil {
+		return zero, fmt.Errorf("fetch function is nil")
+	}
+
+	timeoutDuration, err := time.ParseDuration(timeout)
+	if err != nil {
+		return zero, fmt.Errorf("parsing timeout %q: %w", timeout, err)
+	}
+	pollingDuration, err := time.ParseDuration(polling)
+	if err != nil {
+		return zero, fmt.Errorf("parsing polling interval %q: %w", polling, err)
+	}
+	if timeoutDuration <= 0 {
+		return zero, fmt.Errorf("timeout must be positive, got %s", timeoutDuration)
+	}
+	if pollingDuration <= 0 {
+		return zero, fmt.Errorf("polling interval must be positive, got %s", pollingDuration)
+	}
+
+	deadline := time.Now().Add(timeoutDuration)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		value, ok, err := fetch()
+		if err != nil {
+			lastErr = err
+			time.Sleep(pollingDuration)
+			continue
+		}
+		if ok {
+			return value, nil
+		}
+		time.Sleep(pollingDuration)
+	}
+
+	if lastErr != nil {
+		return zero, fmt.Errorf("waiting for %s: %w", description, lastErr)
+	}
+	return zero, fmt.Errorf("timed out waiting for %s", description)
 }
 
 // CopyAgentFile copies a file on the VM using sudo cp.

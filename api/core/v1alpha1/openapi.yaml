@@ -19,7 +19,7 @@ tags:
   - name: catalog
     description: Operations on Catalog resources.
   - name: vulnerability
-    description: Operations for vulnerability reports and org-wide summaries.
+    description: Operations for vulnerability reports and organization-wide summaries.
 paths:
   /catalogitems:
     x-resource: catalogitems
@@ -1106,7 +1106,7 @@ paths:
     get:
       tags:
         - vulnerability
-      description: Return org-wide CVE counts by severity.
+      description: Return organization-wide CVE counts by severity.
       operationId: getVulnerabilitySummary
       responses:
         "200":
@@ -1150,7 +1150,7 @@ paths:
     get:
       tags:
         - vulnerability
-      description: List distinct vulnerabilities across the org with affected device counts.
+      description: List distinct vulnerabilities across the organization with affected device counts.
       operationId: listVulnerabilities
       parameters:
         - name: continue
@@ -1546,7 +1546,7 @@ paths:
       parameters:
         - name: cveId
           in: path
-          description: The CVE identifier (for example, CVE-2024-1234).
+          description: The CVE identifier (for example, CVE-2024-1234). Unknown identifiers still return 200 with an empty list of affected resources (blast radius) when no matching data is found.
           required: true
           schema:
             type: string
@@ -1558,7 +1558,9 @@ paths:
             type: string
         - name: fieldSelector
           in: query
-          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          description: >-
+            Restricts blast-radius rows by device owner before aggregation. Supported key is `owner`
+            (device owner string, for example `owner=Fleet/my-fleet`). Operators include `=`, `==`, `!=`, and set-style `in` / `notin` where applicable.
           schema:
             type: string
         - name: sortBy
@@ -1605,12 +1607,6 @@ paths:
                 $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "404":
-          description: Not Found.
           content:
             application/json:
               schema:
@@ -2078,9 +2074,9 @@ components:
           description: Resource kind; always VulnerabilitySummary.
         cvesBySeverity:
           $ref: '#/components/schemas/CveCountsBySeverity'
-    CveCountsBySeverity:
+    DeviceCountsBySeverity:
       type: object
-      description: Counts of distinct CVEs in the org by highest severity.
+      description: Counts of distinct devices affected in the organization, grouped by vulnerability severity.
       additionalProperties: false
       required:
         - total
@@ -2094,7 +2090,48 @@ components:
         total:
           type: integer
           format: int64
-          description: Total distinct CVEs across the org.
+          description: Number of distinct devices with at least one vulnerability finding in the organization.
+        critical:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is critical.
+        high:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is high.
+        medium:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is medium.
+        low:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is low.
+        none:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is none.
+        unknown:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is unknown.
+    CveCountsBySeverity:
+      type: object
+      description: Counts of distinct CVEs in the organization by highest severity.
+      additionalProperties: false
+      required:
+        - total
+        - critical
+        - high
+        - medium
+        - low
+        - none
+        - unknown
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Total distinct CVEs across the organization.
         critical:
           type: integer
           format: int64
@@ -2140,6 +2177,12 @@ components:
         advisoryId:
           type: string
           description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         severity:
           type: string
           description: Normalized severity label.
@@ -2164,7 +2207,7 @@ components:
         affectedDevices:
           type: integer
           format: int64
-          description: Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for org-wide context it is the count across the whole org.
+          description: Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for organization-wide context it is the count across the whole organization.
     VulnerabilityList:
       type: object
       description: Paginated list of Vulnerability resources.
@@ -2233,6 +2276,12 @@ components:
         advisoryId:
           type: string
           description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         description:
           type: string
           description: Short summary of the vulnerability.
@@ -2251,7 +2300,7 @@ components:
     VulnerabilityGroup:
       type: object
       description: >
-        A CVE grouped across one or more images, as returned by fleet-scoped and org-wide
+        A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide
         vulnerability list endpoints. Each finding represents one image in which the CVE was
         detected.
       additionalProperties: false
@@ -2293,7 +2342,7 @@ components:
             $ref: '#/components/schemas/VulnerabilityGroupItem'
     VulnerabilityGroupList:
       type: object
-      description: Paginated list of VulnerabilityGroup resources (fleet-scoped or org-wide).
+      description: Paginated list of VulnerabilityGroup resources (fleet-scoped or organization-wide).
       additionalProperties: false
       required:
         - apiVersion
@@ -2427,17 +2476,24 @@ components:
         cveId:
           type: string
           description: CVE identifier for this blast radius response.
-        advisoryId:
+        issuer:
           type: string
-          description: Vendor advisory identifier when available.
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         severity:
           type: string
-          description: Highest normalized severity for this CVE in the org.
+          description: Worst severity for this CVE in the fleet or fleetless group.
           enum: [Critical, High, Medium, Low, None, Unknown]
-        cvssScore:
+        maxCvssScore:
           type: number
           format: float
-          description: CVSS base score when available.
+          description: Highest CVSS base score for this CVE in the fleet or fleetless group.
+        maxPublishedAt:
+          type: string
+          format: date-time
+          description: When this CVE was first observed in the fleet or fleetless group.
         items:
           type: array
           description: Per-fleet or fleetless rows with device and image counts.
@@ -2451,7 +2507,7 @@ components:
         - fleetName
         - fleetless
         - affectedDevices
-        - images
+        - findings
       properties:
         fleetName:
           type: string
@@ -2463,8 +2519,8 @@ components:
           type: integer
           format: int64
           description: Devices in this fleet or fleetless group affected by the CVE.
-        images:
+        findings:
           type: array
-          description: Affected images within this fleet or fleetless group.
+          description: Per-digest findings within this fleet or fleetless group.
           items:
-            $ref: '#/components/schemas/VulnerabilityImageRef'
+            $ref: '#/components/schemas/VulnerabilityGroupItem'

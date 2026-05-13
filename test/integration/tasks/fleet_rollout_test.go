@@ -211,7 +211,7 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-				devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
+				devices, err := deviceStore.List(ctx, orgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(len(devices.Items)).To(Equal(numDevices))
 

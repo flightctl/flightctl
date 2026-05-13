@@ -182,8 +182,132 @@ flightctl cancel imageexport my-export
 
 ---
 
+## flightctl get vulnerability
+
+View vulnerability information for devices and fleets.
+
+### Synopsis
+
+```shell
+flightctl get vulnerability [SUBCOMMAND] [flags]
+flightctl get vuln [SUBCOMMAND] [flags]
+```
+
+### Arguments
+
+The vulnerability command supports several forms:
+
+| Form | Description |
+|------|-------------|
+| `get vuln` | List all known vulnerabilities across the fleet |
+| `get vuln --summary-only` | Show a summary of vulnerability counts by severity |
+| `get vuln device/<name>` | List vulnerabilities affecting a specific device |
+| `get vuln device/<name> --summary` | Show summary followed by vulnerability list for a device |
+| `get vuln device/<name> --summary-only` | Show only the vulnerability summary for a device |
+| `get vuln fleet/<name>` | List vulnerabilities affecting devices in a fleet |
+| `get vuln fleet/<name> --summary` | Show summary followed by vulnerability list for a fleet |
+| `get vuln fleet/<name> --summary-only` | Show only the vulnerability summary for a fleet |
+| `get vuln <CVE-ID>` | Show impact details for a specific CVE |
+| `get vuln vuln/<CVE-ID>` | Show impact details for a specific CVE (alternate form) |
+
+### Flags
+
+* `--summary` - Include a summary before the vulnerability list (for device or fleet queries)
+* `--summary-only` - Show only the summary without the full vulnerability list
+* `--sort-by <field>` - Sort results by a field. Allowed values depend on the subcommand:
+  * For list: `cveId`, `severity`, `cvssScore`, `publishedAt`
+  * For device/fleet: `cveId`, `severity`, `cvssScore`, `publishedAt`
+  * For CVE impact: `affectedDevices`, `fleetName`
+* `--order <direction>` - Sort order: `asc` or `desc`
+* `--limit <n>` - Maximum number of results to return
+* `--continue <token>` - Pagination token from a previous response
+* `--field-selector <selector>` - Filter results by field values
+* `-o, --output <format>` - Output format: `json`, `yaml`, `wide`, or `table` (default)
+
+### Examples
+
+```shell
+# List all vulnerabilities
+flightctl get vuln
+
+# Show vulnerability summary
+flightctl get vuln --summary-only
+
+# List vulnerabilities for a device
+flightctl get vuln device/my-device
+
+# Show device vulnerabilities with summary
+flightctl get vuln device/my-device --summary
+
+# Show only device vulnerability summary
+flightctl get vuln device/my-device --summary-only
+
+# List vulnerabilities for a fleet
+flightctl get vuln fleet/production
+
+# Show fleet vulnerabilities sorted by severity
+flightctl get vuln fleet/production --sort-by severity --order desc
+
+# Show impact details for a specific CVE
+flightctl get vuln CVE-2023-44487
+
+# Show CVE impact in JSON format
+flightctl get vuln CVE-2023-44487 -o json
+```
+
+### Exit Status
+
+* `0` - Success
+* Non-zero - Error
+
+---
+
+## Filtering devices by CVE
+
+Filter devices by a specific CVE using the `--cve-id` flag.
+
+### Synopsis
+
+```shell
+flightctl get devices --cve-id <CVE-ID> [flags]
+```
+
+### Description
+
+The `--cve-id` flag filters the device list to show only devices affected by a specific CVE. This is useful for identifying the blast radius of a vulnerability across your fleet.
+
+### Flags
+
+* `--cve-id <CVE-ID>` - Filter devices by CVE ID (e.g., `CVE-2023-44487`)
+
+This flag can be combined with other `get devices` flags such as `--selector`, `--field-selector`, and `--output`.
+
+### Examples
+
+```shell
+# List all devices affected by a specific CVE
+flightctl get devices --cve-id CVE-2023-44487
+
+# List affected devices with wide output
+flightctl get devices --cve-id CVE-2023-44487 -o wide
+
+# Find fleetless devices affected by a CVE
+flightctl get devices --cve-id CVE-2023-44487 --field-selector "metadata.owner notcontains Fleet/"
+
+# Find affected devices in a specific region
+flightctl get devices --cve-id CVE-2023-44487 --selector region=us-west
+```
+
+### Exit Status
+
+* `0` - Success
+* Non-zero - Error
+
+---
+
 ## See Also
 
 * [Using the CLI](../using/cli/overview.md)
 * [Logging in to the Service](../using/cli/logging-in.md)
 * [Managing Image Builds and Exports](../using/managing-image-builds.md)
+* [Viewing Vulnerabilities](../using/viewing-vulnerabilities.md)

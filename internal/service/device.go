@@ -43,13 +43,16 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, devi
 	return result, StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
 }
 
-func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, domain.Status) {
+func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.DeviceListParams, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
 	listParams.AnnotationSelector = annotationSelector
-	return listParams, domain.StatusOK()
+	return &store.DeviceListParams{
+		ListParams: *listParams,
+		CveID:      params.CveId,
+	}, domain.StatusOK()
 }
 
 func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
@@ -65,7 +68,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, param
 			return nil, domain.StatusBadRequest("parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true")
 		}
 
-		result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
+		result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
 
 		switch err {
 		case nil:
@@ -129,7 +132,7 @@ func (h *ServiceHandler) ListConnectivityChangedDevices(ctx context.Context, org
 		return nil, domain.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, *storeParams, cutoffTime)
+	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, storeParams.ListParams, cutoffTime)
 	if err == nil {
 		return result, domain.StatusOK()
 	}
@@ -546,7 +549,7 @@ func (h *ServiceHandler) CountDevices(ctx context.Context, orgId uuid.UUID, para
 	if status.Code != http.StatusOK {
 		return 0, status
 	}
-	result, err := h.store.Device().Count(ctx, orgId, *storeParams)
+	result, err := h.store.Device().Count(ctx, orgId, storeParams.ListParams)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -560,7 +563,7 @@ func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, orgId 
 	if status.Code != http.StatusOK {
 		return status
 	}
-	err := h.store.Device().MarkRolloutSelection(ctx, orgId, *storeParams, limit)
+	err := h.store.Device().MarkRolloutSelection(ctx, orgId, storeParams.ListParams, limit)
 	return StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -574,7 +577,7 @@ func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, orgId uuid.UU
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().CountByLabels(ctx, orgId, *storeParams, groupBy)
+	result, err := h.store.Device().CountByLabels(ctx, orgId, storeParams.ListParams, groupBy)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -583,7 +586,7 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid.UUID,
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
+	result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 

@@ -2626,7 +2626,6 @@ type GetVulnerabilityImpactResponse struct {
 	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
-	JSON404      *Status
 	JSON429      *Status
 	JSON501      *Status
 }
@@ -4268,13 +4267,6 @@ func ParseGetVulnerabilityImpactResponse(rsp *http.Response) (*GetVulnerabilityI
 			return nil, err
 		}
 		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

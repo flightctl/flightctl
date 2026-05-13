@@ -64,7 +64,8 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return fmt.Errorf("failed getting fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
-	templateVersionName := generateTemplateVersionName(fleet)
+	fingerprint := t.getFingerprint()
+	templateVersionName := generateTemplateVersionName(fleet, fingerprint)
 	t.templateConfig = fleet.Spec.Template.Spec.Config
 	referencedRepos, validationErr := t.validateConfig(ctx)
 
@@ -260,6 +261,26 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
 
-func generateTemplateVersionName(fleet *domain.Fleet) string {
-	return "v" + strconv.FormatInt(*fleet.Metadata.Generation, 10)
+func (t *FleetValidateLogic) getFingerprint() string {
+	if t.event.Reason != domain.EventReasonDependencyChangeDetected || t.event.Details == nil {
+		return ""
+	}
+	details, err := t.event.Details.AsDependencyChangeDetectedDetails()
+	if err != nil {
+		t.log.WithError(err).Warn("failed extracting fingerprint from DependencyChangeDetected event")
+		return ""
+	}
+	return details.Fingerprint
+}
+
+func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string {
+	base := "v" + strconv.FormatInt(*fleet.Metadata.Generation, 10)
+	if fingerprint == "" {
+		return base
+	}
+	shortHash := fingerprint
+	if len(shortHash) > 8 {
+		shortHash = shortHash[:8]
+	}
+	return base + "-" + shortHash
 }

@@ -64,6 +64,12 @@ Welcome to the Flight Control user documentation.
   * [Selecting Devices into a Fleet](using/managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](using/managing-fleets.md#defining-device-templates)
   * [Defining Rollout Policies](using/managing-fleets.md#defining-rollout-policies)
+* **[Viewing Vulnerabilities](using/viewing-vulnerabilities.md)** - How to view vulnerability data for devices and fleets.
+  * [Viewing the Vulnerability Summary](using/viewing-vulnerabilities.md#viewing-the-vulnerability-summary)
+  * [Viewing Device Vulnerabilities](using/viewing-vulnerabilities.md#viewing-device-vulnerabilities)
+  * [Viewing Fleet Vulnerabilities](using/viewing-vulnerabilities.md#viewing-fleet-vulnerabilities)
+  * [Viewing CVE Impact](using/viewing-vulnerabilities.md#viewing-cve-impact)
+  * [Finding Devices Affected by a CVE](using/viewing-vulnerabilities.md#finding-devices-affected-by-a-cve)
 * **[Software Catalog](using/managing-catalogs.md)** - How to organize and distribute versioned software components using catalogs.
   * [Catalogs](using/managing-catalogs.md#catalogs)
   * [Catalog items](using/managing-catalogs.md#catalog-items)

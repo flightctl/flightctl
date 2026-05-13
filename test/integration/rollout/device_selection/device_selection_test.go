@@ -301,7 +301,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -359,7 +359,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					device := &devices.Items[i]
@@ -570,7 +570,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			}
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, name), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]
@@ -582,12 +582,14 @@ var _ = Describe("Rollout batch sequence test", func() {
 		}
 
 		setDevicesComplete := func(fleetName, tvName string) {
-			devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{
-				AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
-					Key:      api.DeviceAnnotationSelectedForRollout,
-					Operator: api.Exists,
-				}.String()),
-				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, fleetName)}),
+			devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{
+				ListParams: store.ListParams{
+					AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
+						Key:      api.DeviceAnnotationSelectedForRollout,
+						Operator: api.Exists,
+					}.String()),
+					FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, fleetName)}),
+				},
 			})
 			Expect(err).ToNot(HaveOccurred())
 			for i := range devices.Items {

@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -144,16 +145,25 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	failureCount := 0
+	var allDeviceRefs []model.DependencyRef
 	for {
-		pageFailures, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
+		pageFailures, pageRefs, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
 		if err != nil {
 			return err
 		}
 		failureCount += pageFailures
+		allDeviceRefs = append(allDeviceRefs, pageRefs...)
 		if nextContinue == nil {
 			break
 		}
 		listParams.Continue = nextContinue
+	}
+
+	// Transactionally replace all device-level dependency refs for this fleet
+	// so readers never see a partially empty set.
+	fleetName := f.event.InvolvedObject.Name
+	if st := f.serviceHandler.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
+		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
 
 	if failureCount != 0 {
@@ -172,26 +182,27 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 	listParams domain.ListDevicesParams,
 	annotationSelector *selector.AnnotationSelector,
 	delayDeviceRender bool,
-) (pageFailures int, nextContinue *string, err error) {
+) (pageFailures int, pageRefs []model.DependencyRef, nextContinue *string, err error) {
 	iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
 	defer cancel()
 
 	devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)
 	if status.Code != http.StatusOK {
 		// TODO: Retry when we have a mechanism that allows it
-		return 0, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
+		return 0, nil, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
 	}
 
 	for devIndex := range devices.Items {
 		device := &devices.Items[devIndex]
-		updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
+		refs, updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
 		if updateErr != nil {
 			f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
 			pageFailures++
 		}
+		pageRefs = append(pageRefs, refs...)
 	}
 
-	return pageFailures, devices.Metadata.Continue, nil
+	return pageFailures, pageRefs, devices.Metadata.Continue, nil
 }
 
 // The device's owner was changed, roll out if necessary
@@ -240,10 +251,18 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
-	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
+	refs, err := f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
+	if err != nil {
+		return err
+	}
+	deviceName := f.event.InvolvedObject.Name
+	if st := f.serviceHandler.ReplaceFleetScopedDeviceDependencyRefs(ctx, f.orgId, deviceName, refs); st.Code != http.StatusOK {
+		f.log.Errorf("failed to replace dependency refs for device %s: %s", deviceName, st.Message)
+	}
+	return nil
 }
 
-func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) error {
+func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
 	currentVersion := ""
 	if device.Metadata.Annotations != nil {
 		v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationTemplateVersion]
@@ -255,7 +274,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 
 	var osSpec *domain.DeviceOsSpec
 	if templateVersion.Status.Os != nil {
-		img, err := replaceParametersInString(templateVersion.Status.Os.Image, device)
+		img, err := ReplaceParametersInString(templateVersion.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
 		} else {
@@ -263,7 +282,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		}
 	}
 
-	deviceConfig, configErrs := f.getDeviceConfig(device, templateVersion)
+	deviceConfig, depRefs, configErrs := f.getDeviceConfig(device, templateVersion)
 	errs = append(errs, configErrs...)
 
 	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
@@ -277,7 +296,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		if status.Code != http.StatusOK {
 			errs = append(errs, service.ApiStatusToErr(status))
 		}
-		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
+		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	newDeviceSpec := domain.DeviceSpec{
@@ -291,18 +310,18 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 
 	errs = newDeviceSpec.Validate(false)
 	if len(errs) > 0 {
-		return fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
+		return nil, fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
 	if currentVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
-		return nil
+		return depRefs, nil
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
 	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, delayDeviceRender)
 	if err != nil {
-		return fmt.Errorf("failed updating device spec: %w", err)
+		return nil, fmt.Errorf("failed updating device spec: %w", err)
 	}
 
 	annotations := map[string]string{
@@ -310,10 +329,10 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
 	if status.Code != http.StatusOK {
-		return fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
+		return nil, fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
 	}
 
-	return err
+	return depRefs, nil
 }
 
 func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ApplicationProviderSpec, []error) {
@@ -367,7 +386,7 @@ func replaceEnvVarsMap(device *domain.Device, envVars *map[string]string) (*map[
 	origEnvVars := *envVars
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {
-		newValue, err := replaceParametersInString(v, device)
+		newValue, err := ReplaceParametersInString(v, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
 			continue
@@ -386,7 +405,7 @@ func (f FleetRolloutsLogic) replaceContainerApplicationParameters(device *domain
 
 	var errs []error
 
-	containerApp.Image, err = replaceParametersInString(containerApp.Image, device)
+	containerApp.Image, err = ReplaceParametersInString(containerApp.Image, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
 	}
@@ -424,7 +443,7 @@ func (f FleetRolloutsLogic) replaceHelmApplicationParameters(device *domain.Devi
 
 	var errs []error
 
-	helmApp.Image, err = replaceParametersInString(helmApp.Image, device)
+	helmApp.Image, err = ReplaceParametersInString(helmApp.Image, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
 	}
@@ -473,7 +492,7 @@ func (f FleetRolloutsLogic) replaceComposeApplicationParameters(device *domain.D
 		if err != nil {
 			return nil, []error{fmt.Errorf("failed to get image spec for compose app %s: %w", appName, err)}
 		}
-		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		imageSpec.Image, err = ReplaceParametersInString(imageSpec.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
 		}
@@ -539,7 +558,7 @@ func (f FleetRolloutsLogic) replaceQuadletApplicationParameters(device *domain.D
 		if err != nil {
 			return nil, []error{fmt.Errorf("failed to get image spec for quadlet app %s: %w", appName, err)}
 		}
-		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		imageSpec.Image, err = ReplaceParametersInString(imageSpec.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
 		}
@@ -579,7 +598,7 @@ func (f FleetRolloutsLogic) replaceInlineContentParameters(device *domain.Device
 		var decodedBytes []byte
 		var err error
 
-		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
+		inlineSpec.Inline[fileIndex].Path, err = ReplaceParametersInString(file.Path, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
 		}
@@ -596,7 +615,7 @@ func (f FleetRolloutsLogic) replaceInlineContentParameters(device *domain.Device
 			decodedBytes = []byte(content)
 		}
 
-		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		contentsReplaced, err := ReplaceParametersInString(string(decodedBytes), device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
 			continue
@@ -634,7 +653,7 @@ func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appNa
 				continue
 			}
 
-			imgSpec.Image.Reference, err = replaceParametersInString(imgSpec.Image.Reference, device)
+			imgSpec.Image.Reference, err = ReplaceParametersInString(imgSpec.Image.Reference, device)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
 				continue
@@ -652,7 +671,7 @@ func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appNa
 				continue
 			}
 
-			imgMountSpec.Image.Reference, err = replaceParametersInString(imgMountSpec.Image.Reference, device)
+			imgMountSpec.Image.Reference, err = ReplaceParametersInString(imgMountSpec.Image.Reference, device)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
 				continue
@@ -686,12 +705,13 @@ func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appNa
 	return newVolumes, errs
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	if templateVersion.Status.Config == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	deviceConfig := []domain.ConfigProviderSpec{}
+	var depRefs []model.DependencyRef
 	configErrs := []error{}
 	for _, configItem := range *templateVersion.Status.Config {
 		var newConfigItem *domain.ConfigProviderSpec
@@ -705,7 +725,9 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 
 		switch configType {
 		case domain.GitConfigProviderType:
-			newConfigItem, errs = f.replaceGitConfigParameters(device, configItem)
+			var refs []model.DependencyRef
+			newConfigItem, refs, errs = f.replaceGitConfigParameters(device, configItem)
+			depRefs = append(depRefs, refs...)
 		case domain.KubernetesSecretProviderType:
 			newConfigItem, errs = f.replaceKubeSecretConfigParameters(device, configItem)
 		case domain.InlineConfigProviderType:
@@ -723,41 +745,56 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 	}
 
 	if len(configErrs) > 0 {
-		return nil, configErrs
+		return nil, nil, configErrs
 	}
 
-	return &deviceConfig, nil
+	return &deviceConfig, depRefs, nil
 }
 
-func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
 	}
 
 	errs := []error{}
+	originalRevision := gitSpec.GitRef.TargetRevision
 
-	gitSpec.GitRef.TargetRevision, err = replaceParametersInString(gitSpec.GitRef.TargetRevision, device)
+	gitSpec.GitRef.TargetRevision, err = ReplaceParametersInString(gitSpec.GitRef.TargetRevision, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in targetRevision in git config %s: %w", gitSpec.Name, err))
 	}
 
-	gitSpec.GitRef.Path, err = replaceParametersInString(gitSpec.GitRef.Path, device)
+	gitSpec.GitRef.Path, err = ReplaceParametersInString(gitSpec.GitRef.Path, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in path in git config %s: %w", gitSpec.Name, err))
 	}
 
 	if len(errs) > 0 {
-		return nil, errs
+		return nil, nil, errs
+	}
+
+	var refs []model.DependencyRef
+	if isParameterized(originalRevision) {
+		deviceName := lo.FromPtr(device.Metadata.Name)
+		ownerFleetName, _, _ := getOwnerFleet(device)
+		refs = append(refs, model.DependencyRef{
+			FleetName:      &ownerFleetName,
+			DeviceName:     &deviceName,
+			RefType:        "git",
+			ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+			RepositoryName: &gitSpec.GitRef.Repository,
+			Revision:       &gitSpec.GitRef.TargetRevision,
+		})
 	}
 
 	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed converting git config: %w", err)}
 	}
 
-	return &newConfigItem, nil
+	return &newConfigItem, refs, nil
 }
 
 func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
@@ -768,17 +805,17 @@ func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Dev
 
 	errs := []error{}
 
-	secretSpec.SecretRef.Name, err = replaceParametersInString(secretSpec.SecretRef.Name, device)
+	secretSpec.SecretRef.Name, err = ReplaceParametersInString(secretSpec.SecretRef.Name, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in name in k8s secret config %s: %w", secretSpec.Name, err))
 	}
 
-	secretSpec.SecretRef.Namespace, err = replaceParametersInString(secretSpec.SecretRef.Namespace, device)
+	secretSpec.SecretRef.Namespace, err = ReplaceParametersInString(secretSpec.SecretRef.Namespace, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in namespace in k8s secret config %s: %w", secretSpec.Name, err))
 	}
 
-	secretSpec.SecretRef.MountPath, err = replaceParametersInString(secretSpec.SecretRef.MountPath, device)
+	secretSpec.SecretRef.MountPath, err = ReplaceParametersInString(secretSpec.SecretRef.MountPath, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in mountPath in k8s secret config %s: %w", secretSpec.Name, err))
 	}
@@ -808,7 +845,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device,
 		var decodedBytes []byte
 		var err error
 
-		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
+		inlineSpec.Inline[fileIndex].Path, err = ReplaceParametersInString(file.Path, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
 		}
@@ -824,7 +861,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device,
 			decodedBytes = []byte(file.Content)
 		}
 
-		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		contentsReplaced, err := ReplaceParametersInString(string(decodedBytes), device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
 			continue
@@ -859,14 +896,14 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, c
 	errs := []error{}
 
 	if httpSpec.HttpRef.Suffix != nil {
-		suffix, err := replaceParametersInString(*httpSpec.HttpRef.Suffix, device)
+		suffix, err := ReplaceParametersInString(*httpSpec.HttpRef.Suffix, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in suffix in http config %s: %w", httpSpec.Name, err))
 		}
 		httpSpec.HttpRef.Suffix = &suffix
 	}
 
-	httpSpec.HttpRef.FilePath, err = replaceParametersInString(httpSpec.HttpRef.FilePath, device)
+	httpSpec.HttpRef.FilePath, err = ReplaceParametersInString(httpSpec.HttpRef.FilePath, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in file path in http config %s: %w", httpSpec.Name, err))
 	}
@@ -910,7 +947,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 	return service.ApiStatusToErr(status)
 }
 
-func replaceParametersInString(s string, device *domain.Device) (string, error) {
+func ReplaceParametersInString(s string, device *domain.Device) (string, error) {
 	t, err := template.New("t").Option("missingkey=error").Funcs(domain.GetGoTemplateFuncMap()).Parse(s)
 	if err != nil {
 		return "", fmt.Errorf("invalid parameter syntax: %v", err)

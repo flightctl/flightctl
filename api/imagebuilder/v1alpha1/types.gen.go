@@ -33,13 +33,14 @@ const (
 
 // Defines values for ImageBuildConditionReason.
 const (
-	ImageBuildConditionReasonBuilding  ImageBuildConditionReason = "Building"
-	ImageBuildConditionReasonCanceled  ImageBuildConditionReason = "Canceled"
-	ImageBuildConditionReasonCanceling ImageBuildConditionReason = "Canceling"
-	ImageBuildConditionReasonCompleted ImageBuildConditionReason = "Completed"
-	ImageBuildConditionReasonFailed    ImageBuildConditionReason = "Failed"
-	ImageBuildConditionReasonPending   ImageBuildConditionReason = "Pending"
-	ImageBuildConditionReasonPushing   ImageBuildConditionReason = "Pushing"
+	ImageBuildConditionReasonBuilding       ImageBuildConditionReason = "Building"
+	ImageBuildConditionReasonCanceled       ImageBuildConditionReason = "Canceled"
+	ImageBuildConditionReasonCanceling      ImageBuildConditionReason = "Canceling"
+	ImageBuildConditionReasonCompleted      ImageBuildConditionReason = "Completed"
+	ImageBuildConditionReasonFailed         ImageBuildConditionReason = "Failed"
+	ImageBuildConditionReasonGeneratingSBOM ImageBuildConditionReason = "GeneratingSBOM"
+	ImageBuildConditionReasonPending        ImageBuildConditionReason = "Pending"
+	ImageBuildConditionReasonPushing        ImageBuildConditionReason = "Pushing"
 )
 
 // Defines values for ImageBuildConditionType.
