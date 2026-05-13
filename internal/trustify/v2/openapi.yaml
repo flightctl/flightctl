@@ -7,6 +7,76 @@ info:
     identifier: Apache-2.0
   version: 0.4.12
 paths:
+  /api/v2/purl:
+    get:
+      tags:
+      - purl
+      summary: List PURLs
+      description: Search for Package URLs. Use q parameter for text search (e.g., q=<hex-digest> to find OCI PURLs by image digest).
+      operationId: listPurls
+      parameters:
+      - name: q
+        in: query
+        description: Search query (text search across PURL fields). Use pipe for OR (e.g., digest1|digest2).
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: List of matching PURLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurlListResponse'
+  /api/v2/sbom/by-package:
+    get:
+      tags:
+      - sbom
+      summary: Find SBOMs by package
+      description: Find all SBOMs containing the provided package (identified by PURL).
+      operationId: listSbomsByPackage
+      parameters:
+      - name: purl
+        in: query
+        description: Package URL to search for
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: List of SBOMs containing the package
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SbomListResponse'
   /api/v2/sbom:
     get:
       tags:
@@ -97,6 +167,66 @@ paths:
           description: SBOM not found
 components:
   schemas:
+    PurlListResponse:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurlSummary'
+        total:
+          type: integer
+          format: int64
+    PurlSummary:
+      type: object
+      required:
+      - uuid
+      - purl
+      properties:
+        uuid:
+          type: string
+          description: Unique identifier for this PURL
+        purl:
+          type: string
+          description: The Package URL string
+        base:
+          $ref: '#/components/schemas/PurlBase'
+          nullable: true
+        version:
+          $ref: '#/components/schemas/PurlVersion'
+          nullable: true
+        qualifiers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+    PurlBase:
+      type: object
+      required:
+      - uuid
+      - purl
+      properties:
+        uuid:
+          type: string
+        purl:
+          type: string
+          description: Base PURL without version or qualifiers
+    PurlVersion:
+      type: object
+      required:
+      - uuid
+      - purl
+      - version
+      properties:
+        uuid:
+          type: string
+        purl:
+          type: string
+        version:
+          type: string
     SbomListResponse:
       type: object
       required:
@@ -147,6 +277,10 @@ components:
         document_id:
           type: string
           description: CVE ID (e.g., CVE-2023-44487)
+        issuer:
+          nullable: true
+          description: The issuer of the advisory, if known.
+          $ref: '#/components/schemas/Issuer'
         title:
           type: string
           nullable: true
@@ -211,3 +345,25 @@ components:
         document_id:
           type: string
           description: Document ID (URN format)
+    Issuer:
+      type: object
+      description: The issuer of an advisory (e.g., Red Hat, NVD).
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The opaque UUID of the organization.
+        name:
+          type: string
+          description: The name of the organization.
+        cpe_key:
+          type: string
+          nullable: true
+          description: The CPE key of the organization, if known.
+        website:
+          type: string
+          nullable: true
+          description: The website of the organization, if known.

@@ -917,6 +917,18 @@ func (f *TableFormatter) printVulnerabilityImpactTable(w *tabwriter.Writer, impa
 	}
 	fmt.Fprintf(w, "ADVISORY\t%s\n", advisory)
 
+	issuer := NoneString
+	if impact.Issuer != nil {
+		issuer = *impact.Issuer
+	}
+	fmt.Fprintf(w, "ISSUER\t%s\n", issuer)
+
+	link := NoneString
+	if impact.Link != nil {
+		link = *impact.Link
+	}
+	fmt.Fprintf(w, "LINK\t%s\n", link)
+
 	description := findImpactDescription(impact)
 	if description == "" {
 		fmt.Fprintf(w, "DESCRIPTION\t%s\n", NoneString)

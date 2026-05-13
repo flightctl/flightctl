@@ -11,6 +11,7 @@ type Finding struct {
 	Status      string
 	Severity    string
 	AdvisoryID  string
+	Issuer      *Issuer
 	CVSSScore   *float64
 	Description string
 	PublishedAt *time.Time

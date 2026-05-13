@@ -89,6 +89,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// ListPurls request
+	ListPurls(ctx context.Context, params *ListPurlsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSboms request
 	ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -97,8 +100,23 @@ type ClientInterface interface {
 
 	UploadSbom(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListSbomsByPackage request
+	ListSbomsByPackage(ctx context.Context, params *ListSbomsByPackageParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetSbomAdvisories request
 	GetSbomAdvisories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) ListPurls(ctx context.Context, params *ListPurlsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListPurlsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListSboms(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -137,6 +155,18 @@ func (c *Client) UploadSbom(ctx context.Context, params *UploadSbomParams, body 
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListSbomsByPackage(ctx context.Context, params *ListSbomsByPackageParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSbomsByPackageRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetSbomAdvisories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSbomAdvisoriesRequest(c.Server, id)
 	if err != nil {
@@ -147,6 +177,87 @@ func (c *Client) GetSbomAdvisories(ctx context.Context, id string, reqEditors ..
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewListPurlsRequest generates requests for ListPurls
+func NewListPurlsRequest(server string, params *ListPurlsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/purl")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "q", runtime.ParamLocationQuery, *params.Q); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "offset", runtime.ParamLocationQuery, *params.Offset); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListSbomsRequest generates requests for ListSboms
@@ -292,6 +403,83 @@ func NewUploadSbomRequestWithBody(server string, params *UploadSbomParams, conte
 	return req, nil
 }
 
+// NewListSbomsByPackageRequest generates requests for ListSbomsByPackage
+func NewListSbomsByPackageRequest(server string, params *ListSbomsByPackageParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/sbom/by-package")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "purl", runtime.ParamLocationQuery, params.Purl); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "offset", runtime.ParamLocationQuery, *params.Offset); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetSbomAdvisoriesRequest generates requests for GetSbomAdvisories
 func NewGetSbomAdvisoriesRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -369,6 +557,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// ListPurlsWithResponse request
+	ListPurlsWithResponse(ctx context.Context, params *ListPurlsParams, reqEditors ...RequestEditorFn) (*ListPurlsResponse, error)
+
 	// ListSbomsWithResponse request
 	ListSbomsWithResponse(ctx context.Context, params *ListSbomsParams, reqEditors ...RequestEditorFn) (*ListSbomsResponse, error)
 
@@ -377,8 +568,33 @@ type ClientWithResponsesInterface interface {
 
 	UploadSbomWithResponse(ctx context.Context, params *UploadSbomParams, body UploadSbomJSONRequestBody, reqEditors ...RequestEditorFn) (*UploadSbomResponse, error)
 
+	// ListSbomsByPackageWithResponse request
+	ListSbomsByPackageWithResponse(ctx context.Context, params *ListSbomsByPackageParams, reqEditors ...RequestEditorFn) (*ListSbomsByPackageResponse, error)
+
 	// GetSbomAdvisoriesWithResponse request
 	GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error)
+}
+
+type ListPurlsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PurlListResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListPurlsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListPurlsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type ListSbomsResponse struct {
@@ -425,6 +641,28 @@ func (r UploadSbomResponse) StatusCode() int {
 	return 0
 }
 
+type ListSbomsByPackageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SbomListResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSbomsByPackageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSbomsByPackageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetSbomAdvisoriesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -445,6 +683,15 @@ func (r GetSbomAdvisoriesResponse) StatusCode() int {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
+}
+
+// ListPurlsWithResponse request returning *ListPurlsResponse
+func (c *ClientWithResponses) ListPurlsWithResponse(ctx context.Context, params *ListPurlsParams, reqEditors ...RequestEditorFn) (*ListPurlsResponse, error) {
+	rsp, err := c.ListPurls(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListPurlsResponse(rsp)
 }
 
 // ListSbomsWithResponse request returning *ListSbomsResponse
@@ -473,6 +720,15 @@ func (c *ClientWithResponses) UploadSbomWithResponse(ctx context.Context, params
 	return ParseUploadSbomResponse(rsp)
 }
 
+// ListSbomsByPackageWithResponse request returning *ListSbomsByPackageResponse
+func (c *ClientWithResponses) ListSbomsByPackageWithResponse(ctx context.Context, params *ListSbomsByPackageParams, reqEditors ...RequestEditorFn) (*ListSbomsByPackageResponse, error) {
+	rsp, err := c.ListSbomsByPackage(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSbomsByPackageResponse(rsp)
+}
+
 // GetSbomAdvisoriesWithResponse request returning *GetSbomAdvisoriesResponse
 func (c *ClientWithResponses) GetSbomAdvisoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSbomAdvisoriesResponse, error) {
 	rsp, err := c.GetSbomAdvisories(ctx, id, reqEditors...)
@@ -480,6 +736,32 @@ func (c *ClientWithResponses) GetSbomAdvisoriesWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseGetSbomAdvisoriesResponse(rsp)
+}
+
+// ParseListPurlsResponse parses an HTTP response from a ListPurlsWithResponse call
+func ParseListPurlsResponse(rsp *http.Response) (*ListPurlsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListPurlsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PurlListResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListSbomsResponse parses an HTTP response from a ListSbomsWithResponse call
@@ -528,6 +810,32 @@ func ParseUploadSbomResponse(rsp *http.Response) (*UploadSbomResponse, error) {
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSbomsByPackageResponse parses an HTTP response from a ListSbomsByPackageWithResponse call
+func ParseListSbomsByPackageResponse(rsp *http.Response) (*ListSbomsByPackageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSbomsByPackageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SbomListResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

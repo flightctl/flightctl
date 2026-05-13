@@ -128,6 +128,83 @@ func TransformSBOMPurls(sbomData []byte, cfg *config.PurlTransformConfig) ([]byt
 	return json.MarshalIndent(sbom, "", "  ")
 }
 
+// EnrichSBOMMetadata adds image metadata (digest, purl) to the SBOM's metadata.component section.
+// This ensures the SBOM is self-contained and can be correlated with the image it describes.
+func EnrichSBOMMetadata(sbomData []byte, imageRef, imageDigest string) ([]byte, error) {
+	if imageRef == "" || imageDigest == "" {
+		return sbomData, nil
+	}
+
+	var sbom map[string]interface{}
+	if err := json.Unmarshal(sbomData, &sbom); err != nil {
+		return nil, err
+	}
+
+	metadata, ok := sbom["metadata"].(map[string]interface{})
+	if !ok {
+		metadata = make(map[string]interface{})
+		sbom["metadata"] = metadata
+	}
+
+	component, ok := metadata["component"].(map[string]interface{})
+	if !ok {
+		component = make(map[string]interface{})
+		metadata["component"] = component
+	}
+
+	imageName, imageTag := parseImageRef(imageRef)
+	ociPurl := buildOCIPurl(imageName, imageDigest)
+
+	component["type"] = "container"
+	component["name"] = imageRef
+	if imageTag != "" {
+		component["version"] = imageTag
+	}
+	component["purl"] = ociPurl
+
+	if component["bom-ref"] == nil || component["bom-ref"] == "" {
+		component["bom-ref"] = ociPurl
+	}
+
+	return json.MarshalIndent(sbom, "", "  ")
+}
+
+// parseImageRef extracts the image name and tag from a reference like "registry/name:tag" or "registry/name@sha256:..."
+func parseImageRef(imageRef string) (name, tag string) {
+	if idx := strings.LastIndex(imageRef, "@"); idx != -1 {
+		return imageRef[:idx], imageRef[idx+1:]
+	}
+	if idx := strings.LastIndex(imageRef, ":"); idx != -1 {
+		prefix := imageRef[:idx]
+		suffix := imageRef[idx+1:]
+		if strings.Contains(prefix, "/") {
+			return prefix, suffix
+		}
+	}
+	return imageRef, ""
+}
+
+// buildOCIPurl constructs an OCI PURL from image name and digest.
+// Format: pkg:oci/<name>@<digest>?repository_url=<registry>
+func buildOCIPurl(imageName, digest string) string {
+	parts := strings.SplitN(imageName, "/", 2)
+	registry := ""
+	name := imageName
+	if len(parts) == 2 && strings.Contains(parts[0], ".") {
+		registry = parts[0]
+		name = parts[1]
+	}
+
+	name = strings.ReplaceAll(name, "/", "%2F")
+	digest = url.QueryEscape(digest)
+
+	purl := "pkg:oci/" + name + "@" + digest
+	if registry != "" {
+		purl += "?repository_url=" + url.QueryEscape(registry)
+	}
+	return purl
+}
+
 // GetEffectivePurlTransformConfig merges user-level purlTransform with defaults per package type.
 // Map keys under byType are normalized to lowercase type IDs (e.g. rpm, npm).
 func GetEffectivePurlTransformConfig(userCfg *config.PurlTransformConfig) *config.PurlTransformConfig {

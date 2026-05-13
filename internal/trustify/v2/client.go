@@ -90,10 +90,10 @@ func NewVulnerabilityClient(ctx context.Context, cfg *config.TrustifyConfig) (Vu
 }
 
 // GetVulnerabilitiesForDigests queries Trustify for CVE findings for the given
-// image digests using the SBOM-based approach:
-// 1. Query SBOMs by digest (batched to avoid URL length limits)
-// 2. For each SBOM found, fetch its advisories
-// 3. Map the advisories back to the original image digests
+// image digests using the 3-step PURL-based approach:
+// 1. Query PURLs by digest (batched) - finds OCI PURLs containing the image digest
+// 2. For each PURL found, query SBOMs containing that package
+// 3. For each SBOM, fetch its advisories
 func (c *vulnerabilityClient) GetVulnerabilitiesForDigests(ctx context.Context, digests []string) (map[string][]Finding, error) {
 	results := make(map[string][]Finding, len(digests))
 	for _, d := range digests {
@@ -104,13 +104,33 @@ func (c *vulnerabilityClient) GetVulnerabilitiesForDigests(ctx context.Context, 
 		return results, nil
 	}
 
-	// Step 1: Find SBOMs for all digests (batched)
-	sbomsByDigest, err := c.findSBOMsForDigests(ctx, digests)
+	// Step 1: Find PURLs for all digests (batched)
+	purlsByDigest, err := c.findPURLsForDigests(ctx, digests)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 2: Fetch advisories for each unique SBOM
+	// Step 2: Find SBOMs for each PURL
+	sbomsByDigest := make(map[string]*SbomSummary, len(digests))
+	for digest, purl := range purlsByDigest {
+		if purl == "" {
+			continue
+		}
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		sbom, err := c.findSBOMByPURL(ctx, purl)
+		if err != nil {
+			return nil, fmt.Errorf("finding SBOM for digest %s: %w", digest, err)
+		}
+		if sbom != nil {
+			sbomsByDigest[digest] = sbom
+		}
+	}
+
+	// Step 3: Fetch advisories for each unique SBOM
 	uniqueSBOMs := make(map[string]string) // sbomID -> digest
 	for digest, sbom := range sbomsByDigest {
 		if sbom != nil {
@@ -163,10 +183,10 @@ func (c *vulnerabilityClient) UploadSBOM(ctx context.Context, sbomData []byte, i
 	}
 }
 
-// findSBOMsForDigests queries Trustify for SBOMs matching the given digests.
-// Returns a map from digest to SbomSummary (nil if not found).
-func (c *vulnerabilityClient) findSBOMsForDigests(ctx context.Context, digests []string) (map[string]*SbomSummary, error) {
-	result := make(map[string]*SbomSummary, len(digests))
+// findPURLsForDigests queries Trustify for OCI PURLs matching the given image digests.
+// Returns a map from digest to full PURL string (empty string if not found).
+func (c *vulnerabilityClient) findPURLsForDigests(ctx context.Context, digests []string) (map[string]string, error) {
+	result := make(map[string]string, len(digests))
 
 	// Process in batches to avoid URL length limits
 	for i := 0; i < len(digests); i += maxDigestsPerQuery {
@@ -176,22 +196,17 @@ func (c *vulnerabilityClient) findSBOMsForDigests(ctx context.Context, digests [
 		}
 		batch := digests[i:end]
 
-		sboms, err := c.querySBOMsByDigests(ctx, batch)
+		purls, err := c.queryPURLsByDigests(ctx, batch)
 		if err != nil {
 			return nil, err
 		}
 
-		// Match returned SBOMs to requested digests
-		for _, sbom := range sboms {
-			if sbom.Sha256 == nil {
-				continue
-			}
-			// Normalize: digests in FlightCtl may or may not have "sha256:" prefix
-			sha := *sbom.Sha256
+		// Match returned PURLs to requested digests
+		for _, purlItem := range purls {
 			for _, d := range batch {
-				if digestMatches(d, sha) {
-					sbomCopy := sbom
-					result[d] = &sbomCopy
+				hexDigest := stripSHA256Prefix(d)
+				if strings.Contains(purlItem.Purl, hexDigest) {
+					result[d] = purlItem.Purl
 					break
 				}
 			}
@@ -201,25 +216,25 @@ func (c *vulnerabilityClient) findSBOMsForDigests(ctx context.Context, digests [
 	return result, nil
 }
 
-// querySBOMsByDigests queries Trustify for SBOMs matching any of the given digests.
-func (c *vulnerabilityClient) querySBOMsByDigests(ctx context.Context, digests []string) ([]SbomSummary, error) {
-	// Build query: sha256~digest1|digest2|digest3
-	// Strip "sha256:" prefix if present since Trustify stores it in the sha256 field
+// queryPURLsByDigests queries Trustify for PURLs containing any of the given digests.
+func (c *vulnerabilityClient) queryPURLsByDigests(ctx context.Context, digests []string) ([]PurlSummary, error) {
+	// Build query: digest1|digest2|digest3
+	// Use raw hex digests for text search (no sha256: prefix)
 	var queryParts []string
 	for _, d := range digests {
 		queryParts = append(queryParts, stripSHA256Prefix(d))
 	}
-	query := "sha256~" + strings.Join(queryParts, "|")
+	query := strings.Join(queryParts, "|")
 
-	resp, err := c.api.ListSbomsWithResponse(ctx, &ListSbomsParams{Q: &query})
+	resp, err := c.api.ListPurlsWithResponse(ctx, &ListPurlsParams{Q: &query})
 	if err != nil {
-		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("listing SBOMs: %w", err)}
+		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("listing PURLs: %w", err)}
 	}
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, &ConnectionError{
 			Endpoint: c.endpoint,
-			Err:      fmt.Errorf("unexpected status %d listing SBOMs: %s", resp.StatusCode(), resp.Body),
+			Err:      fmt.Errorf("unexpected status %d listing PURLs: %s", resp.StatusCode(), resp.Body),
 		}
 	}
 
@@ -228,6 +243,28 @@ func (c *vulnerabilityClient) querySBOMsByDigests(ctx context.Context, digests [
 	}
 
 	return resp.JSON200.Items, nil
+}
+
+// findSBOMByPURL queries Trustify for SBOMs containing the given PURL.
+func (c *vulnerabilityClient) findSBOMByPURL(ctx context.Context, purl string) (*SbomSummary, error) {
+	resp, err := c.api.ListSbomsByPackageWithResponse(ctx, &ListSbomsByPackageParams{Purl: purl})
+	if err != nil {
+		return nil, &ConnectionError{Endpoint: c.endpoint, Err: fmt.Errorf("finding SBOM by PURL: %w", err)}
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, &ConnectionError{
+			Endpoint: c.endpoint,
+			Err:      fmt.Errorf("unexpected status %d finding SBOM by PURL: %s", resp.StatusCode(), resp.Body),
+		}
+	}
+
+	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
+		return nil, nil
+	}
+
+	// Return the first SBOM found (there should typically be only one for an OCI PURL)
+	return &resp.JSON200.Items[0], nil
 }
 
 // getAdvisoriesForSBOM fetches all advisories for an SBOM and converts them to Findings.
@@ -262,17 +299,21 @@ func parseAdvisoriesToFindings(imageDigest string, advisories []SbomAdvisory) []
 	for i := range advisories {
 		adv := &advisories[i]
 
-		// Each advisory can have multiple status entries (for different contexts)
+		// Each advisory can have multiple status entries (one per CVE)
 		for j := range adv.Status {
 			st := &adv.Status[j]
 
 			finding := Finding{
 				ImageDigest: imageDigest,
-				CVEID:       adv.DocumentId,
+				CVEID:       st.Identifier, // CVE ID is in the status entry, not the advisory
 				Status:      st.Status,
 				Severity:    string(st.AverageSeverity),
 				AdvisoryID:  adv.Identifier,
 				PublishedAt: adv.Published,
+			}
+
+			if adv.Issuer != nil {
+				finding.Issuer = adv.Issuer
 			}
 
 			score := st.AverageScore
@@ -280,6 +321,8 @@ func parseAdvisoriesToFindings(imageDigest string, advisories []SbomAdvisory) []
 
 			if st.Description != nil {
 				finding.Description = *st.Description
+			} else if st.Title != nil {
+				finding.Description = *st.Title
 			} else if adv.Title != nil {
 				finding.Description = *adv.Title
 			}
@@ -289,12 +332,6 @@ func parseAdvisoriesToFindings(imageDigest string, advisories []SbomAdvisory) []
 	}
 
 	return findings
-}
-
-// digestMatches checks if two digest strings refer to the same digest,
-// handling the optional "sha256:" prefix.
-func digestMatches(a, b string) bool {
-	return stripSHA256Prefix(a) == stripSHA256Prefix(b)
 }
 
 // stripSHA256Prefix removes the "sha256:" prefix if present.
