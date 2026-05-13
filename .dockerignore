@@ -52,3 +52,5 @@ __pycache__/
 
 # Go cache
 .cache/ 
+
+deploy/scripts/local-ca/
