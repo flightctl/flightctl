@@ -2,6 +2,7 @@
 /rpmbuild/
 /reports/
 deploy/helm/charttmpl
+deploy/scripts/local-ca
 test/e2e/cli/*.crt
 test/e2e/cli/*.key
 /packaging/rpm/flightctl-*.tar.gz

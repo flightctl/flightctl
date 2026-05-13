@@ -16,6 +16,11 @@ install -d -m 0755 /etc/flightctl/tpm-cas
 # Render quadlet files
 bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 
+if [[ -f $SCRIPT_DIR/local-ca/ca.crt ]] && [[ -f $SCRIPT_DIR/local-ca/ca.key ]]; then
+  cp "$SCRIPT_DIR"/local-ca/ca.* /etc/flightctl/pki/
+  chown root:root /etc/flightctl/pki/ca.*
+fi
+
 echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
 
