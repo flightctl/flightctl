@@ -393,6 +393,9 @@ type containerfileBuildArgs struct {
 	RPMRepoAdd          bool
 	RPMRepoAddURL       string
 	RPMRepoEnable       string
+	DNFTimeout          int
+	DNFRetries          int
+	DNFSkipUnavailable  bool
 }
 
 // getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager --add-repo.
@@ -418,6 +421,30 @@ func (c *Consumer) getRPMRepoEnable() string {
 		return c.cfg.ImageBuilderWorker.RPMRepoEnable
 	}
 	return ""
+}
+
+// getDNFTimeout returns the DNF timeout in seconds, defaulting to 5
+func (c *Consumer) getDNFTimeout() int {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFTimeout != nil {
+		return *c.cfg.ImageBuilderWorker.DNFTimeout
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFTimeout
+}
+
+// getDNFRetries returns the DNF retry count, defaulting to 0
+func (c *Consumer) getDNFRetries() int {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFRetries != nil {
+		return *c.cfg.ImageBuilderWorker.DNFRetries
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFRetries
+}
+
+// getDNFSkipUnavailable returns whether to skip unavailable packages, defaulting to true
+func (c *Consumer) getDNFSkipUnavailable() bool {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFSkipUnavailable != nil {
+		return *c.cfg.ImageBuilderWorker.DNFSkipUnavailable
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFSkipUnavailable
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -529,6 +556,9 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		RPMRepoAdd:          c.getRPMRepoAdd(),
 		RPMRepoAddURL:       c.getRPMRepoAddURL(),
 		RPMRepoEnable:       c.getRPMRepoEnable(),
+		DNFTimeout:          c.getDNFTimeout(),
+		DNFRetries:          c.getDNFRetries(),
+		DNFSkipUnavailable:  c.getDNFSkipUnavailable(),
 	}
 
 	result := &ContainerfileResult{
@@ -1087,6 +1117,9 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),
+		"--build-arg", fmt.Sprintf("DNF_TIMEOUT=%d", args.DNFTimeout),
+		"--build-arg", fmt.Sprintf("DNF_RETRIES=%d", args.DNFRetries),
+		"--build-arg", fmt.Sprintf("DNF_SKIP_UNAVAILABLE=%t", args.DNFSkipUnavailable),
 	)
 
 	// Mount entitlement certs into the build if available (for RHEL subscription repos)

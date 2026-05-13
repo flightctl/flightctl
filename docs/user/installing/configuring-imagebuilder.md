@@ -189,6 +189,9 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.rpmRepoUrl` | string | `""` | Custom RPM repository URL for flightctl-agent package. If empty, uses the default public repository. |
 | `imageBuilderWorker.rpmRepoAdd` | bool | `true` | Whether to add the RPM repository via `dnf config-manager --add-repo`. Set to `false` for downstream/subscription-managed repos. |
 | `imageBuilderWorker.rpmRepoEnable` | string | `""` | RPM repository name to enable via `--enablerepo` during `dnf install`. Only used if non-empty. |
+| `imageBuilderWorker.dnfTimeout` | int | `5` | DNF connection timeout in seconds for flightctl-agent installation. |
+| `imageBuilderWorker.dnfRetries` | int | `0` | DNF retry count for flightctl-agent installation (0 means no retries). |
+| `imageBuilderWorker.dnfSkipUnavailable` | bool | `true` | Skip packages that cannot be retrieved during flightctl-agent installation. |
 | `imageBuilderWorker.entitlementCertsSecretName` | string | `""` | Kubernetes secret containing RHEL entitlement certificates, mounted at `/etc/pki/entitlement`. |
 | `imageBuilderWorker.yumReposSecretName` | string | `""` | Kubernetes secret containing yum repository configuration files, mounted at `/etc/yum.repos.d`. |
 | `imageBuilderWorker.rhsmSecretName` | string | `""` | Kubernetes secret containing RHEL subscription manager configuration, mounted at `/etc/rhsm`. |
@@ -217,6 +220,9 @@ imagebuilderWorker:
   rpmRepoUrl: ""      # Custom RPM repository URL (optional)
   rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
   rpmRepoEnable: ""   # RPM repo name for --enablerepo (optional)
+  dnfTimeout: 5       # DNF connection timeout in seconds
+  dnfRetries: 0       # DNF retry count (0 = no retries)
+  dnfSkipUnavailable: true  # Skip unavailable packages
   serviceImages:
     podman:
       image: ""             # Override Podman builder image (optional)
