@@ -154,6 +154,9 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if httpSpec.HttpRef.Suffix != nil {
 				suffix = *httpSpec.HttpRef.Suffix
 			}
+			if isParameterized(suffix) {
+				continue
+			}
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
