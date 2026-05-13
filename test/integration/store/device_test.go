@@ -408,6 +408,54 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(len(devices.Items)).To(Equal(0))
 		})
 
+		It("List with CVE ID and device status lifecycle field selector (no ambiguous SQL status column)", func() {
+			findingStore := storeInst.VulnerabilityFinding()
+			digest := "sha256:cve-fs-digest"
+
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-enrolled", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-not-enrolled", nil, nil, nil)
+
+			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-enrolled", digest)
+			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-not-enrolled", digest)
+
+			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
+			Expect(err).ToNot(HaveOccurred())
+			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
+			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notEnrolledDev.Status.Lifecycle.Status).ToNot(Equal(api.DeviceLifecycleStatusEnrolled))
+
+			cveForTest := "CVE-2099-9901"
+			_, err = findingStore.UpsertFindings(ctx, []model.VulnerabilityFinding{
+				{
+					ImageDigest: digest,
+					CveID:       cveForTest,
+					Status:      model.VulnerabilityStatusAffected,
+					Severity:    model.VulnerabilitySeverityHigh,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fs, err := selector.NewFieldSelector("status.lifecycle.status in (Enrolled)", selector.WithPrivateSelectors())
+			Expect(err).ToNot(HaveOccurred())
+
+			cveID := cveForTest
+			listParams := store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: fs,
+				},
+				CveID: &cveID,
+			}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devices.Items).To(HaveLen(1))
+			Expect(*devices.Items[0].Metadata.Name).To(Equal("device-cve-fs-enrolled"))
+		})
+
 		It("CreateOrUpdateDevice create mode", func() {
 			imageName := "tv"
 			device := api.Device{

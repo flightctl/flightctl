@@ -640,5 +640,8 @@ CVE
 CVEs
 CVSS
 SBOM
+SBOMs
 Trustify
 v2
+- docs/user/using/viewing-vulnerabilities.md
+NVD

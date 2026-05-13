@@ -2177,6 +2177,12 @@ components:
         advisoryId:
           type: string
           description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         severity:
           type: string
           description: Normalized severity label.
@@ -2270,6 +2276,12 @@ components:
         advisoryId:
           type: string
           description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         description:
           type: string
           description: Short summary of the vulnerability.
@@ -2464,6 +2476,12 @@ components:
         cveId:
           type: string
           description: CVE identifier for this blast radius response.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
         severity:
           type: string
           description: Worst severity for this CVE in the fleet or fleetless group.
