@@ -255,7 +255,7 @@ label-from-systeminfo:
 
 In this case, the device will have `env=production` (from `default-labels`) and `region` mapped from custom info.
 
-**Label validation:** `label-from-systeminfo` values are automatically **sanitized** to meet Kubernetes requirements (spaces become hyphens, special characters are replaced), while `default-labels` values are **validated** but not modified. Invalid `default-labels` are skipped with an error log, allowing the agent to enroll successfully while alerting administrators to fix their configuration.
+**Label validation:** `label-from-systeminfo` values are automatically **sanitized** to meet Kubernetes requirements (spaces and special characters become hyphens), while `default-labels` values are **validated** but not modified. Invalid `default-labels` are skipped with an error log, allowing the agent to enroll successfully while alerting administrators to fix their configuration.
 
 ### Complete example
 
