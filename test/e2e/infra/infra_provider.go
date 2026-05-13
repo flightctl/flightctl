@@ -97,6 +97,12 @@ type InfraProvider interface {
 	// For K8s: the namespace where flightctl-api is deployed; used e.g. for io.flightctl/instance label.
 	// For Quadlet: empty.
 	GetExternalNamespace() string
+
+	// BuiltinDatabaseWorkloadAvailable reports whether backup/restore tests can pg_dump/psql via the
+	// built-in DB workload. K8s (kind, OCP, ACM/MCE hub): true when a pod labeled flightctl.service=flightctl-db
+	// exists in the internal or (if different) external namespace. Quadlet: false when service-config
+	// db.type is external; otherwise requires an active flightctl-db.service (see deploy/podman/service-config.yaml).
+	BuiltinDatabaseWorkloadAvailable() bool
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

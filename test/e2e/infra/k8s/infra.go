@@ -516,6 +516,38 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return p.externalNamespace
 }
 
+// BuiltinDatabaseWorkloadAvailable reports whether a flightctl-db pod exists (built-in Postgres workload).
+// External PostgreSQL (Helm db.type=external) does not deploy this workload; backup tests that exec pg_dump
+// into the DB pod must be skipped.
+//
+// Checks the internal namespace first (split-namespace kind / hub with global.internalNamespace), then the
+// external namespace when it differs (single OpenShift namespace / ACM-style installs where overrides may
+// disagree). Transient list errors assume builtin so we do not skip incorrectly.
+func (p *InfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
+	if p.hasFlightctlDBWorkloadPod(p.internalNamespace) {
+		return true
+	}
+	if p.externalNamespace != "" && p.externalNamespace != p.internalNamespace && p.hasFlightctlDBWorkloadPod(p.externalNamespace) {
+		return true
+	}
+	return false
+}
+
+func (p *InfraProvider) hasFlightctlDBWorkloadPod(namespace string) bool {
+	if namespace == "" {
+		return false
+	}
+	list, err := p.client.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{
+		LabelSelector: "flightctl.service=flightctl-db",
+		Limit:         1,
+	})
+	if err != nil {
+		logrus.Warnf("BuiltinDatabaseWorkloadAvailable: list pods in %s: %v (assuming builtin DB)", namespace, err)
+		return true
+	}
+	return len(list.Items) > 0
+}
+
 // namespaceForResource determines the namespace for a resource based on naming conventions (internal vs external).
 // Internal: kv, redis, worker, db, alertmanager, periodic, imagebuilder-worker.
 func (p *InfraProvider) namespaceForResource(resourceName string) string {

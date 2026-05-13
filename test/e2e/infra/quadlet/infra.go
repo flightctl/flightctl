@@ -508,6 +508,52 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// BuiltinDatabaseWorkloadAvailable reports whether backup/restore can run pg_dump against the local DB.
+// When db.type is external (see deploy/podman/service-config.yaml), there is no local flightctl-db workload.
+// For builtin (or missing type, defaulting to builtin), require flightctl-db.service to be active so masked
+// or absent local DB matches K8s "no flightctl-db pod" behavior.
+// If service-config.yaml cannot be read, returns false (fail-closed) so backup/restore is not run without
+// knowing the configured db type.
+func (p *InfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
+	data, err := p.runCommand("cat", p.serviceConfigPath())
+	if err != nil {
+		logrus.Warnf("BuiltinDatabaseWorkloadAvailable: read %s: %v (cannot determine db.type; treating built-in DB as unavailable)", p.serviceConfigPath(), err)
+		return false
+	}
+	switch quadletServiceConfigDBType([]byte(data)) {
+	case "external":
+		return false
+	default:
+		_, err := p.runCommand("systemctl", "is-active", "flightctl-db.service")
+		if err != nil {
+			logrus.Warnf("BuiltinDatabaseWorkloadAvailable: flightctl-db.service not active: %v", err)
+			return false
+		}
+		return true
+	}
+}
+
+// quadletServiceConfigDBType returns the lowercase db.type value from service-config.yaml, or "" if missing.
+func quadletServiceConfigDBType(serviceConfigYAML []byte) string {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(serviceConfigYAML, &root); err != nil {
+		return ""
+	}
+	dbVal, ok := root["db"]
+	if !ok || dbVal == nil {
+		return ""
+	}
+	db, ok := dbVal.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	tRaw, ok := db["type"]
+	if !ok || tRaw == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", tRaw)))
+}
+
 // SetServiceConfig writes the config content to the service's config file on the host.
 // Quadlet has a single config file per service; configKey is ignored (callers may pass
 // "" or "config.yaml" for API compatibility). For services with a section mapping
