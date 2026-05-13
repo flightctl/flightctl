@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	domain "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -60,7 +61,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			httpRef := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:my-http-repo//config.json",
+				ResourceKey:    "http:my-http-repo/config.json",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -131,7 +132,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			ref2 := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:repo-b//data",
+				ResourceKey:    "http:repo-b/data",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -342,7 +343,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should return probes for HTTP refs that have never been checked", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -365,7 +366,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should not return probes that were recently checked", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -376,7 +377,7 @@ var _ = Describe("DependencyRefStore", func() {
 
 			syncState := &model.SyncState{
 				OrgID:         orgId,
-				ResourceKey:   "http:http-repo-1//config.json",
+				ResourceKey:   "http:http-repo-1/config.json",
 				Fingerprint:   `"etag-abc"`,
 				LastCheckedAt: time.Now(),
 			}
@@ -390,7 +391,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should return probes whose last check exceeds the poll interval", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -401,7 +402,7 @@ var _ = Describe("DependencyRefStore", func() {
 
 			syncState := &model.SyncState{
 				OrgID:         orgId,
-				ResourceKey:   "http:http-repo-1//config.json",
+				ResourceKey:   "http:http-repo-1/config.json",
 				Fingerprint:   `"etag-abc"`,
 				LastCheckedAt: time.Now().Add(-20 * time.Minute),
 			}
@@ -418,7 +419,7 @@ var _ = Describe("DependencyRefStore", func() {
 			for _, fleet := range []string{"fleet-a", "fleet-b"} {
 				ref := &model.DependencyRef{
 					OrgID:          orgId,
-					ResourceKey:    "http:http-repo-1//config.json",
+					ResourceKey:    "http:http-repo-1/config.json",
 					FleetName:      lo.ToPtr(fleet),
 					DeviceName:     lo.ToPtr(""),
 					RefType:        "http",
@@ -429,7 +430,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			deviceRef := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr("device-x"),
 				RefType:        "http",
@@ -449,7 +450,7 @@ var _ = Describe("DependencyRefStore", func() {
 			for _, suffix := range []string{"/config.json", "/data.yaml"} {
 				ref := &model.DependencyRef{
 					OrgID:          orgId,
-					ResourceKey:    "http:http-repo-1/" + suffix,
+					ResourceKey:    "http:http-repo-1/" + strings.TrimPrefix(suffix, "/"),
 					FleetName:      lo.ToPtr("fleet-a"),
 					DeviceName:     lo.ToPtr(""),
 					RefType:        "http",
@@ -467,7 +468,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should carry the repository spec for URL and auth extraction", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -506,7 +507,7 @@ var _ = Describe("DependencyRefStore", func() {
 		It("should enforce org isolation", func() {
 			ref := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:http-repo-1//config.json",
+				ResourceKey:    "http:http-repo-1/config.json",
 				FleetName:      lo.ToPtr("fleet-a"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",

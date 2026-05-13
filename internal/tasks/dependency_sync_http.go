@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,7 +105,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.Htt
 	}
 
 	repoURL := httpSpec.Url + probe.HTTPSuffix
-	rk := fmt.Sprintf("http:%s/%s", probe.RepositoryName, probe.HTTPSuffix)
+	rk := httpResourceKey(probe.RepositoryName, probe.HTTPSuffix)
 
 	storedFP := ""
 	if probe.Fingerprint != nil {
@@ -114,7 +115,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.Htt
 	fingerprint, statusCode, err := d.conditionalGet(ctx, repoURL, httpSpec, storedFP)
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
-		return httpProbeResult{probe: probe, skip: true}
+		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
 	}
 
 	r := httpProbeResult{
@@ -163,10 +164,12 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	var unchangedKeys []string
 
 	for _, r := range results {
-		if r.skip {
+		if r.resourceKey == "" {
 			continue
 		}
-		if r.firstSeen || r.changed {
+		if r.skip {
+			unchangedKeys = append(unchangedKeys, r.resourceKey)
+		} else if r.firstSeen || r.changed {
 			upsertStates = append(upsertStates, model.SyncState{
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
@@ -193,6 +196,10 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	}
 }
 
+func httpResourceKey(repoName, suffix string) string {
+	return fmt.Sprintf("http:%s/%s", repoName, strings.TrimPrefix(suffix, "/"))
+}
+
 // httpConditionalGet sends a conditional GET to the given URL using stored
 // fingerprint for If-None-Match/If-Modified-Since headers.
 func httpConditionalGet(_ context.Context, repoURL string,
@@ -208,8 +215,17 @@ func httpConditionalGet(_ context.Context, repoURL string,
 	}
 
 	if storedFingerprint != "" {
-		req.Header.Set("If-None-Match", storedFingerprint)
-		req.Header.Set("If-Modified-Since", storedFingerprint)
+		// ETags always start with `"` or `W/"` (RFC 7232 §2.3), while
+		// Last-Modified is an HTTP-date. We must send the correct header
+		// for the stored fingerprint type: If-None-Match for ETags,
+		// If-Modified-Since for dates. Sending an ETag as If-Modified-Since
+		// (or vice versa) is a protocol violation that may cause servers to
+		// ignore the condition or return 400.
+		if strings.HasPrefix(storedFingerprint, `"`) || strings.HasPrefix(storedFingerprint, `W/"`) {
+			req.Header.Set("If-None-Match", storedFingerprint)
+		} else {
+			req.Header.Set("If-Modified-Since", storedFingerprint)
+		}
 	}
 
 	client := &http.Client{

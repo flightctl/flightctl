@@ -1525,7 +1525,7 @@ func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
 		assert.Equal(t, fleetName, *refs[0].FleetName)
 		assert.Equal(t, "device-1", *refs[0].DeviceName)
 		assert.Equal(t, "http", refs[0].RefType)
-		assert.Equal(t, "http:http-repo//prod/config.json", refs[0].ResourceKey)
+		assert.Equal(t, "http:http-repo/prod/config.json", refs[0].ResourceKey)
 		assert.Equal(t, "/prod/config.json", *refs[0].HTTPSuffix)
 	})
 
@@ -1549,7 +1549,7 @@ func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
 		_, refsBefore, errsBefore := logic.replaceHTTPConfigParameters(deviceBefore, configItem)
 		require.Empty(t, errsBefore)
 		require.Len(t, refsBefore, 1)
-		assert.Equal(t, "http:http-repo//staging/config.json", refsBefore[0].ResourceKey)
+		assert.Equal(t, "http:http-repo/staging/config.json", refsBefore[0].ResourceKey)
 
 		deviceAfter := &domain.Device{
 			Metadata: domain.ObjectMeta{
@@ -1561,7 +1561,7 @@ func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
 		_, refsAfter, errsAfter := logic.replaceHTTPConfigParameters(deviceAfter, configItem)
 		require.Empty(t, errsAfter)
 		require.Len(t, refsAfter, 1)
-		assert.Equal(t, "http:http-repo//prod/config.json", refsAfter[0].ResourceKey)
+		assert.Equal(t, "http:http-repo/prod/config.json", refsAfter[0].ResourceKey)
 		assert.NotEqual(t, refsBefore[0].ResourceKey, refsAfter[0].ResourceKey)
 	})
 
@@ -1591,7 +1591,7 @@ func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
 		require.Empty(t, errs)
 		require.Len(t, refs, 1)
 		assert.Equal(t, "http", refs[0].RefType)
-		assert.Equal(t, "http:http-repo//prod/config.json", refs[0].ResourceKey)
+		assert.Equal(t, "http:http-repo/prod/config.json", refs[0].ResourceKey)
 	})
 }
 
