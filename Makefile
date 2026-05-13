@@ -159,6 +159,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
+		./cmd/flightctl-backup \
 		./cmd/flightctl-restore \
 		./cmd/flightctl-telemetry-gateway \
 		./cmd/flightctl-standalone
@@ -186,6 +187,9 @@ build-db-migrate: bin
 
 build-restore: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-restore
+
+build-backup: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-backup
 
 build-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
