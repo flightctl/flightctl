@@ -80,7 +80,7 @@ function handleSubmit(event) {
     var params = new URLSearchParams(formData);
 
     // Submit form data
-    fetch('/api/v1/auth/login', {
+    fetch('login', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
