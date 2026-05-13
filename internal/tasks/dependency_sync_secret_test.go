@@ -69,7 +69,7 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		d.reconcile(ctx, "prod", "db-creds", "1000")
 	})
 
-	t.Run("When first seen it should store fingerprint without emitting events", func(t *testing.T) {
+	t.Run("When first seen it should store fingerprint and emit events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
@@ -78,6 +78,11 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 			{OrgID: orgId, FleetName: "fleet-a", DeviceName: "", Fingerprint: nil},
 		}
 		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "1000").Return(refs, statusOK)
+
+		var events []emittedEvent
+		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
+		})
 
 		mockService.EXPECT().SetSyncState(gomock.Any(), uuid.Nil, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, state *model.SyncState) domain.Status {
@@ -91,6 +96,10 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 			serviceHandler: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "1000")
+
+		require.Len(t, events, 1)
+		assert.Equal(t, string(domain.FleetKind), events[0].kind)
+		assert.Equal(t, "fleet-a", events[0].name)
 	})
 
 	t.Run("When multiple orgs reference the same secret it should emit events per org but write sync_state once with uuid.Nil", func(t *testing.T) {

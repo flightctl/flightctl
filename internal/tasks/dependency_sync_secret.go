@@ -105,20 +105,18 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	now := time.Now().UTC()
 
 	for _, ref := range refs {
-		if ref.Fingerprint != nil {
-			var kind domain.ResourceKind
-			var targetName string
-			if ref.DeviceName != "" {
-				kind = domain.DeviceKind
-				targetName = ref.DeviceName
-			} else {
-				kind = domain.FleetKind
-				targetName = ref.FleetName
-			}
-			event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
-			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
-			}
+		var kind domain.ResourceKind
+		var targetName string
+		if ref.DeviceName != "" {
+			kind = domain.DeviceKind
+			targetName = ref.DeviceName
+		} else {
+			kind = domain.FleetKind
+			targetName = ref.FleetName
+		}
+		event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
+		if event != nil {
+			d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
 		}
 	}
 
