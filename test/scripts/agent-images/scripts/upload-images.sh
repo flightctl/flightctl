@@ -5,6 +5,9 @@ set -euo pipefail
 # Usage: ./upload-images.sh <bundle.tar> [--registry-endpoint host:port] [--jobs N]
 #
 # If REGISTRY_ENDPOINT is not provided, it will be calculated using registry_address()
+#
+# Anonymous / no-auth push (e.g. local insecure registry): set DEST_REGISTRY_NO_CREDS=1
+# so skopeo gets --dest-no-creds (avoids reading auth.json for the destination).
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}/../../functions"
@@ -47,6 +50,10 @@ fi
 
 check_registry "${REGISTRY_ENDPOINT}"
 
+if [[ "${DEST_REGISTRY_NO_CREDS:-}" == "1" || "${DEST_REGISTRY_NO_CREDS:-}" == "true" ]]; then
+  echo "Registry push: using skopeo --dest-no-creds (DEST_REGISTRY_NO_CREDS=${DEST_REGISTRY_NO_CREDS})"
+fi
+
 echo "Pushing images from bundle: ${BUNDLE}"
 
 mapfile -t REFS < <(tar -xOf "$BUNDLE" manifest.json | jq -r '.[].RepoTags[]')
@@ -72,7 +79,11 @@ cat "$pairs_file" | xargs -P "$JOBS" -I{} bash -c '
   retry=0
   while [[ $retry -lt $max_retries ]]; do
     set +euo pipefail
-    skopeo_output=$(skopeo copy --all --dest-tls-verify=false "$src" "$dst" 2>&1)
+    if [[ "${DEST_REGISTRY_NO_CREDS:-}" == "1" || "${DEST_REGISTRY_NO_CREDS:-}" == "true" ]]; then
+      skopeo_output=$(skopeo copy --all --dest-tls-verify=false --dest-no-creds "$src" "$dst" 2>&1)
+    else
+      skopeo_output=$(skopeo copy --all --dest-tls-verify=false "$src" "$dst" 2>&1)
+    fi
     skopeo_exit=$?
     echo "$skopeo_output" | awk -v p="$pfx" "{print p \$0}"
 
