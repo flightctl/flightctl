@@ -1,0 +1,17 @@
+{{ if .Values.periodic.clusterLevelSecretAccess }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-periodic
+  name: flightctl-periodic-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-periodic
+    namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  kind: ClusterRole
+  name: flightctl-periodic-{{ .Release.Namespace }}
+  apiGroup: rbac.authorization.k8s.io
+{{ end }}

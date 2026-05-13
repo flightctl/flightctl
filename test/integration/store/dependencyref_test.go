@@ -193,4 +193,123 @@ var _ = Describe("DependencyRefStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
+
+	Context("When listing secret dependency targets", func() {
+		It("should return matching fleet and device refs", func() {
+			fleetRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			deviceRef := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr("device-x"),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, fleetRef)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, deviceRef)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(2))
+		})
+
+		It("should return refs from multiple orgs for the same secret", func() {
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, storeInst, otherOrg)).To(Succeed())
+
+			ref1 := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			ref2 := &model.DependencyRef{
+				OrgID:           otherOrg,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-b"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref1)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, otherOrg, ref2)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(2))
+
+			orgIDs := []uuid.UUID{refs[0].OrgID, refs[1].OrgID}
+			Expect(orgIDs).To(ContainElements(orgId, otherOrg))
+		})
+
+		It("should filter out refs whose stored fingerprint matches newFingerprint", func() {
+			ref := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			// Secret sync_state uses uuid.Nil as the sentinel org_id
+			syncState := &model.SyncState{
+				OrgID:       uuid.Nil,
+				ResourceKey: "secret:prod/db-creds",
+				Fingerprint: "rv1000",
+			}
+			Expect(storeInst.SyncState().Set(ctx, uuid.Nil, syncState)).To(Succeed())
+
+			// Same fingerprint — should be filtered out
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "rv1000")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(BeEmpty())
+
+			// Different fingerprint — should return the ref
+			refs, err = storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "rv1001")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Fingerprint).ToNot(BeNil())
+			Expect(*refs[0].Fingerprint).To(Equal("rv1000"))
+		})
+
+		It("should return refs with nil fingerprint when no sync_state exists (first seen)", func() {
+			ref := &model.DependencyRef{
+				OrgID:           orgId,
+				ResourceKey:     "secret:prod/db-creds",
+				FleetName:       lo.ToPtr("fleet-a"),
+				DeviceName:      lo.ToPtr(""),
+				RefType:         "secret",
+				SecretName:      lo.ToPtr("db-creds"),
+				SecretNamespace: lo.ToPtr("prod"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:any")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(HaveLen(1))
+			Expect(refs[0].Fingerprint).To(BeNil())
+		})
+
+		It("should return empty when no refs match", func() {
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "nonexistent", "sha256:any")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refs).To(BeEmpty())
+		})
+	})
 })

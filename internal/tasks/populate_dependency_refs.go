@@ -170,6 +170,9 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 				log.WithError(err).Warn("skipping K8s secret config item that failed to decode")
 				continue
 			}
+			if isParameterized(k8sSpec.SecretRef.Namespace) || isParameterized(k8sSpec.SecretRef.Name) {
+				continue
+			}
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{

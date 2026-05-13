@@ -487,6 +487,10 @@
           "additionalProperties": { "type": "string" }
         },
         "consumers": { "type": "integer", "description": "Number of periodic consumers" },
+        "clusterLevelSecretAccess": {
+          "type": "boolean",
+          "description": "Allow flightctl-periodic to list/watch secrets at the cluster level for change detection"
+        },
         "tasks": {
           "type": "object",
           "description": "Periodic tasks configuration",
