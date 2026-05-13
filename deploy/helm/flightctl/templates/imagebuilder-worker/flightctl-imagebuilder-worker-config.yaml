@@ -51,6 +51,15 @@ data:
         {{- if .Values.imageBuilderWorker.rpmRepoEnable }}
         rpmRepoEnable: {{ .Values.imageBuilderWorker.rpmRepoEnable | quote }}
         {{- end }}
+        {{- if kindIs "int" .Values.imageBuilderWorker.dnfTimeout }}
+        dnfTimeout: {{ .Values.imageBuilderWorker.dnfTimeout }}
+        {{- end }}
+        {{- if kindIs "int" .Values.imageBuilderWorker.dnfRetries }}
+        dnfRetries: {{ .Values.imageBuilderWorker.dnfRetries }}
+        {{- end }}
+        {{- if kindIs "bool" .Values.imageBuilderWorker.dnfSkipUnavailable }}
+        dnfSkipUnavailable: {{ .Values.imageBuilderWorker.dnfSkipUnavailable }}
+        {{- end }}
         {{- with .Values.imageBuilderWorker.serviceImages }}
         {{- $podman := .podman | default (dict "image" "" "skipTlsVerify" false) }}
         {{- $bootc := .bootcImageBuilder | default (dict "image" "" "skipTlsVerify" false) }}

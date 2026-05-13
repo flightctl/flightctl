@@ -39,6 +39,15 @@ imageBuilderWorker:
   {{- if .imagebuilderWorker.rpmRepoEnable}}
   rpmRepoEnable: {{.imagebuilderWorker.rpmRepoEnable}}
   {{- end}}
+  {{- if .imagebuilderWorker.dnfTimeout}}
+  dnfTimeout: {{.imagebuilderWorker.dnfTimeout}}
+  {{- end}}
+  {{- if or (eq (printf "%v" .imagebuilderWorker.dnfRetries) "0") .imagebuilderWorker.dnfRetries}}
+  dnfRetries: {{.imagebuilderWorker.dnfRetries}}
+  {{- end}}
+  {{- if or (eq (printf "%v" .imagebuilderWorker.dnfSkipUnavailable) "true") (eq (printf "%v" .imagebuilderWorker.dnfSkipUnavailable) "false")}}
+  dnfSkipUnavailable: {{.imagebuilderWorker.dnfSkipUnavailable}}
+  {{- end}}
   {{- if .imagebuilderWorker.serviceImages}}
   serviceImages:
   {{- if .imagebuilderWorker.serviceImages.podman}}

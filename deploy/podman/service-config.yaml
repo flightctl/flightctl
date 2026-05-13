@@ -115,6 +115,9 @@ prometheus:
 #   rpmRepoUrl: ""
 #   rpmRepoAdd: true
 #   rpmRepoEnable: ""
+#   dnfTimeout: 5
+#   dnfRetries: 0
+#   dnfSkipUnavailable: true
 #   serviceImages:
 #     podman:
 #       image: ""           # Override Podman builder image (optional)

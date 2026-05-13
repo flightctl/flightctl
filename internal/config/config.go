@@ -196,6 +196,9 @@ type imageBuilderWorkerConfig struct {
 	RPMRepoURL               string               `json:"rpmRepoUrl,omitempty"`
 	RPMRepoAdd               *bool                `json:"rpmRepoAdd,omitempty"`
 	RPMRepoEnable            string               `json:"rpmRepoEnable,omitempty"`
+	DNFTimeout               *int                 `json:"dnfTimeout,omitempty"`
+	DNFRetries               *int                 `json:"dnfRetries,omitempty"`
+	DNFSkipUnavailable       *bool                `json:"dnfSkipUnavailable,omitempty"`
 	SBOM                     *SBOMConfig          `json:"sbom,omitempty"`
 }
 
@@ -292,6 +295,9 @@ func NewDefaultPurlTransformConfig() *PurlTransformConfig {
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
+	dnfTimeout := 5
+	dnfRetries := 0
+	dnfSkipUnavailable := true
 	return &imageBuilderWorkerConfig{
 		LogLevel:            "info",
 		MaxConcurrentBuilds: 2,
@@ -306,6 +312,9 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 		SBOM:                     NewDefaultSBOMConfig(),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
+		DNFTimeout:               &dnfTimeout,
+		DNFRetries:               &dnfRetries,
+		DNFSkipUnavailable:       &dnfSkipUnavailable,
 	}
 }
 
