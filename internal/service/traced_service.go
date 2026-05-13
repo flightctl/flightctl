@@ -697,6 +697,12 @@ func (t *TracedService) ListDueGitDependencies(ctx context.Context, orgId uuid.U
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) ListDueHttpDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDueHttpDependencies")
+	resp, st := t.inner.ListDueHttpDependencies(ctx, orgId, pollInterval)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status) {
 	ctx, span := startSpan(ctx, "ListSecretDependencyTargets")
 	resp, st := t.inner.ListSecretDependencyTargets(ctx, secretNamespace, secretName, newFingerprint)
