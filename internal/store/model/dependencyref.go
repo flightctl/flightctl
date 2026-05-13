@@ -92,3 +92,14 @@ type GitDependencyProbe struct {
 	DeviceNames    StringArray
 	RepoSpec       *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
 }
+
+// HttpDependencyProbe is the result of ListDueHttpDependencies — one row per
+// unique (repository_name, http_suffix) pair that is due for polling.
+type HttpDependencyProbe struct {
+	RepositoryName string
+	HTTPSuffix     string
+	Fingerprint    *string
+	FleetNames     StringArray
+	DeviceNames    StringArray
+	RepoSpec       *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
+}
