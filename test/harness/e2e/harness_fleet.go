@@ -100,9 +100,9 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 		testFleet.Spec = spec
 
 	case v1beta1.LabelSelector:
-
-		if len(deviceSpec) == 0 {
-			return fmt.Errorf("DeviceSpec is required when using LabelSelector")
+		var devSpec v1beta1.DeviceSpec
+		if len(deviceSpec) > 0 {
+			devSpec = deviceSpec[0]
 		}
 
 		testFleet.Spec = v1beta1.FleetSpec{
@@ -111,7 +111,7 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 				Metadata *v1beta1.ObjectMeta "json:\"metadata,omitempty\""
 				Spec     v1beta1.DeviceSpec  "json:\"spec\""
 			}{
-				Spec: deviceSpec[0],
+				Spec: devSpec,
 			},
 		}
 
@@ -123,7 +123,15 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 	return err
 }
 
-// Create a test fleet with a configuration
+// CreateFleetWithSelector creates a fleet with the specified label selector and empty device spec.
+func (h *Harness) CreateFleetWithSelector(fleetName string, labelSelector map[string]string) error {
+	selector := v1beta1.LabelSelector{
+		MatchLabels: &labelSelector,
+	}
+	return h.CreateOrUpdateTestFleet(fleetName, selector)
+}
+
+// CreateTestFleetWithConfig creates a test fleet with a configuration.
 func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelector v1beta1.LabelSelector, configProviderSpec v1beta1.ConfigProviderSpec) error {
 	var testFleetSpec = v1beta1.DeviceSpec{
 		Config: &[]v1beta1.ConfigProviderSpec{
@@ -137,6 +145,18 @@ func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelec
 func (h *Harness) DeleteFleet(testFleetName string) error {
 	_, err := h.Client.DeleteFleet(h.Context, testFleetName)
 	return err
+}
+
+// DeleteFleetIgnoreNotFound deletes a fleet, ignoring 404 errors.
+func (h *Harness) DeleteFleetIgnoreNotFound(fleetName string) error {
+	resp, err := h.Client.DeleteFleetWithResponse(h.Context, fleetName)
+	if err != nil {
+		return fmt.Errorf("failed to delete fleet %s: %w", fleetName, err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 404 {
+		return fmt.Errorf("unexpected status deleting fleet %s: %d", fleetName, resp.StatusCode())
+	}
+	return nil
 }
 
 // HaveReason returns a type-safe Gomega matcher for the Condition's Reason field.
