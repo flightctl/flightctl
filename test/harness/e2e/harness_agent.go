@@ -41,11 +41,11 @@ func (h *Harness) RunScriptOnVM(script string) (*bytes.Buffer, error) {
 	return h.VM.RunSSH(vmShellCommandArgs(remote), nil)
 }
 
-// StartFlightCtlAgent starts the flightctl-agent service
+// StartFlightCtlAgent starts or restarts the flightctl-agent service so config changes are picked up.
 func (h *Harness) StartFlightCtlAgent() error {
-	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to start flightctl-agent: %w", err)
+		return fmt.Errorf("failed to start or restart flightctl-agent: %w", err)
 	}
 	return nil
 }
