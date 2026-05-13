@@ -207,10 +207,22 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 		return nil, fmt.Errorf("failed to get role assignments: %w", err)
 	}
 
-	// Build organization-specific role mappings
+	// Build organization-specific role mappings from direct user assignments
 	orgSpecificRoles := a.mapRoleAssignmentsToOrgRoles(roleAssignments)
 	for orgName, roles := range orgSpecificRoles {
 		orgRoles[orgName] = append(orgRoles[orgName], roles...)
+	}
+
+	// Get role assignments inherited from teams
+	teamRoleAssignments, err := a.getTeamRoleAssignments(ctx, token, userInfo.GetUID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get team role assignments: %w", err)
+	}
+
+	// Merge team-inherited roles into organization roles
+	teamOrgRoles := a.mapTeamRoleAssignmentsToOrgRoles(teamRoleAssignments)
+	for orgName, roles := range teamOrgRoles {
+		orgRoles[orgName] = appendUniqueRoles(orgRoles[orgName], roles)
 	}
 
 	// Build ReportedOrganization with roles embedded
@@ -332,4 +344,55 @@ func (a *AapGatewayAuth) mapRoleAssignmentsToOrgRoles(roleAssignments []*aap.AAP
 	}
 
 	return orgRoles
+}
+
+// getTeamRoleAssignments fetches role assignments for all teams the user belongs to
+func (a *AapGatewayAuth) getTeamRoleAssignments(ctx context.Context, token string, userID string) ([]*aap.AAPRoleTeamAssignment, error) {
+	teams, err := a.aapClient.ListUserTeams(ctx, token, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var allAssignments []*aap.AAPRoleTeamAssignment
+	for _, team := range teams {
+		assignments, err := a.aapClient.ListTeamRoleAssignments(ctx, token, strconv.Itoa(team.ID))
+		if err != nil {
+			return nil, err
+		}
+		allAssignments = append(allAssignments, assignments...)
+	}
+
+	return allAssignments, nil
+}
+
+// mapTeamRoleAssignmentsToOrgRoles converts team role assignments to organization-specific role mappings
+func (a *AapGatewayAuth) mapTeamRoleAssignmentsToOrgRoles(roleAssignments []*aap.AAPRoleTeamAssignment) map[string][]string {
+	orgRoles := make(map[string][]string)
+
+	for _, assignment := range roleAssignments {
+		// Only process organization-level role assignments
+		if assignment.ContentType != "shared.organization" {
+			continue
+		}
+
+		orgName := assignment.SummaryFields.ContentObject.Name
+		roleName := assignment.SummaryFields.RoleDefinition.Name
+
+		// Add role to organization if not already present
+		if !lo.Contains(orgRoles[orgName], roleName) {
+			orgRoles[orgName] = append(orgRoles[orgName], roleName)
+		}
+	}
+
+	return orgRoles
+}
+
+// appendUniqueRoles appends roles to existing slice without duplicates
+func appendUniqueRoles(existing []string, newRoles []string) []string {
+	for _, role := range newRoles {
+		if !lo.Contains(existing, role) {
+			existing = append(existing, role)
+		}
+	}
+	return existing
 }

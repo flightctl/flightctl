@@ -153,6 +153,122 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 		assert.Empty(t, capturedRefs)
 	})
 
+	t.Run("When fleet has non-parameterized secret config it should create fleet-level ref", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+
+		fleet := &domain.Fleet{
+			Metadata: domain.ObjectMeta{Name: &fleetName},
+			Spec: domain.FleetSpec{
+				Template: struct {
+					Metadata *domain.ObjectMeta "json:\"metadata,omitempty\""
+					Spec     domain.DeviceSpec  "json:\"spec\""
+				}{
+					Spec: domain.DeviceSpec{
+						Config: &[]domain.ConfigProviderSpec{
+							makeSecretConfigItem(t, "secret-cfg", "prod", "db-creds"),
+						},
+					},
+				},
+			},
+		}
+
+		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+
+		var capturedRefs []model.DependencyRef
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
+				capturedRefs = refs
+				return okStatus
+			},
+		)
+
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		err := logic.PopulateForFleet(context.Background(), fleetName)
+
+		require.NoError(t, err)
+		require.Len(t, capturedRefs, 1)
+		assert.Equal(t, "secret", capturedRefs[0].RefType)
+		assert.Equal(t, "secret:prod/db-creds", capturedRefs[0].ResourceKey)
+	})
+
+	t.Run("When fleet has parameterized secret namespace it should skip that ref", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+
+		fleet := &domain.Fleet{
+			Metadata: domain.ObjectMeta{Name: &fleetName},
+			Spec: domain.FleetSpec{
+				Template: struct {
+					Metadata *domain.ObjectMeta "json:\"metadata,omitempty\""
+					Spec     domain.DeviceSpec  "json:\"spec\""
+				}{
+					Spec: domain.DeviceSpec{
+						Config: &[]domain.ConfigProviderSpec{
+							makeSecretConfigItem(t, "secret-cfg", "{{ .metadata.labels.ns }}", "db-creds"),
+						},
+					},
+				},
+			},
+		}
+
+		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+
+		var capturedRefs []model.DependencyRef
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
+				capturedRefs = refs
+				return okStatus
+			},
+		)
+
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		err := logic.PopulateForFleet(context.Background(), fleetName)
+
+		require.NoError(t, err)
+		assert.Empty(t, capturedRefs)
+	})
+
+	t.Run("When fleet has parameterized secret name it should skip that ref", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockSvc := service.NewMockService(ctrl)
+
+		fleet := &domain.Fleet{
+			Metadata: domain.ObjectMeta{Name: &fleetName},
+			Spec: domain.FleetSpec{
+				Template: struct {
+					Metadata *domain.ObjectMeta "json:\"metadata,omitempty\""
+					Spec     domain.DeviceSpec  "json:\"spec\""
+				}{
+					Spec: domain.DeviceSpec{
+						Config: &[]domain.ConfigProviderSpec{
+							makeSecretConfigItem(t, "secret-cfg", "prod", "{{ .metadata.labels.secret }}"),
+						},
+					},
+				},
+			},
+		}
+
+		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+
+		var capturedRefs []model.DependencyRef
+		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
+				capturedRefs = refs
+				return okStatus
+			},
+		)
+
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		err := logic.PopulateForFleet(context.Background(), fleetName)
+
+		require.NoError(t, err)
+		assert.Empty(t, capturedRefs)
+	})
+
 	t.Run("When fleet has no config it should replace with empty refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()

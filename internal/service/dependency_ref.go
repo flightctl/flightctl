@@ -59,6 +59,11 @@ func (h *ServiceHandler) ListDueGitDependencies(ctx context.Context, orgId uuid.
 	return probes, StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status) {
+	refs, err := h.store.DependencyRef().ListSecretDependencyTargets(ctx, secretNamespace, secretName, newFingerprint)
+	return refs, StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	state, err := h.store.SyncState().Get(ctx, orgId, resourceKey)
 	return state, StoreErrorToApiStatus(err, false, "", nil)

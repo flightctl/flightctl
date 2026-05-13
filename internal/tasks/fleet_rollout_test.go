@@ -1357,6 +1357,128 @@ func TestDeviceDependencyRefLifecycle(t *testing.T) {
 	})
 }
 
+func TestDeviceSecretDependencyRefLifecycle(t *testing.T) {
+	fleetName := "fleet-a"
+	owner := util.SetResourceOwner(domain.FleetKind, fleetName)
+
+	t.Run("When secret has no parameterized fields it should produce no device-level refs", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:  lo.ToPtr("device-1"),
+				Owner: owner,
+			},
+		}
+		configItem := makeSecretConfigItem(t, "secret-cfg", "prod", "db-creds")
+		_, refs, errs := logic.replaceKubeSecretConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		assert.Empty(t, refs, "non-parameterized secret should not produce device-level refs")
+	})
+
+	t.Run("When secret namespace is parameterized it should create device-level ref with resolved value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"ns": "prod"},
+			},
+		}
+		configItem := makeSecretConfigItem(t, "secret-cfg", "{{ .metadata.labels.ns }}", "db-creds")
+		_, refs, errs := logic.replaceKubeSecretConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, fleetName, *refs[0].FleetName)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, "secret", refs[0].RefType)
+		assert.Equal(t, "secret:prod/db-creds", refs[0].ResourceKey)
+		assert.Equal(t, "prod", *refs[0].SecretNamespace)
+		assert.Equal(t, "db-creds", *refs[0].SecretName)
+	})
+
+	t.Run("When secret name is parameterized it should create device-level ref with resolved value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"secret": "my-secret"},
+			},
+		}
+		configItem := makeSecretConfigItem(t, "secret-cfg", "prod", "{{ .metadata.labels.secret }}")
+		_, refs, errs := logic.replaceKubeSecretConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "secret:prod/my-secret", refs[0].ResourceKey)
+		assert.Equal(t, "prod", *refs[0].SecretNamespace)
+		assert.Equal(t, "my-secret", *refs[0].SecretName)
+	})
+
+	t.Run("When both namespace and name are parameterized it should resolve both in the ref", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"ns": "staging", "secret": "api-key"},
+			},
+		}
+		configItem := makeSecretConfigItem(t, "secret-cfg", "{{ .metadata.labels.ns }}", "{{ .metadata.labels.secret }}")
+		_, refs, errs := logic.replaceKubeSecretConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "secret:staging/api-key", refs[0].ResourceKey)
+	})
+
+	t.Run("When getDeviceConfig has parameterized secret it should include secret refs in output", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"ns": "prod"},
+			},
+		}
+		tv := &domain.TemplateVersion{
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeSecretConfigItem(t, "secret-cfg", "{{ .metadata.labels.ns }}", "db-creds"),
+				},
+			},
+		}
+		_, refs, errs := logic.getDeviceConfig(device, tv)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "secret", refs[0].RefType)
+		assert.Equal(t, "secret:prod/db-creds", refs[0].ResourceKey)
+	})
+}
+
 func TestFleetRolloutIterationContext(t *testing.T) {
 	t.Run("child not expired when parent deadline passed", func(t *testing.T) {
 		parent, cancel := context.WithTimeout(context.Background(), 0)
