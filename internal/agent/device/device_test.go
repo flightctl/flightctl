@@ -181,8 +181,8 @@ func TestSync(t *testing.T) {
 				mockHookManager.EXPECT().OnAfterUpdating(gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil).AnyTimes()
 				mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
-				mockPruningManager.EXPECT().RequestPrune().AnyTimes()
 				mockPruningManager.EXPECT().PrunePending().Return(false).AnyTimes()
+				mockPruningManager.EXPECT().Prune(gomock.Any()).Return(nil).AnyTimes()
 
 				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
 				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
