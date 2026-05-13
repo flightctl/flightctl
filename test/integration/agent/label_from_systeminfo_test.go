@@ -192,4 +192,69 @@ var _ = Describe("Agent label-from-systeminfo", func() {
 		Expect(labels).To(HaveKeyWithValue("env", "production"))
 		Expect(labels).To(HaveKey("alias")) // default alias
 	})
+
+	It("should sanitize systemInfo values with spaces during enrollment", func() {
+		// Create custom-info script that returns a value with spaces
+		customInfoDir := filepath.Join(h.TestDirPath, "usr", "lib", "flightctl", "custom-info.d")
+		Expect(os.MkdirAll(customInfoDir, 0o755)).To(Succeed())
+
+		scriptPath := filepath.Join(customInfoDir, "distroName")
+		scriptContent := "#!/bin/bash\necho 'CentOS Stream'"
+		Expect(os.WriteFile(scriptPath, []byte(scriptContent), 0o600)).To(Succeed())
+		Expect(os.Chmod(scriptPath, 0o700)).To(Succeed())
+
+		h.AgentConfig().SystemInfoCustom = []string{"distroName"}
+		h.AgentConfig().LabelFromSystemInfo = map[string]string{
+			"os-name": "customInfo.distroName",
+		}
+		h.StartAgent()
+
+		dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+
+		// Verify the label value was sanitized (space replaced with hyphen)
+		Expect(dev.Metadata.Labels).ToNot(BeNil())
+		labels := *dev.Metadata.Labels
+		Expect(labels).To(HaveKeyWithValue("os-name", "CentOS-Stream"))
+		Expect(labels).To(HaveKey("alias")) // default alias
+	})
+
+	It("should skip invalid default-labels but still enroll successfully", func() {
+		h.AgentConfig().DefaultLabels = map[string]string{
+			"valid-label":   "valid-value",
+			"invalid-label": "value with spaces", // Invalid - contains spaces
+		}
+		h.AgentConfig().LabelFromSystemInfo = map[string]string{
+			"arch": "architecture",
+		}
+		h.StartAgent()
+
+		dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+
+		// Verify device enrolled successfully with only valid labels
+		Expect(dev.Metadata.Labels).ToNot(BeNil())
+		labels := *dev.Metadata.Labels
+		Expect(labels).To(HaveKeyWithValue("valid-label", "valid-value"))
+		Expect(labels).To(HaveKey("arch"))
+		Expect(labels).To(HaveKey("alias"))
+		// Invalid label should not be present
+		Expect(labels).ToNot(HaveKey("invalid-label"))
+	})
+
+	It("should skip label-from-systeminfo with invalid key", func() {
+		h.AgentConfig().LabelFromSystemInfo = map[string]string{
+			"valid-key":           "architecture",
+			"bad key with spaces": "operatingSystem", // Invalid key
+		}
+		h.StartAgent()
+
+		dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+
+		// Verify device enrolled successfully with only valid label
+		Expect(dev.Metadata.Labels).ToNot(BeNil())
+		labels := *dev.Metadata.Labels
+		Expect(labels).To(HaveKey("valid-key"))
+		Expect(labels).To(HaveKey("alias"))
+		// Invalid key should not be present
+		Expect(labels).ToNot(HaveKey("bad key with spaces"))
+	})
 })

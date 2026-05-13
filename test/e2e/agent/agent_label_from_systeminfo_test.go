@@ -14,23 +14,24 @@ import (
 )
 
 const (
-	labelFromSystemInfoBuiltInLabelArch     = "arch"
-	labelFromSystemInfoBuiltInLabelOS       = "os"
-	labelFromSystemInfoCustomLabelSite      = "site"
-	labelFromSystemInfoDefaultAliasLabel    = "alias"
-	labelFromSystemInfoMissingBuiltInLabel  = "missingBuiltin"
-	labelFromSystemInfoMissingCustomLabel   = "missingCustom"
-	labelFromSystemInfoManualArchValue      = "manually-set"
-	labelFromSystemInfoExpectedOSValue      = "linux"
-	labelFromSystemInfoExpectedSiteName     = "my site"
-	labelFromSystemInfoCustomKeySiteName    = "siteName"
-	labelFromSystemInfoCustomKeyEmptyValue  = "emptyValue"
-	labelFromSystemInfoCustomFieldPrefix    = "customInfo."
-	labelFromSystemInfoFieldArchitecture    = "architecture"
-	labelFromSystemInfoFieldOperatingSystem = "operatingSystem"
-	labelFromSystemInfoFieldProductName     = "productName"
-	labelFromSystemInfoFieldHostname        = "hostname"
-	labelFromSystemInfoMissingFieldName     = "doesNotExist"
+	labelFromSystemInfoBuiltInLabelArch       = "arch"
+	labelFromSystemInfoBuiltInLabelOS         = "os"
+	labelFromSystemInfoCustomLabelSite        = "site"
+	labelFromSystemInfoDefaultAliasLabel      = "alias"
+	labelFromSystemInfoMissingBuiltInLabel    = "missingBuiltin"
+	labelFromSystemInfoMissingCustomLabel     = "missingCustom"
+	labelFromSystemInfoManualArchValue        = "manually-set"
+	labelFromSystemInfoExpectedOSValue        = "linux"
+	labelFromSystemInfoRawSiteNameValue       = "my site" // Raw value from script (stored in customInfo)
+	labelFromSystemInfoSanitizedSiteNameValue = "my-site" // Sanitized value (used in labels)
+	labelFromSystemInfoCustomKeySiteName      = "siteName"
+	labelFromSystemInfoCustomKeyEmptyValue    = "emptyValue"
+	labelFromSystemInfoCustomFieldPrefix      = "customInfo."
+	labelFromSystemInfoFieldArchitecture      = "architecture"
+	labelFromSystemInfoFieldOperatingSystem   = "operatingSystem"
+	labelFromSystemInfoFieldProductName       = "productName"
+	labelFromSystemInfoFieldHostname          = "hostname"
+	labelFromSystemInfoMissingFieldName       = "doesNotExist"
 )
 
 var (
@@ -56,10 +57,10 @@ var (
 			labelFromSystemInfoCustomLabelSite: labelFromSystemInfoCustomFieldPrefix + labelFromSystemInfoCustomKeySiteName,
 		},
 		wantLabels: map[string]string{
-			labelFromSystemInfoCustomLabelSite: labelFromSystemInfoExpectedSiteName,
+			labelFromSystemInfoCustomLabelSite: labelFromSystemInfoSanitizedSiteNameValue,
 		},
 		wantCustomInfo: map[string]string{
-			labelFromSystemInfoCustomKeySiteName: labelFromSystemInfoExpectedSiteName,
+			labelFromSystemInfoCustomKeySiteName: labelFromSystemInfoRawSiteNameValue,
 		},
 	}
 

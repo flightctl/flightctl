@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"github.com/stoewer/go-strcase"
@@ -459,33 +459,67 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 }
 
 // buildEnrollmentLabels creates the final label map for enrollment by:
-// 1. Mapping systemInfo fields (built-in and customInfo) to labels based on labelFromSystemInfo config
-// 2. Adding default alias=hostname if no "alias" label is configured
-// 3. Merging with defaultLabels (defaultLabels take precedence on conflicts)
+// 1. Mapping systemInfo fields (built-in and customInfo) to labels based on labelFromSystemInfo config (sanitized)
+// 2. Adding default alias=hostname if no "alias" label is configured (sanitized)
+// 3. Merging with defaultLabels (validated but not sanitized - invalid labels are skipped)
 func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceStatus) map[string]string {
 	// Start with labels from systemInfo mappings
 	labels := make(map[string]string, len(m.labelFromSystemInfo)+len(m.defaultLabels)+1)
 
-	// Extract systemInfo field mappings (includes both built-in and customInfo fields)
+	// Extract and sanitize systemInfo field mappings (includes both built-in and customInfo fields)
 	for labelName, fieldName := range m.labelFromSystemInfo {
-		value := m.extractSystemInfoField(&deviceStatus.SystemInfo, fieldName)
-		if value != "" {
-			labels[labelName] = value
-		} else {
-			m.log.Warnf("Failed to extract systemInfo field %q for label %q", fieldName, labelName)
+		// Validate label key (user-configured in config file)
+		if keyErrs := validation.ValidateLabelKey(labelName); len(keyErrs) > 0 {
+			m.log.Errorf("Invalid label key %q in label-from-systeminfo: %v - skipping this label. Please fix your agent configuration.", labelName, keyErrs)
+			continue
 		}
+
+		value := m.extractSystemInfoField(&deviceStatus.SystemInfo, fieldName)
+		if value == "" {
+			m.log.Warnf("Failed to extract systemInfo field %q for label %q", fieldName, labelName)
+			continue
+		}
+
+		// Sanitize the value to ensure it's a valid Kubernetes label value
+		// (systemInfo values like "CentOS Stream" need sanitization)
+		sanitized := validation.SanitizeLabelValue(value)
+		if sanitized == "" {
+			m.log.Warnf("Failed to sanitize systemInfo field %q (original value: %q) for label %q - value cannot be made valid", fieldName, value, labelName)
+			continue
+		}
+
+		if sanitized != value {
+			m.log.Infof("Sanitized systemInfo field %q for label %q: %q -> %q", fieldName, labelName, value, sanitized)
+		}
+		labels[labelName] = sanitized
 	}
 
 	// Add default alias=hostname if no "alias" label is configured
 	if _, hasAlias := m.labelFromSystemInfo["alias"]; !hasAlias {
 		hostname := m.extractSystemInfoField(&deviceStatus.SystemInfo, "hostname")
 		if isUsefulHostname(hostname) {
-			labels["alias"] = hostname
+			// Sanitize hostname as well (it's auto-generated)
+			sanitized := validation.SanitizeLabelValue(hostname)
+			if sanitized != "" {
+				if sanitized != hostname {
+					m.log.Infof("Sanitized hostname for default alias: %q -> %q", hostname, sanitized)
+				}
+				labels["alias"] = sanitized
+			} else {
+				m.log.Warnf("Failed to sanitize hostname %q for default alias", hostname)
+			}
 		}
 	}
 
-	// Then apply defaultLabels, which take precedence on conflicts
-	maps.Copy(labels, m.defaultLabels)
+	// Validate and apply defaultLabels (which take precedence on conflicts)
+	// These are user-configured, so we validate but don't sanitize - invalid labels are skipped
+	for labelName, labelValue := range m.defaultLabels {
+		if err := validation.ValidateLabelValue(labelName, labelValue); len(err) > 0 {
+			m.log.Errorf("Invalid default-label %q=%q: %v - skipping this label. Please fix your agent configuration.", labelName, labelValue, err)
+			continue
+		}
+		labels[labelName] = labelValue
+	}
 
 	return labels
 }

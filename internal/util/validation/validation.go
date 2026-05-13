@@ -70,6 +70,83 @@ func ValidateLabelsWithPath(labels *map[string]string, path string) []error {
 	return asErrors(errs)
 }
 
+// ValidateLabelKey validates a Kubernetes label key.
+// Returns a list of validation error messages, or an empty list if valid.
+func ValidateLabelKey(key string) []string {
+	return k8sutilvalidation.IsQualifiedName(key)
+}
+
+// ValidateLabelValue validates a single Kubernetes label key-value pair.
+// Returns a list of validation error messages, or an empty list if valid.
+func ValidateLabelValue(key, value string) []string {
+	var errs []string
+
+	// Validate key
+	keyErrs := ValidateLabelKey(key)
+	for _, err := range keyErrs {
+		errs = append(errs, fmt.Sprintf("invalid label key %q: %s", key, err))
+	}
+
+	// Validate value
+	valueErrs := k8sutilvalidation.IsValidLabelValue(value)
+	for _, err := range valueErrs {
+		errs = append(errs, fmt.Sprintf("invalid label value %q: %s", value, err))
+	}
+
+	return errs
+}
+
+// SanitizeLabelValue converts an arbitrary string into a valid Kubernetes label value.
+// It transforms invalid characters, ensures proper start/end characters, and truncates to 63 characters.
+// Returns an empty string if the input cannot be sanitized into a valid label value.
+//
+// Kubernetes label value requirements (from k8s.io/apimachinery/pkg/util/validation):
+//   - Must be 63 characters or less (can be empty)
+//   - Must be empty OR consist of alphanumeric characters, '-', '_' or '.'
+//   - Must start and end with an alphanumeric character
+//
+// Examples:
+//   - "CentOS Stream" -> "CentOS-Stream"
+//   - "Red Hat Enterprise Linux" -> "Red-Hat-Enterprise-Linux"
+//   - "!!invalid!!" -> "" (empty, cannot be sanitized)
+//   - "valid-label" -> "valid-label" (unchanged)
+func SanitizeLabelValue(value string) string {
+	if value == "" {
+		return ""
+	}
+
+	// Replace invalid characters with hyphen
+	// Valid chars: A-Z, a-z, 0-9, -, _, .
+	sanitized := strings.Map(func(r rune) rune {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			return r
+		}
+		return '-'
+	}, value)
+
+	// Trim non-alphanumeric characters from start and end
+	sanitized = strings.TrimFunc(sanitized, func(r rune) bool {
+		return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	})
+
+	// Truncate to maximum length
+	if len(sanitized) > k8sutilvalidation.LabelValueMaxLength {
+		sanitized = sanitized[:k8sutilvalidation.LabelValueMaxLength]
+		// Re-trim end in case truncation left non-alphanumeric at the end
+		sanitized = strings.TrimRightFunc(sanitized, func(r rune) bool {
+			return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+		})
+	}
+
+	// Verify the result is valid (could still be invalid after transformations)
+	if len(k8sutilvalidation.IsValidLabelValue(sanitized)) > 0 {
+		return ""
+	}
+
+	return sanitized
+}
+
 // ValidateStringMap validates that the k,v elements in a map are correctly defined as a string.
 func ValidateStringMap(m *map[string]string, path string, minLen int, maxLen int, keyPatternRegexp, valuePatternRegexp *regexp.Regexp, patternFmt string, patternExample ...string) []error {
 	allErrs := []error{}
