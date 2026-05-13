@@ -34,6 +34,7 @@ rules:
       - imageexports
       - catalogs
       - catalogitems
+      - vulnerabilities
   # Viewer can view logs but NOT download
   - verbs:
       - get
@@ -97,6 +98,7 @@ rules:
       - fleets/templateversions
       - alerts
       - organizations
+      - vulnerabilities
   # Device lifecycle actions (granular subresource approach)
   - verbs:
       - update  # Standard Kubernetes verb for resume action
