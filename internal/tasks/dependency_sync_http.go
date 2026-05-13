@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -202,9 +203,9 @@ func httpResourceKey(repoName, suffix string) string {
 
 // httpConditionalGet sends a conditional GET to the given URL using stored
 // fingerprint for If-None-Match/If-Modified-Since headers.
-func httpConditionalGet(_ context.Context, repoURL string,
+func httpConditionalGet(ctx context.Context, repoURL string,
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (string, int, error) {
-	req, err := http.NewRequest("GET", repoURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("creating request: %w", err)
 	}
@@ -229,6 +230,7 @@ func httpConditionalGet(_ context.Context, repoURL string,
 	}
 
 	client := &http.Client{
+		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsConfig,
 		},
@@ -247,6 +249,7 @@ func httpConditionalGet(_ context.Context, repoURL string,
 		if fingerprint == "" {
 			fingerprint = resp.Header.Get("Last-Modified")
 		}
+		io.Copy(io.Discard, resp.Body) //nolint:errcheck
 		return fingerprint, http.StatusOK, nil
 	default:
 		return "", resp.StatusCode, fmt.Errorf("unexpected status code %d from %s", resp.StatusCode, repoURL)
