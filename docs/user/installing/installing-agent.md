@@ -18,7 +18,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `enrollment-service`     | `EnrollmentService` | Y | Connection details for the device owner's Flight Control service used by the agent to enroll the device. |
 | `spec-fetch-interval`    | `Duration` | | **Deprecated**: This parameter is no longer used. The agent now uses long-polling to receive specification updates immediately when available. |
 | `status-update-interval` | `Duration` | | Interval in which the agent reports its device status under normal conditions. The agent immediately sends status reports on major events related to the health of the system and application workloads as well as on the progress during a system update. Default: `60s` |
-| `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
+| `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. **Important:** Label values must be valid Kubernetes labels (alphanumeric, `-`, `_`, `.`, max 63 chars). Invalid labels are skipped with an error log. Default: `{}` |
 | `label-from-systeminfo`  | `object` (`string`) | | Maps system information fields to device labels at enrollment time. See [Enrollment-time label mapping](#enrollment-time-label-mapping). Default: `{}` |
 | `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
 | `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
@@ -183,6 +183,8 @@ The `label-from-systeminfo` configuration parameter enables automatic device lab
 
 During enrollment, the agent collects system information and applies the configured label mappings. The resulting labels are included in the enrollment request and become part of the device's metadata. These labels can then be used by fleet selectors to automatically assign devices to the appropriate fleets.
 
+**Label value sanitization:** System information values are automatically sanitized to ensure they meet Kubernetes label requirements. Values containing spaces or special characters (e.g., `"CentOS Stream"`, `"9.5 (Plow)"`) are transformed into valid label values (e.g., `"CentOS-Stream"`, `"9.5--Plow"`). Invalid characters are replaced with hyphens, and values are truncated to 63 characters if needed. If a value cannot be sanitized into a valid label, the label is skipped and a warning is logged.
+
 ### Mapping built-in fields
 
 You can map any built-in system information field to a label. Reference built-in fields by their field name:
@@ -252,6 +254,8 @@ label-from-systeminfo:
 ```
 
 In this case, the device will have `env=production` (from `default-labels`) and `region` mapped from custom info.
+
+**Label validation:** `label-from-systeminfo` values are automatically **sanitized** to meet Kubernetes requirements (spaces become hyphens, special characters are replaced), while `default-labels` values are **validated** but not modified. Invalid `default-labels` are skipped with an error log, allowing the agent to enroll successfully while alerting administrators to fix their configuration.
 
 ### Complete example
 

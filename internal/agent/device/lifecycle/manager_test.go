@@ -533,6 +533,124 @@ func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 			},
 			expected: map[string]string{},
 		},
+		{
+			name: "When systemInfo value contains spaces it should be sanitized",
+			labelFromSystemInfo: map[string]string{
+				"os-name": "distroName",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname":   "test-host",
+						"distroName": "CentOS Stream",
+					},
+				},
+			},
+			expected: map[string]string{
+				"os-name": "CentOS-Stream", // Sanitized: space replaced with hyphen
+				"alias":   "test-host",
+			},
+		},
+		{
+			name: "When systemInfo value has special characters it should be sanitized",
+			labelFromSystemInfo: map[string]string{
+				"distro": "distroVersion",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname":      "test-host",
+						"distroVersion": "9.5 (Plow)",
+					},
+				},
+			},
+			expected: map[string]string{
+				"distro": "9.5--Plow", // Sanitized: space and parens replaced
+				"alias":  "test-host",
+			},
+		},
+		{
+			name:                "When default-labels contain invalid values they should be skipped",
+			labelFromSystemInfo: map[string]string{},
+			defaultLabels: map[string]string{
+				"valid-label":   "valid-value",
+				"invalid-label": "value with spaces", // Invalid: contains spaces
+			},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname": "test-host",
+					},
+				},
+			},
+			expected: map[string]string{
+				"valid-label": "valid-value",
+				"alias":       "test-host",
+				// "invalid-label" is skipped
+			},
+		},
+		{
+			name: "When hostname contains spaces it should be sanitized",
+			labelFromSystemInfo: map[string]string{
+				"arch": "architecture",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname": "my host name",
+					},
+				},
+			},
+			expected: map[string]string{
+				"arch":  "x86_64",
+				"alias": "my-host-name", // Sanitized hostname
+			},
+		},
+		{
+			name: "When sanitization results in empty string it should skip the label",
+			labelFromSystemInfo: map[string]string{
+				"bad-label": "customField",
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					AdditionalProperties: map[string]string{
+						"hostname":    "test-host",
+						"customField": "!!!", // Cannot be sanitized to valid label
+					},
+				},
+			},
+			expected: map[string]string{
+				"alias": "test-host",
+				// "bad-label" is skipped because sanitization results in empty string
+			},
+		},
+		{
+			name: "When label-from-systeminfo has invalid key it should be skipped",
+			labelFromSystemInfo: map[string]string{
+				"valid-key":           "architecture",
+				"bad key with spaces": "distroName", // Invalid key
+			},
+			defaultLabels: map[string]string{},
+			deviceStatus: &v1beta1.DeviceStatus{
+				SystemInfo: v1beta1.DeviceSystemInfo{
+					Architecture: "x86_64",
+					AdditionalProperties: map[string]string{
+						"hostname":   "test-host",
+						"distroName": "CentOS Stream",
+					},
+				},
+			},
+			expected: map[string]string{
+				"valid-key": "x86_64",
+				"alias":     "test-host",
+				// "bad key with spaces" is skipped due to invalid key
+			},
+		},
 	}
 
 	for _, tt := range tests {
