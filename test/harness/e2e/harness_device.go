@@ -1159,6 +1159,18 @@ func (h *Harness) CheckFleetControllerErrorAnnotation(deviceId, expectedKeySubst
 	return nil
 }
 
+// DeleteDeviceIgnoreNotFound deletes a device, ignoring 404 errors.
+func (h *Harness) DeleteDeviceIgnoreNotFound(deviceName string) error {
+	resp, err := h.Client.DeleteDeviceWithResponse(h.Context, deviceName)
+	if err != nil {
+		return fmt.Errorf("failed to delete device %s: %w", deviceName, err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 404 {
+		return fmt.Errorf("unexpected status deleting device %s: %d", deviceName, resp.StatusCode())
+	}
+	return nil
+}
+
 // DecommissionDevice runs the CLI decommission command for the given device name.
 // Returns the CLI output and any error.
 func (h *Harness) DecommissionDevice(deviceName string) (string, error) {

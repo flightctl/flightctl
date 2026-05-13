@@ -219,14 +219,6 @@ func (h *Harness) RefreshClient() error {
 	return nil
 }
 
-// GetV1Alpha1Client returns the v1alpha1 API client for alpha resources like vulnerabilities.
-func (h *Harness) GetV1Alpha1Client() interface{} {
-	if h.clientWrapper == nil {
-		return nil
-	}
-	return h.clientWrapper.V1Alpha1()
-}
-
 // GetDefaultK8sContext returns the current kubectl context name.
 func (h *Harness) GetDefaultK8sContext() (string, error) {
 	out, err := h.SH("kubectl", "config", "current-context")
@@ -1276,13 +1268,6 @@ func (h *Harness) CheckEnvInjectedToApplication(envVarName string, image string)
 // RunGetDevices executes "get devices" CLI command with optional arguments.
 func (h *Harness) RunGetDevices(args ...string) (string, error) {
 	allArgs := append([]string{"get", "devices"}, args...)
-	return h.CLI(allArgs...)
-}
-
-// RunGetEvents executes "get events" CLI command with optional arguments.
-func (h *Harness) RunGetEvents(args ...string) (string, error) {
-	// Starting with the base command to get events
-	allArgs := append([]string{"get", "events"}, args...)
 	return h.CLI(allArgs...)
 }
 
