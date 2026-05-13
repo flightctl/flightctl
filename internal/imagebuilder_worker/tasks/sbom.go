@@ -44,9 +44,11 @@ type SBOMResult struct {
 // generateSBOM generates an SBOM for the built image using Syft.
 // It runs Syft as a container, generates a CycloneDX SBOM, transforms PURLs,
 // and returns the path to the transformed SBOM file.
+// The manifestDigest parameter is the registry manifest digest captured during push.
 func (c *Consumer) generateSBOM(
 	ctx context.Context,
 	imageRef string,
+	manifestDigest string,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
 ) (*SBOMResult, error) {
@@ -119,88 +121,55 @@ func (c *Consumer) generateSBOM(
 
 	log.Info("Syft SBOM generation completed")
 
-	// Get image digest
-	imageDigest, err := c.getImageDigest(ctx, imageRef, podmanWorker)
+	// Transform PURLs and enrich metadata with the manifest digest from push
+	transformedPath, err := c.transformSBOM(ctx, sbomPath, podmanWorker.TmpOutDir, imageRef, manifestDigest, log)
 	if err != nil {
-		return nil, fmt.Errorf("getting image digest: %w", err)
-	}
-
-	// Transform PURLs if enabled
-	transformedPath, err := c.transformSBOM(ctx, sbomPath, podmanWorker.TmpOutDir, log)
-	if err != nil {
-		log.WithError(err).Warn("PURL transformation failed, using original SBOM")
+		log.WithError(err).Warn("SBOM transformation failed, using original SBOM")
 		transformedPath = sbomPath
 	}
 
 	return &SBOMResult{
 		SBOMPath:    transformedPath,
-		ImageDigest: imageDigest,
+		ImageDigest: manifestDigest,
 	}, nil
 }
 
-// getImageDigest gets the digest of an image from the worker's podman storage.
-func (c *Consumer) getImageDigest(ctx context.Context, imageRef string, podmanWorker *podmanWorker) (string, error) {
-	// Use podman inspect to get the image digest
-	args := []string{
-		"exec", podmanWorker.ContainerName,
-		"podman", "inspect", "--format", "{{.Digest}}", imageRef,
-	}
-
-	cmd := exec.CommandContext(ctx, "podman", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("getting image digest: %w", err)
-	}
-
-	digestStr := strings.TrimSpace(string(output))
-	if digestStr == "" || digestStr == "<no value>" {
-		// Try getting RepoDigests instead
-		args = []string{
-			"exec", podmanWorker.ContainerName,
-			"podman", "inspect", "--format", "{{index .RepoDigests 0}}", imageRef,
-		}
-		cmd = exec.CommandContext(ctx, "podman", args...)
-		output, err = cmd.Output()
-		if err != nil {
-			return "", fmt.Errorf("getting image repo digest: %w", err)
-		}
-		digestStr = strings.TrimSpace(string(output))
-		// Extract just the digest part from repo@digest format
-		if idx := strings.Index(digestStr, "@"); idx >= 0 {
-			digestStr = digestStr[idx+1:]
-		}
-	}
-
-	return digestStr, nil
-}
-
-// transformSBOM applies PURL transformations to the SBOM.
-func (c *Consumer) transformSBOM(_ context.Context, sbomPath, outDir string, log logrus.FieldLogger) (string, error) {
-	var userPurl *config.PurlTransformConfig
-	if c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.SBOM != nil {
-		userPurl = c.cfg.ImageBuilderWorker.SBOM.PurlTransform
-	}
-	transformCfg := GetEffectivePurlTransformConfig(userPurl)
-	if !transformCfg.EffectivePurlTransformEnabled() {
-		return sbomPath, nil
-	}
-
+// transformSBOM applies PURL transformations and enriches metadata in the SBOM.
+func (c *Consumer) transformSBOM(_ context.Context, sbomPath, outDir, imageRef, imageDigest string, log logrus.FieldLogger) (string, error) {
 	sbomData, err := os.ReadFile(sbomPath)
 	if err != nil {
 		return "", fmt.Errorf("reading SBOM: %w", err)
 	}
 
-	transformedData, err := TransformSBOMPurls(sbomData, transformCfg)
+	// Enrich SBOM metadata with image digest
+	sbomData, err = EnrichSBOMMetadata(sbomData, imageRef, imageDigest)
 	if err != nil {
-		return "", fmt.Errorf("transforming SBOM: %w", err)
+		return "", fmt.Errorf("enriching SBOM metadata: %w", err)
+	}
+	log.WithFields(logrus.Fields{
+		"imageRef":    imageRef,
+		"imageDigest": imageDigest,
+	}).Info("SBOM metadata enriched with image digest")
+
+	// Transform PURLs if enabled
+	var userPurl *config.PurlTransformConfig
+	if c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.SBOM != nil {
+		userPurl = c.cfg.ImageBuilderWorker.SBOM.PurlTransform
+	}
+	transformCfg := GetEffectivePurlTransformConfig(userPurl)
+	if transformCfg.EffectivePurlTransformEnabled() {
+		sbomData, err = TransformSBOMPurls(sbomData, transformCfg)
+		if err != nil {
+			return "", fmt.Errorf("transforming SBOM PURLs: %w", err)
+		}
+		log.Info("SBOM PURL transformation completed")
 	}
 
 	transformedPath := filepath.Join(outDir, "sbom-transformed.json")
-	if err := os.WriteFile(transformedPath, transformedData, 0600); err != nil {
+	if err := os.WriteFile(transformedPath, sbomData, 0600); err != nil {
 		return "", fmt.Errorf("writing transformed SBOM: %w", err)
 	}
 
-	log.Info("SBOM PURL transformation completed")
 	return transformedPath, nil
 }
 
@@ -301,10 +270,14 @@ func (c *Consumer) pushSBOMAsReferrer(
 		return fmt.Errorf("failed to seek SBOM file to start: %w", err)
 	}
 
+	sbomFileName := filepath.Base(sbomResult.SBOMPath)
 	blobDesc := ocispec.Descriptor{
 		MediaType: cycloneDXMediaType,
 		Digest:    computedDigest,
 		Size:      fileSize,
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: sbomFileName,
+		},
 	}
 
 	progressReader := newProgressReader(sbomFile, fileSize, func(bytesRead int64, totalBytes int64) {
@@ -324,7 +297,7 @@ func (c *Consumer) pushSBOMAsReferrer(
 		Subject: &destManifestDesc,
 		Layers:  []ocispec.Descriptor{blobDesc},
 		ManifestAnnotations: map[string]string{
-			ocispec.AnnotationTitle: filepath.Base(sbomResult.SBOMPath),
+			ocispec.AnnotationTitle: sbomFileName,
 		},
 	}
 	manifestDesc, err := oras.PackManifest(ctx, repoRef, oras.PackManifestVersion1_1, cycloneDXMediaType, packOpts)

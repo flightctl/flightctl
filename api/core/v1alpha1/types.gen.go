@@ -544,8 +544,14 @@ type Vulnerability struct {
 	// ImageDigest Immutable image digest from the device context.
 	ImageDigest *string `json:"imageDigest,omitempty"`
 
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
 	// Kind Kind is a string value representing the REST resource this object represents. Always Vulnerability.
 	Kind string `json:"kind"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
 
 	// PublishedAt Advisory publish time when known.
 	PublishedAt *time.Time `json:"publishedAt,omitempty"`
@@ -610,6 +616,12 @@ type VulnerabilityGroupItem struct {
 	// ImageRefs Image references observed for this digest within the query scope.
 	ImageRefs []string `json:"imageRefs"`
 
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
+
 	// PublishedAt Advisory publish time when known.
 	PublishedAt *time.Time `json:"publishedAt,omitempty"`
 
@@ -655,11 +667,17 @@ type VulnerabilityImpact struct {
 	// CveId CVE identifier for this blast radius response.
 	CveId string `json:"cveId"`
 
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
 	// Items Per-fleet or fleetless rows with device and image counts.
 	Items []AffectedFleet `json:"items"`
 
 	// Kind Resource kind; always VulnerabilityImpact.
 	Kind string `json:"kind"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
 
 	// MaxCvssScore Highest CVSS base score for this CVE in the fleet or fleetless group.
 	MaxCvssScore *float32 `json:"maxCvssScore,omitempty"`

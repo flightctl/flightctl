@@ -108,6 +108,8 @@ The output shows detailed information about the CVE and lists affected fleets an
 CVE ID      CVE-2023-44487
 SEVERITY    High (7.5)
 ADVISORY    RHSA-2023:5838
+ISSUER      Red Hat
+LINK        https://access.redhat.com/security/cve/CVE-2023-44487
 DESCRIPTION
 HTTP/2 Rapid Reset Attack allows denial of service through rapid stream
 creation and cancellation, overwhelming server resources.
@@ -117,6 +119,8 @@ production          12
 staging             5
 development         3
 ```
+
+The `link` field provides a direct URL to the CVE details. For Red Hat advisories, the link points to the Red Hat Security portal. For other issuers, it points to the NVD database.
 
 ## Finding devices affected by a CVE
 

@@ -39,9 +39,13 @@ func newOIDCServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// newTrustifyServer creates a mock Trustify server that handles SBOM list and advisory endpoints.
+// mockTrustifyServer creates a mock Trustify server that handles the 3-step flow:
+// 1. GET /api/v2/purl?q=<digest> - returns PURLs containing the digest
+// 2. GET /api/v2/sbom/by-package?purl=<purl> - returns SBOMs containing the package
+// 3. GET /api/v2/sbom/{id}/advisory - returns advisories for the SBOM
 type mockTrustifyServer struct {
-	sboms      map[string]SbomSummary    // digest -> SBOM
+	purls      map[string]PurlSummary    // digest -> PURL (OCI PURL containing the digest)
+	sboms      map[string]SbomSummary    // purl -> SBOM
 	advisories map[string][]SbomAdvisory // sbomID -> advisories
 }
 
@@ -50,18 +54,30 @@ func newMockTrustifyServer(t *testing.T, mock *mockTrustifyServer) *httptest.Ser
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// Handle SBOM list: GET /api/v2/sbom?q=sha256~...
-		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/sbom" {
+		// Handle PURL list: GET /api/v2/purl?q=<digest1|digest2|...>
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/purl" {
 			query := r.URL.Query().Get("q")
-			var items []SbomSummary
-			if strings.HasPrefix(query, "sha256~") {
-				digests := strings.Split(strings.TrimPrefix(query, "sha256~"), "|")
-				for _, d := range digests {
-					for digestKey, sbom := range mock.sboms {
-						if strings.Contains(digestKey, d) || strings.Contains(d, digestKey) {
-							items = append(items, sbom)
-						}
+			var items []PurlSummary
+			digests := strings.Split(query, "|")
+			for _, d := range digests {
+				for digestKey, purl := range mock.purls {
+					if strings.Contains(digestKey, d) || strings.Contains(d, digestKey) {
+						items = append(items, purl)
 					}
+				}
+			}
+			resp := PurlListResponse{Items: items, Total: int64(len(items))}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Handle SBOM by package: GET /api/v2/sbom/by-package?purl=<purl>
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/sbom/by-package" {
+			purl := r.URL.Query().Get("purl")
+			var items []SbomSummary
+			for purlKey, sbom := range mock.sboms {
+				if strings.Contains(purl, purlKey) || strings.Contains(purlKey, purl) {
+					items = append(items, sbom)
 				}
 			}
 			resp := SbomListResponse{Items: items, Total: int64(len(items))}
@@ -179,24 +195,29 @@ func TestNewVulnerabilityClient_UnsupportedAuthMode(t *testing.T) {
 func TestGetVulnerabilitiesForDigests_ReturnsFindings(t *testing.T) {
 	digest := "sha256:abc123def456"
 	sbomID := "urn:uuid:test-sbom-1"
+	purl := "pkg:oci/test-image@sha256:abc123def456?repository_url=quay.io/test"
 	published := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 	title := "HTTP/2 Rapid Reset Attack"
 
-	sha256Val := "sha256:" + "abc123def456"
 	mock := &mockTrustifyServer{
-		sboms: map[string]SbomSummary{
+		purls: map[string]PurlSummary{
 			"abc123def456": {
-				Id:     sbomID,
-				Name:   "test-image",
-				Sha256: &sha256Val,
+				Uuid: "purl-1",
+				Purl: purl,
+			},
+		},
+		sboms: map[string]SbomSummary{
+			purl: {
+				Id:   sbomID,
+				Name: "test-image",
 			},
 		},
 		advisories: map[string][]SbomAdvisory{
 			sbomID: {
 				{
 					Uuid:       "adv-1",
-					Identifier: "https://www.redhat.com/#CVE-2024-1234",
-					DocumentId: "CVE-2024-1234",
+					Identifier: "https://www.redhat.com/#RHSA-2024:1234",
+					DocumentId: "RHSA-2024:1234",
 					Title:      &title,
 					Published:  &published,
 					Status: []SbomStatus{
@@ -245,9 +266,10 @@ func TestGetVulnerabilitiesForDigests_EmptyDigests(t *testing.T) {
 	require.Empty(t, results)
 }
 
-func TestGetVulnerabilitiesForDigests_NoMatchingSBOM(t *testing.T) {
+func TestGetVulnerabilitiesForDigests_NoMatchingPURL(t *testing.T) {
 	mock := &mockTrustifyServer{
-		sboms: map[string]SbomSummary{}, // No SBOMs
+		purls: map[string]PurlSummary{}, // No PURLs
+		sboms: map[string]SbomSummary{},
 	}
 
 	srv := newMockTrustifyServer(t, mock)
@@ -258,35 +280,39 @@ func TestGetVulnerabilitiesForDigests_NoMatchingSBOM(t *testing.T) {
 	results, err := c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:unknown"})
 	require.NoError(t, err)
 	require.Contains(t, results, "sha256:unknown")
-	require.Nil(t, results["sha256:unknown"], "Digest without SBOM should have nil findings")
+	require.Nil(t, results["sha256:unknown"], "Digest without PURL should have nil findings")
 }
 
 func TestGetVulnerabilitiesForDigests_MultipleDigests(t *testing.T) {
 	digest1 := "sha256:aaaa1111"
 	digest2 := "sha256:bbbb2222"
+	purl1 := "pkg:oci/image-1@sha256:aaaa1111?repository_url=quay.io/test"
+	purl2 := "pkg:oci/image-2@sha256:bbbb2222?repository_url=quay.io/test"
 	sbomID1 := "urn:uuid:sbom-1"
 	sbomID2 := "urn:uuid:sbom-2"
 
-	sha1 := "sha256:aaaa1111"
-	sha2 := "sha256:bbbb2222"
 	mock := &mockTrustifyServer{
+		purls: map[string]PurlSummary{
+			"aaaa1111": {Uuid: "purl-1", Purl: purl1},
+			"bbbb2222": {Uuid: "purl-2", Purl: purl2},
+		},
 		sboms: map[string]SbomSummary{
-			"aaaa1111": {Id: sbomID1, Name: "image-1", Sha256: &sha1},
-			"bbbb2222": {Id: sbomID2, Name: "image-2", Sha256: &sha2},
+			purl1: {Id: sbomID1, Name: "image-1"},
+			purl2: {Id: sbomID2, Name: "image-2"},
 		},
 		advisories: map[string][]SbomAdvisory{
 			sbomID1: {
 				{
-					DocumentId: "CVE-2024-0001",
-					Identifier: "RHSA-1",
-					Status:     []SbomStatus{{Status: "affected", AverageSeverity: High, AverageScore: 8.0}},
+					DocumentId: "RHSA-2024:0001",
+					Identifier: "https://access.redhat.com/errata/RHSA-2024:0001",
+					Status:     []SbomStatus{{Identifier: "CVE-2024-0001", Status: "affected", AverageSeverity: High, AverageScore: 8.0}},
 				},
 			},
 			sbomID2: {
 				{
-					DocumentId: "CVE-2024-0002",
-					Identifier: "RHSA-2",
-					Status:     []SbomStatus{{Status: "fixed", AverageSeverity: Medium, AverageScore: 5.0}},
+					DocumentId: "RHSA-2024:0002",
+					Identifier: "https://access.redhat.com/errata/RHSA-2024:0002",
+					Status:     []SbomStatus{{Identifier: "CVE-2024-0002", Status: "fixed", AverageSeverity: Medium, AverageScore: 5.0}},
 				},
 			},
 		},
@@ -308,22 +334,25 @@ func TestGetVulnerabilitiesForDigests_MultipleDigests(t *testing.T) {
 }
 
 func TestGetVulnerabilitiesForDigests_MultipleStatusEntries(t *testing.T) {
-	digest := "sha256:multi"
+	digest := "sha256:multi123"
+	purl := "pkg:oci/image-multi@sha256:multi123?repository_url=quay.io/test"
 	sbomID := "urn:uuid:sbom-multi"
-	sha := "sha256:multi"
 
 	mock := &mockTrustifyServer{
+		purls: map[string]PurlSummary{
+			"multi123": {Uuid: "purl-multi", Purl: purl},
+		},
 		sboms: map[string]SbomSummary{
-			"multi": {Id: sbomID, Name: "image-multi", Sha256: &sha},
+			purl: {Id: sbomID, Name: "image-multi"},
 		},
 		advisories: map[string][]SbomAdvisory{
 			sbomID: {
 				{
-					DocumentId: "CVE-2024-9999",
-					Identifier: "RHSA-9999",
+					DocumentId: "RHSA-2024:9999",
+					Identifier: "https://access.redhat.com/errata/RHSA-2024:9999",
 					Status: []SbomStatus{
-						{Status: "affected", AverageSeverity: High, AverageScore: 8.0},
-						{Status: "fixed", AverageSeverity: High, AverageScore: 8.0},
+						{Identifier: "CVE-2024-9999", Status: "affected", AverageSeverity: High, AverageScore: 8.0},
+						{Identifier: "CVE-2024-9998", Status: "fixed", AverageSeverity: High, AverageScore: 8.0},
 					},
 				},
 			},
@@ -372,24 +401,6 @@ func TestGetVulnerabilitiesForDigests_Unreachable(t *testing.T) {
 }
 
 // ---- helper functions -------------------------------------------------------
-
-func TestDigestMatches(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b string
-		want bool
-	}{
-		{"same digest with prefix", "sha256:abc123", "sha256:abc123", true},
-		{"same digest without prefix", "abc123", "abc123", true},
-		{"one with prefix one without", "sha256:abc123", "abc123", true},
-		{"different digests", "sha256:abc123", "sha256:def456", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, digestMatches(tt.a, tt.b))
-		})
-	}
-}
 
 func TestStripSHA256Prefix(t *testing.T) {
 	require.Equal(t, "abc123", stripSHA256Prefix("sha256:abc123"))

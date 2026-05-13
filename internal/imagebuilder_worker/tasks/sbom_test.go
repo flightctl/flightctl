@@ -27,7 +27,7 @@ func TestConsumer_transformSBOM(t *testing.T) {
 
 	minSBOM := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.5","components":[{"type":"library","name":"acl","purl":"pkg:rpm/centos/acl@1.0?arch=x86_64&distro=centos-9&upstream=x"}]}`)
 
-	t.Run("When PURL transform is disabled it should return the original path", func(t *testing.T) {
+	t.Run("When PURL transform is disabled it should still enrich metadata and write sbom-transformed.json", func(t *testing.T) {
 		t.Parallel()
 		cfg := config.NewDefault()
 		disabled := false
@@ -38,9 +38,9 @@ func TestConsumer_transformSBOM(t *testing.T) {
 		require.NoError(t, os.WriteFile(sbomPath, minSBOM, 0600))
 
 		c := testConsumer(t, cfg)
-		outPath, err := c.transformSBOM(ctx, sbomPath, dir, log)
+		outPath, err := c.transformSBOM(ctx, sbomPath, dir, "quay.io/test/image:v1", "sha256:abc123", log)
 		require.NoError(t, err)
-		require.Equal(t, sbomPath, outPath)
+		require.Equal(t, filepath.Join(dir, "sbom-transformed.json"), outPath)
 	})
 
 	t.Run("When PURL transform is enabled it should write sbom-transformed.json", func(t *testing.T) {
@@ -52,7 +52,7 @@ func TestConsumer_transformSBOM(t *testing.T) {
 		require.NoError(t, os.WriteFile(sbomPath, minSBOM, 0600))
 
 		c := testConsumer(t, cfg)
-		outPath, err := c.transformSBOM(ctx, sbomPath, dir, log)
+		outPath, err := c.transformSBOM(ctx, sbomPath, dir, "quay.io/test/image:v1", "sha256:abc123", log)
 		require.NoError(t, err)
 		require.Equal(t, filepath.Join(dir, "sbom-transformed.json"), outPath)
 
@@ -73,7 +73,7 @@ func TestConsumer_transformSBOM(t *testing.T) {
 		cfg := config.NewDefault()
 		dir := t.TempDir()
 		c := testConsumer(t, cfg)
-		_, err := c.transformSBOM(ctx, filepath.Join(dir, "missing.json"), dir, log)
+		_, err := c.transformSBOM(ctx, filepath.Join(dir, "missing.json"), dir, "quay.io/test/image:v1", "sha256:abc123", log)
 		require.Error(t, err)
 	})
 }
