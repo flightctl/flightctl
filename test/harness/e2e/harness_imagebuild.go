@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -648,6 +650,193 @@ func (h *Harness) ResolveImage(registry, imageName, tag string) (ocispec.Descrip
 	}
 
 	return desc, nil
+}
+
+// cycloneDXMediaType is the media type for CycloneDX SBOM artifacts
+const cycloneDXMediaType = "application/vnd.cyclonedx+json"
+
+// FetchReferrers fetches all referrers for an image in an OCI registry.
+// registry: the registry host (e.g., "localhost:5000")
+// imageName: the image name (e.g., "myimage" or "namespace/myimage")
+// digest: the image digest (e.g., "sha256:...")
+// Returns the list of referrer descriptors.
+func (h *Harness) FetchReferrers(registry, imageName, digest string) ([]ocispec.Descriptor, error) {
+	ref := fmt.Sprintf("%s/%s", registry, imageName)
+
+	repoRef, err := remote.NewRepository(ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repository reference for %s: %w", ref, err)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec
+	}
+	repoRef.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: transport,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
+	defer cancel()
+
+	var referrers []ocispec.Descriptor
+	err = repoRef.Referrers(ctx, ocispec.Descriptor{Digest: digestFromString(digest)}, "", func(refs []ocispec.Descriptor) error {
+		referrers = append(referrers, refs...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch referrers for %s@%s: %w", ref, digest, err)
+	}
+
+	return referrers, nil
+}
+
+// FetchSBOMContent fetches the SBOM content from the registry using the referrer descriptor.
+// registry: the registry host (e.g., "localhost:5000")
+// imageName: the image name (e.g., "myimage" or "namespace/myimage")
+// referrerDesc: the descriptor of the SBOM referrer manifest
+// Returns the raw SBOM JSON content.
+func (h *Harness) FetchSBOMContent(registry, imageName string, referrerDesc ocispec.Descriptor) ([]byte, error) {
+	ref := fmt.Sprintf("%s/%s", registry, imageName)
+
+	repoRef, err := remote.NewRepository(ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repository reference for %s: %w", ref, err)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec
+	}
+	repoRef.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: transport,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
+	defer cancel()
+
+	// Fetch the referrer manifest to get the SBOM blob descriptor
+	manifestReader, err := repoRef.Fetch(ctx, referrerDesc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch referrer manifest: %w", err)
+	}
+	defer manifestReader.Close()
+
+	manifestBytes, err := io.ReadAll(manifestReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read referrer manifest: %w", err)
+	}
+
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return nil, fmt.Errorf("failed to parse referrer manifest: %w", err)
+	}
+
+	if len(manifest.Layers) == 0 {
+		return nil, fmt.Errorf("referrer manifest has no layers (SBOM blob)")
+	}
+
+	// Fetch the SBOM blob (first layer)
+	sbomBlobDesc := manifest.Layers[0]
+	blobReader, err := repoRef.Fetch(ctx, sbomBlobDesc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch SBOM blob: %w", err)
+	}
+	defer blobReader.Close()
+
+	sbomContent, err := io.ReadAll(blobReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read SBOM content: %w", err)
+	}
+
+	return sbomContent, nil
+}
+
+// SBOMValidationResult contains the result of SBOM validation
+type SBOMValidationResult struct {
+	Found          bool
+	ImageDigest    string
+	ImagePURL      string
+	DigestMatches  bool
+	ReferrerDigest string
+}
+
+// ValidateImageSBOM validates that an SBOM exists for the image and contains the expected digest.
+// registry: the registry host (e.g., "localhost:5000")
+// imageName: the image name (e.g., "myimage" or "namespace/myimage")
+// imageDigest: the expected image digest (e.g., "sha256:...")
+// Returns the validation result with details about the SBOM.
+func (h *Harness) ValidateImageSBOM(registry, imageName, imageDigest string) (*SBOMValidationResult, error) {
+	result := &SBOMValidationResult{}
+
+	referrers, err := h.FetchReferrers(registry, imageName, imageDigest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch referrers: %w", err)
+	}
+
+	// Find the SBOM referrer (CycloneDX)
+	var sbomReferrer *ocispec.Descriptor
+	for i := range referrers {
+		if referrers[i].ArtifactType == cycloneDXMediaType {
+			sbomReferrer = &referrers[i]
+			break
+		}
+	}
+
+	if sbomReferrer == nil {
+		return result, nil
+	}
+
+	result.Found = true
+	result.ReferrerDigest = sbomReferrer.Digest.String()
+
+	// Fetch and parse the SBOM content
+	sbomContent, err := h.FetchSBOMContent(registry, imageName, *sbomReferrer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch SBOM content: %w", err)
+	}
+
+	// Parse the SBOM to extract metadata
+	var sbom map[string]interface{}
+	if err := json.Unmarshal(sbomContent, &sbom); err != nil {
+		return nil, fmt.Errorf("failed to parse SBOM JSON: %w", err)
+	}
+
+	// Extract the image digest from metadata.component.purl
+	metadata, ok := sbom["metadata"].(map[string]interface{})
+	if !ok {
+		return result, nil
+	}
+
+	component, ok := metadata["component"].(map[string]interface{})
+	if !ok {
+		return result, nil
+	}
+
+	if purl, ok := component["purl"].(string); ok {
+		result.ImagePURL = purl
+		// PURL format: pkg:oci/<name>@<digest>?repository_url=<registry>
+		// Extract the digest from the PURL directly.
+		if idx := strings.Index(purl, "@"); idx != -1 {
+			digestPart := purl[idx+1:]
+			if qIdx := strings.Index(digestPart, "?"); qIdx != -1 {
+				digestPart = digestPart[:qIdx]
+			}
+			result.ImageDigest = digestPart
+			result.DigestMatches = digestPart == imageDigest
+		}
+	}
+
+	return result, nil
+}
+
+// digestFromString converts a digest string to an opencontainers digest type.
+func digestFromString(s string) digest.Digest {
+	return digest.Digest(s)
 }
 
 // NewImageBuildSpec creates a new ImageBuildSpec with the given parameters.
