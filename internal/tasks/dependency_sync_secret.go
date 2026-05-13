@@ -2,10 +2,8 @@ package tasks
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -21,31 +19,32 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const secretSyncLabel = "flightctl.io/sync"
+const secretSyncLabelPrefix = "flightctl.io/sync-"
 
 // DependencySyncSecret manages a K8s Secret SharedInformer that detects
 // changes to labeled secrets and emits DependencyChangeDetected events
 // for affected fleets/devices.
 type DependencySyncSecret struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	hashFunc       func(data map[string][]byte) string
+	log              logrus.FieldLogger
+	serviceHandler   service.Service
+	releaseNamespace string
 }
 
-func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service) *DependencySyncSecret {
+func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string) *DependencySyncSecret {
 	return &DependencySyncSecret{
-		log:            log,
-		serviceHandler: serviceHandler,
-		hashFunc:       hashSecretData,
+		log:              log,
+		serviceHandler:   serviceHandler,
+		releaseNamespace: releaseNamespace,
 	}
 }
 
 // Run starts the SharedInformerFactory watching labeled secrets and blocks
 // until ctx is cancelled. Intended to be called as a goroutine.
 func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Interface) {
+	labelSelector := secretSyncLabelPrefix + d.releaseNamespace + "=true"
 	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 0,
 		informers.WithTweakListOptions(func(opts *metav1.ListOptions) {
-			opts.LabelSelector = secretSyncLabel + "=true"
+			opts.LabelSelector = labelSelector
 		}),
 	)
 
@@ -86,8 +85,7 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 		return
 	}
 
-	fingerprint := d.hashFunc(secret.Data)
-	d.reconcile(ctx, secret.Namespace, secret.Name, fingerprint)
+	d.reconcile(ctx, secret.Namespace, secret.Name, secret.ResourceVersion)
 }
 
 // reconcile queries for dependency targets whose stored fingerprint differs from
@@ -106,11 +104,8 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)
 	now := time.Now().UTC()
 
-	orgsToUpdate := make(map[uuid.UUID]bool)
 	for _, ref := range refs {
-		firstSeen := ref.Fingerprint == nil
-
-		if !firstSeen {
+		if ref.Fingerprint != nil {
 			var kind domain.ResourceKind
 			var targetName string
 			if ref.DeviceName != "" {
@@ -125,42 +120,16 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 				d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
 			}
 		}
-
-		orgsToUpdate[ref.OrgID] = true
 	}
 
-	for orgID := range orgsToUpdate {
-		state := &model.SyncState{
-			OrgID:         orgID,
-			ResourceKey:   resourceKey,
-			Fingerprint:   newFingerprint,
-			LastCheckedAt: now,
-			LastChangeAt:  &now,
-		}
-		if st := d.serviceHandler.SetSyncState(ctx, orgID, state); st.Code != http.StatusOK {
-			d.log.Errorf("failed setting sync state for %s (org %s): %s", resourceKey, orgID, st.Message)
-		}
+	state := &model.SyncState{
+		OrgID:         uuid.Nil,
+		ResourceKey:   resourceKey,
+		Fingerprint:   newFingerprint,
+		LastCheckedAt: now,
+		LastChangeAt:  &now,
 	}
-}
-
-// hashSecretData computes a deterministic sha256 hash of a secret's .data field.
-// Keys are sorted before hashing to ensure consistent output regardless of map
-// iteration order.
-func hashSecretData(data map[string][]byte) string {
-	h := sha256.New()
-
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
+	if st := d.serviceHandler.SetSyncState(ctx, uuid.Nil, state); st.Code != http.StatusOK {
+		d.log.Errorf("failed setting sync state for %s: %s", resourceKey, st.Message)
 	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		h.Write([]byte(k))
-		h.Write([]byte{0})
-		h.Write(data[k])
-		h.Write([]byte{0})
-	}
-
-	return fmt.Sprintf("sha256:%x", h.Sum(nil))
 }

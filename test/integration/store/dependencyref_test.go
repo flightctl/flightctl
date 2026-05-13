@@ -267,24 +267,25 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
 
+			// Secret sync_state uses uuid.Nil as the sentinel org_id
 			syncState := &model.SyncState{
-				OrgID:       orgId,
+				OrgID:       uuid.Nil,
 				ResourceKey: "secret:prod/db-creds",
-				Fingerprint: "sha256:abc123",
+				Fingerprint: "rv1000",
 			}
-			Expect(storeInst.SyncState().Set(ctx, orgId, syncState)).To(Succeed())
+			Expect(storeInst.SyncState().Set(ctx, uuid.Nil, syncState)).To(Succeed())
 
 			// Same fingerprint — should be filtered out
-			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:abc123")
+			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "rv1000")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(BeEmpty())
 
 			// Different fingerprint — should return the ref
-			refs, err = storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "sha256:new")
+			refs, err = storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "db-creds", "rv1001")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(HaveLen(1))
 			Expect(refs[0].Fingerprint).ToNot(BeNil())
-			Expect(*refs[0].Fingerprint).To(Equal("sha256:abc123"))
+			Expect(*refs[0].Fingerprint).To(Equal("rv1000"))
 		})
 
 		It("should return refs with nil fingerprint when no sync_state exists (first seen)", func() {
