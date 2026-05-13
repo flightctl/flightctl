@@ -129,6 +129,38 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				"Expected ImageBuild to complete successfully")
 
 			// ============================================================
+			// Step 2b: Verify image upload and SBOM
+			// ============================================================
+
+			By("Step 2b: Verifying image was uploaded to registry with correct digest")
+
+			// Get the manifest digest from ImageBuild status
+			Expect(verifiedBuild.Status).ToNot(BeNil(), "ImageBuild status should not be nil")
+			Expect(verifiedBuild.Status.ManifestDigest).ToNot(BeNil(), "ImageBuild manifest digest should not be nil")
+			manifestDigest := *verifiedBuild.Status.ManifestDigest
+			GinkgoWriter.Printf("ImageBuild manifest digest from status: %s\n", manifestDigest)
+
+			// Resolve the image in the registry and verify the digest matches
+			resolvedDesc, err := workerHarness.ResolveImage(registryAddress, destImageName, testID)
+			Expect(err).ToNot(HaveOccurred(), "Should be able to resolve image in registry")
+			resolvedDigest := resolvedDesc.Digest.String()
+			GinkgoWriter.Printf("Resolved image digest from registry: %s\n", resolvedDigest)
+			Expect(resolvedDigest).To(Equal(manifestDigest),
+				"Registry digest should match ImageBuild status digest")
+
+			By("Step 2c: Verifying SBOM contains correct image digest")
+
+			// Validate the SBOM was pushed and contains the correct digest
+			sbomResult, err := workerHarness.ValidateImageSBOM(registryAddress, destImageName, manifestDigest)
+			Expect(err).ToNot(HaveOccurred(), "Should be able to validate SBOM")
+			Expect(sbomResult.Found).To(BeTrue(), "SBOM should be found as a referrer")
+			GinkgoWriter.Printf("SBOM referrer digest: %s\n", sbomResult.ReferrerDigest)
+			GinkgoWriter.Printf("SBOM image PURL: %s\n", sbomResult.ImagePURL)
+			GinkgoWriter.Printf("SBOM image digest: %s\n", sbomResult.ImageDigest)
+			Expect(sbomResult.DigestMatches).To(BeTrue(),
+				"SBOM should contain the correct image digest (expected: %s, got: %s)", manifestDigest, sbomResult.ImageDigest)
+
+			// ============================================================
 			// Step 3: Build the image export
 			// ============================================================
 
