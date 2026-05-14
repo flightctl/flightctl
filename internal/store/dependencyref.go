@@ -242,7 +242,7 @@ func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context
 	q := s.getDB(ctx).
 		Table("dependency_refs dr").
 		Select("dr.resource_key, dr.ref_type, dr.config_provider_name, "+
-			"ss.fingerprint, ss.probe_status, ss.probe_message, ss.last_checked_at").
+			"ss.fingerprint, ss.probe_status, ss.probe_message, ss.last_checked_at, ss.last_change_at").
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Where("dr.org_id = ?", orgID)
 
