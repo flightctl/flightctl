@@ -28,10 +28,11 @@ type DependencySyncGit struct {
 	lsRemote       gitLsRemoteFunc
 	maxConcurrent  int
 	metrics        *periodic.DependencySyncCollector
+	statusUpdater  *DependencySyncStatusUpdater
 }
 
 func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config, metrics *periodic.DependencySyncCollector) *DependencySyncGit {
+	cfg *config.Config, metrics *periodic.DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncGit {
 	return &DependencySyncGit{
 		log:            log,
 		serviceHandler: serviceHandler,
@@ -39,6 +40,7 @@ func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service
 		lsRemote:       GitLsRemote,
 		maxConcurrent:  10,
 		metrics:        metrics,
+		statusUpdater:  statusUpdater,
 	}
 }
 
@@ -104,6 +106,10 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	}
 
 	d.reconcile(ctx, orgId, results)
+
+	if d.statusUpdater != nil {
+		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
+	}
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
