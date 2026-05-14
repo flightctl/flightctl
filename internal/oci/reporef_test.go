@@ -1,4 +1,4 @@
-package tasks
+package oci
 
 import (
 	"crypto/ecdsa"
@@ -17,15 +17,9 @@ import (
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
-
-func testLogger() logrus.FieldLogger {
-	l := logrus.New()
-	l.SetLevel(logrus.DebugLevel)
-	return l
-}
 
 func generateTestCACertPEM(t *testing.T) string {
 	t.Helper()
@@ -47,29 +41,35 @@ func generateTestCACertPEM(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}))
 }
 
-func TestNewOCIAuthClient_Default(t *testing.T) {
+// authClientFrom extracts the *auth.Client from a BuildOciRepoRef result.
+func authClientFrom(t *testing.T, ociSpec *coredomain.OciRepoSpec) *auth.Client {
+	t.Helper()
+	repoRef, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
+	require.NoError(t, err)
+	client, ok := repoRef.Client.(*auth.Client)
+	require.True(t, ok, "repoRef.Client must be *auth.Client")
+	return client
+}
+
+func TestBuildOciRepoRef_Default(t *testing.T) {
 	ociSpec := &coredomain.OciRepoSpec{
 		Registry: "registry.example.com",
 		Type:     coredomain.OciRepoSpecTypeOci,
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.Nil(t, client.Client, "default transport should not be overridden when no TLS options set")
 	require.Nil(t, client.Credential, "no credentials should be set")
 }
 
-func TestNewOCIAuthClient_SkipVerification(t *testing.T) {
+func TestBuildOciRepoRef_SkipVerification(t *testing.T) {
 	ociSpec := &coredomain.OciRepoSpec{
 		Registry:               "registry.example.com",
 		Type:                   coredomain.OciRepoSpecTypeOci,
 		SkipServerVerification: lo.ToPtr(true),
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.NotNil(t, client.Client)
 
 	transport, ok := client.Client.Transport.(*http.Transport)
@@ -79,7 +79,7 @@ func TestNewOCIAuthClient_SkipVerification(t *testing.T) {
 	require.Nil(t, transport.TLSClientConfig.RootCAs)
 }
 
-func TestNewOCIAuthClient_CaCrt(t *testing.T) {
+func TestBuildOciRepoRef_CaCrt(t *testing.T) {
 	caPEM := generateTestCACertPEM(t)
 	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
 
@@ -89,9 +89,7 @@ func TestNewOCIAuthClient_CaCrt(t *testing.T) {
 		CaCrt:    &encoded,
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.NotNil(t, client.Client)
 
 	transport, ok := client.Client.Transport.(*http.Transport)
@@ -102,7 +100,7 @@ func TestNewOCIAuthClient_CaCrt(t *testing.T) {
 	require.Equal(t, tls.VersionTLS12, int(transport.TLSClientConfig.MinVersion))
 }
 
-func TestNewOCIAuthClient_BothCaCrtAndSkipVerification(t *testing.T) {
+func TestBuildOciRepoRef_BothCaCrtAndSkipVerification(t *testing.T) {
 	caPEM := generateTestCACertPEM(t)
 	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
 
@@ -113,9 +111,7 @@ func TestNewOCIAuthClient_BothCaCrtAndSkipVerification(t *testing.T) {
 		CaCrt:                  &encoded,
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.NotNil(t, client.Client)
 
 	transport, ok := client.Client.Transport.(*http.Transport)
@@ -125,7 +121,7 @@ func TestNewOCIAuthClient_BothCaCrtAndSkipVerification(t *testing.T) {
 	require.NotNil(t, transport.TLSClientConfig.RootCAs)
 }
 
-func TestNewOCIAuthClient_WithCredentials(t *testing.T) {
+func TestBuildOciRepoRef_WithCredentials(t *testing.T) {
 	ociAuth := &v1beta1.OciAuth{}
 	err := ociAuth.FromDockerAuth(v1beta1.DockerAuth{
 		AuthType: v1beta1.Docker,
@@ -140,13 +136,11 @@ func TestNewOCIAuthClient_WithCredentials(t *testing.T) {
 		OciAuth:  ociAuth,
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.NotNil(t, client.Credential, "credentials should be set")
 }
 
-func TestNewOCIAuthClient_InvalidBase64CaCrt(t *testing.T) {
+func TestBuildOciRepoRef_InvalidBase64CaCrt(t *testing.T) {
 	invalid := "not-valid-base64!!!"
 	ociSpec := &coredomain.OciRepoSpec{
 		Registry: "registry.example.com",
@@ -154,20 +148,30 @@ func TestNewOCIAuthClient_InvalidBase64CaCrt(t *testing.T) {
 		CaCrt:    &invalid,
 	}
 
-	_, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
+	_, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to decode CA certificate")
+	require.Contains(t, err.Error(), "decode CA certificate")
 }
 
-func TestNewOCIAuthClient_SkipVerificationFalse(t *testing.T) {
+func TestBuildOciRepoRef_SkipVerificationFalse(t *testing.T) {
 	ociSpec := &coredomain.OciRepoSpec{
 		Registry:               "registry.example.com",
 		Type:                   coredomain.OciRepoSpecTypeOci,
 		SkipServerVerification: lo.ToPtr(false),
 	}
 
-	client, err := newOCIAuthClient(ociSpec, "registry.example.com", testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, client)
+	client := authClientFrom(t, ociSpec)
 	require.Nil(t, client.Client, "default transport should not be overridden when SkipServerVerification is false")
+}
+
+func TestBuildOciRepoRef_PlainHTTP(t *testing.T) {
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry: "registry.example.com",
+		Type:     coredomain.OciRepoSpecTypeOci,
+		Scheme:   lo.ToPtr(coredomain.OciRepoSchemeHttp),
+	}
+
+	repoRef, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
+	require.NoError(t, err)
+	require.True(t, repoRef.PlainHTTP)
 }

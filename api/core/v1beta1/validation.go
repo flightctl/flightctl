@@ -679,6 +679,9 @@ func (r *Repository) Validate() []error {
 		if ociRepoSpec.CaCrt != nil {
 			allErrs = append(allErrs, validation.ValidateBase64Field(*ociRepoSpec.CaCrt, "spec.ca.crt", maxBase64CertificateLength)...)
 		}
+		if ociRepoSpec.BaseImages != nil {
+			allErrs = append(allErrs, validateBaseImages(*ociRepoSpec.BaseImages)...)
+		}
 	case string(RepoSpecTypeHttp):
 		httpRepoSpec, err := r.Spec.AsHttpRepoSpec()
 		if err != nil {
@@ -803,6 +806,25 @@ func validateHttpConfig(config *HttpConfig) []error {
 
 		if config.Token != nil {
 			errs = append(errs, validation.ValidateBearerToken(config.Token, "spec.httpConfig.token")...)
+		}
+	}
+	return errs
+}
+
+func validateBaseImages(baseImages []BaseImageEntry) []error {
+	var errs []error
+	for i, entry := range baseImages {
+		path := fmt.Sprintf("spec.baseImages[%d]", i)
+		errs = append(errs, validation.ValidateString(&entry.ImageName, path+".imageName", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
+		seen := make(map[string]struct{}, len(entry.Tags))
+		for j, tag := range entry.Tags {
+			tagCopy := tag
+			errs = append(errs, validation.ValidateString(&tagCopy, fmt.Sprintf("%s.tags[%d]", path, j), 1, 128, validation.OciImageTagRegexp, validation.OciImageTagFmt)...)
+			if _, exists := seen[tag]; exists {
+				errs = append(errs, fmt.Errorf("%s.tags[%d]: duplicate tag %q", path, j, tag))
+			} else {
+				seen[tag] = struct{}{}
+			}
 		}
 	}
 	return errs

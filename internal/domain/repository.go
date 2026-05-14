@@ -59,3 +59,14 @@ const (
 	HttpRepoSpecTypeHttp = v1beta1.HttpRepoSpecTypeHttp
 	OciRepoSpecTypeOci   = v1beta1.OciRepoSpecTypeOci
 )
+
+// OciRegistryCheckResult is the unified result of an OCI registry check (tag existence or image accessibility).
+type OciRegistryCheckResult struct {
+	// Accessible indicates whether the image or tag is accessible in the registry.
+	Accessible bool
+	// ErrorCode is the HTTP status code returned by the OCI registry when Accessible is false.
+	// Zero when the failure is not an HTTP-level error (e.g. network timeout).
+	ErrorCode int
+	// ErrorMessage describes why the image or tag is not accessible.
+	ErrorMessage string
+}

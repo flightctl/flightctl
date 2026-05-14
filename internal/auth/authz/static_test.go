@@ -382,6 +382,14 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 				{
+					Resource:   "repositories/check-oci-tag",
+					Operations: []string{"create"},
+				},
+				{
+					Resource:   "repositories/check-oci-image",
+					Operations: []string{"create"},
+				},
+				{
 					Resource:   "resourcesyncs",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},

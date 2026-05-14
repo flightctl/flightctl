@@ -30,6 +30,8 @@ const (
 	API_RESOURCE_LABELS = "labels"
 	API_RESOURCE_ORGANIZATIONS = "organizations"
 	API_RESOURCE_REPOSITORIES = "repositories"
+	API_RESOURCE_REPOSITORIES_CHECK_OCI_IMAGE = "repositories/check-oci-image"
+	API_RESOURCE_REPOSITORIES_CHECK_OCI_TAG = "repositories/check-oci-tag"
 	API_RESOURCE_RESOURCESYNCS = "resourcesyncs"
 	API_RESOURCE_VULNERABILITIES = "vulnerabilities"
 )
@@ -683,6 +685,22 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "replaceRepository",
 		Resource:    "repositories",
 		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/repositories/{name}/check-oci-image": {
+		OperationID: "checkRepositoryOciImage",
+		Resource:    "repositories/check-oci-image",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/repositories/{name}/check-oci-tag": {
+		OperationID: "checkRepositoryOciTag",
+		Resource:    "repositories/check-oci-tag",
+		Action:      "create",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},

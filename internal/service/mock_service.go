@@ -102,6 +102,36 @@ func (mr *MockServiceMockRecorder) BulkUpsertSyncState(ctx, orgId, states any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkUpsertSyncState", reflect.TypeOf((*MockService)(nil).BulkUpsertSyncState), ctx, orgId, states)
 }
 
+// CheckRepositoryOciImage mocks base method.
+func (m *MockService) CheckRepositoryOciImage(ctx context.Context, orgId uuid.UUID, repositoryName, imageName string) (*domain.OciRegistryCheckResult, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckRepositoryOciImage", ctx, orgId, repositoryName, imageName)
+	ret0, _ := ret[0].(*domain.OciRegistryCheckResult)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CheckRepositoryOciImage indicates an expected call of CheckRepositoryOciImage.
+func (mr *MockServiceMockRecorder) CheckRepositoryOciImage(ctx, orgId, repositoryName, imageName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRepositoryOciImage", reflect.TypeOf((*MockService)(nil).CheckRepositoryOciImage), ctx, orgId, repositoryName, imageName)
+}
+
+// CheckRepositoryOciTag mocks base method.
+func (m *MockService) CheckRepositoryOciTag(ctx context.Context, orgId uuid.UUID, repositoryName, imageName, tag string) (*domain.OciRegistryCheckResult, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckRepositoryOciTag", ctx, orgId, repositoryName, imageName, tag)
+	ret0, _ := ret[0].(*domain.OciRegistryCheckResult)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CheckRepositoryOciTag indicates an expected call of CheckRepositoryOciTag.
+func (mr *MockServiceMockRecorder) CheckRepositoryOciTag(ctx, orgId, repositoryName, imageName, tag any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRepositoryOciTag", reflect.TypeOf((*MockService)(nil).CheckRepositoryOciTag), ctx, orgId, repositoryName, imageName, tag)
+}
+
 // CountDevices mocks base method.
 func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, domain.Status) {
 	m.ctrl.T.Helper()

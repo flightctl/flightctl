@@ -23,6 +23,7 @@ var (
 	StatusNotImplemented          = v1beta1.StatusNotImplemented
 	StatusTooManyRequests         = v1beta1.StatusTooManyRequests
 	StatusAuthNotConfigured       = v1beta1.StatusAuthNotConfigured
+	StatusServiceUnavailable      = v1beta1.StatusServiceUnavailable
 )
 
 // Status helper functions
