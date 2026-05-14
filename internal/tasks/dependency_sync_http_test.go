@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -364,4 +365,118 @@ func TestNewDependencySyncHttp(t *testing.T) {
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.conditionalHead)
+}
+
+func plainHttpSpec() domain.HttpRepoSpec {
+	return domain.HttpRepoSpec{
+		Type: domain.HttpRepoSpecTypeHttp,
+		Url:  "http://ignored",
+	}
+}
+
+func TestHttpConditionalHead(t *testing.T) {
+	ctx := context.Background()
+	spec := plainHttpSpec()
+
+	t.Run("When endpoint returns ETag and supports conditional HEAD it should return 304 on match", func(t *testing.T) {
+		etag := `"abc123"`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, http.MethodHead, r.Method)
+			if r.Header.Get("If-None-Match") == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("ETag", etag)
+		}))
+		defer srv.Close()
+
+		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, status)
+		assert.Equal(t, etag, fp)
+
+		fp, status, err = httpConditionalHead(ctx, srv.URL, spec, etag)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotModified, status)
+		assert.Empty(t, fp)
+	})
+
+	t.Run("When endpoint returns ETag but ignores conditional HEAD it should return new ETag", func(t *testing.T) {
+		etag := `"v2"`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, http.MethodHead, r.Method)
+			w.Header().Set("ETag", etag)
+		}))
+		defer srv.Close()
+
+		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, `"v1"`)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, status)
+		assert.Equal(t, etag, fp)
+	})
+
+	t.Run("When endpoint returns Last-Modified and supports conditional HEAD it should return 304 on match", func(t *testing.T) {
+		lastMod := "Wed, 14 May 2026 08:00:00 GMT"
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, http.MethodHead, r.Method)
+			if r.Header.Get("If-Modified-Since") == lastMod {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("Last-Modified", lastMod)
+		}))
+		defer srv.Close()
+
+		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, status)
+		assert.Equal(t, lastMod, fp)
+
+		fp, status, err = httpConditionalHead(ctx, srv.URL, spec, lastMod)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotModified, status)
+		assert.Empty(t, fp)
+	})
+
+	t.Run("When endpoint returns Last-Modified but ignores conditional HEAD it should return new timestamp", func(t *testing.T) {
+		lastMod := "Wed, 14 May 2026 09:00:00 GMT"
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, http.MethodHead, r.Method)
+			w.Header().Set("Last-Modified", lastMod)
+		}))
+		defer srv.Close()
+
+		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "Tue, 13 May 2026 08:00:00 GMT")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, status)
+		assert.Equal(t, lastMod, fp)
+	})
+
+	t.Run("When endpoint does not support HEAD it should return error with 405", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}))
+		defer srv.Close()
+
+		_, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		require.Error(t, err)
+		assert.Equal(t, http.StatusMethodNotAllowed, status)
+		assert.Contains(t, err.Error(), "405")
+	})
+
+	t.Run("When endpoint returns 4xx or 5xx it should return error with status code", func(t *testing.T) {
+		codes := []int{http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway}
+		for _, code := range codes {
+			t.Run(fmt.Sprintf("status_%d", code), func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(code)
+				}))
+				defer srv.Close()
+
+				_, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+				require.Error(t, err)
+				assert.Equal(t, code, status)
+			})
+		}
+	})
 }
