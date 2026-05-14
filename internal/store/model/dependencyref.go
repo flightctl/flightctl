@@ -91,6 +91,7 @@ type DependencyRefWithSyncState struct {
 	ProbeStatus        *string
 	ProbeMessage       *string
 	LastCheckedAt      *time.Time
+	LastChangeAt       *time.Time
 }
 
 // DependencyRefOwner is a distinct (fleet_name, device_name) pair returned by

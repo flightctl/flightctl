@@ -92,6 +92,9 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 	anyFailed := false
 	failedMessage := ""
 
+	var latestProbeTime *time.Time
+	var latestSuccessfulProbeTime *time.Time
+
 	for _, ref := range refs {
 		isSecret := ref.RefType == "secret"
 		if isSecret {
@@ -100,7 +103,6 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 
 		refStatus := domain.DependencySyncConfigRefStatusSynced
 		var message string
-		var lastProbeTime *time.Time
 
 		if ref.ProbeStatus != nil {
 			switch *ref.ProbeStatus {
@@ -120,7 +122,14 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 		}
 
 		if ref.LastCheckedAt != nil {
-			lastProbeTime = ref.LastCheckedAt
+			if latestProbeTime == nil || ref.LastCheckedAt.After(*latestProbeTime) {
+				latestProbeTime = ref.LastCheckedAt
+			}
+			if refStatus == domain.DependencySyncConfigRefStatusSynced {
+				if latestSuccessfulProbeTime == nil || ref.LastCheckedAt.After(*latestSuccessfulProbeTime) {
+					latestSuccessfulProbeTime = ref.LastCheckedAt
+				}
+			}
 		}
 
 		// Override secret refs when informer is disconnected
@@ -132,12 +141,12 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 		cfgRef := domain.DependencySyncConfigRefStatus{
 			ConfigProviderName: ref.ConfigProviderName,
 			Status:             refStatus,
+			Fingerprint:        ref.Fingerprint,
+			LastProbeTime:      ref.LastCheckedAt,
+			LastUpdatedAt:      ref.LastChangeAt,
 		}
 		if message != "" {
 			cfgRef.Message = lo.ToPtr(message)
-		}
-		if lastProbeTime != nil {
-			cfgRef.LastProbeTime = lastProbeTime
 		}
 		configRefs = append(configRefs, cfgRef)
 	}
@@ -145,7 +154,9 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 	condition := buildCondition(conditionType, configRefs, hasSecretRefs, anyFailed, failedMessage, informerConnected)
 
 	syncStatus := &domain.DependencySyncStatus{
-		ConfigRefs: &configRefs,
+		ConfigRefs:              &configRefs,
+		LastProbeTime:           latestProbeTime,
+		LastSuccessfulProbeTime: latestSuccessfulProbeTime,
 	}
 
 	return condition, syncStatus
