@@ -7664,9 +7664,6 @@ components:
         fingerprint:
           type: string
           description: The new fingerprint (e.g. commit SHA) of the changed dependency.
-        detector:
-          type: string
-          description: The subsystem that detected the change (e.g. "automated-sync").
     DependencySyncProbeFailedDetails:
       type: object
       required:

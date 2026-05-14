@@ -1051,9 +1051,6 @@ type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DependencyChangeDetectedDetailsDetailType `json:"detailType"`
 
-	// Detector The subsystem that detected the change (e.g. "automated-sync").
-	Detector *string `json:"detector,omitempty"`
-
 	// Fingerprint The new fingerprint (e.g. commit SHA) of the changed dependency.
 	Fingerprint string `json:"fingerprint"`
 
