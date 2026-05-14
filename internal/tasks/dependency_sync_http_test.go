@@ -72,13 +72,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 
@@ -106,13 +106,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return "", http.StatusNotModified, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 	})
@@ -135,13 +135,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return "", http.StatusOK, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 	})
@@ -176,7 +176,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			assert.Equal(t, "fleet-2", event.InvolvedObject.Name)
 		})
 
-		conditionalGet := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			if url == "https://example.com/fail" {
 				return "", 0, fmt.Errorf("connection refused")
 			}
@@ -185,7 +185,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 	})
@@ -199,8 +199,8 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
-				t.Fatal("conditionalGet should not be called with empty work list")
+			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+				t.Fatal("conditionalHead should not be called with empty work list")
 				return "", 0, nil
 			}, maxConcurrent: 10,
 		}
@@ -225,13 +225,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 		assert.Len(t, events, 2)
@@ -255,13 +255,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 
@@ -288,13 +288,13 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalGet := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"initial-etag"`, http.StatusOK, nil
 		}
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 	})
@@ -312,8 +312,8 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
-				t.Fatal("conditionalGet should not be called when RepoSpec is nil")
+			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+				t.Fatal("conditionalHead should not be called when RepoSpec is nil")
 				return "", 0, nil
 			}, maxConcurrent: 10,
 		}
@@ -334,7 +334,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		requestedURLs := make(map[string]bool)
 		var mu sync.Mutex
-		conditionalGet := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			mu.Lock()
 			requestedURLs[url] = true
 			mu.Unlock()
@@ -346,7 +346,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalGet: conditionalGet, maxConcurrent: 10,
+			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
 
@@ -363,5 +363,5 @@ func TestNewDependencySyncHttp(t *testing.T) {
 	d := NewDependencySyncHttp(logrus.New(), mockService, &config.Config{})
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
-	assert.NotNil(t, d.conditionalGet)
+	assert.NotNil(t, d.conditionalHead)
 }
