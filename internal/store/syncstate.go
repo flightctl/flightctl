@@ -58,7 +58,10 @@ func (s *SyncStateStore) Set(ctx context.Context, orgID uuid.UUID, state *model.
 		return fmt.Errorf("cannot set nil SyncState")
 	}
 	state.OrgID = orgID
-	result := s.getDB(ctx).Save(state)
+	result := s.getDB(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"fingerprint", "last_checked_at", "last_change_at"}),
+	}).Create(state)
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}
