@@ -201,13 +201,13 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	for _, r := range results {
 		if r.probeErr != "" {
 			for _, fleetName := range r.probe.FleetNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, "http_conditional_get", r.probeErr)
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.probeErr)
 				if event != nil {
 					d.serviceHandler.CreateEvent(ctx, orgId, event)
 				}
 			}
 			for _, deviceName := range r.probe.DeviceNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, "http_conditional_get", r.probeErr)
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.probeErr)
 				if event != nil {
 					d.serviceHandler.CreateEvent(ctx, orgId, event)
 				}
@@ -221,13 +221,13 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			d.metrics.ObserveProbeChange(periodic.RefTypeHTTP)
 		}
 		for _, fleetName := range r.probe.FleetNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint, "http_conditional_get")
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}
 		}
 		for _, deviceName := range r.probe.DeviceNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.fingerprint, "http_conditional_get")
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.fingerprint)
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}
