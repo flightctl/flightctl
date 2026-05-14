@@ -342,6 +342,16 @@ type ClientInterface interface {
 
 	ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CheckRepositoryOciImageWithBody request with any body
+	CheckRepositoryOciImageWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CheckRepositoryOciImage(ctx context.Context, name string, body CheckRepositoryOciImageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CheckRepositoryOciTagWithBody request with any body
+	CheckRepositoryOciTagWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CheckRepositoryOciTag(ctx context.Context, name string, body CheckRepositoryOciTagJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListResourceSyncs request
 	ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1476,6 +1486,54 @@ func (c *Client) ReplaceRepositoryWithBody(ctx context.Context, name string, con
 
 func (c *Client) ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceRepositoryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CheckRepositoryOciImageWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckRepositoryOciImageRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CheckRepositoryOciImage(ctx context.Context, name string, body CheckRepositoryOciImageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckRepositoryOciImageRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CheckRepositoryOciTagWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckRepositoryOciTagRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CheckRepositoryOciTag(ctx context.Context, name string, body CheckRepositoryOciTagJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckRepositoryOciTagRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4780,6 +4838,100 @@ func NewReplaceRepositoryRequestWithBody(server string, name string, contentType
 	return req, nil
 }
 
+// NewCheckRepositoryOciImageRequest calls the generic CheckRepositoryOciImage builder with application/json body
+func NewCheckRepositoryOciImageRequest(server string, name string, body CheckRepositoryOciImageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCheckRepositoryOciImageRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewCheckRepositoryOciImageRequestWithBody generates requests for CheckRepositoryOciImage with any type of body
+func NewCheckRepositoryOciImageRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/repositories/%s/check-oci-image", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCheckRepositoryOciTagRequest calls the generic CheckRepositoryOciTag builder with application/json body
+func NewCheckRepositoryOciTagRequest(server string, name string, body CheckRepositoryOciTagJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCheckRepositoryOciTagRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewCheckRepositoryOciTagRequestWithBody generates requests for CheckRepositoryOciTag with any type of body
+func NewCheckRepositoryOciTagRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/repositories/%s/check-oci-tag", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListResourceSyncsRequest generates requests for ListResourceSyncs
 func NewListResourceSyncsRequest(server string, params *ListResourceSyncsParams) (*http.Request, error) {
 	var err error
@@ -5397,6 +5549,16 @@ type ClientWithResponsesInterface interface {
 	ReplaceRepositoryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
 
 	ReplaceRepositoryWithResponse(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
+
+	// CheckRepositoryOciImageWithBodyWithResponse request with any body
+	CheckRepositoryOciImageWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckRepositoryOciImageResponse, error)
+
+	CheckRepositoryOciImageWithResponse(ctx context.Context, name string, body CheckRepositoryOciImageJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckRepositoryOciImageResponse, error)
+
+	// CheckRepositoryOciTagWithBodyWithResponse request with any body
+	CheckRepositoryOciTagWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckRepositoryOciTagResponse, error)
+
+	CheckRepositoryOciTagWithResponse(ctx context.Context, name string, body CheckRepositoryOciTagJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckRepositoryOciTagResponse, error)
 
 	// ListResourceSyncsWithResponse request
 	ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error)
@@ -7189,6 +7351,62 @@ func (r ReplaceRepositoryResponse) StatusCode() int {
 	return 0
 }
 
+type CheckRepositoryOciImageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CheckRepositoryOciResult
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r CheckRepositoryOciImageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CheckRepositoryOciImageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CheckRepositoryOciTagResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CheckRepositoryOciResult
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r CheckRepositoryOciTagResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CheckRepositoryOciTagResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ListResourceSyncsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8190,6 +8408,40 @@ func (c *ClientWithResponses) ReplaceRepositoryWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseReplaceRepositoryResponse(rsp)
+}
+
+// CheckRepositoryOciImageWithBodyWithResponse request with arbitrary body returning *CheckRepositoryOciImageResponse
+func (c *ClientWithResponses) CheckRepositoryOciImageWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckRepositoryOciImageResponse, error) {
+	rsp, err := c.CheckRepositoryOciImageWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckRepositoryOciImageResponse(rsp)
+}
+
+func (c *ClientWithResponses) CheckRepositoryOciImageWithResponse(ctx context.Context, name string, body CheckRepositoryOciImageJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckRepositoryOciImageResponse, error) {
+	rsp, err := c.CheckRepositoryOciImage(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckRepositoryOciImageResponse(rsp)
+}
+
+// CheckRepositoryOciTagWithBodyWithResponse request with arbitrary body returning *CheckRepositoryOciTagResponse
+func (c *ClientWithResponses) CheckRepositoryOciTagWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckRepositoryOciTagResponse, error) {
+	rsp, err := c.CheckRepositoryOciTagWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckRepositoryOciTagResponse(rsp)
+}
+
+func (c *ClientWithResponses) CheckRepositoryOciTagWithResponse(ctx context.Context, name string, body CheckRepositoryOciTagJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckRepositoryOciTagResponse, error) {
+	rsp, err := c.CheckRepositoryOciTag(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckRepositoryOciTagResponse(rsp)
 }
 
 // ListResourceSyncsWithResponse request returning *ListResourceSyncsResponse
@@ -12536,6 +12788,142 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCheckRepositoryOciImageResponse parses an HTTP response from a CheckRepositoryOciImageWithResponse call
+func ParseCheckRepositoryOciImageResponse(rsp *http.Response) (*CheckRepositoryOciImageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckRepositoryOciImageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CheckRepositoryOciResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCheckRepositoryOciTagResponse parses an HTTP response from a CheckRepositoryOciTagWithResponse call
+func ParseCheckRepositoryOciTagResponse(rsp *http.Response) (*CheckRepositoryOciTagResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckRepositoryOciTagResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CheckRepositoryOciResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

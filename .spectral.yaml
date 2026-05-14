@@ -532,6 +532,12 @@ overrides:
       - "**/api/core/v1alpha1/openapi.yaml#/paths/~1vulnerabilities~1cves~1%7BcveId%7D~1impact"
     rules:
       paths-are-lowercase: off
+  # check-oci-tag and check-oci-image sub-resource paths use hyphens to match conventional OCI/registry terminology.
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1repositories~1%7Bname%7D~1check-oci-tag"
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1repositories~1%7Bname%7D~1check-oci-image"
+    rules:
+      paths-are-lowercase: off
   # /version endpoint doesn't need 400 response (no query params)
   - files:
       - "**#/paths/~1version"

@@ -80,3 +80,7 @@ func StatusAuthNotConfigured(message string) Status {
 func StatusTooManyRequests(message string) Status {
 	return NewFailureStatus(http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests), message)
 }
+
+func StatusServiceUnavailable(message string) Status {
+	return NewFailureStatus(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), message)
+}

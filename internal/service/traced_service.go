@@ -490,6 +490,18 @@ func (t *TracedService) GetRepositoryDeviceReferences(ctx context.Context, orgId
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) CheckRepositoryOciTag(ctx context.Context, orgId uuid.UUID, repositoryName, imageName, tag string) (*domain.OciRegistryCheckResult, domain.Status) {
+	ctx, span := startSpan(ctx, "CheckRepositoryOciTag")
+	resp, st := t.inner.CheckRepositoryOciTag(ctx, orgId, repositoryName, imageName, tag)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) CheckRepositoryOciImage(ctx context.Context, orgId uuid.UUID, repositoryName, imageName string) (*domain.OciRegistryCheckResult, domain.Status) {
+	ctx, span := startSpan(ctx, "CheckRepositoryOciImage")
+	resp, st := t.inner.CheckRepositoryOciImage(ctx, orgId, repositoryName, imageName)
+	endSpan(span, st)
+	return resp, st
+}
 
 // --- ResourceSync ---
 func (t *TracedService) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {

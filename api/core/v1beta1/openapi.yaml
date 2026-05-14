@@ -1044,6 +1044,136 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /repositories/{name}/check-oci-tag:
+    x-resource: repositories/check-oci-tag
+    post:
+      tags:
+        - repository
+      description: >
+        Check if a specific image tag exists in an OCI registry configured as a Repository resource.
+        The registry credentials and connection settings are read from the named Repository resource.
+      operationId: checkRepositoryOciTag
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Repository resource to use for registry connection.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckRepositoryOciTagRequest'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckRepositoryOciResult'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found - Repository resource does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /repositories/{name}/check-oci-image:
+    x-resource: repositories/check-oci-image
+    post:
+      tags:
+        - repository
+      description: >
+        Check if a specific OCI image is accessible in a registry configured as a Repository resource.
+        The registry credentials and connection settings are read from the named Repository resource.
+      operationId: checkRepositoryOciImage
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Repository resource to use for registry connection.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckRepositoryOciImageRequest'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckRepositoryOciResult'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found - Repository resource does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices:
     x-resource: devices
     get:
@@ -4730,6 +4860,32 @@ components:
           docker: "#/components/schemas/DockerAuth"
       oneOf:
         - $ref: "#/components/schemas/DockerAuth"
+    BaseImageEntry:
+      type: object
+      description: A curated base image entry available in an OCI registry.
+      properties:
+        displayName:
+          type: string
+          description: Human-readable label shown in the UI (e.g., "CentOS").
+        imageName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Image path within the registry (e.g., "centos-bootc/centos-bootc").
+        tags:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\w][\w.-]{0,127}$'
+          description: Selectable tags for this image (e.g., ["stream9", "stream10"]).
+      required:
+        - imageName
+        - tags
+      additionalProperties: false
+
     OciRepoSpec:
       type: object
       description: OCI container registry specification.
@@ -4767,6 +4923,11 @@ components:
         skipServerVerification:
           type: boolean
           description: Skip remote server verification.
+        baseImages:
+          type: array
+          description: Curated list of trusted base images available in this registry. When present, the Image Builder source picker surfaces these entries as selectable options.
+          items:
+            $ref: '#/components/schemas/BaseImageEntry'
       required:
         - registry
         - type
@@ -8136,3 +8297,59 @@ components:
       required:
         - resource
         - operations
+    CheckRepositoryOciTagRequest:
+      type: object
+      description: Request to check if a specific image tag exists in an OCI registry.
+      properties:
+        imageName:
+          type: string
+          description: >-
+            The image name/path within the registry (e.g. "centos-bootc/centos-bootc").
+            Combined with the registry host from the Repository resource, this forms the
+            full repository reference (e.g. "quay.io/centos-bootc/centos-bootc").
+          minLength: 1
+          maxLength: 255
+        tag:
+          type: string
+          description: The image tag to check for existence (e.g. "9.5").
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
+      required:
+        - imageName
+        - tag
+      additionalProperties: false
+    CheckRepositoryOciResult:
+      type: object
+      description: Result of an OCI registry check (tag existence or image accessibility).
+      properties:
+        accessible:
+          type: boolean
+          description: Whether the image or tag is accessible in the registry.
+        errorCode:
+          type: integer
+          description: >-
+            HTTP status code returned by the OCI registry when accessible is false.
+            Absent when the failure is not an HTTP-level error (e.g. network timeout).
+        errorMessage:
+          type: string
+          description: Error message describing why the image or tag is not accessible.
+      required:
+        - accessible
+      additionalProperties: false
+    CheckRepositoryOciImageRequest:
+      type: object
+      description: Request to check if a specific OCI image is accessible in a registry.
+      properties:
+        imageName:
+          type: string
+          description: >-
+            The image name/path within the registry (e.g. "centos-bootc/centos-bootc").
+            Combined with the registry host from the Repository resource, this forms the
+            full image reference (e.g. "quay.io/centos-bootc/centos-bootc").
+          minLength: 1
+          maxLength: 255
+      required:
+        - imageName
+      additionalProperties: false
+

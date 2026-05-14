@@ -850,6 +850,86 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	require.Equal(newUsername, *httpSpec.HttpConfig.Username)
 }
 
+func TestCheckRepositoryOciTagRejectsNonOciRepo(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	spec := domain.RepositorySpec{}
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
+		Url:  "https://github.com/flightctl/flightctl.git",
+		Type: domain.GitRepoSpecTypeGit,
+	})
+	require.NoError(err)
+
+	_, status := serviceHandler.CreateRepository(ctx, store.NullOrgId, domain.Repository{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("git-repo")},
+		Spec:     spec,
+	})
+	require.Equal(int32(201), status.Code)
+
+	_, status = serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "git-repo", "quay.io/myorg/myimage", "latest")
+	require.Equal(int32(400), status.Code)
+}
+
+func TestCheckRepositoryOciImageRejectsNonOciRepo(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	spec := domain.RepositorySpec{}
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
+		Url:  "https://github.com/flightctl/flightctl.git",
+		Type: domain.GitRepoSpecTypeGit,
+	})
+	require.NoError(err)
+
+	_, status := serviceHandler.CreateRepository(ctx, store.NullOrgId, domain.Repository{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("git-repo-2")},
+		Spec:     spec,
+	})
+	require.Equal(int32(201), status.Code)
+
+	_, status = serviceHandler.CheckRepositoryOciImage(ctx, store.NullOrgId, "git-repo-2", "quay.io/myorg/myimage")
+	require.Equal(int32(400), status.Code)
+}
+
+func TestCheckRepositoryOciTagRejectsNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	_, status := serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "nonexistent", "quay.io/myorg/myimage", "latest")
+	require.Equal(int32(404), status.Code)
+}
+
+func TestCheckRepositoryOciImageRejectsNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	_, status := serviceHandler.CheckRepositoryOciImage(ctx, store.NullOrgId, "nonexistent", "quay.io/myorg/myimage")
+	require.Equal(int32(404), status.Code)
+}
+
+func TestCheckRepositoryOciTagRejectsInvalidImageName(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	_, status := serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "any-repo", "quay.io/myorg/myimage:latest", "latest")
+	require.Equal(int32(400), status.Code)
+}
+
+func TestCheckRepositoryOciImageRejectsInvalidImageName(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	_, status := serviceHandler.CheckRepositoryOciImage(ctx, store.NullOrgId, "any-repo", "quay.io/myorg/myimage:latest")
+	require.Equal(int32(400), status.Code)
+}
+
 func TestHttpRepositoryDelete(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()

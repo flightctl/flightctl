@@ -11,15 +11,14 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
-	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/registry/remote"
 )
 
 const (
@@ -214,28 +213,21 @@ func (c *Consumer) pushSBOMAsReferrer(
 	}
 	report([]byte("Starting SBOM push to destination registry\n"))
 
-	repoRef, err := remote.NewRepository(destRef)
+	repoRef, err := oci.BuildOciRepoRef(ociSpec, destRef)
 	if err != nil {
-		return fmt.Errorf("failed to create repository reference: %w", err)
-	}
-
-	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		repoRef.PlainHTTP = true
-		log.Debug("Using PlainHTTP for HTTP registry")
+		return fmt.Errorf("failed to configure OCI repository reference: %w", err)
 	}
 
 	// Skip referrers GC to avoid authentication issues when pushing multiple artifacts
 	repoRef.SkipReferrersGC = true
 
-	authClient, err := newOCIAuthClient(ociSpec, destRegistryHostname, log)
-	if err != nil {
-		return fmt.Errorf("failed to configure OCI auth client: %w", err)
+	if repoRef.PlainHTTP {
+		log.Debug("Using PlainHTTP for HTTP registry")
 	}
-	if authClient.Credential != nil {
+	if ociSpec.OciAuth != nil {
 		log.Info("Successfully configured authentication for destination registry")
 		report([]byte("Authenticated with destination registry\n"))
 	}
-	repoRef.Client = authClient
 
 	var onRegistryOutput func([]byte)
 	if statusUpdater != nil {

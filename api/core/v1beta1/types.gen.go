@@ -816,6 +816,18 @@ type AuthStaticRoleAssignment struct {
 // AuthStaticRoleAssignmentType The type of role assignment.
 type AuthStaticRoleAssignmentType string
 
+// BaseImageEntry A curated base image entry available in an OCI registry.
+type BaseImageEntry struct {
+	// DisplayName Human-readable label shown in the UI (e.g., "CentOS").
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// ImageName Image path within the registry (e.g., "centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+
+	// Tags Selectable tags for this image (e.g., ["stream9", "stream10"]).
+	Tags []string `json:"tags"`
+}
+
 // Batch Batch is an element in batch sequence.
 type Batch struct {
 	// Limit The maximum number or percentage of devices to update in the batch.
@@ -909,6 +921,33 @@ type CertificateSigningRequestStatus struct {
 
 	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
 	Conditions []Condition `json:"conditions"`
+}
+
+// CheckRepositoryOciImageRequest Request to check if a specific OCI image is accessible in a registry.
+type CheckRepositoryOciImageRequest struct {
+	// ImageName The image name/path within the registry (e.g. "centos-bootc/centos-bootc"). Combined with the registry host from the Repository resource, this forms the full image reference (e.g. "quay.io/centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+}
+
+// CheckRepositoryOciResult Result of an OCI registry check (tag existence or image accessibility).
+type CheckRepositoryOciResult struct {
+	// Accessible Whether the image or tag is accessible in the registry.
+	Accessible bool `json:"accessible"`
+
+	// ErrorCode HTTP status code returned by the OCI registry when accessible is false. Absent when the failure is not an HTTP-level error (e.g. network timeout).
+	ErrorCode *int `json:"errorCode,omitempty"`
+
+	// ErrorMessage Error message describing why the image or tag is not accessible.
+	ErrorMessage *string `json:"errorMessage,omitempty"`
+}
+
+// CheckRepositoryOciTagRequest Request to check if a specific image tag exists in an OCI registry.
+type CheckRepositoryOciTagRequest struct {
+	// ImageName The image name/path within the registry (e.g. "centos-bootc/centos-bootc"). Combined with the registry host from the Repository resource, this forms the full repository reference (e.g. "quay.io/centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+
+	// Tag The image tag to check for existence (e.g. "9.5").
+	Tag string `json:"tag"`
 }
 
 // ComposeApplication defines model for ComposeApplication.
@@ -2430,6 +2469,9 @@ type OciRepoSpec struct {
 	// AccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
 	AccessMode *OciRepoSpecAccessMode `json:"accessMode,omitempty"`
 
+	// BaseImages Curated list of trusted base images available in this registry. When present, the Image Builder source picker surfaces these entries as selectable options.
+	BaseImages *[]BaseImageEntry `json:"baseImages,omitempty"`
+
 	// CaCrt Base64 encoded root CA.
 	CaCrt *string `json:"ca.crt,omitempty"`
 
@@ -3355,6 +3397,12 @@ type PatchRepositoryApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
 type ReplaceRepositoryJSONRequestBody = Repository
+
+// CheckRepositoryOciImageJSONRequestBody defines body for CheckRepositoryOciImage for application/json ContentType.
+type CheckRepositoryOciImageJSONRequestBody = CheckRepositoryOciImageRequest
+
+// CheckRepositoryOciTagJSONRequestBody defines body for CheckRepositoryOciTag for application/json ContentType.
+type CheckRepositoryOciTagJSONRequestBody = CheckRepositoryOciTagRequest
 
 // CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
 type CreateResourceSyncJSONRequestBody = ResourceSync

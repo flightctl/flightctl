@@ -201,6 +201,8 @@ var (
 	OciImageReferenceRegexp              = regexp.MustCompile("^" + OciImageReferenceFmt + "$")
 	StrictOciImageReferenceRegexp        = regexp.MustCompile("^" + StrictOciImageReferenceFmt + "$")
 	OciImageReferenceWithTemplatesRegexp = regexp.MustCompile("^" + OciImageReferenceWithTemplatesFmt + "$")
+	OciImageNameRegexp                   = regexp.MustCompile("^" + OciImageNameFmt + "$")
+	OciImageTagRegexp                    = regexp.MustCompile("^" + OciImageTagFmt + "$")
 )
 
 // Validates an OCI image reference.

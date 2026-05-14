@@ -70,3 +70,59 @@ func (h *TransportHandler) PatchRepository(w http.ResponseWriter, r *http.Reques
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
+
+// (POST /api/v1/repositories/{name}/check-oci-tag)
+func (h *TransportHandler) CheckRepositoryOciTag(w http.ResponseWriter, r *http.Request, name string) {
+	var req apiv1beta1.CheckRepositoryOciTagRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	result, status := h.serviceHandler.CheckRepositoryOciTag(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName, req.Tag)
+	if result == nil {
+		h.SetResponse(w, nil, status)
+		return
+	}
+
+	apiResp := apiv1beta1.CheckRepositoryOciResult{
+		Accessible: result.Accessible,
+	}
+	if !result.Accessible {
+		if result.ErrorCode != 0 {
+			apiResp.ErrorCode = &result.ErrorCode
+		}
+		if result.ErrorMessage != "" {
+			apiResp.ErrorMessage = &result.ErrorMessage
+		}
+	}
+	h.SetResponse(w, apiResp, status)
+}
+
+// (POST /api/v1/repositories/{name}/check-oci-image)
+func (h *TransportHandler) CheckRepositoryOciImage(w http.ResponseWriter, r *http.Request, name string) {
+	var req apiv1beta1.CheckRepositoryOciImageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	result, status := h.serviceHandler.CheckRepositoryOciImage(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName)
+	if result == nil {
+		h.SetResponse(w, nil, status)
+		return
+	}
+
+	apiResp := apiv1beta1.CheckRepositoryOciResult{
+		Accessible: result.Accessible,
+	}
+	if !result.Accessible {
+		if result.ErrorCode != 0 {
+			apiResp.ErrorCode = &result.ErrorCode
+		}
+		if result.ErrorMessage != "" {
+			apiResp.ErrorMessage = &result.ErrorMessage
+		}
+	}
+	h.SetResponse(w, apiResp, status)
+}
