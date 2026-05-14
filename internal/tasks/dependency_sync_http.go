@@ -31,16 +31,20 @@ type DependencySyncHttp struct {
 	cfg             *config.Config
 	conditionalHead httpConditionalHeadFunc
 	maxConcurrent   int
+	metrics         *DependencySyncCollector
+	statusUpdater   *DependencySyncStatusUpdater
 }
 
 func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config) *DependencySyncHttp {
+	cfg *config.Config, metrics *DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncHttp {
 	return &DependencySyncHttp{
 		log:             log,
 		serviceHandler:  serviceHandler,
 		cfg:             cfg,
 		conditionalHead: httpConditionalHead,
 		maxConcurrent:   10,
+		metrics:         metrics,
+		statusUpdater:   statusUpdater,
 	}
 }
 
@@ -54,7 +58,12 @@ type httpProbeResult struct {
 }
 
 func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
+	if d.metrics != nil {
+		d.metrics.ObserveProbeCycle("http")
+	}
+
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
+	probeStart := time.Now()
 
 	probes, status := d.serviceHandler.ListDueHttpDependencies(ctx, orgId, pollInterval)
 	if status.Code != http.StatusOK {
@@ -93,7 +102,15 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 
 	wg.Wait()
 
+	if d.metrics != nil {
+		d.metrics.ObserveProbeLatency("http", time.Since(probeStart))
+	}
+
 	d.reconcile(ctx, orgId, results)
+
+	if d.statusUpdater != nil {
+		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
+	}
 }
 
 func (d *DependencySyncHttp) probeRepoGroup(ctx context.Context, group []*model.HttpDependencyProbe) []httpProbeResult {
@@ -155,6 +172,9 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 	fingerprint, statusCode, err := d.conditionalHead(ctx, client, repoURL, httpSpec, storedFP)
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
+		if d.metrics != nil {
+			d.metrics.ObserveProbeError("http")
+		}
 		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
 	}
 
@@ -186,6 +206,9 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 		if !r.changed {
 			continue
 		}
+		if d.metrics != nil {
+			d.metrics.ObserveProbeChange("http")
+		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint, "http_conditional_get")
 			if event != nil {
@@ -214,6 +237,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.fingerprint,
+				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})

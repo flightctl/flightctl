@@ -1212,6 +1212,36 @@ func (mr *MockServiceMockRecorder) ListDisruptionBudgetFleets(ctx, orgId any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisruptionBudgetFleets", reflect.TypeOf((*MockService)(nil).ListDisruptionBudgetFleets), ctx, orgId)
 }
 
+// ListDistinctDependencyRefOwners mocks base method.
+func (m *MockService) ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDistinctDependencyRefOwners", ctx, orgId)
+	ret0, _ := ret[0].([]model.DependencyRefOwner)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDistinctDependencyRefOwners indicates an expected call of ListDistinctDependencyRefOwners.
+func (mr *MockServiceMockRecorder) ListDistinctDependencyRefOwners(ctx, orgId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDistinctDependencyRefOwners", reflect.TypeOf((*MockService)(nil).ListDistinctDependencyRefOwners), ctx, orgId)
+}
+
+// ListDistinctOrgIDsByRefType mocks base method.
+func (m *MockService) ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDistinctOrgIDsByRefType", ctx, refType)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDistinctOrgIDsByRefType indicates an expected call of ListDistinctOrgIDsByRefType.
+func (mr *MockServiceMockRecorder) ListDistinctOrgIDsByRefType(ctx, refType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDistinctOrgIDsByRefType", reflect.TypeOf((*MockService)(nil).ListDistinctOrgIDsByRefType), ctx, refType)
+}
+
 // ListDueGitDependencies mocks base method.
 func (m *MockService) ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status) {
 	m.ctrl.T.Helper()
