@@ -710,6 +710,13 @@ func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretN
 	return resp, st
 }
 
+func (t *TracedService) ListDependencyRefsWithSyncState(ctx context.Context, orgId uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDependencyRefsWithSyncState")
+	resp, st := t.inner.ListDependencyRefsWithSyncState(ctx, orgId, fleetName, deviceName)
+	endSpan(span, st)
+	return resp, st
+}
+
 // --- SyncState ---
 func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	ctx, span := startSpan(ctx, "GetSyncState")

@@ -1152,6 +1152,21 @@ func (mr *MockServiceMockRecorder) ListDependencyRefsByRefType(ctx, orgId, refTy
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDependencyRefsByRefType", reflect.TypeOf((*MockService)(nil).ListDependencyRefsByRefType), ctx, orgId, refType)
 }
 
+// ListDependencyRefsWithSyncState mocks base method.
+func (m *MockService) ListDependencyRefsWithSyncState(ctx context.Context, orgId uuid.UUID, fleetName, deviceName *string) ([]model.DependencyRefWithSyncState, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDependencyRefsWithSyncState", ctx, orgId, fleetName, deviceName)
+	ret0, _ := ret[0].([]model.DependencyRefWithSyncState)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListDependencyRefsWithSyncState indicates an expected call of ListDependencyRefsWithSyncState.
+func (mr *MockServiceMockRecorder) ListDependencyRefsWithSyncState(ctx, orgId, fleetName, deviceName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDependencyRefsWithSyncState", reflect.TypeOf((*MockService)(nil).ListDependencyRefsWithSyncState), ctx, orgId, fleetName, deviceName)
+}
+
 // ListDevices mocks base method.
 func (m *MockService) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()

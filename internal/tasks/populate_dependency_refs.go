@@ -137,12 +137,13 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:      &fn,
-				DeviceName:     &dn,
-				RefType:        "git",
-				ResourceKey:    fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
-				RepositoryName: &gitSpec.GitRef.Repository,
-				Revision:       &gitSpec.GitRef.TargetRevision,
+				FleetName:          &fn,
+				DeviceName:         &dn,
+				RefType:            "git",
+				ResourceKey:        fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision),
+				RepositoryName:     &gitSpec.GitRef.Repository,
+				Revision:           &gitSpec.GitRef.TargetRevision,
+				ConfigProviderName: gitSpec.Name,
 			})
 		case domain.HttpConfigProviderType:
 			httpSpec, err := configItem.AsHttpConfigProviderSpec()
@@ -160,12 +161,13 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:      &fn,
-				DeviceName:     &dn,
-				RefType:        "http",
-				ResourceKey:    httpResourceKey(httpSpec.HttpRef.Repository, suffix),
-				RepositoryName: &httpSpec.HttpRef.Repository,
-				HTTPSuffix:     httpSpec.HttpRef.Suffix,
+				FleetName:          &fn,
+				DeviceName:         &dn,
+				RefType:            "http",
+				ResourceKey:        httpResourceKey(httpSpec.HttpRef.Repository, suffix),
+				RepositoryName:     &httpSpec.HttpRef.Repository,
+				HTTPSuffix:         httpSpec.HttpRef.Suffix,
+				ConfigProviderName: httpSpec.Name,
 			})
 		case domain.KubernetesSecretProviderType:
 			k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
@@ -179,12 +181,13 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
-				FleetName:       &fn,
-				DeviceName:      &dn,
-				RefType:         "secret",
-				ResourceKey:     fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name),
-				SecretName:      &k8sSpec.SecretRef.Name,
-				SecretNamespace: &k8sSpec.SecretRef.Namespace,
+				FleetName:          &fn,
+				DeviceName:         &dn,
+				RefType:            "secret",
+				ResourceKey:        fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name),
+				SecretName:         &k8sSpec.SecretRef.Name,
+				SecretNamespace:    &k8sSpec.SecretRef.Namespace,
+				ConfigProviderName: k8sSpec.Name,
 			})
 		}
 	}
