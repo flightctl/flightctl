@@ -146,6 +146,11 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.U
 	return StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
+func (h *ServiceHandler) UpdateFleetDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	err := h.store.Fleet().UpdateDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
+	return StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+}
+
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
 	return StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
