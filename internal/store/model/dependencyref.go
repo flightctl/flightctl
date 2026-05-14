@@ -93,6 +93,13 @@ type DependencyRefWithSyncState struct {
 	LastCheckedAt      *time.Time
 }
 
+// DependencyRefOwner is a distinct (fleet_name, device_name) pair returned by
+// ListDistinctRefOwners to enumerate all entities that have dependency refs.
+type DependencyRefOwner struct {
+	FleetName  string
+	DeviceName string
+}
+
 // GitDependencyProbe is the result of ListDueGitDependencies — one row per
 // unique (repository_name, revision) pair that is due for polling. FleetNames
 // and DeviceNames carry the fan-out targets collected via array_agg.

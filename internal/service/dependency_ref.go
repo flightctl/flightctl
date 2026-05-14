@@ -74,6 +74,16 @@ func (h *ServiceHandler) ListDependencyRefsWithSyncState(ctx context.Context, or
 	return refs, StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status) {
+	owners, err := h.store.DependencyRef().ListDistinctRefOwners(ctx, orgId)
+	return owners, StoreErrorToApiStatus(err, false, "", nil)
+}
+
+func (h *ServiceHandler) ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, domain.Status) {
+	orgIDs, err := h.store.DependencyRef().ListDistinctOrgIDsByRefType(ctx, refType)
+	return orgIDs, StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	state, err := h.store.SyncState().Get(ctx, orgId, resourceKey)
 	return state, StoreErrorToApiStatus(err, false, "", nil)
