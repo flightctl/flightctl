@@ -26,16 +26,20 @@ type DependencySyncGit struct {
 	cfg            *config.Config
 	lsRemote       gitLsRemoteFunc
 	maxConcurrent  int
+	metrics        *DependencySyncCollector
+	statusUpdater  *DependencySyncStatusUpdater
 }
 
 func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config) *DependencySyncGit {
+	cfg *config.Config, metrics *DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncGit {
 	return &DependencySyncGit{
 		log:            log,
 		serviceHandler: serviceHandler,
 		cfg:            cfg,
 		lsRemote:       GitLsRemote,
 		maxConcurrent:  10,
+		metrics:        metrics,
+		statusUpdater:  statusUpdater,
 	}
 }
 
@@ -49,7 +53,12 @@ type probeResult struct {
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
+	if d.metrics != nil {
+		d.metrics.ObserveProbeCycle("git")
+	}
+
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
+	probeStart := time.Now()
 
 	probes, status := d.serviceHandler.ListDueGitDependencies(ctx, orgId, pollInterval)
 	if status.Code != http.StatusOK {
@@ -60,8 +69,6 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 		return
 	}
 
-	// Group probes by repository so we fetch each repo's URL and auth once,
-	// then call ls-remote with all revisions for that repo in one call.
 	repoGroups := make(map[string][]*model.GitDependencyProbe)
 	for i := range probes {
 		repoGroups[probes[i].RepositoryName] = append(repoGroups[probes[i].RepositoryName], &probes[i])
@@ -92,7 +99,15 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 
 	wg.Wait()
 
+	if d.metrics != nil {
+		d.metrics.ObserveProbeLatency("git", time.Since(probeStart))
+	}
+
 	d.reconcile(ctx, orgId, results)
+
+	if d.statusUpdater != nil {
+		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
+	}
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
@@ -128,6 +143,9 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	resolved, err := d.lsRemote(ctx, repoURL, revisions, auth)
 	if err != nil {
 		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
+		if d.metrics != nil {
+			d.metrics.ObserveProbeError("git")
+		}
 		return nil
 	}
 
@@ -164,11 +182,12 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, results []probeResult) {
 	now := time.Now().UTC()
 
-	// Emit events before persisting sync state — consumers must see events
-	// before the fingerprint is updated.
 	for _, r := range results {
 		if !r.changed {
 			continue
+		}
+		if d.metrics != nil {
+			d.metrics.ObserveProbeChange("git")
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
@@ -193,6 +212,7 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.newSHA,
+				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})
