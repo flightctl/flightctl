@@ -69,6 +69,11 @@ func (h *ServiceHandler) ListSecretDependencyTargets(ctx context.Context, secret
 	return refs, StoreErrorToApiStatus(err, false, "", nil)
 }
 
+func (h *ServiceHandler) ListDependencyRefsWithSyncState(ctx context.Context, orgId uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, domain.Status) {
+	refs, err := h.store.DependencyRef().ListDependencyRefsWithSyncState(ctx, orgId, fleetName, deviceName)
+	return refs, StoreErrorToApiStatus(err, false, "", nil)
+}
+
 func (h *ServiceHandler) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	state, err := h.store.SyncState().Get(ctx, orgId, resourceKey)
 	return state, StoreErrorToApiStatus(err, false, "", nil)

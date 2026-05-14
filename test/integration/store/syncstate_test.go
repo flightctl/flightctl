@@ -154,6 +154,59 @@ var _ = Describe("SyncStateStore", func() {
 		})
 	})
 
+	Context("When setting and getting ProbeStatus and ProbeMessage", func() {
+		It("should round-trip probe status fields", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			state := &model.SyncState{
+				OrgID:         orgId,
+				ResourceKey:   "git:probe-repo/main",
+				Fingerprint:   "abc123",
+				LastCheckedAt: now,
+				ProbeStatus:   "ProbeFailed",
+				ProbeMessage:  "connection refused",
+			}
+			err := storeInst.SyncState().Set(ctx, orgId, state)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := storeInst.SyncState().Get(ctx, orgId, "git:probe-repo/main")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.ProbeStatus).To(Equal("ProbeFailed"))
+			Expect(result.ProbeMessage).To(Equal("connection refused"))
+		})
+
+		It("should persist ProbeStatus and ProbeMessage via BulkUpsert", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			states := []model.SyncState{
+				{
+					ResourceKey:   "git:bulk-repo/main",
+					Fingerprint:   "aaa",
+					LastCheckedAt: now,
+					ProbeStatus:   "Synced",
+					ProbeMessage:  "",
+				},
+				{
+					ResourceKey:   "http:bulk-repo/config",
+					Fingerprint:   "bbb",
+					LastCheckedAt: now,
+					ProbeStatus:   "ProbeFailed",
+					ProbeMessage:  "timeout",
+				},
+			}
+			err := storeInst.SyncState().BulkUpsert(ctx, orgId, states)
+			Expect(err).ToNot(HaveOccurred())
+
+			r1, err := storeInst.SyncState().Get(ctx, orgId, "git:bulk-repo/main")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(r1.ProbeStatus).To(Equal("Synced"))
+
+			r2, err := storeInst.SyncState().Get(ctx, orgId, "http:bulk-repo/config")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(r2.ProbeStatus).To(Equal("ProbeFailed"))
+			Expect(r2.ProbeMessage).To(Equal("timeout"))
+		})
+	})
+
 	Context("When querying with org isolation", func() {
 		It("should not return records from a different org", func() {
 			now := time.Now().UTC().Truncate(time.Microsecond)
