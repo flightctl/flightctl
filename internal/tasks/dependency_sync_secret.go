@@ -121,6 +121,10 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 		return
 	}
 
+	if d.metrics != nil {
+		d.metrics.ObserveProbeCycle("secret")
+	}
+
 	d.reconcile(ctx, secret.Namespace, secret.Name, secret.ResourceVersion)
 }
 
@@ -148,7 +152,9 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)
 	now := time.Now().UTC()
 
+	orgIDs := make(map[uuid.UUID]bool)
 	for _, ref := range refs {
+		orgIDs[ref.OrgID] = true
 		var kind domain.ResourceKind
 		var targetName string
 		if ref.DeviceName != "" {
@@ -168,6 +174,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		OrgID:         uuid.Nil,
 		ResourceKey:   resourceKey,
 		Fingerprint:   newFingerprint,
+		ProbeStatus:   "Synced",
 		LastCheckedAt: now,
 		LastChangeAt:  &now,
 	}
