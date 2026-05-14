@@ -131,8 +131,8 @@ func TestComputeStatus_SecretOverridePreservesGitStatus(t *testing.T) {
 		require.Len(t, cfgRefs, 2)
 
 		// Git ref keeps its Synced status
-		require.Equal(t, domain.DependencySyncConfigRefStatusStatus(domain.DependencySyncConfigRefStatusSynced), cfgRefs[0].Status)
+		require.Equal(t, domain.DependencySyncConfigRefStatusSynced, cfgRefs[0].Status)
 		// Secret ref is overridden to SecretWatchDisconnected
-		require.Equal(t, domain.DependencySyncConfigRefStatusStatus(domain.DependencySyncConfigRefStatusSecretWatchDisconnected), cfgRefs[1].Status)
+		require.Equal(t, domain.DependencySyncConfigRefStatusSecretWatchDisconnected, cfgRefs[1].Status)
 	})
 }
