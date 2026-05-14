@@ -100,7 +100,7 @@ func TestComputeStatus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			condition, syncStatus := computeStatus(tc.refs, tc.informerConnected)
+			condition, syncStatus := computeStatus(tc.refs, tc.informerConnected, domain.ConditionTypeFleetDependenciesSynced)
 
 			require.Equal(t, tc.expectedCondStatus, condition.Status, "condition status")
 			require.Equal(t, tc.expectedReason, condition.Reason, "condition reason")
@@ -124,7 +124,7 @@ func TestComputeStatus_SecretOverridePreservesGitStatus(t *testing.T) {
 			{ResourceKey: "secret:ns/name", RefType: "secret", ConfigProviderName: "secret-cfg", Fingerprint: lo.ToPtr("rv1"), ProbeStatus: lo.ToPtr("Synced"), LastCheckedAt: &now},
 		}
 
-		_, syncStatus := computeStatus(refs, lo.ToPtr(false))
+		_, syncStatus := computeStatus(refs, lo.ToPtr(false), domain.ConditionTypeDeviceDependenciesSynced)
 
 		require.NotNil(t, syncStatus.ConfigRefs)
 		cfgRefs := *syncStatus.ConfigRefs
