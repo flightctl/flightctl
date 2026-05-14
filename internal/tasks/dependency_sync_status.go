@@ -60,7 +60,7 @@ func (u *DependencySyncStatusUpdater) updateFleet(ctx context.Context, orgId uui
 		return
 	}
 
-	condition, syncStatus := computeStatus(refsWithState, informerConnected)
+	condition, syncStatus := computeStatus(refsWithState, informerConnected, domain.ConditionTypeFleetDependenciesSynced)
 
 	if st := u.serviceHandler.UpdateFleetDependencySyncStatus(ctx, orgId, fleetName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
 		u.log.WithField("fleet", fleetName).Errorf("failed updating fleet dependency sync status: %s", st.Message)
@@ -77,7 +77,7 @@ func (u *DependencySyncStatusUpdater) updateDevice(ctx context.Context, orgId uu
 		return
 	}
 
-	condition, syncStatus := computeStatus(refsWithState, informerConnected)
+	condition, syncStatus := computeStatus(refsWithState, informerConnected, domain.ConditionTypeDeviceDependenciesSynced)
 
 	if st := u.serviceHandler.SetDeviceDependencySyncStatus(ctx, orgId, deviceName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
 		u.log.WithField("device", deviceName).Errorf("failed updating device dependency sync status: %s", st.Message)
@@ -86,7 +86,7 @@ func (u *DependencySyncStatusUpdater) updateDevice(ctx context.Context, orgId uu
 
 // computeStatus derives the DependenciesSynced condition and DependencySyncStatus
 // from the joined dependency refs + sync state rows.
-func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *bool) (domain.Condition, *domain.DependencySyncStatus) {
+func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *bool, conditionType domain.ConditionType) (domain.Condition, *domain.DependencySyncStatus) {
 	var configRefs []domain.DependencySyncConfigRefStatus
 	hasSecretRefs := false
 	anyFailed := false
@@ -142,7 +142,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 		configRefs = append(configRefs, cfgRef)
 	}
 
-	condition := buildCondition(configRefs, hasSecretRefs, anyFailed, failedMessage, informerConnected)
+	condition := buildCondition(conditionType, configRefs, hasSecretRefs, anyFailed, failedMessage, informerConnected)
 
 	syncStatus := &domain.DependencySyncStatus{
 		ConfigRefs: &configRefs,
@@ -151,9 +151,9 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 	return condition, syncStatus
 }
 
-func buildCondition(configRefs []domain.DependencySyncConfigRefStatus, hasSecretRefs, anyFailed bool, failedMessage string, informerConnected *bool) domain.Condition {
+func buildCondition(conditionType domain.ConditionType, configRefs []domain.DependencySyncConfigRefStatus, hasSecretRefs, anyFailed bool, failedMessage string, informerConnected *bool) domain.Condition {
 	condition := domain.Condition{
-		Type: domain.ConditionTypeFleetDependenciesSynced,
+		Type: conditionType,
 	}
 
 	// Secret watch disconnected takes precedence
