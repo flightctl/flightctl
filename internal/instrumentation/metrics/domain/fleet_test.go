@@ -101,6 +101,9 @@ func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, 
 func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, callbackEvent store.EventCallback) error {
 	return nil
 }
+func (m *MockFleetStore) UpdateDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error {
+	return nil
+}
 
 func (m *MockFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
