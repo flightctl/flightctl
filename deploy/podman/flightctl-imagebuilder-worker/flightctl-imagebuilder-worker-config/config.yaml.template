@@ -39,7 +39,7 @@ imageBuilderWorker:
   {{- if .imagebuilderWorker.rpmRepoEnable}}
   rpmRepoEnable: {{.imagebuilderWorker.rpmRepoEnable}}
   {{- end}}
-  {{- if .imagebuilderWorker.dnfTimeout}}
+  {{- if or (eq (printf "%v" .imagebuilderWorker.dnfTimeout) "0") .imagebuilderWorker.dnfTimeout}}
   dnfTimeout: {{.imagebuilderWorker.dnfTimeout}}
   {{- end}}
   {{- if or (eq (printf "%v" .imagebuilderWorker.dnfRetries) "0") .imagebuilderWorker.dnfRetries}}
