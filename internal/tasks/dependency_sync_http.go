@@ -3,8 +3,8 @@ package tasks
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -18,29 +18,29 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// httpConditionalGetFunc is the injectable function type for testing.
+// httpConditionalHeadFunc is the injectable function type for testing.
 // Returns: fingerprint (ETag or Last-Modified value), HTTP status code, error.
 // Empty fingerprint with status 200 means the endpoint doesn't support
 // conditional requests (no ETag or Last-Modified in response).
-type httpConditionalGetFunc func(ctx context.Context, repoURL string,
+type httpConditionalHeadFunc func(ctx context.Context, repoURL string,
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (fingerprint string, statusCode int, err error)
 
 type DependencySyncHttp struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	cfg            *config.Config
-	conditionalGet httpConditionalGetFunc
-	maxConcurrent  int
+	log             logrus.FieldLogger
+	serviceHandler  service.Service
+	cfg             *config.Config
+	conditionalHead httpConditionalHeadFunc
+	maxConcurrent   int
 }
 
 func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
 	cfg *config.Config) *DependencySyncHttp {
 	return &DependencySyncHttp{
-		log:            log,
-		serviceHandler: serviceHandler,
-		cfg:            cfg,
-		conditionalGet: httpConditionalGet,
-		maxConcurrent:  10,
+		log:             log,
+		serviceHandler:  serviceHandler,
+		cfg:             cfg,
+		conditionalHead: httpConditionalHead,
+		maxConcurrent:   10,
 	}
 }
 
@@ -105,7 +105,11 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.Htt
 		return httpProbeResult{probe: probe, skip: true}
 	}
 
-	repoURL := httpSpec.Url + probe.HTTPSuffix
+	repoURL, err := url.JoinPath(httpSpec.Url, probe.HTTPSuffix)
+	if err != nil {
+		d.log.WithError(err).Warnf("failed joining URL for repository %s", probe.RepositoryName)
+		return httpProbeResult{probe: probe, skip: true}
+	}
 	rk := httpResourceKey(probe.RepositoryName, probe.HTTPSuffix)
 
 	storedFP := ""
@@ -113,7 +117,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.Htt
 		storedFP = *probe.Fingerprint
 	}
 
-	fingerprint, statusCode, err := d.conditionalGet(ctx, repoURL, httpSpec, storedFP)
+	fingerprint, statusCode, err := d.conditionalHead(ctx, repoURL, httpSpec, storedFP)
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
 		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
@@ -201,11 +205,12 @@ func httpResourceKey(repoName, suffix string) string {
 	return fmt.Sprintf("http:%s/%s", repoName, strings.TrimPrefix(suffix, "/"))
 }
 
-// httpConditionalGet sends a conditional GET to the given URL using stored
-// fingerprint for If-None-Match/If-Modified-Since headers.
-func httpConditionalGet(ctx context.Context, repoURL string,
+// httpConditionalHead sends a conditional HEAD to the given URL using stored
+// fingerprint for If-None-Match/If-Modified-Since headers. HEAD avoids
+// transferring the response body since we only need ETag/Last-Modified headers.
+func httpConditionalHead(ctx context.Context, repoURL string,
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (string, int, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "HEAD", repoURL, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("creating request: %w", err)
 	}
@@ -249,7 +254,6 @@ func httpConditionalGet(ctx context.Context, repoURL string,
 		if fingerprint == "" {
 			fingerprint = resp.Header.Get("Last-Modified")
 		}
-		io.Copy(io.Discard, resp.Body) //nolint:errcheck
 		return fingerprint, http.StatusOK, nil
 	default:
 		return "", resp.StatusCode, fmt.Errorf("unexpected status code %d from %s", resp.StatusCode, repoURL)
