@@ -167,7 +167,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 
 	fingerprint, statusCode, err := d.conditionalHead(ctx, client, repoURL, httpSpec, storedFP)
 	if err != nil {
-		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
+		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", rk, statusCode)
 		if d.metrics != nil {
 			d.metrics.ObserveProbeError(periodic.RefTypeHTTP)
 		}
@@ -195,7 +195,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 	return r
 }
 
-func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, results []httpProbeResult) {
+func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, results []httpProbeResult) bool {
 	now := time.Now().UTC()
 
 	for _, r := range results {
@@ -243,10 +243,11 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 		}
 		if r.probeErr != "" {
 			upsertStates = append(upsertStates, model.SyncState{
-				OrgID:        orgId,
-				ResourceKey:  r.resourceKey,
-				ProbeStatus:  "ProbeFailed",
-				ProbeMessage: r.probeErr,
+				OrgID:         orgId,
+				ResourceKey:   r.resourceKey,
+				ProbeStatus:   "ProbeFailed",
+				ProbeMessage:  r.probeErr,
+				LastCheckedAt: now,
 			})
 			continue
 		}
@@ -269,7 +270,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	if len(upsertStates) > 0 {
 		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
-			return
+			return false
 		}
 	}
 
@@ -278,6 +279,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
 		}
 	}
+	return true
 }
 
 func httpResourceKey(repoName, suffix string) string {
