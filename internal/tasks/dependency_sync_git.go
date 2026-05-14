@@ -49,6 +49,7 @@ type probeResult struct {
 	newSHA      string
 	changed     bool
 	firstSeen   bool
+	probeErr    string // non-empty when the probe failed
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
@@ -141,7 +142,16 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		if d.metrics != nil {
 			d.metrics.ObserveProbeError(periodic.RefTypeGit)
 		}
-		return nil
+		var failResults []probeResult
+		for _, p := range group {
+			rk := fmt.Sprintf("git:%s/%s", repoName, p.Revision)
+			failResults = append(failResults, probeResult{
+				probe:       p,
+				resourceKey: rk,
+				probeErr:    sanitizeError(err),
+			})
+		}
+		return failResults
 	}
 
 	var results []probeResult
@@ -178,6 +188,21 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	now := time.Now().UTC()
 
 	for _, r := range results {
+		if r.probeErr != "" {
+			for _, fleetName := range r.probe.FleetNames {
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, "git_ls_remote", r.probeErr)
+				if event != nil {
+					d.serviceHandler.CreateEvent(ctx, orgId, event)
+				}
+			}
+			for _, deviceName := range r.probe.DeviceNames {
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, "git_ls_remote", r.probeErr)
+				if event != nil {
+					d.serviceHandler.CreateEvent(ctx, orgId, event)
+				}
+			}
+			continue
+		}
 		if !r.changed {
 			continue
 		}
@@ -202,6 +227,15 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	var unchangedKeys []string
 
 	for _, r := range results {
+		if r.probeErr != "" {
+			upsertStates = append(upsertStates, model.SyncState{
+				OrgID:        orgId,
+				ResourceKey:  r.resourceKey,
+				ProbeStatus:  "ProbeFailed",
+				ProbeMessage: r.probeErr,
+			})
+			continue
+		}
 		if r.firstSeen || r.changed {
 			upsertStates = append(upsertStates, model.SyncState{
 				OrgID:         orgId,
