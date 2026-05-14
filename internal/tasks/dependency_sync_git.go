@@ -186,13 +186,13 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 			d.metrics.ObserveProbeChange(periodic.RefTypeGit)
 		}
 		for _, fleetName := range r.probe.FleetNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA, "git_ls_remote")
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}
 		}
 		for _, deviceName := range r.probe.DeviceNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA, "git_ls_remote")
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}
