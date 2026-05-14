@@ -79,6 +79,7 @@ const (
 	EventReasonInternalTaskFailed              = v1beta1.EventReasonInternalTaskFailed
 	EventReasonInternalTaskPermanentlyFailed   = v1beta1.EventReasonInternalTaskPermanentlyFailed
 	EventReasonDependencyChangeDetected        = v1beta1.EventReasonDependencyChangeDetected
+	EventReasonDependencySyncProbeFailed       = v1beta1.EventReasonDependencySyncProbeFailed
 	EventReasonReferencedRepositoryUpdated     = v1beta1.EventReasonReferencedRepositoryUpdated
 	EventReasonRepositoryAccessible            = v1beta1.EventReasonRepositoryAccessible
 	EventReasonRepositoryInaccessible          = v1beta1.EventReasonRepositoryInaccessible
@@ -113,11 +114,14 @@ type ResourceUpdatedDetailsDetailType = v1beta1.ResourceUpdatedDetailsDetailType
 type ResourceUpdatedDetailsUpdatedFields = v1beta1.ResourceUpdatedDetailsUpdatedFields
 type DeviceVulnerabilityCveDetails = v1beta1.DeviceVulnerabilityCveDetails
 type DeviceVulnerabilityCveDetailsDetailType = v1beta1.DeviceVulnerabilityCveDetailsDetailType
+type DependencySyncProbeFailedDetails = v1beta1.DependencySyncProbeFailedDetails
+type DependencySyncProbeFailedDetailsDetailType = v1beta1.DependencySyncProbeFailedDetailsDetailType
 
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed
 	InternalTaskPermanentlyFailed = v1beta1.InternalTaskPermanentlyFailed
 	DependencyChangeDetected      = v1beta1.DependencyChangeDetected
+	DependencySyncProbeFailedDT   = v1beta1.DependencySyncProbeFailed
 	ReferencedRepositoryUpdated   = v1beta1.ReferencedRepositoryUpdated
 	ResourceUpdated               = v1beta1.ResourceUpdated
 
@@ -167,6 +171,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonResourceSyncParsingFailed:       {},
 	EventReasonResourceSyncSyncFailed:          {},
 	EventReasonFleetRolloutFailed:              {},
+	EventReasonDependencySyncProbeFailed:       {},
 }
 
 // GetEventType determines the event type based on the event reason
