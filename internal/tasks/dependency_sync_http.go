@@ -187,13 +187,13 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			continue
 		}
 		for _, fleetName := range r.probe.FleetNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint, "http_conditional_get")
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}
 		}
 		for _, deviceName := range r.probe.DeviceNames {
-			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.fingerprint)
+			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.fingerprint, "http_conditional_get")
 			if event != nil {
 				d.serviceHandler.CreateEvent(ctx, orgId, event)
 			}

@@ -114,7 +114,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 			kind = domain.FleetKind
 			targetName = ref.FleetName
 		}
-		event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
+		event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint, "secret_informer")
 		if event != nil {
 			d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
 		}

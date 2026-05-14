@@ -573,12 +573,14 @@ func GetRepositoryInaccessibleEvent(ctx context.Context, name string, errorMessa
 	})
 }
 
-// GetDependencyChangeDetectedEvent creates an event when the sync controller detects an upstream change
-func GetDependencyChangeDetectedEvent(ctx context.Context, kind domain.ResourceKind, name, resourceKey, fingerprint string) *domain.Event {
+// GetDependencyChangeDetectedEvent creates an event when the sync controller detects an upstream change.
+// The detector parameter identifies the subsystem that detected the change (e.g. "git_ls_remote").
+func GetDependencyChangeDetectedEvent(ctx context.Context, kind domain.ResourceKind, name, resourceKey, fingerprint, detector string) *domain.Event {
 	details := domain.DependencyChangeDetectedDetails{
 		DetailType:  domain.DependencyChangeDetected,
 		ResourceKey: resourceKey,
 		Fingerprint: fingerprint,
+		Detector:    &detector,
 	}
 	eventDetails := domain.EventDetails{}
 	if err := eventDetails.FromDependencyChangeDetectedDetails(details); err != nil {
@@ -588,7 +590,27 @@ func GetDependencyChangeDetectedEvent(ctx context.Context, kind domain.ResourceK
 		resourceKind: kind,
 		resourceName: name,
 		reason:       domain.EventReasonDependencyChangeDetected,
-		message:      fmt.Sprintf("Dependency change detected for %s (fingerprint: %.8s).", resourceKey, fingerprint),
+		message:      fmt.Sprintf("automated-sync: dependency change detected for %s via %s (fingerprint: %.8s).", resourceKey, detector, fingerprint),
+		details:      &eventDetails,
+	})
+}
+
+// GetDependencySyncProbeFailedEvent creates an audit event when a dependency probe fails.
+func GetDependencySyncProbeFailedEvent(ctx context.Context, kind domain.ResourceKind, name, resourceKey, detector, sanitizedError string) *domain.Event {
+	details := domain.DependencySyncProbeFailedDetails{
+		DetailType:  domain.DependencySyncProbeFailedDT,
+		ResourceKey: resourceKey,
+		Error:       sanitizedError,
+	}
+	eventDetails := domain.EventDetails{}
+	if err := eventDetails.FromDependencySyncProbeFailedDetails(details); err != nil {
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: kind,
+		resourceName: name,
+		reason:       domain.EventReasonDependencySyncProbeFailed,
+		message:      fmt.Sprintf("automated-sync: probe failed for %s via %s: %s.", resourceKey, detector, sanitizedError),
 		details:      &eventDetails,
 	})
 }
