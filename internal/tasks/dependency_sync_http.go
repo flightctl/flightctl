@@ -106,7 +106,6 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	}
 
 	d.reconcile(ctx, orgId, results)
-
 }
 
 func (d *DependencySyncHttp) probeRepoGroup(ctx context.Context, group []*model.HttpDependencyProbe) []httpProbeResult {
@@ -233,6 +232,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.fingerprint,
+				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})
