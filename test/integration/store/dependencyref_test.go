@@ -552,4 +552,89 @@ var _ = Describe("DependencyRefStore", func() {
 		})
 	})
 
+	Context("When listing dependency refs with sync state", func() {
+		It("should join refs with their sync state for a fleet", func() {
+			ref := &model.DependencyRef{
+				OrgID:              orgId,
+				ResourceKey:        "git:repo-a/main",
+				FleetName:          lo.ToPtr("fleet-1"),
+				DeviceName:         lo.ToPtr(""),
+				RefType:            "git",
+				RepositoryName:     lo.ToPtr("repo-a"),
+				Revision:           lo.ToPtr("main"),
+				ConfigProviderName: "git-config",
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			ss := &model.SyncState{
+				OrgID:         orgId,
+				ResourceKey:   "git:repo-a/main",
+				Fingerprint:   "abc123",
+				LastCheckedAt: now,
+				ProbeStatus:   "Synced",
+				ProbeMessage:  "",
+			}
+			Expect(storeInst.SyncState().Set(ctx, orgId, ss)).To(Succeed())
+
+			results, err := storeInst.DependencyRef().ListDependencyRefsWithSyncState(ctx, orgId, lo.ToPtr("fleet-1"), nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(1))
+			Expect(results[0].ConfigProviderName).To(Equal("git-config"))
+			Expect(results[0].Fingerprint).ToNot(BeNil())
+			Expect(*results[0].Fingerprint).To(Equal("abc123"))
+			Expect(results[0].ProbeStatus).ToNot(BeNil())
+			Expect(*results[0].ProbeStatus).To(Equal("Synced"))
+		})
+
+		It("should return refs without sync state with nil probe fields", func() {
+			ref := &model.DependencyRef{
+				OrgID:              orgId,
+				ResourceKey:        "git:new-repo/main",
+				FleetName:          lo.ToPtr("fleet-1"),
+				DeviceName:         lo.ToPtr(""),
+				RefType:            "git",
+				RepositoryName:     lo.ToPtr("new-repo"),
+				Revision:           lo.ToPtr("main"),
+				ConfigProviderName: "new-config",
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			results, err := storeInst.DependencyRef().ListDependencyRefsWithSyncState(ctx, orgId, lo.ToPtr("fleet-1"), nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(1))
+			Expect(results[0].ConfigProviderName).To(Equal("new-config"))
+			Expect(results[0].Fingerprint).To(BeNil())
+			Expect(results[0].ProbeStatus).To(BeNil())
+		})
+
+		It("should filter by fleet and exclude device-level refs", func() {
+			fleetRef := &model.DependencyRef{
+				OrgID:              orgId,
+				ResourceKey:        "git:repo/main",
+				FleetName:          lo.ToPtr("fleet-1"),
+				DeviceName:         lo.ToPtr(""),
+				RefType:            "git",
+				RepositoryName:     lo.ToPtr("repo"),
+				Revision:           lo.ToPtr("main"),
+				ConfigProviderName: "cfg-a",
+			}
+			deviceRef := &model.DependencyRef{
+				OrgID:              orgId,
+				ResourceKey:        "git:repo/main",
+				FleetName:          lo.ToPtr("fleet-1"),
+				DeviceName:         lo.ToPtr("device-1"),
+				RefType:            "git",
+				RepositoryName:     lo.ToPtr("repo"),
+				Revision:           lo.ToPtr("main"),
+				ConfigProviderName: "cfg-a",
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, fleetRef)).To(Succeed())
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, deviceRef)).To(Succeed())
+
+			results, err := storeInst.DependencyRef().ListDependencyRefsWithSyncState(ctx, orgId, lo.ToPtr("fleet-1"), nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(1))
+		})
+	})
 })
