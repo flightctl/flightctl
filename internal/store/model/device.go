@@ -80,7 +80,8 @@ type DeviceLabel struct {
 }
 
 type ServiceConditions struct {
-	Conditions *[]domain.Condition `json:"conditions,omitempty"`
+	Conditions     *[]domain.Condition          `json:"conditions,omitempty"`
+	DependencySync *domain.DependencySyncStatus `json:"dependencySync,omitempty"`
 }
 
 func (d Device) String() string {
@@ -208,11 +209,16 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		status = d.Status.Data
 	}
 
-	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
-		if status.Conditions == nil {
-			status.Conditions = []domain.Condition{}
+	if d.ServiceConditions != nil {
+		if d.ServiceConditions.Data.Conditions != nil {
+			if status.Conditions == nil {
+				status.Conditions = []domain.Condition{}
+			}
+			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 		}
-		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
+		if d.ServiceConditions.Data.DependencySync != nil {
+			status.DependencySync = d.ServiceConditions.Data.DependencySync
+		}
 	}
 
 	var resourceVersion *string
