@@ -103,7 +103,8 @@ func (d *DependencySyncSecret) setInformerDisconnected(ctx context.Context) {
 		return
 	}
 
-	bgCtx := context.Background()
+	bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	orgIDs, st := d.serviceHandler.ListDistinctOrgIDsByRefType(bgCtx, "secret")
 	if st.Code != http.StatusOK {
 		d.log.Errorf("failed listing org IDs for disconnect propagation: %s", st.Message)

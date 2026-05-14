@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -12,6 +13,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
+
+var credentialPattern = regexp.MustCompile(`(?i)(password|token|secret|bearer|authorization)[=: ]+\S+`)
 
 // DependencySyncStatusUpdater computes and persists the DependenciesSynced
 // condition and DependencySync status block for fleets and devices.
@@ -182,4 +185,11 @@ func buildCondition(configRefs []domain.DependencySyncConfigRefStatus, hasSecret
 	condition.Reason = "NoDrift"
 	condition.Message = "All dependencies are synced."
 	return condition
+}
+
+// sanitizeError strips credential-like patterns from error messages to
+// prevent leaking secrets into events or status fields.
+func sanitizeError(err error) string {
+	msg := err.Error()
+	return credentialPattern.ReplaceAllString(msg, "$1=[REDACTED]")
 }

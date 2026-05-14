@@ -123,7 +123,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		d.Poll(ctx, orgId)
 	})
 
-	t.Run("When probe errors it should continue without emitting events", func(t *testing.T) {
+	t.Run("When probe errors it should emit probe failure events and set ProbeFailed status", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
@@ -133,6 +133,21 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			makeProbe("my-repo", "main", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+
+		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+			assert.Equal(t, domain.EventReasonDependencySyncProbeFailed, event.Reason)
+			assert.Equal(t, domain.FleetKind, event.InvolvedObject.Kind)
+			assert.Equal(t, "fleet-1", event.InvolvedObject.Name)
+		})
+
+		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
+				require.Len(t, states, 1)
+				assert.Equal(t, "ProbeFailed", states[0].ProbeStatus)
+				assert.Contains(t, states[0].ProbeMessage, "connection refused")
+				return statusOK
+			},
+		)
 
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return nil, fmt.Errorf("connection refused")
