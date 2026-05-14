@@ -127,6 +127,33 @@ var _ = Describe("SyncStateStore", func() {
 		})
 	})
 
+	Context("When upserting with uuid.Nil org_id as sentinel org_id", func() {
+		It("should update the existing record instead of failing on duplicate insert", func() {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			state := &model.SyncState{
+				OrgID:         uuid.Nil,
+				ResourceKey:   "secret:prod/db-creds",
+				Fingerprint:   "rv1000",
+				LastCheckedAt: now,
+			}
+			err := storeInst.SyncState().Set(ctx, uuid.Nil, state)
+			Expect(err).ToNot(HaveOccurred())
+
+			later := now.Add(5 * time.Minute)
+			state.Fingerprint = "rv1001"
+			state.LastCheckedAt = later
+			state.LastChangeAt = &later
+			err = storeInst.SyncState().Set(ctx, uuid.Nil, state)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := storeInst.SyncState().Get(ctx, uuid.Nil, "secret:prod/db-creds")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Fingerprint).To(Equal("rv1001"))
+			Expect(result.LastCheckedAt.UTC()).To(BeTemporally("~", later, time.Millisecond))
+		})
+	})
+
 	Context("When querying with org isolation", func() {
 		It("should not return records from a different org", func() {
 			now := time.Now().UTC().Truncate(time.Microsecond)
