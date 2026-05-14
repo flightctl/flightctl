@@ -88,11 +88,13 @@ const (
 	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceDependenciesSynced             ConditionType = "DependenciesSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
 	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetDependenciesSynced              ConditionType = "DependenciesSynced"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
@@ -104,6 +106,13 @@ const (
 // Defines values for DependencyChangeDetectedDetailsDetailType.
 const (
 	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
+)
+
+// Defines values for DependencySyncConfigRefStatusStatus.
+const (
+	ProbeFailed             DependencySyncConfigRefStatusStatus = "ProbeFailed"
+	SecretWatchDisconnected DependencySyncConfigRefStatusStatus = "SecretWatchDisconnected"
+	Synced                  DependencySyncConfigRefStatusStatus = "Synced"
 )
 
 // Defines values for DependencySyncProbeFailedDetailsDetailType.
@@ -1084,6 +1093,9 @@ type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DependencyChangeDetectedDetailsDetailType `json:"detailType"`
 
+	// Detector The subsystem that detected the change (e.g. "automated-sync").
+	Detector *string `json:"detector,omitempty"`
+
 	// Fingerprint The new fingerprint (e.g. commit SHA) of the changed dependency.
 	Fingerprint string `json:"fingerprint"`
 
@@ -1094,17 +1106,23 @@ type DependencyChangeDetectedDetails struct {
 // DependencyChangeDetectedDetailsDetailType The type of detail for discriminator purposes.
 type DependencyChangeDetectedDetailsDetailType string
 
-// DependencySyncConfigRefStatus DependencySyncConfigRefStatus represents the rendered fingerprint for a single config provider's external dependency.
+// DependencySyncConfigRefStatus DependencySyncConfigRefStatus represents the synchronization status for a single config provider's dependencies.
 type DependencySyncConfigRefStatus struct {
-	// ConfigProviderName The name of the config provider (e.g. the git or HTTP config source name).
+	// ConfigProviderName The name of the config provider (e.g. "nginx-config").
 	ConfigProviderName string `json:"configProviderName"`
 
-	// Fingerprint The fingerprint of the rendered content (e.g. git commit SHA, sha256 of HTTP body, K8s secret ResourceVersion).
-	Fingerprint *string `json:"fingerprint,omitempty"`
+	// LastProbeTime The last time the dependency was probed or synced.
+	LastProbeTime *time.Time `json:"lastProbeTime,omitempty"`
 
-	// LastUpdatedAt The last time the fingerprint changed (i.e. the dependency content was updated).
-	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
+	// Message A human-readable message providing details about the synchronization status.
+	Message *string `json:"message,omitempty"`
+
+	// Status The synchronization status for this config provider's dependencies.
+	Status DependencySyncConfigRefStatusStatus `json:"status"`
 }
+
+// DependencySyncConfigRefStatusStatus The synchronization status for this config provider's dependencies.
+type DependencySyncConfigRefStatusStatus string
 
 // DependencySyncProbeFailedDetails defines model for DependencySyncProbeFailedDetails.
 type DependencySyncProbeFailedDetails struct {
@@ -1121,9 +1139,9 @@ type DependencySyncProbeFailedDetails struct {
 // DependencySyncProbeFailedDetailsDetailType The type of detail for discriminator purposes.
 type DependencySyncProbeFailedDetailsDetailType string
 
-// DependencySyncStatus DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
+// DependencySyncStatus DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
 type DependencySyncStatus struct {
-	// ConfigRefs Per-config-provider fingerprint and last update time, set when the device renders.
+	// ConfigRefs Per-config-provider dependency synchronization status.
 	ConfigRefs *[]DependencySyncConfigRefStatus `json:"configRefs,omitempty"`
 }
 
@@ -1421,7 +1439,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
+	// DependencySync DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
 
 	// Integrity Summary status of the integrity of the device.
@@ -1981,6 +1999,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DependencySync DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
+	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
