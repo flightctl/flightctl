@@ -88,11 +88,13 @@ const (
 	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceDependenciesSynced             ConditionType = "DependenciesSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
 	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetDependenciesSynced              ConditionType = "DependenciesSynced"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
@@ -104,6 +106,18 @@ const (
 // Defines values for DependencyChangeDetectedDetailsDetailType.
 const (
 	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
+)
+
+// Defines values for DependencySyncConfigRefStatusStatus.
+const (
+	ProbeFailed             DependencySyncConfigRefStatusStatus = "ProbeFailed"
+	SecretWatchDisconnected DependencySyncConfigRefStatusStatus = "SecretWatchDisconnected"
+	Synced                  DependencySyncConfigRefStatusStatus = "Synced"
+)
+
+// Defines values for DependencySyncProbeFailedDetailsDetailType.
+const (
+	DependencySyncProbeFailed DependencySyncProbeFailedDetailsDetailType = "DependencySyncProbeFailed"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -209,6 +223,7 @@ const (
 // Defines values for EventReason.
 const (
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
+	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
 	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
 	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
@@ -1036,6 +1051,9 @@ type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DependencyChangeDetectedDetailsDetailType `json:"detailType"`
 
+	// Detector The subsystem that detected the change (e.g. "automated-sync").
+	Detector *string `json:"detector,omitempty"`
+
 	// Fingerprint The new fingerprint (e.g. commit SHA) of the changed dependency.
 	Fingerprint string `json:"fingerprint"`
 
@@ -1045,6 +1063,45 @@ type DependencyChangeDetectedDetails struct {
 
 // DependencyChangeDetectedDetailsDetailType The type of detail for discriminator purposes.
 type DependencyChangeDetectedDetailsDetailType string
+
+// DependencySyncConfigRefStatus DependencySyncConfigRefStatus represents the synchronization status for a single config provider's dependencies.
+type DependencySyncConfigRefStatus struct {
+	// ConfigProviderName The name of the config provider (e.g. "nginx-config").
+	ConfigProviderName string `json:"configProviderName"`
+
+	// LastProbeTime The last time the dependency was probed or synced.
+	LastProbeTime *time.Time `json:"lastProbeTime,omitempty"`
+
+	// Message A human-readable message providing details about the synchronization status.
+	Message *string `json:"message,omitempty"`
+
+	// Status The synchronization status for this config provider's dependencies.
+	Status DependencySyncConfigRefStatusStatus `json:"status"`
+}
+
+// DependencySyncConfigRefStatusStatus The synchronization status for this config provider's dependencies.
+type DependencySyncConfigRefStatusStatus string
+
+// DependencySyncProbeFailedDetails defines model for DependencySyncProbeFailedDetails.
+type DependencySyncProbeFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DependencySyncProbeFailedDetailsDetailType `json:"detailType"`
+
+	// Error The error message from the failed probe.
+	Error string `json:"error"`
+
+	// ResourceKey The resource key identifying the dependency that failed (e.g. "git:my-repo/main").
+	ResourceKey string `json:"resourceKey"`
+}
+
+// DependencySyncProbeFailedDetailsDetailType The type of detail for discriminator purposes.
+type DependencySyncProbeFailedDetailsDetailType string
+
+// DependencySyncStatus DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
+type DependencySyncStatus struct {
+	// ConfigRefs Per-config-provider dependency synchronization status.
+	ConfigRefs *[]DependencySyncConfigRefStatus `json:"configRefs,omitempty"`
+}
 
 // Device Device represents a physical device.
 type Device struct {
@@ -1339,6 +1396,9 @@ type DeviceStatus struct {
 
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
+
+	// DependencySync DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
+	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
 
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
@@ -1897,6 +1957,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DependencySync DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
+	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
@@ -5016,6 +5079,34 @@ func (t *EventDetails) MergeDependencyChangeDetectedDetails(v DependencyChangeDe
 	return err
 }
 
+// AsDependencySyncProbeFailedDetails returns the union data inside the EventDetails as a DependencySyncProbeFailedDetails
+func (t EventDetails) AsDependencySyncProbeFailedDetails() (DependencySyncProbeFailedDetails, error) {
+	var body DependencySyncProbeFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDependencySyncProbeFailedDetails overwrites any union data inside the EventDetails as the provided DependencySyncProbeFailedDetails
+func (t *EventDetails) FromDependencySyncProbeFailedDetails(v DependencySyncProbeFailedDetails) error {
+	v.DetailType = "DependencySyncProbeFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDependencySyncProbeFailedDetails performs a merge with any union data inside the EventDetails, using the provided DependencySyncProbeFailedDetails
+func (t *EventDetails) MergeDependencySyncProbeFailedDetails(v DependencySyncProbeFailedDetails) error {
+	v.DetailType = "DependencySyncProbeFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -5032,6 +5123,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "DependencyChangeDetected":
 		return t.AsDependencyChangeDetectedDetails()
+	case "DependencySyncProbeFailed":
+		return t.AsDependencySyncProbeFailedDetails()
 	case "DeviceMultipleOwnersDetected":
 		return t.AsDeviceMultipleOwnersDetectedDetails()
 	case "DeviceMultipleOwnersResolved":

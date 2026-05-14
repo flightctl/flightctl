@@ -39,6 +39,8 @@ const (
 	ConditionTypeResourceSyncAccessible               = v1beta1.ConditionTypeResourceSyncAccessible
 	ConditionTypeResourceSyncResourceParsed           = v1beta1.ConditionTypeResourceSyncResourceParsed
 	ConditionTypeResourceSyncSynced                   = v1beta1.ConditionTypeResourceSyncSynced
+	ConditionTypeFleetDependenciesSynced              = v1beta1.ConditionTypeFleetDependenciesSynced
+	ConditionTypeDeviceDependenciesSynced             = v1beta1.ConditionTypeDeviceDependenciesSynced
 )
 
 // Condition utilities (re-exported)
@@ -93,6 +95,18 @@ const (
 	ResourceKindRepository                             = v1beta1.ResourceKindRepository
 	ResourceKindResourceSync                           = v1beta1.ResourceKindResourceSync
 	ResourceKindTemplateVersion                        = v1beta1.ResourceKindTemplateVersion
+)
+
+// ========== Dependency Sync Status ==========
+
+type DependencySyncStatus = v1beta1.DependencySyncStatus
+type DependencySyncConfigRefStatus = v1beta1.DependencySyncConfigRefStatus
+type DependencySyncConfigRefStatusStatus = v1beta1.DependencySyncConfigRefStatusStatus
+
+const (
+	DependencySyncConfigRefStatusSynced                  = v1beta1.Synced
+	DependencySyncConfigRefStatusProbeFailed             = v1beta1.ProbeFailed
+	DependencySyncConfigRefStatusSecretWatchDisconnected = v1beta1.SecretWatchDisconnected
 )
 
 // ========== Interfaces ==========
