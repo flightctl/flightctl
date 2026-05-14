@@ -103,7 +103,6 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	}
 
 	d.reconcile(ctx, orgId, results)
-
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
@@ -208,6 +207,7 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.newSHA,
+				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})

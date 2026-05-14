@@ -745,6 +745,20 @@ func (t *TracedService) ListDependencyRefsWithSyncState(ctx context.Context, org
 	return resp, st
 }
 
+func (t *TracedService) ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDistinctDependencyRefOwners")
+	resp, st := t.inner.ListDistinctDependencyRefOwners(ctx, orgId)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, domain.Status) {
+	ctx, span := startSpan(ctx, "ListDistinctOrgIDsByRefType")
+	resp, st := t.inner.ListDistinctOrgIDsByRefType(ctx, refType)
+	endSpan(span, st)
+	return resp, st
+}
+
 // --- SyncState ---
 func (t *TracedService) GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status) {
 	ctx, span := startSpan(ctx, "GetSyncState")
