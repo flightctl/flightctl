@@ -61,7 +61,7 @@ ifeq ($(DEBUG),true)
 	GC_FLAGS := -gcflags "all=-N -l"
 else
 	# strip debug info, but keep symbols
-	LD_FLAGS := -w
+	LD_FLAGS ?= -w
 	GC_FLAGS :=
 endif
 
@@ -73,6 +73,7 @@ GO_LD_FLAGS = $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.commitFromGit=$(SOURCE_GIT_COMMIT) \
 	-X github.com/flightctl/flightctl/pkg/version.gitTreeState=$(SOURCE_GIT_TREE_STATE) \
 	-X github.com/flightctl/flightctl/pkg/version.buildDate=$(BIN_TIMESTAMP) \
+	$(EXTRA_LD_FLAGS) \
 	$(LD_FLAGS)"
 GO_BUILD_FLAGS += $(GO_LD_FLAGS)
 
