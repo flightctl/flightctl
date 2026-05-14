@@ -120,6 +120,7 @@ func TestOutputPathValidation(t *testing.T) {
 		{
 			name: "valid directory",
 			setupOutput: func(t *testing.T) string {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				return t.TempDir()
 			},
 			wantErr: false,
@@ -146,6 +147,7 @@ func TestOutputPathValidation(t *testing.T) {
 		{
 			name: "current directory",
 			setupOutput: func(t *testing.T) string {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				return "."
 			},
 			wantErr: false,
@@ -185,6 +187,7 @@ func TestConfigPathValidation(t *testing.T) {
 		{
 			name: "valid config file",
 			setupConfig: func(t *testing.T) string {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				dir := t.TempDir()
 				configPath := filepath.Join(dir, "config.yaml")
 				createTestConfig(t, configPath)
@@ -195,6 +198,7 @@ func TestConfigPathValidation(t *testing.T) {
 		{
 			name: "non-existent config file - LoadOrGenerate should create it",
 			setupConfig: func(t *testing.T) string {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				dir := t.TempDir()
 				return filepath.Join(dir, "new-config.yaml")
 			},
@@ -279,6 +283,9 @@ func TestHelpOutput(t *testing.T) {
 }
 
 func TestRunBackupPlaceholder(t *testing.T) {
+	// Set up Kubernetes environment for deployment detection
+	t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+
 	// Create temp directory for output
 	outputDir := t.TempDir()
 

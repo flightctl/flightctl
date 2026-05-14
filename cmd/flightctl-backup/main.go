@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -101,7 +102,16 @@ func runBackup(ctx context.Context, outputPath, configPath string) error {
 		}
 	}()
 
-	// PLACEHOLDER: Actual backup logic will be added in EDM-3889
+	// Detect deployment type
+	deployer, err := backup.DetectDeployment(cfg, log)
+	if err != nil {
+		return fmt.Errorf("detecting deployment type: %w", err)
+	}
+
+	// Log detected deployment type at INFO level
+	log.Printf("Detected deployment type: %s", deployer.Type())
+
+	// PLACEHOLDER: Actual backup logic will be added in EDM-3890+
 	log.Println("Backup logic placeholder - implementation pending")
 	log.Println("Database backup would be created here")
 
