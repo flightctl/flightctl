@@ -6725,6 +6725,14 @@ components:
       type: object
       description: DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
       properties:
+        lastProbeTime:
+          type: string
+          format: date-time
+          description: The last time any dependency was probed.
+        lastSuccessfulProbeTime:
+          type: string
+          format: date-time
+          description: The last time a probe completed successfully (status=Synced).
         configRefs:
           type: array
           description: Per-config-provider dependency synchronization status.
@@ -6751,10 +6759,17 @@ components:
         message:
           type: string
           description: A human-readable message providing details about the synchronization status.
+        fingerprint:
+          type: string
+          description: The current upstream fingerprint (e.g. git SHA, ETag, resource version).
         lastProbeTime:
           type: string
           format: date-time
           description: The last time the dependency was probed or synced.
+        lastUpdatedAt:
+          type: string
+          format: date-time
+          description: The last time the fingerprint changed.
       additionalProperties: false
     FleetStatus:
       type: object
