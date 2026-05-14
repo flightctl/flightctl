@@ -255,11 +255,12 @@ type DependencySyncGitExecutor struct {
 	serviceHandler service.Service
 	cfg            *config.Config
 	metrics        *periodicmetrics.DependencySyncCollector
+	statusUpdater  *tasks.DependencySyncStatusUpdater
 }
 
 func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncGit)
-	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.cfg, e.metrics)
+	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.cfg, e.metrics, e.statusUpdater)
 	depSync.Poll(taskCtx, orgId)
 }
 
@@ -268,15 +269,16 @@ type DependencySyncHttpExecutor struct {
 	serviceHandler service.Service
 	cfg            *config.Config
 	metrics        *periodicmetrics.DependencySyncCollector
+	statusUpdater  *tasks.DependencySyncStatusUpdater
 }
 
 func (e *DependencySyncHttpExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncHttp)
-	depSync := tasks.NewDependencySyncHttp(e.log, e.serviceHandler, e.cfg, e.metrics)
+	depSync := tasks.NewDependencySyncHttp(e.log, e.serviceHandler, e.cfg, e.metrics, e.statusUpdater)
 	depSync.Poll(taskCtx, orgId)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, depSyncMetrics *periodicmetrics.DependencySyncCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, depSyncMetrics *periodicmetrics.DependencySyncCollector, depSyncStatusUpdater *tasks.DependencySyncStatusUpdater) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -327,6 +329,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		serviceHandler: serviceHandler,
 		cfg:            cfg,
 		metrics:        depSyncMetrics,
+		statusUpdater:  depSyncStatusUpdater,
 	}
 
 	executors[PeriodicTaskTypeDependencySyncHttp] = &DependencySyncHttpExecutor{
@@ -334,6 +337,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		serviceHandler: serviceHandler,
 		cfg:            cfg,
 		metrics:        depSyncMetrics,
+		statusUpdater:  depSyncStatusUpdater,
 	}
 
 	return executors
