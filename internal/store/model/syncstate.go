@@ -17,6 +17,8 @@ type SyncState struct {
 	Fingerprint   string
 	LastCheckedAt time.Time
 	LastChangeAt  *time.Time
+	ProbeStatus   string
+	ProbeMessage  string
 }
 
 func (SyncState) TableName() string {

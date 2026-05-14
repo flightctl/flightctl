@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
@@ -56,12 +57,13 @@ type DependencyRef struct {
 	FleetName   *string   `gorm:"primaryKey;default:''"`
 	DeviceName  *string   `gorm:"primaryKey;default:''"`
 
-	RefType         string // "git", "http", "secret"
-	RepositoryName  *string
-	Revision        *string
-	HTTPSuffix      *string
-	SecretName      *string
-	SecretNamespace *string
+	RefType            string // "git", "http", "secret"
+	RepositoryName     *string
+	Revision           *string
+	HTTPSuffix         *string
+	SecretName         *string
+	SecretNamespace    *string
+	ConfigProviderName string
 }
 
 func (DependencyRef) TableName() string {
@@ -77,6 +79,18 @@ type SecretDependencyRef struct {
 	FleetName   string
 	DeviceName  string
 	Fingerprint *string
+}
+
+// DependencyRefWithSyncState joins a dependency ref with its sync state for
+// status computation. Returned by ListDependencyRefsWithSyncState.
+type DependencyRefWithSyncState struct {
+	ResourceKey        string
+	RefType            string
+	ConfigProviderName string
+	Fingerprint        *string
+	ProbeStatus        *string
+	ProbeMessage       *string
+	LastCheckedAt      *time.Time
 }
 
 // GitDependencyProbe is the result of ListDueGitDependencies — one row per

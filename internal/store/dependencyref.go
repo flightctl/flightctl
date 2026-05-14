@@ -27,6 +27,7 @@ type DependencyRef interface {
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 	ListDueHttpDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, error)
 	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, error)
+	ListDependencyRefsWithSyncState(ctx context.Context, orgID uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, error)
 }
 
 type DependencyRefStore struct {
@@ -154,7 +155,7 @@ func (s *DependencyRefStore) BulkUpsertDeviceRefs(ctx context.Context, orgID uui
 	}
 	return s.getDB(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "org_id"}, {Name: "resource_key"}, {Name: "fleet_name"}, {Name: "device_name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name"}),
+		DoUpdates: clause.AssignmentColumns([]string{"revision", "ref_type", "repository_name", "config_provider_name"}),
 	}).Create(&refs).Error
 }
 
@@ -229,4 +230,31 @@ func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, se
 		return nil, ErrorFromGormError(err)
 	}
 	return refs, nil
+}
+
+// ListDependencyRefsWithSyncState returns dependency refs for a fleet or device
+// joined with their sync state. Used by the status updater to compute the
+// DependencySyncStatus block. Exactly one of fleetName or deviceName must be
+// non-nil.
+func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context, orgID uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, error) {
+	q := s.getDB(ctx).
+		Table("dependency_refs dr").
+		Select("dr.resource_key, dr.ref_type, dr.config_provider_name, "+
+			"ss.fingerprint, ss.probe_status, ss.probe_message, ss.last_checked_at").
+		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
+		Where("dr.org_id = ?", orgID)
+
+	if fleetName != nil {
+		q = q.Where("dr.fleet_name = ? AND dr.device_name = ''", *fleetName)
+	} else if deviceName != nil {
+		q = q.Where("dr.device_name = ?", *deviceName)
+	} else {
+		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: either fleetName or deviceName must be non-nil")
+	}
+
+	var results []model.DependencyRefWithSyncState
+	if err := q.Scan(&results).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
 }
