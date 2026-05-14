@@ -95,7 +95,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 			hasSecretRefs = true
 		}
 
-		refStatus := domain.DependencySyncConfigRefStatusStatus(domain.DependencySyncConfigRefStatusSynced)
+		refStatus := domain.DependencySyncConfigRefStatusSynced
 		var message string
 		var lastProbeTime *time.Time
 
