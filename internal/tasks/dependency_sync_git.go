@@ -81,7 +81,9 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			res := d.probeRepo(ctx, repoName, group)
+			probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			res := d.probeRepo(probeCtx, repoName, group)
 			mu.Lock()
 			results = append(results, res...)
 			mu.Unlock()
