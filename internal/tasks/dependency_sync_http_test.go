@@ -73,7 +73,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
@@ -107,7 +107,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return "", http.StatusNotModified, nil
 		}
 
@@ -136,7 +136,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return "", http.StatusOK, nil
 		}
 
@@ -177,7 +177,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			assert.Equal(t, "fleet-2", event.InvolvedObject.Name)
 		})
 
-		conditionalHead := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			if url == "https://example.com/fail" {
 				return "", 0, fmt.Errorf("connection refused")
 			}
@@ -200,7 +200,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called with empty work list")
 				return "", 0, nil
 			}, maxConcurrent: 10,
@@ -226,7 +226,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
@@ -256,7 +256,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
@@ -289,7 +289,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		conditionalHead := func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			return `"initial-etag"`, http.StatusOK, nil
 		}
 
@@ -313,7 +313,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		d := &DependencySyncHttp{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called when RepoSpec is nil")
 				return "", 0, nil
 			}, maxConcurrent: 10,
@@ -335,7 +335,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		requestedURLs := make(map[string]bool)
 		var mu sync.Mutex
-		conditionalHead := func(_ context.Context, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
+		conditionalHead := func(_ context.Context, _ *http.Client, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 			mu.Lock()
 			requestedURLs[url] = true
 			mu.Unlock()
@@ -377,6 +377,7 @@ func plainHttpSpec() domain.HttpRepoSpec {
 func TestHttpConditionalHead(t *testing.T) {
 	ctx := context.Background()
 	spec := plainHttpSpec()
+	client := &http.Client{Timeout: 5 * time.Second}
 
 	t.Run("When endpoint returns ETag and supports conditional HEAD it should return 304 on match", func(t *testing.T) {
 		etag := `"abc123"`
@@ -390,12 +391,12 @@ func TestHttpConditionalHead(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		fp, status, err := httpConditionalHead(ctx, client, srv.URL, spec, "")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, etag, fp)
 
-		fp, status, err = httpConditionalHead(ctx, srv.URL, spec, etag)
+		fp, status, err = httpConditionalHead(ctx, client, srv.URL, spec, etag)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotModified, status)
 		assert.Empty(t, fp)
@@ -409,7 +410,7 @@ func TestHttpConditionalHead(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, `"v1"`)
+		fp, status, err := httpConditionalHead(ctx, client, srv.URL, spec, `"v1"`)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, etag, fp)
@@ -427,12 +428,12 @@ func TestHttpConditionalHead(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		fp, status, err := httpConditionalHead(ctx, client, srv.URL, spec, "")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, lastMod, fp)
 
-		fp, status, err = httpConditionalHead(ctx, srv.URL, spec, lastMod)
+		fp, status, err = httpConditionalHead(ctx, client, srv.URL, spec, lastMod)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotModified, status)
 		assert.Empty(t, fp)
@@ -446,7 +447,7 @@ func TestHttpConditionalHead(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		fp, status, err := httpConditionalHead(ctx, srv.URL, spec, "Tue, 13 May 2026 08:00:00 GMT")
+		fp, status, err := httpConditionalHead(ctx, client, srv.URL, spec, "Tue, 13 May 2026 08:00:00 GMT")
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, lastMod, fp)
@@ -458,7 +459,7 @@ func TestHttpConditionalHead(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+		_, status, err := httpConditionalHead(ctx, client, srv.URL, spec, "")
 		require.Error(t, err)
 		assert.Equal(t, http.StatusMethodNotAllowed, status)
 		assert.Contains(t, err.Error(), "405")
@@ -473,7 +474,7 @@ func TestHttpConditionalHead(t *testing.T) {
 				}))
 				defer srv.Close()
 
-				_, status, err := httpConditionalHead(ctx, srv.URL, spec, "")
+				_, status, err := httpConditionalHead(ctx, client, srv.URL, spec, "")
 				require.Error(t, err)
 				assert.Equal(t, code, status)
 			})

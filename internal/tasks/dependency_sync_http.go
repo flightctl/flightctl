@@ -22,7 +22,7 @@ import (
 // Returns: fingerprint (ETag or Last-Modified value), HTTP status code, error.
 // Empty fingerprint with status 200 means the endpoint doesn't support
 // conditional requests (no ETag or Last-Modified in response).
-type httpConditionalHeadFunc func(ctx context.Context, repoURL string,
+type httpConditionalHeadFunc func(ctx context.Context, client *http.Client, repoURL string,
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (fingerprint string, statusCode int, err error)
 
 type DependencySyncHttp struct {
@@ -65,6 +65,11 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 		return
 	}
 
+	repoGroups := make(map[string][]*model.HttpDependencyProbe)
+	for i := range probes {
+		repoGroups[probes[i].RepositoryName] = append(repoGroups[probes[i].RepositoryName], &probes[i])
+	}
+
 	var (
 		mu      sync.Mutex
 		results []httpProbeResult
@@ -73,16 +78,15 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	sem := make(chan struct{}, d.maxConcurrent)
 	var wg sync.WaitGroup
 
-	for i := range probes {
-		probe := &probes[i]
+	for _, group := range repoGroups {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			r := d.probeEndpoint(ctx, probe)
+			res := d.probeRepoGroup(ctx, group)
 			mu.Lock()
-			results = append(results, r)
+			results = append(results, res...)
 			mu.Unlock()
 		}()
 	}
@@ -92,18 +96,49 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	d.reconcile(ctx, orgId, results)
 }
 
-func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.HttpDependencyProbe) httpProbeResult {
-	if probe.RepoSpec == nil {
-		d.log.Warnf("repository %s not found (no spec in JOIN result)", probe.RepositoryName)
-		return httpProbeResult{probe: probe, skip: true}
+func (d *DependencySyncHttp) probeRepoGroup(ctx context.Context, group []*model.HttpDependencyProbe) []httpProbeResult {
+	first := group[0]
+	if first.RepoSpec == nil {
+		var results []httpProbeResult
+		for _, p := range group {
+			d.log.Warnf("repository %s not found (no spec in JOIN result)", p.RepositoryName)
+			results = append(results, httpProbeResult{probe: p, skip: true})
+		}
+		return results
 	}
 
-	spec := probe.RepoSpec.Data
-	httpSpec, err := spec.AsHttpRepoSpec()
+	httpSpec, err := first.RepoSpec.Data.AsHttpRepoSpec()
 	if err != nil {
-		d.log.WithError(err).Warnf("failed decoding HTTP spec for repository %s", probe.RepositoryName)
-		return httpProbeResult{probe: probe, skip: true}
+		var results []httpProbeResult
+		for _, p := range group {
+			d.log.WithError(err).Warnf("failed decoding HTTP spec for repository %s", p.RepositoryName)
+			results = append(results, httpProbeResult{probe: p, skip: true})
+		}
+		return results
 	}
+
+	client, err := buildHTTPClient(httpSpec)
+	if err != nil {
+		var results []httpProbeResult
+		for _, p := range group {
+			d.log.WithError(err).Warnf("failed building HTTP client for repository %s", p.RepositoryName)
+			results = append(results, httpProbeResult{probe: p, skip: true})
+		}
+		return results
+	}
+
+	var results []httpProbeResult
+	for _, probe := range group {
+		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		r := d.probeEndpoint(probeCtx, client, httpSpec, probe)
+		cancel()
+		results = append(results, r)
+	}
+	return results
+}
+
+func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Client,
+	httpSpec domain.HttpRepoSpec, probe *model.HttpDependencyProbe) httpProbeResult {
 
 	repoURL, err := url.JoinPath(httpSpec.Url, probe.HTTPSuffix)
 	if err != nil {
@@ -117,7 +152,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, probe *model.Htt
 		storedFP = *probe.Fingerprint
 	}
 
-	fingerprint, statusCode, err := d.conditionalHead(ctx, repoURL, httpSpec, storedFP)
+	fingerprint, statusCode, err := d.conditionalHead(ctx, client, repoURL, httpSpec, storedFP)
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
 		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
@@ -205,17 +240,34 @@ func httpResourceKey(repoName, suffix string) string {
 	return fmt.Sprintf("http:%s/%s", repoName, strings.TrimPrefix(suffix, "/"))
 }
 
+func buildHTTPClient(httpSpec domain.HttpRepoSpec) (*http.Client, error) {
+	req, err := http.NewRequest("HEAD", "http://unused", nil)
+	if err != nil {
+		return nil, err
+	}
+	_, tlsConfig, err := buildHttpRepoRequestAuth(httpSpec, req)
+	if err != nil {
+		return nil, fmt.Errorf("building TLS config: %w", err)
+	}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}, nil
+}
+
 // httpConditionalHead sends a conditional HEAD to the given URL using stored
 // fingerprint for If-None-Match/If-Modified-Since headers. HEAD avoids
 // transferring the response body since we only need ETag/Last-Modified headers.
-func httpConditionalHead(ctx context.Context, repoURL string,
+func httpConditionalHead(ctx context.Context, client *http.Client, repoURL string,
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (string, int, error) {
 	req, err := http.NewRequestWithContext(ctx, "HEAD", repoURL, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("creating request: %w", err)
 	}
 
-	req, tlsConfig, err := buildHttpRepoRequestAuth(httpSpec, req)
+	req, _, err = buildHttpRepoRequestAuth(httpSpec, req)
 	if err != nil {
 		return "", 0, fmt.Errorf("building request auth: %w", err)
 	}
@@ -234,12 +286,6 @@ func httpConditionalHead(ctx context.Context, repoURL string,
 		}
 	}
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("sending request: %w", err)
