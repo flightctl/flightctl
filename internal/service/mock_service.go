@@ -1978,6 +1978,20 @@ func (mr *MockServiceMockRecorder) SetCheckpoint(ctx, consumer, key, value any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCheckpoint", reflect.TypeOf((*MockService)(nil).SetCheckpoint), ctx, consumer, key, value)
 }
 
+// SetDeviceDependencySyncStatus mocks base method.
+func (m *MockService) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeviceDependencySyncStatus", ctx, orgId, name, conditions, syncStatus)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// SetDeviceDependencySyncStatus indicates an expected call of SetDeviceDependencySyncStatus.
+func (mr *MockServiceMockRecorder) SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceDependencySyncStatus", reflect.TypeOf((*MockService)(nil).SetDeviceDependencySyncStatus), ctx, orgId, name, conditions, syncStatus)
+}
+
 // SetDeviceServiceConditions mocks base method.
 func (m *MockService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	m.ctrl.T.Helper()
@@ -2132,6 +2146,20 @@ func (m *MockService) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID
 func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, orgId, name, conditions any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetConditions", reflect.TypeOf((*MockService)(nil).UpdateFleetConditions), ctx, orgId, name, conditions)
+}
+
+// UpdateFleetDependencySyncStatus mocks base method.
+func (m *MockService) UpdateFleetDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateFleetDependencySyncStatus", ctx, orgId, name, conditions, syncStatus)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// UpdateFleetDependencySyncStatus indicates an expected call of UpdateFleetDependencySyncStatus.
+func (mr *MockServiceMockRecorder) UpdateFleetDependencySyncStatus(ctx, orgId, name, conditions, syncStatus any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetDependencySyncStatus", reflect.TypeOf((*MockService)(nil).UpdateFleetDependencySyncStatus), ctx, orgId, name, conditions, syncStatus)
 }
 
 // UpdateRenderedDevice mocks base method.

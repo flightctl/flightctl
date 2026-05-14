@@ -220,6 +220,14 @@ func (t *TracedService) SetDeviceServiceConditions(ctx context.Context, orgId uu
 	endSpan(span, st)
 	return st
 }
+
+func (t *TracedService) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	ctx, span := startSpan(ctx, "SetDeviceDependencySyncStatus")
+	st := t.inner.SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
+	endSpan(span, st)
+	return st
+}
+
 func (t *TracedService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, refs ...string) domain.Status {
 	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
 	st := t.inner.OverwriteDeviceRepositoryRefs(ctx, orgId, name, refs...)
@@ -406,6 +414,14 @@ func (t *TracedService) UpdateFleetConditions(ctx context.Context, orgId uuid.UU
 	endSpan(span, st)
 	return st
 }
+
+func (t *TracedService) UpdateFleetDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	ctx, span := startSpan(ctx, "UpdateFleetDependencySyncStatus")
+	st := t.inner.UpdateFleetDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
+	endSpan(span, st)
+	return st
+}
+
 func (t *TracedService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateFleetAnnotations")
 	st := t.inner.UpdateFleetAnnotations(ctx, orgId, name, annotations, deleteKeys)

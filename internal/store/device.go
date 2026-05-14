@@ -70,6 +70,7 @@ type Device interface {
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
+	SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
@@ -1239,6 +1240,45 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	return retryUpdate(func() (bool, error) {
 		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
 	})
+}
+
+func (s *DeviceStore) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error {
+	return retryUpdate(func() (bool, error) {
+		return s.setDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
+	})
+}
+
+func (s *DeviceStore) setDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) (bool, error) {
+	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.getDB(ctx).Take(&existingRecord)
+	if result.Error != nil {
+		return false, ErrorFromGormError(result.Error)
+	}
+
+	if existingRecord.ServiceConditions == nil {
+		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
+	}
+	if existingRecord.ServiceConditions.Data.Conditions == nil {
+		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
+	}
+
+	for _, condition := range conditions {
+		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+	}
+	existingRecord.ServiceConditions.Data.DependencySync = syncStatus
+
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"service_conditions": existingRecord.ServiceConditions,
+		"resource_version":   gorm.Expr("resource_version + 1"),
+	})
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
 }
 
 func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (retry bool, device *domain.Device, err error) {

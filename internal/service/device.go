@@ -477,12 +477,16 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UU
 }
 
 func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	// Create callback to handle condition changes
 	callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
 		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
 	}
 
 	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions, callback)
+	return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	err := h.store.Device().SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
 	return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
