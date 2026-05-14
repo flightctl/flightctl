@@ -53,6 +53,7 @@ type httpProbeResult struct {
 	fingerprint string
 	changed     bool
 	firstSeen   bool
+	probeErr    string
 	skip        bool // true for HttpNotConditional or errors
 }
 
@@ -170,7 +171,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 		if d.metrics != nil {
 			d.metrics.ObserveProbeError(periodic.RefTypeHTTP)
 		}
-		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
+		return httpProbeResult{probe: probe, resourceKey: rk, skip: true, probeErr: sanitizeError(err)}
 	}
 
 	r := httpProbeResult{
@@ -198,6 +199,21 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	now := time.Now().UTC()
 
 	for _, r := range results {
+		if r.probeErr != "" {
+			for _, fleetName := range r.probe.FleetNames {
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, "http_conditional_get", r.probeErr)
+				if event != nil {
+					d.serviceHandler.CreateEvent(ctx, orgId, event)
+				}
+			}
+			for _, deviceName := range r.probe.DeviceNames {
+				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, "http_conditional_get", r.probeErr)
+				if event != nil {
+					d.serviceHandler.CreateEvent(ctx, orgId, event)
+				}
+			}
+			continue
+		}
 		if !r.changed {
 			continue
 		}
@@ -223,6 +239,15 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 
 	for _, r := range results {
 		if r.resourceKey == "" {
+			continue
+		}
+		if r.probeErr != "" {
+			upsertStates = append(upsertStates, model.SyncState{
+				OrgID:        orgId,
+				ResourceKey:  r.resourceKey,
+				ProbeStatus:  "ProbeFailed",
+				ProbeMessage: r.probeErr,
+			})
 			continue
 		}
 		if r.skip {
