@@ -208,15 +208,22 @@ func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash, configFingerprints)
+	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash)
 	endSpan(span, st)
 	return st
 }
 func (t *TracedService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	ctx, span := startSpan(ctx, "SetDeviceServiceConditions")
 	st := t.inner.SetDeviceServiceConditions(ctx, orgId, name, conditions)
+	endSpan(span, st)
+	return st
+}
+
+func (t *TracedService) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	ctx, span := startSpan(ctx, "SetDeviceDependencySyncStatus")
+	st := t.inner.SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
 	endSpan(span, st)
 	return st
 }
@@ -404,6 +411,13 @@ func (t *TracedService) ListDisruptionBudgetFleets(ctx context.Context, orgId uu
 func (t *TracedService) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateFleetConditions")
 	st := t.inner.UpdateFleetConditions(ctx, orgId, name, conditions)
+	endSpan(span, st)
+	return st
+}
+
+func (t *TracedService) UpdateFleetDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
+	ctx, span := startSpan(ctx, "UpdateFleetDependencySyncStatus")
+	st := t.inner.UpdateFleetDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
 	endSpan(span, st)
 	return st
 }
