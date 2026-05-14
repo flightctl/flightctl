@@ -1111,8 +1111,14 @@ type DependencySyncConfigRefStatus struct {
 	// ConfigProviderName The name of the config provider (e.g. "nginx-config").
 	ConfigProviderName string `json:"configProviderName"`
 
+	// Fingerprint The current upstream fingerprint (e.g. git SHA, ETag, resource version).
+	Fingerprint *string `json:"fingerprint,omitempty"`
+
 	// LastProbeTime The last time the dependency was probed or synced.
 	LastProbeTime *time.Time `json:"lastProbeTime,omitempty"`
+
+	// LastUpdatedAt The last time the fingerprint changed.
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
 
 	// Message A human-readable message providing details about the synchronization status.
 	Message *string `json:"message,omitempty"`
@@ -1143,6 +1149,12 @@ type DependencySyncProbeFailedDetailsDetailType string
 type DependencySyncStatus struct {
 	// ConfigRefs Per-config-provider dependency synchronization status.
 	ConfigRefs *[]DependencySyncConfigRefStatus `json:"configRefs,omitempty"`
+
+	// LastProbeTime The last time any dependency was probed.
+	LastProbeTime *time.Time `json:"lastProbeTime,omitempty"`
+
+	// LastSuccessfulProbeTime The last time a probe completed successfully (status=Synced).
+	LastSuccessfulProbeTime *time.Time `json:"lastSuccessfulProbeTime,omitempty"`
 }
 
 // Device Device represents a physical device.

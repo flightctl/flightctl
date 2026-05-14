@@ -116,6 +116,37 @@ func TestComputeStatus(t *testing.T) {
 	}
 }
 
+func TestComputeStatus_PopulatesAllFields(t *testing.T) {
+	earlier := time.Now().Add(-10 * time.Minute)
+	later := time.Now()
+	changeTime := time.Now().Add(-5 * time.Minute)
+
+	refs := []model.DependencyRefWithSyncState{
+		{ResourceKey: "git:repo/main", RefType: "git", ConfigProviderName: "git-cfg",
+			Fingerprint: lo.ToPtr("sha123"), ProbeStatus: lo.ToPtr("Synced"),
+			LastCheckedAt: &later, LastChangeAt: &changeTime},
+		{ResourceKey: "http:repo/config", RefType: "http", ConfigProviderName: "http-cfg",
+			Fingerprint: lo.ToPtr(`"etag1"`), ProbeStatus: lo.ToPtr("ProbeFailed"),
+			ProbeMessage: lo.ToPtr("timeout"), LastCheckedAt: &earlier},
+	}
+
+	_, syncStatus := computeStatus(refs, nil, domain.ConditionTypeFleetDependenciesSynced)
+
+	cfgRefs := *syncStatus.ConfigRefs
+	require.Len(t, cfgRefs, 2)
+
+	require.Equal(t, lo.ToPtr("sha123"), cfgRefs[0].Fingerprint)
+	require.Equal(t, &changeTime, cfgRefs[0].LastUpdatedAt)
+	require.Equal(t, &later, cfgRefs[0].LastProbeTime)
+
+	require.Equal(t, lo.ToPtr(`"etag1"`), cfgRefs[1].Fingerprint)
+	require.Nil(t, cfgRefs[1].LastUpdatedAt)
+	require.Equal(t, &earlier, cfgRefs[1].LastProbeTime)
+
+	require.Equal(t, &later, syncStatus.LastProbeTime)
+	require.Equal(t, &later, syncStatus.LastSuccessfulProbeTime)
+}
+
 func TestComputeStatus_SecretOverridePreservesGitStatus(t *testing.T) {
 	t.Run("When informerConnected=false git refs retain their probe status", func(t *testing.T) {
 		now := time.Now()
