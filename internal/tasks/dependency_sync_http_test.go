@@ -147,7 +147,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		d.Poll(ctx, orgId)
 	})
 
-	t.Run("When HTTP request errors it should skip that probe without affecting others", func(t *testing.T) {
+	t.Run("When HTTP request errors it should emit probe failure event and record ProbeFailed status", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 		mockService := service.NewMockService(ctrl)
@@ -161,20 +161,22 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 
 		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
-				require.Len(t, states, 1)
-				assert.Equal(t, `"new-etag"`, states[0].Fingerprint)
+				require.Len(t, states, 2)
+				failState := states[0]
+				okState := states[1]
+				if failState.ProbeStatus != "ProbeFailed" {
+					failState, okState = okState, failState
+				}
+				assert.Equal(t, "ProbeFailed", failState.ProbeStatus)
+				assert.Contains(t, failState.ProbeMessage, "connection refused")
+				assert.Equal(t, `"new-etag"`, okState.Fingerprint)
+				assert.Equal(t, "Synced", okState.ProbeStatus)
 				return statusOK
 			})
 
-		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
-			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
-				require.Len(t, keys, 1)
-				assert.Equal(t, "http:failing-repo/fail", keys[0])
-				return statusOK
-			})
-
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
-			assert.Equal(t, "fleet-2", event.InvolvedObject.Name)
+		var events []emittedEvent
+		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
 		conditionalHead := func(_ context.Context, _ *http.Client, url string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
@@ -189,6 +191,8 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
+
+		require.Len(t, events, 2)
 	})
 
 	t.Run("When work list is empty it should be a no-op", func(t *testing.T) {
