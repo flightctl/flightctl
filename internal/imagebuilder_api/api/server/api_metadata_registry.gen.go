@@ -11,6 +11,7 @@ const (
 	API_RESOURCE_IMAGEBUILDS = "imagebuilds"
 	API_RESOURCE_IMAGEBUILDS_CANCEL = "imagebuilds/cancel"
 	API_RESOURCE_IMAGEBUILDS_LOG = "imagebuilds/log"
+	API_RESOURCE_IMAGEBUILDS_NEWVERSION = "imagebuilds/newversion"
 	API_RESOURCE_IMAGEEXPORTS = "imageexports"
 	API_RESOURCE_IMAGEEXPORTS_CANCEL = "imageexports/cancel"
 	API_RESOURCE_IMAGEEXPORTS_DOWNLOAD = "imageexports/download"
@@ -80,6 +81,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "getImageBuildLog",
 		Resource:    "imagebuilds/log",
 		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/api/v1/imagebuilds/{name}/newversion": {
+		OperationID: "createImageBuildNewVersion",
+		Resource:    "imagebuilds/newversion",
+		Action:      "create",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},

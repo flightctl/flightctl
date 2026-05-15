@@ -110,6 +110,10 @@ func (m *mockImageBuildServiceForStatusUpdater) getUpdateLogsCallsCount() int {
 	return m.updateLogsCalls
 }
 
+func (m *mockImageBuildServiceForStatusUpdater) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req api.ImageBuildNewVersionRequest) (*api.ImageBuild, v1beta1.Status) {
+	return nil, v1beta1.StatusOK()
+}
+
 // mockKVStore is a mock KVStore for testing
 type mockKVStore struct {
 	mu             sync.RWMutex

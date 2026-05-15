@@ -360,6 +360,19 @@ func (h *TransportHandler) GetImageExportLog(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// CreateImageBuildNewVersion handles POST /api/v1/imagebuilds/{name}/newversion
+func (h *TransportHandler) CreateImageBuildNewVersion(w http.ResponseWriter, r *http.Request, name string) {
+	var req api.ImageBuildNewVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	domainBody, domainStatus := h.service.ImageBuild().NewVersion(r.Context(), OrgIDFromContext(r.Context()), name, req)
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
 // cancelErrorToStatus converts cancellation errors to appropriate API status codes
 func cancelErrorToStatus(err error, kind string, name string) domain.Status {
 	// Check for not cancelable error (409 Conflict - resource in wrong state)

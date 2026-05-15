@@ -192,6 +192,18 @@ type ImageBuildList struct {
 	Metadata externalRef0.ListMeta `json:"metadata"`
 }
 
+// ImageBuildNewVersionRequest Request body for the newversion subresource endpoint.
+type ImageBuildNewVersionRequest struct {
+	// DestinationImageTag Override for spec.destination.imageTag. If omitted, the parent's tag is used.
+	DestinationImageTag *string `json:"destinationImageTag,omitempty"`
+
+	// Name Name for the new ImageBuild resource.
+	Name string `json:"name"`
+
+	// SourceImageTag Override for spec.source.imageTag. If omitted, the parent's tag is used.
+	SourceImageTag *string `json:"sourceImageTag,omitempty"`
+}
+
 // ImageBuildRefSource ImageBuildRefSource specifies a source image from an ImageBuild resource.
 type ImageBuildRefSource struct {
 	// ImageBuildRef The name of the ImageBuild resource to use as source.
@@ -436,6 +448,9 @@ type GetImageExportLogParams struct {
 
 // CreateImageBuildJSONRequestBody defines body for CreateImageBuild for application/json ContentType.
 type CreateImageBuildJSONRequestBody = ImageBuild
+
+// CreateImageBuildNewVersionJSONRequestBody defines body for CreateImageBuildNewVersion for application/json ContentType.
+type CreateImageBuildNewVersionJSONRequestBody = ImageBuildNewVersionRequest
 
 // CreateImageExportJSONRequestBody defines body for CreateImageExport for application/json ContentType.
 type CreateImageExportJSONRequestBody = ImageExport

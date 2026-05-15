@@ -81,13 +81,14 @@ rules:
       - imagebuilds/log
       - imageexports/log
       - imageexports/download
-  # Cancel operations for image builds/exports (PUT maps to update verb)
+  # Cancel and newversion operations for image builds/exports (PUT maps to update verb)
   - verbs:
       - create
     apiGroups:
       - flightctl.io
     resources:
       - imagebuilds/cancel
+      - imagebuilds/newversion
       - imageexports/cancel
   - verbs:
       - get

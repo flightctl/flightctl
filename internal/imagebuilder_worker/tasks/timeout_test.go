@@ -157,6 +157,10 @@ func (m *mockImageBuildService) CancelWithReason(ctx context.Context, orgId uuid
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (m *mockImageBuildService) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req apiimagebuilder.ImageBuildNewVersionRequest) (*apiimagebuilder.ImageBuild, v1beta1.Status) {
+	return nil, v1beta1.StatusOK()
+}
+
 type mockImageExportService struct {
 	parent *mockImageBuilderService
 }

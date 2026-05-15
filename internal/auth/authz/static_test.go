@@ -362,6 +362,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"create"},
 				},
 				{
+					Resource:   "imagebuilds/newversion",
+					Operations: []string{"create"},
+				},
+				{
 					Resource:   "imageexports",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},

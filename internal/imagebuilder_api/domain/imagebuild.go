@@ -60,6 +60,10 @@ const (
 	ImageBuildConditionReasonCanceled       = api.ImageBuildConditionReasonCanceled
 )
 
+// ========== NewVersion Types ==========
+
+type ImageBuildNewVersionRequest = api.ImageBuildNewVersionRequest
+
 // ========== API Parameters ==========
 
 type ListImageBuildsParams = api.ListImageBuildsParams
