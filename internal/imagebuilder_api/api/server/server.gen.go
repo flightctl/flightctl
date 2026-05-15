@@ -33,6 +33,9 @@ type ServerInterface interface {
 	// (GET /api/v1/imagebuilds/{name}/log)
 	GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams)
 
+	// (POST /api/v1/imagebuilds/{name}/newversion)
+	CreateImageBuildNewVersion(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/imageexports)
 	ListImageExports(w http.ResponseWriter, r *http.Request, params ListImageExportsParams)
 
@@ -86,6 +89,11 @@ func (_ Unimplemented) CancelImageBuild(w http.ResponseWriter, r *http.Request, 
 
 // (GET /api/v1/imagebuilds/{name}/log)
 func (_ Unimplemented) GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/imagebuilds/{name}/newversion)
+func (_ Unimplemented) CreateImageBuildNewVersion(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -319,6 +327,31 @@ func (siw *ServerInterfaceWrapper) GetImageBuildLog(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetImageBuildLog(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateImageBuildNewVersion operation middleware
+func (siw *ServerInterfaceWrapper) CreateImageBuildNewVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateImageBuildNewVersion(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -659,6 +692,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imagebuilds/{name}/log", wrapper.GetImageBuildLog)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/imagebuilds/{name}/newversion", wrapper.CreateImageBuildNewVersion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports", wrapper.ListImageExports)

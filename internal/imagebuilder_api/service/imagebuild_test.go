@@ -1265,3 +1265,233 @@ func TestCancelImageBuild_NoStatus(t *testing.T) {
 	require.NotNil(readyCondition)
 	require.Equal(string(api.ImageBuildConditionReasonCanceled), readyCondition.Reason)
 }
+
+// newTestImageBuildServiceWithRepos creates a service backed by a fresh store with both OCI repositories pre-created.
+func newTestImageBuildServiceWithRepos(ctx context.Context, orgId uuid.UUID) (ImageBuildService, *DummyImageBuildStore) {
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	svc := NewImageBuildService(imageBuildStore, repoStore, nil, nil, nil, nil, nil, log.InitLogs())
+	return svc, imageBuildStore
+}
+
+func TestNewVersionImageBuild_Success(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-build")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	req := api.ImageBuildNewVersionRequest{Name: "child-build"}
+	result, status := svc.NewVersion(ctx, orgId, "parent-build", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("child-build", lo.FromPtr(result.Metadata.Name))
+}
+
+func TestNewVersionImageBuild_InheritsParentSpec(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-spec-build")
+	parent.Spec.Source.ImageTag = "v1.0"
+	parent.Spec.Destination.ImageTag = "v1.0"
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	req := api.ImageBuildNewVersionRequest{Name: "child-spec-build"}
+	result, status := svc.NewVersion(ctx, orgId, "parent-spec-build", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("input-image", result.Spec.Source.ImageName)
+	require.Equal("v1.0", result.Spec.Source.ImageTag)
+	require.Equal("input-registry", result.Spec.Source.Repository)
+	require.Equal("output-image", result.Spec.Destination.ImageName)
+	require.Equal("v1.0", result.Spec.Destination.ImageTag)
+	require.Equal("output-registry", result.Spec.Destination.Repository)
+}
+
+func TestNewVersionImageBuild_OverridesSourceTag(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-src-tag")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	newTag := "v2.0"
+	req := api.ImageBuildNewVersionRequest{Name: "child-src-tag", SourceImageTag: &newTag}
+	result, status := svc.NewVersion(ctx, orgId, "parent-src-tag", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("v2.0", result.Spec.Source.ImageTag)
+	require.Equal("v1.0", result.Spec.Destination.ImageTag)
+}
+
+func TestNewVersionImageBuild_OverridesDestinationTag(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-dst-tag")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	newTag := "v2.0"
+	req := api.ImageBuildNewVersionRequest{Name: "child-dst-tag", DestinationImageTag: &newTag}
+	result, status := svc.NewVersion(ctx, orgId, "parent-dst-tag", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("v1.0", result.Spec.Source.ImageTag)
+	require.Equal("v2.0", result.Spec.Destination.ImageTag)
+}
+
+func TestNewVersionImageBuild_OverridesBothTags(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-both-tags")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	srcTag := "v2-src"
+	dstTag := "v2-dst"
+	req := api.ImageBuildNewVersionRequest{
+		Name:                "child-both-tags",
+		SourceImageTag:      &srcTag,
+		DestinationImageTag: &dstTag,
+	}
+	result, status := svc.NewVersion(ctx, orgId, "parent-both-tags", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("v2-src", result.Spec.Source.ImageTag)
+	require.Equal("v2-dst", result.Spec.Destination.ImageTag)
+}
+
+func TestNewVersionImageBuild_SetsLineageAnnotation(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-annotation")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	req := api.ImageBuildNewVersionRequest{Name: "child-annotation"}
+	result, status := svc.NewVersion(ctx, orgId, "parent-annotation", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.NotNil(result.Metadata.Annotations)
+	require.Equal("parent-annotation", (*result.Metadata.Annotations)[NewVersionFromAnnotation])
+}
+
+func TestNewVersionImageBuild_ParentAnnotationsNotCopied(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	svc := NewImageBuildService(imageBuildStore, repoStore, nil, nil, nil, nil, nil, log.InitLogs())
+
+	// Manually insert a parent that has its own annotations in the store
+	// (annotations set after creation, simulating a stored resource)
+	parent := newValidImageBuild("parent-with-annotations")
+	parentAnnotations := map[string]string{
+		"custom-key":             "custom-value",
+		"another-key":            "another-value",
+		NewVersionFromAnnotation: "grandparent-build",
+	}
+	parent.Metadata.Annotations = &parentAnnotations
+	_, err := imageBuildStore.Create(ctx, orgId, &parent)
+	require.NoError(err)
+
+	req := api.ImageBuildNewVersionRequest{Name: "child-no-copy"}
+	result, status := svc.NewVersion(ctx, orgId, "parent-with-annotations", req)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.NotNil(result.Metadata.Annotations)
+
+	annotations := *result.Metadata.Annotations
+	// Only the lineage annotation pointing to the direct parent should be set
+	require.Equal("parent-with-annotations", annotations[NewVersionFromAnnotation])
+	require.NotContains(annotations, "custom-key")
+	require.NotContains(annotations, "another-key")
+}
+
+func TestNewVersionImageBuild_ParentNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	req := api.ImageBuildNewVersionRequest{Name: "child-build"}
+	_, status := svc.NewVersion(ctx, orgId, "nonexistent-parent", req)
+
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestNewVersionImageBuild_EmptyName(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-empty-name")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	req := api.ImageBuildNewVersionRequest{Name: ""}
+	_, status = svc.NewVersion(ctx, orgId, "parent-empty-name", req)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+}
+
+func TestNewVersionImageBuild_NameConflict(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _ := newTestImageBuildServiceWithRepos(ctx, orgId)
+
+	parent := newValidImageBuild("parent-conflict")
+	_, status := svc.Create(ctx, orgId, parent)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	existing := newValidImageBuild("existing-child")
+	_, status = svc.Create(ctx, orgId, existing)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Attempt to create newversion with name that already exists
+	req := api.ImageBuildNewVersionRequest{Name: "existing-child"}
+	_, status = svc.NewVersion(ctx, orgId, "parent-conflict", req)
+
+	require.Equal(int32(http.StatusConflict), statusCode(status))
+}

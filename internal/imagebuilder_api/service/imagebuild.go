@@ -24,12 +24,35 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// NewVersionFromAnnotation is the annotation key set by the newversion endpoint to record lineage.
+const NewVersionFromAnnotation = "flightctl.io/new-version-from"
+
+// preserveAnnotationsKey is an internal context key used to pass annotations through
+// Create without having them wiped by NilOutManagedObjectMetaProperties.
+type preserveAnnotationsKeyType struct{}
+
+var preserveAnnotationsKey = preserveAnnotationsKeyType{}
+
+// withPreserveAnnotations stores annotations in the context so Create can restore
+// them after NilOutManagedObjectMetaProperties clears them.
+func withPreserveAnnotations(ctx context.Context, annotations map[string]string) context.Context {
+	return context.WithValue(ctx, preserveAnnotationsKey, annotations)
+}
+
+// preservedAnnotations retrieves annotations stored via withPreserveAnnotations.
+func preservedAnnotations(ctx context.Context) (map[string]string, bool) {
+	v, ok := ctx.Value(preserveAnnotationsKey).(map[string]string)
+	return v, ok
+}
+
 // ImageBuildService handles business logic for ImageBuild resources
 type ImageBuildService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild domain.ImageBuild) (*domain.ImageBuild, domain.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*domain.ImageBuild, domain.Status)
 	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageBuildsParams) (*domain.ImageBuildList, domain.Status)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status
+	// NewVersion creates a new ImageBuild derived from an existing one with optional tag overrides.
+	NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req domain.ImageBuildNewVersionRequest) (*domain.ImageBuild, domain.Status)
 	// Cancel cancels an ImageBuild. Returns ErrNotCancelable if not in cancelable state.
 	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error)
 	// CancelWithReason cancels an ImageBuild with a custom reason message (e.g., for timeout).
@@ -72,6 +95,9 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	// Don't set fields that are managed by the service
 	imageBuild.Status = nil
 	NilOutManagedObjectMetaProperties(&imageBuild.Metadata)
+	if annotations, ok := preservedAnnotations(ctx); ok {
+		imageBuild.Metadata.Annotations = &annotations
+	}
 
 	// Validate input
 	if errs, internalErr := s.validate(ctx, orgId, &imageBuild); internalErr != nil {
@@ -427,6 +453,44 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 	}
 
 	return result, err
+}
+
+// NewVersion creates a new ImageBuild derived from a parent, copying its spec with optional tag overrides.
+// Sets the flightctl.io/new-version-from annotation to record lineage.
+func (s *imageBuildService) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req domain.ImageBuildNewVersionRequest) (*domain.ImageBuild, domain.Status) {
+	// Fetch parent build.
+	parent, getErr := s.store.Get(ctx, orgId, parentName)
+	if getErr != nil {
+		return nil, StoreErrorToApiStatus(getErr, false, string(domain.ResourceKindImageBuild), &parentName)
+	}
+
+	newName := req.Name
+	if newName == "" {
+		return nil, StatusBadRequest("name is required")
+	}
+
+	// Copy spec from parent, applying tag overrides.
+	newSpec := parent.Spec
+	if req.SourceImageTag != nil {
+		newSpec.Source.ImageTag = *req.SourceImageTag
+	}
+	if req.DestinationImageTag != nil {
+		newSpec.Destination.ImageTag = *req.DestinationImageTag
+	}
+
+	newBuild := domain.ImageBuild{
+		ApiVersion: parent.ApiVersion,
+		Kind:       parent.Kind,
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(newName),
+		},
+		Spec: newSpec,
+	}
+
+	ctx = withPreserveAnnotations(ctx, map[string]string{
+		NewVersionFromAnnotation: parentName,
+	})
+	return s.Create(ctx, orgId, newBuild)
 }
 
 func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {

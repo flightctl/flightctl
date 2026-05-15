@@ -428,6 +428,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/newversion:
+    x-resource: imagebuilds/newversion
+    post:
+      tags:
+        - imagebuild
+      description: Create a new ImageBuild derived from an existing one, copying its spec with optional tag overrides. Sets flightctl.io/new-version-from annotation to record lineage.
+      operationId: createImageBuildNewVersion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the parent ImageBuild resource.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageBuildNewVersionRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageBuild'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found - parent ImageBuild does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict - ImageBuild with given name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports:
     x-resource: imageexports
     get:
@@ -1373,3 +1442,28 @@ components:
         - code
         - reason
         - message
+
+    ImageBuildNewVersionRequest:
+      type: object
+      description: Request body for the newversion subresource endpoint.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Name for the new ImageBuild resource.
+        sourceImageTag:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
+          description: Override for spec.source.imageTag. If omitted, the parent's tag is used.
+        destinationImageTag:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
+          description: Override for spec.destination.imageTag. If omitted, the parent's tag is used.
+      required:
+        - name
+      additionalProperties: false
