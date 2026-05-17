@@ -70,7 +70,7 @@ _collect_junit: $(REPORTS)
 	done
 
 unit-test:
-	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/...))"
+	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/... ./deploy/helm/...))"
 
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list $(if $(TEST_DIR),$(TEST_DIR),./test/integration/...)))"
