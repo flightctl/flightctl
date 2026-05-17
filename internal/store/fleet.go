@@ -5,6 +5,7 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -480,10 +481,19 @@ func (s *FleetStore) updateDependencySyncStatus(ctx context.Context, orgId uuid.
 		existingRecord.Status.Data.Conditions = []domain.Condition{}
 	}
 
+	oldConditions := make([]domain.Condition, len(existingRecord.Status.Data.Conditions))
+	copy(oldConditions, existingRecord.Status.Data.Conditions)
+	oldSyncStatus := existingRecord.Status.Data.DependencySync
+
 	for _, condition := range conditions {
 		domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
 	}
 	existingRecord.Status.Data.DependencySync = syncStatus
+
+	if reflect.DeepEqual(oldConditions, existingRecord.Status.Data.Conditions) &&
+		reflect.DeepEqual(oldSyncStatus, syncStatus) {
+		return false, nil
+	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,

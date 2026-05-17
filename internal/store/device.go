@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -1262,10 +1263,19 @@ func (s *DeviceStore) setDeviceDependencySyncStatus(ctx context.Context, orgId u
 		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
 	}
 
+	oldConditions := make([]domain.Condition, len(*existingRecord.ServiceConditions.Data.Conditions))
+	copy(oldConditions, *existingRecord.ServiceConditions.Data.Conditions)
+	oldSyncStatus := existingRecord.ServiceConditions.Data.DependencySync
+
 	for _, condition := range conditions {
 		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
 	}
 	existingRecord.ServiceConditions.Data.DependencySync = syncStatus
+
+	if reflect.DeepEqual(oldConditions, *existingRecord.ServiceConditions.Data.Conditions) &&
+		reflect.DeepEqual(oldSyncStatus, syncStatus) {
+		return false, nil
+	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,

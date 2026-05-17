@@ -164,6 +164,8 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	fleetName := f.event.InvolvedObject.Name
 	if st := f.serviceHandler.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
 		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
+	} else {
+		RefreshFleetDependencySyncStatus(ctx, f.serviceHandler, f.log, f.orgId, fleetName, nil)
 	}
 
 	if failureCount != 0 {
