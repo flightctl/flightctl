@@ -491,6 +491,15 @@
           "type": "boolean",
           "description": "Allow flightctl-periodic to list/watch secrets at the cluster level for change detection"
         },
+        "metrics": {
+          "type": "object",
+          "description": "Prometheus metrics endpoint configuration",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable Prometheus metrics endpoint" },
+            "address": { "type": "string", "description": "Address for the metrics HTTP server" }
+          }
+        },
         "tasks": {
           "type": "object",
           "description": "Periodic tasks configuration",
