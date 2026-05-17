@@ -6074,7 +6074,11 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: A set of labels to apply to the device.
+          description: Labels to set on the device. If replaceLabels is false (default), labels are merged with agent-provided labels from the enrollment request. If replaceLabels is true, labels are used as the complete final set ignoring agent-provided labels.
+        replaceLabels:
+          type: boolean
+          default: false
+          description: Controls whether labels are merged or replaced during approval. If false (default), labels are merged with agent-provided labels from the enrollment request. If true, labels are used as the complete final set and agent-provided labels are ignored.
         approved:
           type: boolean
           description: Indicates whether the request has been approved.

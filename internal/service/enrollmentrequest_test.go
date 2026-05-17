@@ -254,3 +254,134 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 	require.NotNil(device.Status.Integrity.Tpm)
 	require.Equal(domain.DeviceIntegrityCheckStatusUnsupported, device.Status.Integrity.Tpm.Status)
 }
+
+func TestApproveEnrollmentRequestWithReplaceLabels(t *testing.T) {
+	tests := []struct {
+		name                 string
+		agentLabels          map[string]string
+		approvalLabels       map[string]string
+		replaceLabels        *bool
+		expectedDeviceLabels map[string]string
+	}{
+		{
+			name:                 "When replaceLabels is nil it should merge labels (default behavior)",
+			agentLabels:          map[string]string{"agent": "value1", "other": "value2"},
+			approvalLabels:       map[string]string{"approval": "value3"},
+			replaceLabels:        nil,
+			expectedDeviceLabels: map[string]string{"agent": "value1", "other": "value2", "approval": "value3"},
+		},
+		{
+			name:                 "When replaceLabels is false it should merge labels",
+			agentLabels:          map[string]string{"agent": "value1", "other": "value2"},
+			approvalLabels:       map[string]string{"approval": "value3"},
+			replaceLabels:        lo.ToPtr(false),
+			expectedDeviceLabels: map[string]string{"agent": "value1", "other": "value2", "approval": "value3"},
+		},
+		{
+			name:                 "When replaceLabels is false and keys overlap it should give approval precedence",
+			agentLabels:          map[string]string{"shared": "agent-value", "agent": "value1"},
+			approvalLabels:       map[string]string{"shared": "approval-value", "approval": "value3"},
+			replaceLabels:        lo.ToPtr(false),
+			expectedDeviceLabels: map[string]string{"shared": "approval-value", "agent": "value1", "approval": "value3"},
+		},
+		{
+			name:                 "When replaceLabels is true it should use only approval labels",
+			agentLabels:          map[string]string{"agent": "value1", "other": "value2"},
+			approvalLabels:       map[string]string{"approval": "value3"},
+			replaceLabels:        lo.ToPtr(true),
+			expectedDeviceLabels: map[string]string{"approval": "value3"},
+		},
+		{
+			name:                 "When replaceLabels is true and approval labels are empty it should have no labels",
+			agentLabels:          map[string]string{"agent": "value1", "other": "value2"},
+			approvalLabels:       map[string]string{},
+			replaceLabels:        lo.ToPtr(true),
+			expectedDeviceLabels: map[string]string{},
+		},
+		{
+			name:                 "When replaceLabels is true and approval has one label it should only have that label",
+			agentLabels:          map[string]string{"agent": "value1", "other": "value2", "another": "value3"},
+			approvalLabels:       map[string]string{"keep-only-this": "value"},
+			replaceLabels:        lo.ToPtr(true),
+			expectedDeviceLabels: map[string]string{"keep-only-this": "value"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			// Create a temporary directory for certs
+			tmpDir, err := os.MkdirTemp("", "flightctl-test-certs")
+			require.NoError(err)
+			defer os.RemoveAll(tmpDir)
+
+			// Create a CAClient
+			caConfig := &ca.Config{
+				InternalConfig: &ca.InternalCfg{
+					CertStore:        tmpDir,
+					CertFile:         "ca.crt",
+					KeyFile:          "ca.key",
+					SerialFile:       "ca.serial",
+					SignerCertName:   "flightctl-test-ca",
+					CertValidityDays: 365,
+				},
+				DeviceManagementSignerName: "device-enrollment",
+			}
+			caClient, _, err := crypto.EnsureCA(caConfig)
+			require.NoError(err)
+
+			// Create a private key for the CSR
+			privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			require.NoError(err)
+
+			// Create a CSR
+			csrTemplate := x509.CertificateRequest{
+				Subject: pkix.Name{
+					CommonName: "test-device-labels",
+				},
+				SignatureAlgorithm: x509.ECDSAWithSHA256,
+			}
+			csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privateKey)
+			require.NoError(err)
+			csrPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
+
+			// Create a ServiceHandler
+			testStore := &TestStore{}
+			serviceHandler, ctx := newTestServiceHandler(t, testStore, caClient)
+			orgId := store.NullOrgId
+
+			// Create an enrollment request with agent-provided labels
+			enrollmentRequest := domain.EnrollmentRequest{
+				ApiVersion: "v1beta1",
+				Kind:       "EnrollmentRequest",
+				Metadata: domain.ObjectMeta{
+					Name: lo.ToPtr("test-device-labels"),
+				},
+				Spec: domain.EnrollmentRequestSpec{
+					Csr:          string(csrPem),
+					DeviceStatus: lo.ToPtr(domain.NewDeviceStatus()),
+					Labels:       &tt.agentLabels,
+				},
+			}
+			_, status := serviceHandler.CreateEnrollmentRequest(ctx, orgId, enrollmentRequest)
+			require.Equal(domain.StatusCreated(), status)
+
+			// Approve the enrollment request with specified labels and replaceLabels setting
+			approval := domain.EnrollmentRequestApproval{
+				Approved:      true,
+				Labels:        &tt.approvalLabels,
+				ReplaceLabels: tt.replaceLabels,
+			}
+			_, status = serviceHandler.ApproveEnrollmentRequest(ctx, orgId, "test-device-labels", approval)
+			require.Equal(domain.StatusOK(), status)
+
+			// Get the device and verify its labels
+			device, err := serviceHandler.store.Device().Get(ctx, orgId, "test-device-labels")
+			require.NoError(err)
+			require.NotNil(device)
+			require.NotNil(device.Metadata.Labels)
+			require.Equal(tt.expectedDeviceLabels, *device.Metadata.Labels)
+		})
+	}
+}

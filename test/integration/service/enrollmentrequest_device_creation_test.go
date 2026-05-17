@@ -192,4 +192,86 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(*device.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 		})
 	})
+
+	Context("createDeviceFromEnrollmentRequest with replaceLabels", func() {
+		DescribeTable("should handle replaceLabels correctly",
+			func(
+				agentLabels map[string]string,
+				approvalLabels map[string]string,
+				replaceLabels *bool,
+				expectedLabels map[string]string,
+			) {
+				// Create enrollment request with agent-provided labels
+				er := CreateTestER()
+				erName := lo.FromPtr(er.Metadata.Name)
+				er.Spec.Labels = &agentLabels
+
+				By("creating enrollment request")
+				created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				Expect(created).ToNot(BeNil())
+
+				By("approving the enrollment request with specified replaceLabels setting")
+				defaultOrg := &model.Organization{
+					ID:          org.DefaultID,
+					ExternalID:  org.DefaultID.String(),
+					DisplayName: org.DefaultID.String(),
+				}
+				mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
+				ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+
+				approval := api.EnrollmentRequestApproval{
+					Approved:      true,
+					Labels:        &approvalLabels,
+					ReplaceLabels: replaceLabels,
+				}
+
+				_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+				By("verifying device was created with expected labels")
+				device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(device).ToNot(BeNil())
+				Expect(device.Metadata.Labels).ToNot(BeNil())
+				Expect(*device.Metadata.Labels).To(Equal(expectedLabels))
+			},
+			Entry("When replaceLabels is nil it should merge labels (default)",
+				map[string]string{"agent": "value1", "other": "value2"},
+				map[string]string{"approval": "value3"},
+				nil,
+				map[string]string{"agent": "value1", "other": "value2", "approval": "value3"},
+			),
+			Entry("When replaceLabels is false it should merge labels",
+				map[string]string{"agent": "value1", "other": "value2"},
+				map[string]string{"approval": "value3"},
+				lo.ToPtr(false),
+				map[string]string{"agent": "value1", "other": "value2", "approval": "value3"},
+			),
+			Entry("When replaceLabels is true it should use only approval labels",
+				map[string]string{"agent": "value1", "other": "value2"},
+				map[string]string{"approval": "value3"},
+				lo.ToPtr(true),
+				map[string]string{"approval": "value3"},
+			),
+			Entry("When replaceLabels is true with empty approval labels it should have no labels",
+				map[string]string{"agent": "value1", "other": "value2"},
+				map[string]string{},
+				lo.ToPtr(true),
+				map[string]string{},
+			),
+			Entry("When replaceLabels is true with multiple approval labels it should only have those",
+				map[string]string{"agent": "value1", "other": "value2", "another": "value3"},
+				map[string]string{"env": "prod", "tier": "web"},
+				lo.ToPtr(true),
+				map[string]string{"env": "prod", "tier": "web"},
+			),
+			Entry("When replaceLabels is false and keys overlap it should give approval precedence",
+				map[string]string{"shared": "agent-value", "agent": "value1"},
+				map[string]string{"shared": "approval-value", "approval": "value3"},
+				lo.ToPtr(false),
+				map[string]string{"shared": "approval-value", "agent": "value1", "approval": "value3"},
+			),
+		)
+	})
 })
