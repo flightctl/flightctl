@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -83,7 +84,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 	var configRefs []domain.DependencySyncConfigRefStatus
 	hasSecretRefs := false
 	anyFailed := false
-	failedMessage := ""
+	var failedMessages []string
 
 	var latestProbeTime *time.Time
 	var latestSuccessfulProbeTime *time.Time
@@ -104,7 +105,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 				anyFailed = true
 				if ref.ProbeMessage != nil {
 					message = *ref.ProbeMessage
-					failedMessage = message
+					failedMessages = append(failedMessages, message)
 				}
 			case string(domain.DependencySyncConfigRefStatusSynced):
 				refStatus = domain.DependencySyncConfigRefStatusSynced
@@ -112,6 +113,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 				refStatus = domain.DependencySyncConfigRefStatusProbeFailed
 				message = fmt.Sprintf("unexpected probe status: %s", *ref.ProbeStatus)
 				anyFailed = true
+				failedMessages = append(failedMessages, message)
 			}
 		} else if ref.Fingerprint == nil {
 			refStatus = domain.DependencySyncConfigRefStatusSynced
@@ -148,7 +150,7 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 		configRefs = append(configRefs, cfgRef)
 	}
 
-	condition := buildCondition(conditionType, configRefs, hasSecretRefs, anyFailed, failedMessage, informerConnected)
+	condition := buildCondition(conditionType, configRefs, hasSecretRefs, anyFailed, strings.Join(failedMessages, "; "), informerConnected)
 
 	syncStatus := &domain.DependencySyncStatus{
 		ConfigRefs:              &configRefs,
