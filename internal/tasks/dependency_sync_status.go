@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"regexp"
 	"time"
@@ -14,73 +15,65 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var credentialPattern = regexp.MustCompile(`(?i)(password|token|secret|bearer|authorization)[=: ]+\S+`)
+var credentialPattern = regexp.MustCompile(`(?i)(password|token|secret|bearer|authorization)[=:\s]+\S+`)
 
-// DependencySyncStatusUpdater computes and persists the DependenciesSynced
-// condition and DependencySync status block for fleets and devices.
-type DependencySyncStatusUpdater struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-}
-
-func NewDependencySyncStatusUpdater(log logrus.FieldLogger, serviceHandler service.Service) *DependencySyncStatusUpdater {
-	return &DependencySyncStatusUpdater{
-		log:            log,
-		serviceHandler: serviceHandler,
-	}
-}
-
-// UpdateStatusForOrg enumerates all fleets/devices with dependency refs
-// in the given org and updates their DependencySyncStatus accordingly.
-// informerConnected is nil for git/HTTP callers (no opinion on informer
-// state), true/false for secret callers.
-func (u *DependencySyncStatusUpdater) UpdateStatusForOrg(ctx context.Context, orgId uuid.UUID, informerConnected *bool) {
-	owners, st := u.serviceHandler.ListDistinctDependencyRefOwners(ctx, orgId)
+// RefreshFleetDependencySyncStatus recomputes the DependenciesSynced condition
+// and DependencySync status block for a single fleet. Called after each
+// reconcile by the sync controllers with only the affected fleet name.
+func RefreshFleetDependencySyncStatus(ctx context.Context, svc service.Service, log logrus.FieldLogger, orgId uuid.UUID, fleetName string, informerConnected *bool) {
+	refsWithState, st := svc.ListDependencyRefsWithSyncState(ctx, orgId, &fleetName, nil)
 	if st.Code != http.StatusOK {
-		u.log.Errorf("failed listing dependency ref owners for org %s: %s", orgId, st.Message)
+		log.WithField("fleet", fleetName).Errorf("failed listing refs with sync state: %s", st.Message)
 		return
 	}
 
-	for _, owner := range owners {
-		if owner.FleetName != "" && owner.DeviceName == "" {
-			u.updateFleet(ctx, orgId, owner.FleetName, informerConnected)
-		} else if owner.DeviceName != "" {
-			u.updateDevice(ctx, orgId, owner.DeviceName, informerConnected)
-		}
-	}
-}
-
-func (u *DependencySyncStatusUpdater) updateFleet(ctx context.Context, orgId uuid.UUID, fleetName string, informerConnected *bool) {
-	refsWithState, st := u.serviceHandler.ListDependencyRefsWithSyncState(ctx, orgId, &fleetName, nil)
-	if st.Code != http.StatusOK {
-		u.log.WithField("fleet", fleetName).Errorf("failed listing refs with sync state: %s", st.Message)
-		return
-	}
 	if len(refsWithState) == 0 {
+		condition := domain.Condition{
+			Type:    domain.ConditionTypeFleetDependenciesSynced,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "NoDependencies",
+			Message: "No external dependencies configured.",
+		}
+		if st := svc.UpdateFleetDependencySyncStatus(ctx, orgId, fleetName, []domain.Condition{condition}, nil); st.Code != http.StatusOK {
+			log.WithField("fleet", fleetName).Errorf("failed clearing fleet dependency sync status: %s", st.Message)
+		}
 		return
 	}
 
 	condition, syncStatus := computeStatus(refsWithState, informerConnected, domain.ConditionTypeFleetDependenciesSynced)
 
-	if st := u.serviceHandler.UpdateFleetDependencySyncStatus(ctx, orgId, fleetName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
-		u.log.WithField("fleet", fleetName).Errorf("failed updating fleet dependency sync status: %s", st.Message)
+	if st := svc.UpdateFleetDependencySyncStatus(ctx, orgId, fleetName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
+		log.WithField("fleet", fleetName).Errorf("failed updating fleet dependency sync status: %s", st.Message)
 	}
 }
 
-func (u *DependencySyncStatusUpdater) updateDevice(ctx context.Context, orgId uuid.UUID, deviceName string, informerConnected *bool) {
-	refsWithState, st := u.serviceHandler.ListDependencyRefsWithSyncState(ctx, orgId, nil, &deviceName)
+// RefreshDeviceDependencySyncStatus recomputes the DependenciesSynced condition
+// and DependencySync status block for a single device. Called after each
+// reconcile by the sync controllers with only the affected device name.
+func RefreshDeviceDependencySyncStatus(ctx context.Context, svc service.Service, log logrus.FieldLogger, orgId uuid.UUID, deviceName string, informerConnected *bool) {
+	refsWithState, st := svc.ListDependencyRefsWithSyncState(ctx, orgId, nil, &deviceName)
 	if st.Code != http.StatusOK {
-		u.log.WithField("device", deviceName).Errorf("failed listing refs with sync state: %s", st.Message)
+		log.WithField("device", deviceName).Errorf("failed listing refs with sync state: %s", st.Message)
 		return
 	}
+
 	if len(refsWithState) == 0 {
+		condition := domain.Condition{
+			Type:    domain.ConditionTypeDeviceDependenciesSynced,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "NoDependencies",
+			Message: "No external dependencies configured.",
+		}
+		if st := svc.SetDeviceDependencySyncStatus(ctx, orgId, deviceName, []domain.Condition{condition}, nil); st.Code != http.StatusOK {
+			log.WithField("device", deviceName).Errorf("failed clearing device dependency sync status: %s", st.Message)
+		}
 		return
 	}
 
 	condition, syncStatus := computeStatus(refsWithState, informerConnected, domain.ConditionTypeDeviceDependenciesSynced)
 
-	if st := u.serviceHandler.SetDeviceDependencySyncStatus(ctx, orgId, deviceName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
-		u.log.WithField("device", deviceName).Errorf("failed updating device dependency sync status: %s", st.Message)
+	if st := svc.SetDeviceDependencySyncStatus(ctx, orgId, deviceName, []domain.Condition{condition}, syncStatus); st.Code != http.StatusOK {
+		log.WithField("device", deviceName).Errorf("failed updating device dependency sync status: %s", st.Message)
 	}
 }
 
@@ -106,15 +99,19 @@ func computeStatus(refs []model.DependencyRefWithSyncState, informerConnected *b
 
 		if ref.ProbeStatus != nil {
 			switch *ref.ProbeStatus {
-			case "ProbeFailed":
+			case string(domain.DependencySyncConfigRefStatusProbeFailed):
 				refStatus = domain.DependencySyncConfigRefStatusProbeFailed
 				anyFailed = true
 				if ref.ProbeMessage != nil {
 					message = *ref.ProbeMessage
 					failedMessage = message
 				}
-			case "Synced":
+			case string(domain.DependencySyncConfigRefStatusSynced):
 				refStatus = domain.DependencySyncConfigRefStatusSynced
+			default:
+				refStatus = domain.DependencySyncConfigRefStatusProbeFailed
+				message = fmt.Sprintf("unexpected probe status: %s", *ref.ProbeStatus)
+				anyFailed = true
 			}
 		} else if ref.Fingerprint == nil {
 			refStatus = domain.DependencySyncConfigRefStatusSynced
@@ -201,6 +198,9 @@ func buildCondition(conditionType domain.ConditionType, configRefs []domain.Depe
 // sanitizeError strips credential-like patterns from error messages to
 // prevent leaking secrets into events or status fields.
 func sanitizeError(err error) string {
+	if err == nil {
+		return ""
+	}
 	msg := err.Error()
 	return credentialPattern.ReplaceAllString(msg, "$1=[REDACTED]")
 }
