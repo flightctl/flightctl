@@ -1,3 +1,4 @@
+
 # -- Global parameters
 # This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
 
@@ -175,7 +176,7 @@ db:
         # -- CPU resource requests for database pod
         cpu: "512m"
         # -- Memory resource requests for database pod
-        memory: "512Mi"
+        memory: "512Mi" 
     # -- File system group ID for database pod security context
     fsGroup: ""
     # -- Additional labels for DB PVCs.
@@ -233,6 +234,7 @@ alertmanager:
   # -- Additional labels for Alert Manager PVCs.
   additionalPVCLabels: null
 
+
 # -- API Server Configuration
 api:
   image:
@@ -260,7 +262,7 @@ api:
     # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
     # This should include your load balancer and UI proxy IPs
     trustedProxies:
-      - "10.0.0.0/8" # Example: Internal network range
+      - "10.0.0.0/8"    # Example: Internal network range
       - "172.16.0.0/12" # Example: Docker/container network range
       - "192.168.0.0/16" # Example: Private network range
   # -- Additional labels for API routes.
@@ -337,7 +339,7 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-
+  
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service
@@ -474,7 +476,7 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure
+    # -- Number of retries for the migration Job on failure 
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0
