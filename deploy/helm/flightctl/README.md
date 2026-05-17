@@ -381,12 +381,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
-| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""}}` | Periodic Configuration |
+| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic-el9"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |
 | periodic.image.tag | string | `""` | Periodic image tag |
+| periodic.metrics | object | `{"address":":15690","enabled":true}` | Metrics configuration for flightctl-periodic |
+| periodic.metrics.address | string | `":15690"` | Address for the metrics HTTP server |
+| periodic.metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
