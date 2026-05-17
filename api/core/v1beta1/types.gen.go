@@ -1105,7 +1105,7 @@ type DependencyChangeDetectedDetailsDetailType string
 
 // DependencySyncConfigRefStatus DependencySyncConfigRefStatus represents the synchronization status for a single config provider's dependencies.
 type DependencySyncConfigRefStatus struct {
-	// ConfigProviderName The name of the config provider (e.g. "nginx-config").
+	// ConfigProviderName The name of the config provider (e.g. the inline config or config source name).
 	ConfigProviderName string `json:"configProviderName"`
 
 	// Fingerprint The current upstream fingerprint (e.g. git SHA, ETag, resource version).
@@ -1117,7 +1117,7 @@ type DependencySyncConfigRefStatus struct {
 	// LastUpdatedAt The last time the fingerprint changed.
 	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
 
-	// Message A human-readable message providing details about the synchronization status.
+	// Message Human-readable message with details about the current status.
 	Message *string `json:"message,omitempty"`
 
 	// Status The synchronization status for this config provider's dependencies.
