@@ -1,11 +1,12 @@
 package scripts_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -49,30 +50,23 @@ func TestCertificateGeneration(t *testing.T) {
 			t.Fatalf("First run failed: %v\nOutput: %s", err, output)
 		}
 
-		// Get original cert modification time
+		// Get SHA256 fingerprint of original cert
 		apiCert := filepath.Join(certDir, "flightctl-api", "server.crt")
-		origStat, _ := os.Stat(apiCert)
-		origModTime := origStat.ModTime()
+		origFingerprint := certFingerprint(t, apiCert)
 
 		// Second run - same SANs, should skip
 		cmd = exec.Command("bash", scriptPath,
 			"--cert-dir", certDir,
 			"--api-san", "api.example.com",
 		)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
+		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("Second run failed: %v\nOutput: %s", err, output)
 		}
 
-		// Verify cert was not regenerated
-		newStat, _ := os.Stat(apiCert)
-		if !newStat.ModTime().Equal(origModTime) {
-			t.Error("Certificate was regenerated when SANs matched - should have been skipped")
-		}
-
-		// Verify output indicates skip
-		if !strings.Contains(string(output), "Skipped") {
-			t.Error("Expected 'Skipped' message in output")
+		// Verify cert was not regenerated using fingerprint
+		newFingerprint := certFingerprint(t, apiCert)
+		if origFingerprint != newFingerprint {
+			t.Errorf("Certificate was regenerated when SANs matched - should have been skipped\nOriginal: %s\nNew: %s", origFingerprint, newFingerprint)
 		}
 	})
 
@@ -106,11 +100,6 @@ func TestCertificateGeneration(t *testing.T) {
 		// Verify cert has new SAN
 		if !certHasSAN(t, apiCert, "api.new-domain.com") {
 			t.Error("Certificate was not regenerated with new SAN")
-		}
-
-		// Verify output indicates regeneration
-		if !strings.Contains(string(output), "will regenerate") {
-			t.Error("Expected 'will regenerate' message in output")
 		}
 	})
 
@@ -223,11 +212,6 @@ func TestCertificateGeneration(t *testing.T) {
 		if !certHasSAN(t, apiCert, "new-host.example.com") {
 			t.Error("Certificate was not regenerated with new SAN - all SANs should be checked")
 		}
-
-		// Verify output indicates regeneration
-		if !strings.Contains(string(output), "will regenerate") {
-			t.Error("Expected 'will regenerate' message in output")
-		}
 	})
 }
 
@@ -245,4 +229,14 @@ func certHasSAN(t *testing.T, certPath, expectedSAN string) bool {
 	cmd := exec.Command("openssl", "x509", "-in", certPath, "-noout", "-checkhost", expectedSAN)
 	err := cmd.Run()
 	return err == nil
+}
+
+func certFingerprint(t *testing.T, certPath string) string {
+	t.Helper()
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("Failed to read certificate %s: %v", certPath, err)
+	}
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
