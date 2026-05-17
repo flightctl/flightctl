@@ -239,6 +239,10 @@ func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, se
 // DependencySyncStatus block. Exactly one of fleetName or deviceName must be
 // non-nil.
 func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context, orgID uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, error) {
+	if (fleetName == nil && deviceName == nil) || (fleetName != nil && deviceName != nil) {
+		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: exactly one of fleetName or deviceName must be non-nil")
+	}
+
 	q := s.getDB(ctx).
 		Table("dependency_refs dr").
 		Select("dr.resource_key, dr.ref_type, dr.config_provider_name, "+
@@ -248,10 +252,8 @@ func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context
 
 	if fleetName != nil {
 		q = q.Where("dr.fleet_name = ? AND dr.device_name = ''", *fleetName)
-	} else if deviceName != nil {
-		q = q.Where("dr.device_name = ?", *deviceName)
 	} else {
-		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: either fleetName or deviceName must be non-nil")
+		q = q.Where("dr.device_name = ?", *deviceName)
 	}
 
 	var results []model.DependencyRefWithSyncState
