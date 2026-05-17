@@ -309,6 +309,12 @@ periodic:
   consumers: 5
   # -- Allow flightctl-periodic to list/watch secrets at the cluster level for change detection
   clusterLevelSecretAccess: false
+  # -- Metrics configuration for flightctl-periodic
+  metrics:
+    # -- Enable Prometheus metrics endpoint
+    enabled: true
+    # -- Address for the metrics HTTP server
+    address: ":15690"
 
 # -- Alert Exporter Configuration
 alertExporter:
