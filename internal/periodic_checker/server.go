@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -47,7 +48,6 @@ func New(
 	}
 }
 
-// TODO: expose metrics
 func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
@@ -182,6 +182,16 @@ func (s *Server) Run(ctx context.Context) error {
 		defer wg.Done()
 		periodicTaskPublisher.Run(ctx)
 	}()
+
+	if s.cfg.Metrics != nil && s.cfg.Metrics.Enabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := tracing.RunMetricsServer(ctx, s.log, s.cfg.Metrics.Address, depSyncMetrics); err != nil {
+				s.log.WithError(err).Error("Metrics server failed")
+			}
+		}()
+	}
 
 	if secretInformerClientset != nil {
 		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics, depSyncStatusUpdater)
