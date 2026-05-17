@@ -246,12 +246,14 @@ func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context
 		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
 		Where("dr.org_id = ?", orgID)
 
+	if (fleetName == nil) == (deviceName == nil) {
+		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: exactly one of fleetName or deviceName must be non-nil")
+	}
+
 	if fleetName != nil {
 		q = q.Where("dr.fleet_name = ? AND dr.device_name = ''", *fleetName)
-	} else if deviceName != nil {
-		q = q.Where("dr.device_name = ?", *deviceName)
 	} else {
-		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: either fleetName or deviceName must be non-nil")
+		q = q.Where("dr.device_name = ?", *deviceName)
 	}
 
 	var results []model.DependencyRefWithSyncState
