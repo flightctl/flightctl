@@ -30,8 +30,8 @@ data:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
     metrics:
-        enabled: true
-        address: ":15690"
+        enabled: {{ .Values.periodic.metrics.enabled }}
+        address: {{ .Values.periodic.metrics.address | quote }}
     periodic:
         consumers: {{ .Values.periodic.consumers }}
         clusterLevelSecretAccess: {{ .Values.periodic.clusterLevelSecretAccess }}
