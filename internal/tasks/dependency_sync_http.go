@@ -11,7 +11,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -32,12 +31,11 @@ type DependencySyncHttp struct {
 	cfg             *config.Config
 	conditionalHead httpConditionalHeadFunc
 	maxConcurrent   int
-	metrics         *periodic.DependencySyncCollector
-	statusUpdater   *DependencySyncStatusUpdater
+	metrics         *DependencySyncCollector
 }
 
 func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config, metrics *periodic.DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncHttp {
+	cfg *config.Config, metrics *DependencySyncCollector) *DependencySyncHttp {
 	return &DependencySyncHttp{
 		log:             log,
 		serviceHandler:  serviceHandler,
@@ -45,7 +43,6 @@ func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Servic
 		conditionalHead: httpConditionalHead,
 		maxConcurrent:   10,
 		metrics:         metrics,
-		statusUpdater:   statusUpdater,
 	}
 }
 
@@ -55,13 +52,12 @@ type httpProbeResult struct {
 	fingerprint string
 	changed     bool
 	firstSeen   bool
-	probeErr    string
 	skip        bool // true for HttpNotConditional or errors
 }
 
 func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle(periodic.RefTypeHTTP)
+		d.metrics.ObserveProbeCycle("http")
 	}
 
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
@@ -105,14 +101,11 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	wg.Wait()
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeLatency(periodic.RefTypeHTTP, time.Since(probeStart))
+		d.metrics.ObserveProbeLatency("http", time.Since(probeStart))
 	}
 
 	d.reconcile(ctx, orgId, results)
 
-	if d.statusUpdater != nil {
-		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
-	}
 }
 
 func (d *DependencySyncHttp) probeRepoGroup(ctx context.Context, group []*model.HttpDependencyProbe) []httpProbeResult {
@@ -173,11 +166,11 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 
 	fingerprint, statusCode, err := d.conditionalHead(ctx, client, repoURL, httpSpec, storedFP)
 	if err != nil {
-		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", rk, statusCode)
+		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
 		if d.metrics != nil {
-			d.metrics.ObserveProbeError(periodic.RefTypeHTTP)
+			d.metrics.ObserveProbeError("http")
 		}
-		return httpProbeResult{probe: probe, resourceKey: rk, skip: true, probeErr: sanitizeError(err)}
+		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
 	}
 
 	r := httpProbeResult{
@@ -205,26 +198,11 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	now := time.Now().UTC()
 
 	for _, r := range results {
-		if r.probeErr != "" {
-			for _, fleetName := range r.probe.FleetNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.probeErr)
-				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
-				}
-			}
-			for _, deviceName := range r.probe.DeviceNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.probeErr)
-				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
-				}
-			}
-			continue
-		}
 		if !r.changed {
 			continue
 		}
 		if d.metrics != nil {
-			d.metrics.ObserveProbeChange(periodic.RefTypeHTTP)
+			d.metrics.ObserveProbeChange("http")
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
@@ -247,16 +225,6 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 		if r.resourceKey == "" {
 			continue
 		}
-		if r.probeErr != "" {
-			upsertStates = append(upsertStates, model.SyncState{
-				OrgID:         orgId,
-				ResourceKey:   r.resourceKey,
-				ProbeStatus:   "ProbeFailed",
-				ProbeMessage:  r.probeErr,
-				LastCheckedAt: now,
-			})
-			continue
-		}
 		if r.skip {
 			unchangedKeys = append(unchangedKeys, r.resourceKey)
 		} else if r.firstSeen || r.changed {
@@ -264,7 +232,6 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.fingerprint,
-				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})

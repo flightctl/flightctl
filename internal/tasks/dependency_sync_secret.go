@@ -8,12 +8,10 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,18 +29,16 @@ type DependencySyncSecret struct {
 	log               logrus.FieldLogger
 	serviceHandler    service.Service
 	releaseNamespace  string
-	metrics           *periodic.DependencySyncCollector
-	statusUpdater     *DependencySyncStatusUpdater
+	metrics           *DependencySyncCollector
 	informerConnected atomic.Bool
 }
 
-func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string, metrics *periodic.DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncSecret {
+func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string, metrics *DependencySyncCollector) *DependencySyncSecret {
 	return &DependencySyncSecret{
 		log:              log,
 		serviceHandler:   serviceHandler,
 		releaseNamespace: releaseNamespace,
 		metrics:          metrics,
-		statusUpdater:    statusUpdater,
 	}
 }
 
@@ -64,13 +60,9 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	if _, err := secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			d.handleSecretEvent(ctx, obj)
-			d.updateSecretsWatchedGauge(secretInformer)
 		},
 		UpdateFunc: func(_, newObj interface{}) {
 			d.handleSecretEvent(ctx, newObj)
-		},
-		DeleteFunc: func(_ interface{}) {
-			d.updateSecretsWatchedGauge(secretInformer)
 		},
 	}); err != nil {
 		d.log.WithError(err).Error("Failed to add secret informer event handler")
@@ -83,7 +75,6 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	for typ, ok := range synced {
 		if !ok {
 			d.log.WithField("type", typ).Error("Informer failed to sync cache")
-			d.setInformerDisconnected(ctx)
 			return
 		}
 	}
@@ -91,39 +82,18 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	d.informerConnected.Store(true)
 	if d.metrics != nil {
 		d.metrics.SetInformerConnected(true)
-		d.metrics.SetSecretsWatched(len(secretInformer.GetStore().List()))
 	}
 	d.log.Info("Secret informer cache synced, watching for changes")
 
 	<-ctx.Done()
-	d.setInformerDisconnected(ctx)
+	d.setInformerDisconnected()
 	d.log.Info("Secret informer stopped")
 }
 
-func (d *DependencySyncSecret) setInformerDisconnected(ctx context.Context) {
+func (d *DependencySyncSecret) setInformerDisconnected() {
 	d.informerConnected.Store(false)
 	if d.metrics != nil {
 		d.metrics.SetInformerConnected(false)
-	}
-
-	if d.statusUpdater == nil {
-		return
-	}
-
-	bgCtx := context.Background()
-	orgIDs, st := d.serviceHandler.ListDistinctOrgIDsByRefType(bgCtx, "secret")
-	if st.Code != http.StatusOK {
-		d.log.Errorf("failed listing org IDs for disconnect propagation: %s", st.Message)
-		return
-	}
-	for _, orgId := range orgIDs {
-		d.statusUpdater.UpdateStatusForOrg(bgCtx, orgId, lo.ToPtr(false))
-	}
-}
-
-func (d *DependencySyncSecret) updateSecretsWatchedGauge(informer cache.SharedIndexInformer) {
-	if d.metrics != nil {
-		d.metrics.SetSecretsWatched(len(informer.GetStore().List()))
 	}
 }
 
@@ -138,10 +108,6 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 		return
 	}
 
-	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle("secret")
-	}
-
 	d.reconcile(ctx, secret.Namespace, secret.Name, secret.ResourceVersion)
 }
 
@@ -150,7 +116,7 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 // events for changed targets, and updates sync_state.
 func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, newFingerprint string) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle(periodic.RefTypeSecret)
+		d.metrics.ObserveProbeCycle("secret")
 	}
 
 	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
@@ -163,15 +129,13 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	}
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeChange(periodic.RefTypeSecret)
+		d.metrics.ObserveProbeChange("secret")
 	}
 
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)
 	now := time.Now().UTC()
 
-	orgIDs := make(map[uuid.UUID]bool)
 	for _, ref := range refs {
-		orgIDs[ref.OrgID] = true
 		var kind domain.ResourceKind
 		var targetName string
 		if ref.DeviceName != "" {
@@ -191,18 +155,10 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		OrgID:         uuid.Nil,
 		ResourceKey:   resourceKey,
 		Fingerprint:   newFingerprint,
-		ProbeStatus:   "Synced",
 		LastCheckedAt: now,
 		LastChangeAt:  &now,
 	}
 	if st := d.serviceHandler.SetSyncState(ctx, uuid.Nil, state); st.Code != http.StatusOK {
 		d.log.Errorf("failed setting sync state for %s: %s", resourceKey, st.Message)
-		return
-	}
-
-	if d.statusUpdater != nil {
-		for orgId := range orgIDs {
-			d.statusUpdater.UpdateStatusForOrg(ctx, orgId, lo.ToPtr(true))
-		}
 	}
 }

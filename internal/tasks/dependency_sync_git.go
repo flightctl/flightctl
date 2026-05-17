@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -27,12 +26,11 @@ type DependencySyncGit struct {
 	cfg            *config.Config
 	lsRemote       gitLsRemoteFunc
 	maxConcurrent  int
-	metrics        *periodic.DependencySyncCollector
-	statusUpdater  *DependencySyncStatusUpdater
+	metrics        *DependencySyncCollector
 }
 
 func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config, metrics *periodic.DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncGit {
+	cfg *config.Config, metrics *DependencySyncCollector) *DependencySyncGit {
 	return &DependencySyncGit{
 		log:            log,
 		serviceHandler: serviceHandler,
@@ -40,7 +38,6 @@ func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service
 		lsRemote:       GitLsRemote,
 		maxConcurrent:  10,
 		metrics:        metrics,
-		statusUpdater:  statusUpdater,
 	}
 }
 
@@ -51,12 +48,11 @@ type probeResult struct {
 	newSHA      string
 	changed     bool
 	firstSeen   bool
-	probeErr    string // non-empty when the probe failed
 }
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle(periodic.RefTypeGit)
+		d.metrics.ObserveProbeCycle("git")
 	}
 
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
@@ -102,14 +98,11 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	wg.Wait()
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeLatency(periodic.RefTypeGit, time.Since(probeStart))
+		d.metrics.ObserveProbeLatency("git", time.Since(probeStart))
 	}
 
 	d.reconcile(ctx, orgId, results)
 
-	if d.statusUpdater != nil {
-		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
-	}
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
@@ -146,18 +139,9 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	if err != nil {
 		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
 		if d.metrics != nil {
-			d.metrics.ObserveProbeError(periodic.RefTypeGit)
+			d.metrics.ObserveProbeError("git")
 		}
-		var failResults []probeResult
-		for _, p := range group {
-			rk := fmt.Sprintf("git:%s/%s", repoName, p.Revision)
-			failResults = append(failResults, probeResult{
-				probe:       p,
-				resourceKey: rk,
-				probeErr:    sanitizeError(err),
-			})
-		}
-		return failResults
+		return nil
 	}
 
 	var results []probeResult
@@ -194,26 +178,11 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	now := time.Now().UTC()
 
 	for _, r := range results {
-		if r.probeErr != "" {
-			for _, fleetName := range r.probe.FleetNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.probeErr)
-				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
-				}
-			}
-			for _, deviceName := range r.probe.DeviceNames {
-				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.probeErr)
-				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
-				}
-			}
-			continue
-		}
 		if !r.changed {
 			continue
 		}
 		if d.metrics != nil {
-			d.metrics.ObserveProbeChange(periodic.RefTypeGit)
+			d.metrics.ObserveProbeChange("git")
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
@@ -233,22 +202,11 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	var unchangedKeys []string
 
 	for _, r := range results {
-		if r.probeErr != "" {
-			upsertStates = append(upsertStates, model.SyncState{
-				OrgID:         orgId,
-				ResourceKey:   r.resourceKey,
-				ProbeStatus:   "ProbeFailed",
-				ProbeMessage:  r.probeErr,
-				LastCheckedAt: now,
-			})
-			continue
-		}
 		if r.firstSeen || r.changed {
 			upsertStates = append(upsertStates, model.SyncState{
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.newSHA,
-				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})

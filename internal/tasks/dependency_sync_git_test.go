@@ -314,7 +314,7 @@ func TestNewDependencySyncGit(t *testing.T) {
 	defer ctrl.Finish()
 	mockService := service.NewMockService(ctrl)
 
-	d := NewDependencySyncGit(logrus.New(), mockService, &config.Config{}, nil, nil)
+	d := NewDependencySyncGit(logrus.New(), mockService, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.lsRemote)
