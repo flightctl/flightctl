@@ -32,11 +32,10 @@ type DependencySyncHttp struct {
 	conditionalHead httpConditionalHeadFunc
 	maxConcurrent   int
 	metrics         *DependencySyncCollector
-	statusUpdater   *DependencySyncStatusUpdater
 }
 
 func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config, metrics *DependencySyncCollector, statusUpdater *DependencySyncStatusUpdater) *DependencySyncHttp {
+	cfg *config.Config, metrics *DependencySyncCollector) *DependencySyncHttp {
 	return &DependencySyncHttp{
 		log:             log,
 		serviceHandler:  serviceHandler,
@@ -44,7 +43,6 @@ func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Servic
 		conditionalHead: httpConditionalHead,
 		maxConcurrent:   10,
 		metrics:         metrics,
-		statusUpdater:   statusUpdater,
 	}
 }
 
@@ -108,9 +106,6 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 
 	d.reconcile(ctx, orgId, results)
 
-	if d.statusUpdater != nil {
-		d.statusUpdater.UpdateStatusForOrg(ctx, orgId, nil)
-	}
 }
 
 func (d *DependencySyncHttp) probeRepoGroup(ctx context.Context, group []*model.HttpDependencyProbe) []httpProbeResult {
@@ -237,7 +232,6 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 				OrgID:         orgId,
 				ResourceKey:   r.resourceKey,
 				Fingerprint:   r.fingerprint,
-				ProbeStatus:   "Synced",
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			})
