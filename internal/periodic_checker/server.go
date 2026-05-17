@@ -120,10 +120,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	depSyncMetrics := tasks.NewDependencySyncCollector()
-	depSyncStatusUpdater := tasks.NewDependencySyncStatusUpdater(s.log.WithField("pkg", "dependency-sync-status"), serviceHandler)
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics, depSyncStatusUpdater)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -194,7 +193,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if secretInformerClientset != nil {
-		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics, depSyncStatusUpdater)
+		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
