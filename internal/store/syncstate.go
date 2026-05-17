@@ -93,12 +93,18 @@ func (s *SyncStateStore) BulkUpsert(ctx context.Context, orgID uuid.UUID, states
 }
 
 // BulkUpdateLastCheckedAt updates last_checked_at for all given resource keys
-// in a single statement.
+// in a single statement. It also resets probe_status to "Synced" and clears
+// probe_message so that transient probe failures don't persist across
+// successful unchanged polls.
 func (s *SyncStateStore) BulkUpdateLastCheckedAt(ctx context.Context, orgID uuid.UUID, resourceKeys []string, t time.Time) error {
 	if len(resourceKeys) == 0 {
 		return nil
 	}
 	return s.getDB(ctx).Model(&model.SyncState{}).
 		Where("org_id = ? AND resource_key IN ?", orgID, resourceKeys).
-		Update("last_checked_at", t).Error
+		Updates(map[string]interface{}{
+			"last_checked_at": t,
+			"probe_status":    "Synced",
+			"probe_message":   "",
+		}).Error
 }

@@ -115,6 +115,11 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 		return !c.Type.IsServiceConditionType()
 	})
 
+	if status.DependencySync != nil {
+		serviceConditions.DependencySync = status.DependencySync
+		status.DependencySync = nil
+	}
+
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
 		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
