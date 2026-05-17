@@ -39,6 +39,10 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 				return statusOK
 			})
 
+		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
+			[]model.DependencyRefWithSyncState{}, statusOK)
+		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+
 		var events []emittedEvent
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
@@ -91,6 +95,10 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 				return statusOK
 			})
 
+		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
+			[]model.DependencyRefWithSyncState{}, statusOK)
+		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+
 		d := &DependencySyncSecret{
 			log:            logrus.New(),
 			serviceHandler: mockService,
@@ -117,6 +125,10 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 
 		mockService.EXPECT().SetSyncState(gomock.Any(), uuid.Nil, gomock.Any()).Return(statusOK)
 
+		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
+		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+
 		var events []emittedEvent
 		mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
@@ -142,6 +154,11 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		}
 		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "501").Return(refs, statusOK)
 		mockService.EXPECT().SetSyncState(gomock.Any(), uuid.Nil, gomock.Any()).Return(statusOK)
+
+		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
+			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
+		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+		mockService.EXPECT().SetDeviceDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 		var events []emittedEvent
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
