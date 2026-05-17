@@ -36,6 +36,18 @@ You can approve an Enrollment Request using the `flightctl approve` command and 
 flightctl approve -l region=eu-west-1 -l site=factory-berlin enrollmentrequest/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
 ```
 
+By default, labels specified during approval are **merged** with any labels the agent provided during enrollment (such as `default-labels` or labels from `label-from-systeminfo`). Approval labels take precedence when keys overlap.
+
+If you want to set the **exact** set of labels on the device, ignoring agent-provided labels, use the `--replace-labels` flag:
+
+```console
+# Only set these labels, ignore all agent-provided labels
+flightctl approve -l env=production --replace-labels enrollmentrequest/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+
+# Remove all labels (empty device)
+flightctl approve --replace-labels enrollmentrequest/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+```
+
 When listing devices waiting to be approved once more using the `flightctl get enrollmentrequests` command, the output should look similar to this:
 
 ```console
