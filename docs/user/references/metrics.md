@@ -122,6 +122,25 @@ Tracks synchronization between Flight Control and managed devices.
 - `enabled`: Enable/disable resource sync metrics (default: `true`)
 - `tickerInterval`: Collection frequency (default: `"30s"`)
 
+### Dependency Sync Collector (Periodic)
+
+Monitors the automated dependency synchronization subsystem that probes Git, HTTP, and Kubernetes Secret dependencies for changes. These metrics are exposed by the `flightctl-periodic` service on its own metrics endpoint.
+
+**Metrics:**
+
+- `flightctl_dependency_sync_cycles_total`: Total number of dependency sync probe cycles, labeled by `ref_type` (`git`, `http`, `secret`)
+- `flightctl_dependency_sync_changes_total`: Total number of dependency changes detected, labeled by `ref_type`
+- `flightctl_dependency_sync_probe_errors_total`: Total number of probe errors, labeled by `ref_type`
+- `flightctl_dependency_sync_probe_latency_seconds`: Histogram of probe latency, labeled by `ref_type`
+- `flightctl_dependency_sync_informer_connected`: Whether the Kubernetes secret informer is connected (`1`) or disconnected (`0`)
+
+**Labels:** `ref_type` (one of `git`, `http`, `secret`)
+
+**Notes:**
+
+- The dependency sync collector is always enabled when the periodic service starts. It does not require configuration in the `metrics` section beyond enabling the metrics endpoint.
+- The `informer_connected` gauge is only meaningful when `clusterLevelSecretAccess` is enabled in the periodic configuration.
+
 ## Configuration Examples
 
 ### Minimal Configuration

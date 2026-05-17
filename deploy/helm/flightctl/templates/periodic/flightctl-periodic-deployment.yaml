@@ -31,6 +31,10 @@ spec:
         - name: periodic
           image: {{ include "flightctl.ensureOsQualifiedImage" .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
+          ports:
+            - containerPort: 15690
+              name: metrics
+              protocol: TCP
           env:
             - name: HOME
               value: "/root"
