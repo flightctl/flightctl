@@ -11,7 +11,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -120,11 +119,10 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Debug("Vulnerability syncing is disabled")
 	}
 
-	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
-	depSyncStatusUpdater := tasks.NewDependencySyncStatusUpdater(s.log.WithField("pkg", "dependency-sync-status"), serviceHandler)
+	depSyncMetrics := tasks.NewDependencySyncCollector()
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics, depSyncStatusUpdater)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -190,13 +188,12 @@ func (s *Server) Run(ctx context.Context) error {
 			defer wg.Done()
 			if err := tracing.RunMetricsServer(ctx, s.log, s.cfg.Metrics.Address, depSyncMetrics); err != nil {
 				s.log.WithError(err).Error("Metrics server failed")
-				cancel()
 			}
 		}()
 	}
 
 	if secretInformerClientset != nil {
-		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics, depSyncStatusUpdater)
+		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
