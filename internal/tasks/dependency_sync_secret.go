@@ -60,9 +60,13 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	if _, err := secretInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			d.handleSecretEvent(ctx, obj)
+			d.updateSecretsWatchedGauge(secretInformer)
 		},
 		UpdateFunc: func(_, newObj interface{}) {
 			d.handleSecretEvent(ctx, newObj)
+		},
+		DeleteFunc: func(_ interface{}) {
+			d.updateSecretsWatchedGauge(secretInformer)
 		},
 	}); err != nil {
 		d.log.WithError(err).Error("Failed to add secret informer event handler")
@@ -82,6 +86,7 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	d.informerConnected.Store(true)
 	if d.metrics != nil {
 		d.metrics.SetInformerConnected(true)
+		d.metrics.SetSecretsWatched(len(secretInformer.GetStore().List()))
 	}
 	d.log.Info("Secret informer cache synced, watching for changes")
 
@@ -94,6 +99,12 @@ func (d *DependencySyncSecret) setInformerDisconnected() {
 	d.informerConnected.Store(false)
 	if d.metrics != nil {
 		d.metrics.SetInformerConnected(false)
+	}
+}
+
+func (d *DependencySyncSecret) updateSecretsWatchedGauge(informer cache.SharedIndexInformer) {
+	if d.metrics != nil {
+		d.metrics.SetSecretsWatched(len(informer.GetStore().List()))
 	}
 }
 
