@@ -64,12 +64,12 @@ func TestDependencySyncCollector_ObserveProbeCycle(t *testing.T) {
 	}{
 		{
 			name:    "When git probe cycle is observed it should increment the counter",
-			refType: "git",
+			refType: RefTypeGit,
 			count:   3,
 		},
 		{
 			name:    "When http probe cycle is observed it should increment the counter",
-			refType: "http",
+			refType: RefTypeHTTP,
 			count:   1,
 		},
 	}
@@ -89,9 +89,9 @@ func TestDependencySyncCollector_ObserveProbeCycle(t *testing.T) {
 func TestDependencySyncCollector_ObserveProbeChange(t *testing.T) {
 	t.Run("When a change is observed it should increment the changes counter", func(t *testing.T) {
 		c := NewDependencySyncCollector()
-		c.ObserveProbeChange("git")
-		c.ObserveProbeChange("git")
-		val := getCounterValue(t, c.changesTotal, "git")
+		c.ObserveProbeChange(RefTypeGit)
+		c.ObserveProbeChange(RefTypeGit)
+		val := getCounterValue(t, c.changesTotal, RefTypeGit)
 		require.Equal(t, float64(2), val)
 	})
 }
@@ -99,8 +99,8 @@ func TestDependencySyncCollector_ObserveProbeChange(t *testing.T) {
 func TestDependencySyncCollector_ObserveProbeError(t *testing.T) {
 	t.Run("When a probe error is observed it should increment the errors counter", func(t *testing.T) {
 		c := NewDependencySyncCollector()
-		c.ObserveProbeError("http")
-		val := getCounterValue(t, c.probeErrorsTotal, "http")
+		c.ObserveProbeError(RefTypeHTTP)
+		val := getCounterValue(t, c.probeErrorsTotal, RefTypeHTTP)
 		require.Equal(t, float64(1), val)
 	})
 }
@@ -108,8 +108,8 @@ func TestDependencySyncCollector_ObserveProbeError(t *testing.T) {
 func TestDependencySyncCollector_ObserveProbeLatency(t *testing.T) {
 	t.Run("When probe latency is observed it should record to the histogram", func(t *testing.T) {
 		c := NewDependencySyncCollector()
-		c.ObserveProbeLatency("git", 150*time.Millisecond)
-		c.ObserveProbeLatency("git", 250*time.Millisecond)
+		c.ObserveProbeLatency(RefTypeGit, 150*time.Millisecond)
+		c.ObserveProbeLatency(RefTypeGit, 250*time.Millisecond)
 
 		ch := make(chan prometheus.Metric, 10)
 		c.probeLatency.Collect(ch)

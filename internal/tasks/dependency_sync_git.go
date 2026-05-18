@@ -52,7 +52,7 @@ type probeResult struct {
 
 func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle("git")
+		d.metrics.ObserveProbeCycle(RefTypeGit)
 	}
 
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
@@ -98,7 +98,7 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	wg.Wait()
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeLatency("git", time.Since(probeStart))
+		d.metrics.ObserveProbeLatency(RefTypeGit, time.Since(probeStart))
 	}
 
 	d.reconcile(ctx, orgId, results)
@@ -139,7 +139,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	if err != nil {
 		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
 		if d.metrics != nil {
-			d.metrics.ObserveProbeError("git")
+			d.metrics.ObserveProbeError(RefTypeGit)
 		}
 		return nil
 	}
@@ -182,7 +182,7 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 			continue
 		}
 		if d.metrics != nil {
-			d.metrics.ObserveProbeChange("git")
+			d.metrics.ObserveProbeChange(RefTypeGit)
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)

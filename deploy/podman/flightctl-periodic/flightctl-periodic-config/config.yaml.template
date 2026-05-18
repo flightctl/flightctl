@@ -23,6 +23,9 @@ database:
 kv:
   hostname: flightctl-kv
   port: 6379
+metrics:
+  enabled: true
+  address: ":15690"
 service: {}
 {{- if eq .vulnerabilityReporting.enabled true}}
 vulnerabilityReporting:
