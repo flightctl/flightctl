@@ -25,6 +25,15 @@ scrape_configs:
         target_label: instance
         replacement: '$1'
 
+  - job_name: 'flightctl-periodic'
+    static_configs:
+      - targets: ['flightctl-periodic:15690']  # Periodic service dependency sync metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+)(?::\d+)?'
+        target_label: instance
+        replacement: '$1'
+
   - job_name: 'flightctl-telemetry-gateway'
     static_configs:
       - targets: ['flightctl-telemetry-gateway:9464'] # Telemetry gateway for Flight Control metrics

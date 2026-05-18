@@ -116,7 +116,7 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 // events for changed targets, and updates sync_state.
 func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, newFingerprint string) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle("secret")
+		d.metrics.ObserveProbeCycle(RefTypeSecret)
 	}
 
 	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
@@ -129,7 +129,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	}
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeChange("secret")
+		d.metrics.ObserveProbeChange(RefTypeSecret)
 	}
 
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)

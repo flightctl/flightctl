@@ -6,6 +6,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	RefTypeGit    = "git"
+	RefTypeHTTP   = "http"
+	RefTypeSecret = "secret"
+)
+
 // DependencySyncCollector implements prometheus.Collector for dependency sync metrics.
 type DependencySyncCollector struct {
 	cyclesTotal       *prometheus.CounterVec
