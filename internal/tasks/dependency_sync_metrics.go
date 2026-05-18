@@ -19,6 +19,7 @@ type DependencySyncCollector struct {
 	probeErrorsTotal  *prometheus.CounterVec
 	probeLatency      *prometheus.HistogramVec
 	informerConnected prometheus.Gauge
+	secretsWatched    prometheus.Gauge
 }
 
 func NewDependencySyncCollector() *DependencySyncCollector {
@@ -44,6 +45,10 @@ func NewDependencySyncCollector() *DependencySyncCollector {
 			Name: "flightctl_dependency_sync_informer_connected",
 			Help: "Whether the Kubernetes secret informer is connected (1) or disconnected (0).",
 		}),
+		secretsWatched: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "flightctl_dependency_sync_secrets_watched",
+			Help: "Number of Kubernetes secrets currently being watched by the informer.",
+		}),
 	}
 }
 
@@ -53,6 +58,7 @@ func (c *DependencySyncCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.probeErrorsTotal.Describe(ch)
 	c.probeLatency.Describe(ch)
 	c.informerConnected.Describe(ch)
+	c.secretsWatched.Describe(ch)
 }
 
 func (c *DependencySyncCollector) Collect(ch chan<- prometheus.Metric) {
@@ -61,6 +67,7 @@ func (c *DependencySyncCollector) Collect(ch chan<- prometheus.Metric) {
 	c.probeErrorsTotal.Collect(ch)
 	c.probeLatency.Collect(ch)
 	c.informerConnected.Collect(ch)
+	c.secretsWatched.Collect(ch)
 }
 
 func (c *DependencySyncCollector) ObserveProbeCycle(refType string) {
@@ -85,4 +92,8 @@ func (c *DependencySyncCollector) SetInformerConnected(connected bool) {
 	} else {
 		c.informerConnected.Set(0)
 	}
+}
+
+func (c *DependencySyncCollector) SetSecretsWatched(count int) {
+	c.secretsWatched.Set(float64(count))
 }
