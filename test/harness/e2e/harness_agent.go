@@ -17,13 +17,23 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
 )
 
-const agentConfigPath = "/etc/flightctl/config.yaml"
+const (
+	agentConfigPath = "/etc/flightctl/config.yaml"
+
+	// defaultAgentJournalTailLines caps journalctl output when no --since filter is used
+	// (avoids pulling the full journal on long-lived VMs during Eventually polling).
+	defaultAgentJournalTailLines = 5000
+	// agentJournalLinesSinceTimeCap is used with ReadPrimaryVMAgentLogs(since != "", ...)
+	// so time-bounded scans (e.g. panic/AVC checks) are not truncated too aggressively.
+	agentJournalLinesSinceTimeCap = 50000
+)
 
 func vmShellCommandArgs(command string) []string {
 	return []string{"bash -lc " + strconv.Quote(command)}
@@ -359,6 +369,109 @@ func (h *Harness) VMCommandOutputFunc(command string, trim bool) func() string {
 		}
 		return output
 	}
+}
+
+// ReadPrimaryVMAgentLogs reads journalctl logs from the primary VM for the given unit.
+// Output is capped: without a since time, only the last defaultAgentJournalTailLines entries are returned;
+// with a non-empty since (RFC3339 or journalctl time string), up to agentJournalLinesSinceTimeCap entries after since.
+func (h *Harness) ReadPrimaryVMAgentLogs(since string, unit string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("VM is not initialized")
+	}
+	opts := vm.JournalOpts{Since: since, Unit: unit}
+	if since != "" {
+		opts.Lines = agentJournalLinesSinceTimeCap
+	} else {
+		opts.Lines = defaultAgentJournalTailLines
+	}
+	return h.VM.JournalLogs(opts)
+}
+
+// GetFlightctlAgentJournal returns flightctl-agent journal text from the primary VM.
+// tailLines selects journalctl -n tailLines; when <= 0, defaultAgentJournalTailLines is used.
+func (h *Harness) GetFlightctlAgentJournal(tailLines int) (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	lines := tailLines
+	if lines <= 0 {
+		lines = defaultAgentJournalTailLines
+	}
+	if h.VM == nil {
+		return "", fmt.Errorf("VM is not initialized")
+	}
+	return h.VM.JournalLogs(vm.JournalOpts{
+		Unit:  testutil.FLIGHTCTL_AGENT_SERVICE,
+		Lines: lines,
+	})
+}
+
+// JournalSinceFromPrimaryVM returns RFC3339 UTC suitable for journalctl --since on the guest,
+// aligned to the VM clock. The value is rewound slightly so same-second log lines are not dropped
+// at the boundary. Use immediately before an action whose logs you will scan with WaitForAgentJournalUntil
+// or ReadPrimaryVMAgentLogs(since, ...).
+func (h *Harness) JournalSinceFromPrimaryVM() (string, error) {
+	if h == nil || h.VM == nil {
+		return "", fmt.Errorf("harness or VM is not initialized")
+	}
+	out, err := h.VM.RunSSH([]string{"date", "-u", `+%Y-%m-%dT%H:%M:%SZ`}, nil)
+	if err != nil {
+		return "", fmt.Errorf("read VM clock for journal since: %w", err)
+	}
+	s := strings.TrimSpace(out.String())
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "", fmt.Errorf("parse VM date %q: %w", s, err)
+	}
+	const journalSinceFromVMRewind = 2 * time.Second
+	return t.Add(-journalSinceFromVMRewind).UTC().Format(time.RFC3339), nil
+}
+
+// WaitForAgentJournalUntil polls until pred returns true on flightctl-agent journal output.
+// If since is non-empty (RFC3339 or journalctl time string, typically guest-aligned UTC), journalctl --since is applied
+// so only entries at or after that time are considered; tailLines caps --n (when <= 0, agentJournalLinesSinceTimeCap is used with since).
+// If since is empty, only -n is used; when tailLines <= 0, defaultAgentJournalTailLines applies.
+// timeout and polling are Ginkgo duration strings (see TIMEOUT, POLLING in this package).
+func (h *Harness) WaitForAgentJournalUntil(description string, since string, tailLines int, timeout, polling string, pred func(string) bool) {
+	Expect(h).ToNot(BeNil())
+	Expect(pred).ToNot(BeNil())
+	since = strings.TrimSpace(since)
+	opts := vm.JournalOpts{Unit: testutil.FLIGHTCTL_AGENT_SERVICE, Since: since}
+	if since != "" {
+		if tailLines > 0 {
+			opts.Lines = tailLines
+		} else {
+			opts.Lines = agentJournalLinesSinceTimeCap
+		}
+		GinkgoWriter.Printf("WaitForAgentJournalUntil: %s (journalctl -u %s --since %q -n %d)\n", description, testutil.FLIGHTCTL_AGENT_SERVICE, since, opts.Lines)
+	} else {
+		if tailLines > 0 {
+			opts.Lines = tailLines
+		} else {
+			opts.Lines = defaultAgentJournalTailLines
+		}
+		GinkgoWriter.Printf("WaitForAgentJournalUntil: %s (journalctl -u %s -n %d)\n", description, testutil.FLIGHTCTL_AGENT_SERVICE, opts.Lines)
+	}
+	Eventually(func(g Gomega) string {
+		logs, err := h.VM.JournalLogs(opts)
+		g.Expect(err).NotTo(HaveOccurred())
+		return logs
+	}, timeout, polling).Should(Satisfy(pred), description)
+}
+
+// WaitForAgentJournalToContain polls until the flightctl-agent journal text contains substring.
+// since and tailLines behave like WaitForAgentJournalUntil.
+// Prefer WaitForAgentJournalUntil when a single phrase is too brittle across environments.
+func (h *Harness) WaitForAgentJournalToContain(description, substring, since string, tailLines int, timeout, polling string) {
+	Expect(strings.TrimSpace(substring)).ToNot(BeEmpty())
+	h.WaitForAgentJournalUntil(description, since, tailLines, timeout, polling, func(log string) bool {
+		return strings.Contains(log, substring)
+	})
+}
+
+// GetFlightctlAgentLogs returns logs from the flightctl-agent service.
+func (h *Harness) GetFlightctlAgentLogs() (string, error) {
+	return h.VM.GetServiceLogs("flightctl-agent")
 }
 
 // WaitForPodmanImagePresence waits until a podman image is present/absent on the VM.
