@@ -103,7 +103,7 @@ func runBackup(ctx context.Context, outputPath, configPath string) error {
 	}()
 
 	// Detect deployment type
-	deployer, err := backup.DetectDeployment(cfg, log)
+	deployer, err := backup.DetectDeployment(cfg, log, "")
 	if err != nil {
 		return fmt.Errorf("detecting deployment type: %w", err)
 	}
