@@ -133,13 +133,14 @@ Monitors the automated dependency synchronization subsystem that probes Git, HTT
 - `flightctl_dependency_sync_probe_errors_total`: Total number of probe errors, labeled by `ref_type`
 - `flightctl_dependency_sync_probe_latency_seconds`: Histogram of probe latency, labeled by `ref_type`
 - `flightctl_dependency_sync_informer_connected`: Whether the Kubernetes secret informer is connected (`1`) or disconnected (`0`)
+- `flightctl_dependency_sync_secrets_watched`: Number of Kubernetes secrets currently being watched by the informer
 
 **Labels:** `ref_type` (one of `git`, `http`, `secret`)
 
 **Notes:**
 
 - The dependency sync collector is always enabled when the periodic service starts. It does not require configuration in the `metrics` section beyond enabling the metrics endpoint.
-- The `informer_connected` gauge is only meaningful when `clusterLevelSecretAccess` is enabled in the periodic configuration.
+- The `informer_connected` and `secrets_watched` gauges are only meaningful when `clusterLevelSecretAccess` is enabled in the periodic configuration.
 
 ## Configuration Examples
 

@@ -158,6 +158,37 @@ func TestDependencySyncCollector_SetInformerConnected(t *testing.T) {
 	}
 }
 
+func TestDependencySyncCollector_SetSecretsWatched(t *testing.T) {
+	tests := []struct {
+		name     string
+		count    int
+		expected float64
+	}{
+		{
+			name:     "When 5 secrets are watched it should set gauge to 5",
+			count:    5,
+			expected: 5,
+		},
+		{
+			name:     "When no secrets are watched it should set gauge to 0",
+			count:    0,
+			expected: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewDependencySyncCollector()
+			c.SetSecretsWatched(tc.count)
+
+			pb := &dto.Metric{}
+			require.NoError(t, c.secretsWatched.Write(pb))
+			require.NotNil(t, pb.Gauge)
+			require.Equal(t, tc.expected, pb.Gauge.GetValue())
+		})
+	}
+}
+
 func getCounterValue(t *testing.T, counterVec *prometheus.CounterVec, label string) float64 {
 	t.Helper()
 	pb := &dto.Metric{}
