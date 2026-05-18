@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -31,11 +32,11 @@ type DependencySyncHttp struct {
 	cfg             *config.Config
 	conditionalHead httpConditionalHeadFunc
 	maxConcurrent   int
-	metrics         *DependencySyncCollector
+	metrics         *periodic.DependencySyncCollector
 }
 
 func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
-	cfg *config.Config, metrics *DependencySyncCollector) *DependencySyncHttp {
+	cfg *config.Config, metrics *periodic.DependencySyncCollector) *DependencySyncHttp {
 	return &DependencySyncHttp{
 		log:             log,
 		serviceHandler:  serviceHandler,
@@ -57,7 +58,7 @@ type httpProbeResult struct {
 
 func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle(RefTypeHTTP)
+		d.metrics.ObserveProbeCycle(periodic.RefTypeHTTP)
 	}
 
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
@@ -101,7 +102,7 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	wg.Wait()
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeLatency(RefTypeHTTP, time.Since(probeStart))
+		d.metrics.ObserveProbeLatency(periodic.RefTypeHTTP, time.Since(probeStart))
 	}
 
 	d.reconcile(ctx, orgId, results)
@@ -168,7 +169,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
 		if d.metrics != nil {
-			d.metrics.ObserveProbeError(RefTypeHTTP)
+			d.metrics.ObserveProbeError(periodic.RefTypeHTTP)
 		}
 		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
 	}
@@ -202,7 +203,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			continue
 		}
 		if d.metrics != nil {
-			d.metrics.ObserveProbeChange(RefTypeHTTP)
+			d.metrics.ObserveProbeChange(periodic.RefTypeHTTP)
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
