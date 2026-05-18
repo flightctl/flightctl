@@ -57,7 +57,7 @@ type httpProbeResult struct {
 
 func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle("http")
+		d.metrics.ObserveProbeCycle(RefTypeHTTP)
 	}
 
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
@@ -101,7 +101,7 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	wg.Wait()
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeLatency("http", time.Since(probeStart))
+		d.metrics.ObserveProbeLatency(RefTypeHTTP, time.Since(probeStart))
 	}
 
 	d.reconcile(ctx, orgId, results)
@@ -168,7 +168,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 	if err != nil {
 		d.log.WithError(err).Warnf("HTTP probe failed for %s (status %d)", repoURL, statusCode)
 		if d.metrics != nil {
-			d.metrics.ObserveProbeError("http")
+			d.metrics.ObserveProbeError(RefTypeHTTP)
 		}
 		return httpProbeResult{probe: probe, resourceKey: rk, skip: true}
 	}
@@ -202,7 +202,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			continue
 		}
 		if d.metrics != nil {
-			d.metrics.ObserveProbeChange("http")
+			d.metrics.ObserveProbeChange(RefTypeHTTP)
 		}
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
