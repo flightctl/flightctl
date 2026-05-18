@@ -79,6 +79,7 @@ func (d *DependencySyncSecret) Run(ctx context.Context, clientset kubernetes.Int
 	for typ, ok := range synced {
 		if !ok {
 			d.log.WithField("type", typ).Error("Informer failed to sync cache")
+			d.setInformerDisconnected()
 			return
 		}
 	}

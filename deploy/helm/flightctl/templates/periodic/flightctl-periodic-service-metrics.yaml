@@ -1,0 +1,20 @@
+{{- if (default dict .Values.periodic).metrics }}
+{{- if .Values.periodic.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-periodic
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-periodic-metrics
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 15690
+      targetPort: metrics
+  selector:
+    flightctl.service: flightctl-periodic
+{{- end }}
+{{- end }}

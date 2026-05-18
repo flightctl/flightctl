@@ -132,10 +132,10 @@ Monitors the automated dependency synchronization subsystem that probes Git, HTT
 - `flightctl_dependency_sync_changes_total`: Total number of dependency changes detected, labeled by `ref_type`
 - `flightctl_dependency_sync_probe_errors_total`: Total number of probe errors, labeled by `ref_type`
 - `flightctl_dependency_sync_probe_latency_seconds`: Histogram of probe latency, labeled by `ref_type`
-- `flightctl_dependency_sync_informer_connected`: Whether the Kubernetes secret informer is connected (`1`) or disconnected (`0`)
-- `flightctl_dependency_sync_secrets_watched`: Number of Kubernetes secrets currently being watched by the informer
+- `flightctl_dependency_sync_informer_connected`: Whether the Kubernetes secret informer is connected (`1`) or disconnected (`0`). No labels.
+- `flightctl_dependency_sync_secrets_watched`: Number of Kubernetes secrets currently being watched by the informer. No labels.
 
-**Labels:** `ref_type` (one of `git`, `http`, `secret`)
+**Labels:** The four probe metrics (`cycles_total`, `changes_total`, `probe_errors_total`, `probe_latency_seconds`) carry a `ref_type` label (one of `git`, `http`, `secret`). The informer gauges have no labels.
 
 **Notes:**
 
