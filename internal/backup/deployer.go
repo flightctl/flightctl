@@ -2,12 +2,18 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 )
+
+// ErrExternalDatabase is returned when an external database is detected.
+// External databases must be backed up separately by the user.
+var ErrExternalDatabase = errors.New("external database detected: please back up the database separately using your database backup tools")
 
 // DeploymentType represents the deployment environment type
 type DeploymentType string
@@ -33,9 +39,14 @@ type detectionIndicators struct {
 	kubernetesEnvSet      bool
 }
 
-// DetectDeployment determines deployment type and returns appropriate deployer
-func DetectDeployment(cfg *config.Config, log logrus.FieldLogger) (Deployer, error) {
-	indicators := checkEnvironment()
+// DetectDeployment determines deployment type and returns appropriate deployer.
+// basePath is the root directory for Podman deployment detection (default: /etc/flightctl).
+// Pass empty string to use the default, or specify a custom path for testing.
+func DetectDeployment(cfg *config.Config, log logrus.FieldLogger, basePath string) (Deployer, error) {
+	if basePath == "" {
+		basePath = "/etc/flightctl"
+	}
+	indicators := checkEnvironment(basePath)
 
 	podmanDetected := indicators.podmanPKIExists || indicators.podmanConfigDirExists
 	k8sDetected := indicators.kubernetesEnvSet
@@ -54,12 +65,12 @@ func DetectDeployment(cfg *config.Config, log logrus.FieldLogger) (Deployer, err
 
 	if podmanDetected {
 		log.Debug("Podman deployment detected")
-		return NewPodmanDeployer(log), nil
+		return NewPodmanDeployer(cfg, log), nil
 	}
 
 	if k8sDetected {
 		log.Debug("Kubernetes deployment detected")
-		return NewKubernetesDeployer(log), nil
+		return NewKubernetesDeployer(cfg, log, ""), nil
 	}
 
 	return nil, fmt.Errorf(
@@ -68,15 +79,45 @@ func DetectDeployment(cfg *config.Config, log logrus.FieldLogger) (Deployer, err
 	)
 }
 
-// flightctlBasePath is the base path for Podman deployment detection.
-// Can be overridden in tests to avoid modifying global system paths.
-var flightctlBasePath = "/etc/flightctl"
+// isInternalDB returns true if the database is internal (managed by FlightCtl deployment).
+// Internal databases have hostnames: localhost, 127.0.0.1, flightctl-db, or flightctl-db.<namespace>
+// patterns (including full DNS like flightctl-db.flightctl-internal.svc.cluster.local).
+// External databases (any other hostname) must be backed up separately by the user.
+func isInternalDB(cfg *config.Config) bool {
+	if cfg == nil || cfg.Database == nil {
+		return false
+	}
 
-// checkEnvironment examines the system to detect deployment indicators
-func checkEnvironment() detectionIndicators {
+	hostname := cfg.Database.Hostname
+	switch hostname {
+	case "localhost", "127.0.0.1", "flightctl-db":
+		return true
+	default:
+		// Support flightctl-db in Kubernetes:
+		// - flightctl-db.<namespace> (single namespace segment)
+		// - flightctl-db.<namespace>.svc.cluster.local (full cluster DNS)
+		// Reject anything else like flightctl-db.evil.com
+		if strings.HasPrefix(hostname, "flightctl-db.") {
+			suffix := strings.TrimPrefix(hostname, "flightctl-db.")
+			// Check if it's full cluster DNS (ends with .svc.cluster.local)
+			if strings.HasSuffix(suffix, ".svc.cluster.local") {
+				return true
+			}
+			// Check if it's a simple namespace (no additional dots)
+			if !strings.Contains(suffix, ".") {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// checkEnvironment examines the system to detect deployment indicators.
+// basePath is the root directory for Podman deployment detection (e.g., /etc/flightctl).
+func checkEnvironment(basePath string) detectionIndicators {
 	return detectionIndicators{
-		podmanPKIExists:       pathExists(flightctlBasePath + "/pki/ca.crt"),
-		podmanConfigDirExists: pathExists(flightctlBasePath),
+		podmanPKIExists:       pathExists(basePath + "/pki/ca.crt"),
+		podmanConfigDirExists: pathExists(basePath),
 		kubernetesEnvSet:      os.Getenv("KUBERNETES_SERVICE_HOST") != "",
 	}
 }
@@ -85,4 +126,12 @@ func checkEnvironment() detectionIndicators {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// shellEscape escapes a string for safe use in a shell command by wrapping it in single quotes
+// and escaping any single quotes within the string.
+func shellEscape(s string) string {
+	// Replace ' with '\'' (end quote, escaped quote, start quote)
+	escaped := strings.ReplaceAll(s, "'", "'\\''")
+	return "'" + escaped + "'"
 }
