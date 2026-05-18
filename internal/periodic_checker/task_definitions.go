@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
@@ -253,7 +254,7 @@ type DependencySyncGitExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	cfg            *config.Config
-	metrics        *tasks.DependencySyncCollector
+	metrics        *periodicmetrics.DependencySyncCollector
 }
 
 func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -266,7 +267,7 @@ type DependencySyncHttpExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	cfg            *config.Config
-	metrics        *tasks.DependencySyncCollector
+	metrics        *periodicmetrics.DependencySyncCollector
 }
 
 func (e *DependencySyncHttpExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -275,7 +276,7 @@ func (e *DependencySyncHttpExecutor) Execute(ctx context.Context, log logrus.Fie
 	depSync.Poll(taskCtx, orgId)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, depSyncMetrics *tasks.DependencySyncCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, depSyncMetrics *periodicmetrics.DependencySyncCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
