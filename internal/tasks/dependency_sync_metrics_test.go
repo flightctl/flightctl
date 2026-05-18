@@ -9,22 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func collectMetrics(c prometheus.Collector) []*dto.MetricFamily {
-	ch := make(chan prometheus.Metric, 100)
-	go func() {
-		c.Collect(ch)
-		close(ch)
-	}()
-
-	var families []*dto.MetricFamily
-	for m := range ch {
-		d := m.Desc()
-		pb := &dto.Metric{}
-		_ = m.Write(pb)
-		_ = d
-		families = append(families, &dto.MetricFamily{Metric: []*dto.Metric{pb}})
+func gatherMetricNames(t *testing.T, c prometheus.Collector) []string {
+	t.Helper()
+	reg := prometheus.NewPedanticRegistry()
+	require.NoError(t, reg.Register(c))
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	var names []string
+	for _, mf := range families {
+		names = append(names, mf.GetName())
 	}
-	return families
+	return names
 }
 
 func collectDescs(c prometheus.Collector) []*prometheus.Desc {
@@ -51,8 +46,17 @@ func TestDependencySyncCollector_Describe(t *testing.T) {
 func TestDependencySyncCollector_Collect(t *testing.T) {
 	t.Run("When Collect is called it should output all registered metrics", func(t *testing.T) {
 		c := NewDependencySyncCollector()
-		metrics := collectMetrics(c)
-		require.NotEmpty(t, metrics)
+		c.ObserveProbeCycle(RefTypeGit)
+		c.ObserveProbeChange(RefTypeGit)
+		c.ObserveProbeError(RefTypeGit)
+		c.ObserveProbeLatency(RefTypeGit, time.Millisecond)
+		names := gatherMetricNames(t, c)
+		require.Contains(t, names, "flightctl_dependency_sync_cycles_total")
+		require.Contains(t, names, "flightctl_dependency_sync_changes_total")
+		require.Contains(t, names, "flightctl_dependency_sync_probe_errors_total")
+		require.Contains(t, names, "flightctl_dependency_sync_probe_latency_seconds")
+		require.Contains(t, names, "flightctl_dependency_sync_informer_connected")
+		require.Contains(t, names, "flightctl_dependency_sync_secrets_watched")
 	})
 }
 
