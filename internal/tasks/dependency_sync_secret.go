@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -29,11 +30,11 @@ type DependencySyncSecret struct {
 	log               logrus.FieldLogger
 	serviceHandler    service.Service
 	releaseNamespace  string
-	metrics           *DependencySyncCollector
+	metrics           *periodic.DependencySyncCollector
 	informerConnected atomic.Bool
 }
 
-func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string, metrics *DependencySyncCollector) *DependencySyncSecret {
+func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string, metrics *periodic.DependencySyncCollector) *DependencySyncSecret {
 	return &DependencySyncSecret{
 		log:              log,
 		serviceHandler:   serviceHandler,
@@ -128,7 +129,7 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 // events for changed targets, and updates sync_state.
 func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, newFingerprint string) {
 	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle(RefTypeSecret)
+		d.metrics.ObserveProbeCycle(periodic.RefTypeSecret)
 	}
 
 	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
@@ -141,7 +142,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	}
 
 	if d.metrics != nil {
-		d.metrics.ObserveProbeChange(RefTypeSecret)
+		d.metrics.ObserveProbeChange(periodic.RefTypeSecret)
 	}
 
 	resourceKey := fmt.Sprintf("secret:%s/%s", namespace, name)
