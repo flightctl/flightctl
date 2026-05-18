@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -561,9 +562,9 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, imageBuild *domain.ImageBuild) ([]error, error) {
 	var errs []error
 
-	if lo.FromPtr(imageBuild.Metadata.Name) == "" {
-		errs = append(errs, errors.New("metadata.name is required"))
-	}
+	errs = append(errs, validation.ValidateResourceName(imageBuild.Metadata.Name)...)
+	errs = append(errs, validation.ValidateLabels(imageBuild.Metadata.Labels)...)
+	errs = append(errs, validation.ValidateAnnotations(imageBuild.Metadata.Annotations)...)
 
 	if imageBuild.Spec.Source.Repository == "" {
 		errs = append(errs, errors.New("spec.source.repository is required"))

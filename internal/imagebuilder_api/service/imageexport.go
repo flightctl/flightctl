@@ -25,6 +25,7 @@ import (
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -1006,9 +1007,9 @@ func parseWwwAuthenticate(header string) (realm, service string, err error) {
 func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) ([]error, error) {
 	var errs []error
 
-	if lo.FromPtr(imageExport.Metadata.Name) == "" {
-		errs = append(errs, errors.New("metadata.name is required"))
-	}
+	errs = append(errs, validation.ValidateResourceName(imageExport.Metadata.Name)...)
+	errs = append(errs, validation.ValidateLabels(imageExport.Metadata.Labels)...)
+	errs = append(errs, validation.ValidateAnnotations(imageExport.Metadata.Annotations)...)
 
 	// Validate source - uses discriminator pattern
 	sourceType, err := imageExport.Spec.Source.Discriminator()
