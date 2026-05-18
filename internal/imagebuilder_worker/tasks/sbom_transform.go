@@ -186,6 +186,8 @@ func parseImageRef(imageRef string) (name, tag string) {
 
 // buildOCIPurl constructs an OCI PURL from image name and digest.
 // Format: pkg:oci/<name>@<digest>?repository_url=<registry>
+// Per PURL spec, namespace segments can contain "/" without encoding.
+// Only the qualifier values need URL encoding.
 func buildOCIPurl(imageName, digest string) string {
 	parts := strings.SplitN(imageName, "/", 2)
 	registry := ""
@@ -194,9 +196,6 @@ func buildOCIPurl(imageName, digest string) string {
 		registry = parts[0]
 		name = parts[1]
 	}
-
-	name = strings.ReplaceAll(name, "/", "%2F")
-	digest = url.QueryEscape(digest)
 
 	purl := "pkg:oci/" + name + "@" + digest
 	if registry != "" {

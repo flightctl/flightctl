@@ -18,6 +18,7 @@ type ApproveOptions struct {
 	GlobalOptions
 
 	ApproveLabels []string
+	ReplaceLabels bool
 }
 
 func DefaultApproveOptions() *ApproveOptions {
@@ -58,7 +59,8 @@ func NewCmdApprove() *cobra.Command {
 func (o *ApproveOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
-	fs.StringArrayVarP(&o.ApproveLabels, "label", "l", []string{}, "Labels to add to the device, as a comma-separated list of key=value.")
+	fs.StringArrayVarP(&o.ApproveLabels, "label", "l", []string{}, "Labels to set on the device, as a comma-separated list of key=value.")
+	fs.BoolVar(&o.ReplaceLabels, "replace-labels", false, "Use labels as the complete final set, don't merge with agent-provided labels.")
 }
 
 func (o *ApproveOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -91,6 +93,10 @@ func (o *ApproveOptions) Validate(args []string) error {
 		return fmt.Errorf("labels only apply to %s approval", EnrollmentRequestKind)
 	}
 
+	if o.ReplaceLabels && kind != EnrollmentRequestKind {
+		return fmt.Errorf("--replace-labels only applies to %s approval", EnrollmentRequestKind)
+	}
+
 	return nil
 }
 
@@ -114,8 +120,9 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	case kind == EnrollmentRequestKind:
 		labels := util.LabelArrayToMap(o.ApproveLabels)
 		approval := api.EnrollmentRequestApproval{
-			Approved: true,
-			Labels:   &labels,
+			Approved:      true,
+			Labels:        &labels,
+			ReplaceLabels: &o.ReplaceLabels,
 		}
 		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
 	case kind == CertificateSigningRequestKind:
