@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -119,7 +120,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Debug("Vulnerability syncing is disabled")
 	}
 
-	depSyncMetrics := tasks.NewDependencySyncCollector()
+	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
 	// Initialize the task executors
 	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
@@ -188,6 +189,7 @@ func (s *Server) Run(ctx context.Context) error {
 			defer wg.Done()
 			if err := tracing.RunMetricsServer(ctx, s.log, s.cfg.Metrics.Address, depSyncMetrics); err != nil {
 				s.log.WithError(err).Error("Metrics server failed")
+				cancel()
 			}
 		}()
 	}
