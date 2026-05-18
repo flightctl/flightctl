@@ -148,19 +148,6 @@ func findTopLevelDir() string { //nolint:unused
 	return ""
 }
 
-// ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
-func (h *Harness) ReadPrimaryVMAgentLogs(since string, unit string) (string, error) {
-	if h.VM == nil {
-		return "", fmt.Errorf("VM is not initialized")
-	}
-	logs, err := h.VM.JournalLogs(vm.JournalOpts{
-		Since: since,
-		Unit:  unit,
-	})
-
-	return logs, err
-}
-
 // ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
 // specified
 func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
@@ -435,12 +422,6 @@ func isK8sEnvironment() bool {
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 	return h.VM.GetServiceLogs(serviceName)
-}
-
-// GetServiceLogs returns the logs from the specified service using journalctl.
-// This is useful for debugging service output and capturing logs from the latest service invocation.
-func (h *Harness) GetFlightctlAgentLogs() (string, error) {
-	return h.VM.GetServiceLogs("flightctl-agent")
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
