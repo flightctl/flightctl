@@ -189,6 +189,29 @@ generate_san_config() {
     echo "$san_config"
 }
 
+# Helper function to check if a certificate has all expected SANs
+# Arguments: cert_path san1 san2 san3 ...
+# Returns 0 if all SANs match, 1 otherwise
+cert_has_expected_sans() {
+    local cert_path="$1"
+    shift
+    local expected_sans=("$@")
+
+    if [[ ! -f "$cert_path" ]]; then
+        return 1
+    fi
+
+    for san in "${expected_sans[@]}"; do
+        if ! openssl x509 -in "$cert_path" -noout -checkhost "$san" >/dev/null 2>&1 && \
+           ! openssl x509 -in "$cert_path" -noout -checkip "$san" >/dev/null 2>&1; then
+            echo "  Certificate $cert_path missing expected SAN: $san - will regenerate"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
 # Helper function to generate self-signed root CA certificate
 generate_root_ca() {
     local cn="$1"
@@ -366,8 +389,8 @@ mkdir -p "$CERT_DIR/flightctl-api"
 API_SERVER_KEY="$CERT_DIR/flightctl-api/server.key"
 API_SERVER_CERT="$CERT_DIR/flightctl-api/server.crt"
 
-if [[ -f "$API_SERVER_CERT" ]] && [[ -f "$API_SERVER_KEY" ]]; then
-    echo "[4/14] Skipped generation of API Server TLS certificate (already exists)"
+if [[ -f "$API_SERVER_CERT" ]] && [[ -f "$API_SERVER_KEY" ]] && cert_has_expected_sans "$API_SERVER_CERT" "${API_SANS[@]}"; then
+    echo "[4/14] Skipped generation of API Server TLS certificate (already exists with correct SANs)"
 else
     generate_server_cert "flightctl-api" \
         "$API_SERVER_KEY" "$API_SERVER_CERT" \
@@ -383,8 +406,8 @@ if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
     PAM_ISSUER_SERVER_KEY="$CERT_DIR/flightctl-pam-issuer/server.key"
     PAM_ISSUER_SERVER_CERT="$CERT_DIR/flightctl-pam-issuer/server.crt"
 
-    if [[ -f "$PAM_ISSUER_SERVER_CERT" ]] && [[ -f "$PAM_ISSUER_SERVER_KEY" ]]; then
-        echo "[5/14] Skipped generation of PAM Issuer Server TLS certificate (already exists)"
+    if [[ -f "$PAM_ISSUER_SERVER_CERT" ]] && [[ -f "$PAM_ISSUER_SERVER_KEY" ]] && cert_has_expected_sans "$PAM_ISSUER_SERVER_CERT" "${PAM_ISSUER_SANS[@]}"; then
+        echo "[5/14] Skipped generation of PAM Issuer Server TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-pam-issuer" \
             "$PAM_ISSUER_SERVER_KEY" "$PAM_ISSUER_SERVER_CERT" \
@@ -403,8 +426,8 @@ if [[ ${#TELEMETRY_SANS[@]} -gt 0 ]]; then
     TELEMETRY_KEY="$CERT_DIR/flightctl-telemetry-gateway/server.key"
     TELEMETRY_CERT="$CERT_DIR/flightctl-telemetry-gateway/server.crt"
 
-    if [[ -f "$TELEMETRY_CERT" ]] && [[ -f "$TELEMETRY_KEY" ]]; then
-        echo "[6/14] Skipped generation of Telemetry Gateway TLS certificate (already exists)"
+    if [[ -f "$TELEMETRY_CERT" ]] && [[ -f "$TELEMETRY_KEY" ]] && cert_has_expected_sans "$TELEMETRY_CERT" "${TELEMETRY_SANS[@]}"; then
+        echo "[6/14] Skipped generation of Telemetry Gateway TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-telemetry-gateway" \
             "$TELEMETRY_KEY" "$TELEMETRY_CERT" \
@@ -423,8 +446,8 @@ if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
     ALERTMANAGER_PROXY_KEY="$CERT_DIR/flightctl-alertmanager-proxy/server.key"
     ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
 
-    if [[ -f "$ALERTMANAGER_PROXY_CERT" ]] && [[ -f "$ALERTMANAGER_PROXY_KEY" ]]; then
-        echo "[7/14] Skipped generation of Alertmanager Proxy TLS certificate (already exists)"
+    if [[ -f "$ALERTMANAGER_PROXY_CERT" ]] && [[ -f "$ALERTMANAGER_PROXY_KEY" ]] && cert_has_expected_sans "$ALERTMANAGER_PROXY_CERT" "${ALERTMANAGER_PROXY_SANS[@]}"; then
+        echo "[7/14] Skipped generation of Alertmanager Proxy TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-alertmanager-proxy" \
             "$ALERTMANAGER_PROXY_KEY" "$ALERTMANAGER_PROXY_CERT" \
@@ -443,8 +466,8 @@ if [[ ${#UI_SANS[@]} -gt 0 ]]; then
     UI_KEY="$CERT_DIR/flightctl-ui/server.key"
     UI_CERT="$CERT_DIR/flightctl-ui/server.crt"
 
-    if [[ -f "$UI_CERT" ]] && [[ -f "$UI_KEY" ]]; then
-        echo "[8/14] Skipped generation of UI TLS certificate (already exists)"
+    if [[ -f "$UI_CERT" ]] && [[ -f "$UI_KEY" ]] && cert_has_expected_sans "$UI_CERT" "${UI_SANS[@]}"; then
+        echo "[8/14] Skipped generation of UI TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-ui" \
             "$UI_KEY" "$UI_CERT" \
@@ -463,8 +486,8 @@ if [[ ${#CLI_ARTIFACTS_SANS[@]} -gt 0 ]]; then
     CLI_ARTIFACTS_KEY="$CERT_DIR/flightctl-cli-artifacts/server.key"
     CLI_ARTIFACTS_CERT="$CERT_DIR/flightctl-cli-artifacts/server.crt"
 
-    if [[ -f "$CLI_ARTIFACTS_CERT" ]] && [[ -f "$CLI_ARTIFACTS_KEY" ]]; then
-        echo "[9/14] Skipped generation of CLI Artifacts TLS certificate (already exists)"
+    if [[ -f "$CLI_ARTIFACTS_CERT" ]] && [[ -f "$CLI_ARTIFACTS_KEY" ]] && cert_has_expected_sans "$CLI_ARTIFACTS_CERT" "${CLI_ARTIFACTS_SANS[@]}"; then
+        echo "[9/14] Skipped generation of CLI Artifacts TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-cli-artifacts" \
             "$CLI_ARTIFACTS_KEY" "$CLI_ARTIFACTS_CERT" \
@@ -483,8 +506,8 @@ if [[ ${#IMAGEBUILDER_API_SANS[@]} -gt 0 ]]; then
     IMAGEBUILDER_API_KEY="$CERT_DIR/flightctl-imagebuilder-api/server.key"
     IMAGEBUILDER_API_CERT="$CERT_DIR/flightctl-imagebuilder-api/server.crt"
 
-    if [[ -f "$IMAGEBUILDER_API_CERT" ]] && [[ -f "$IMAGEBUILDER_API_KEY" ]]; then
-        echo "[10/14] Skipped generation of ImageBuilder API TLS certificate (already exists)"
+    if [[ -f "$IMAGEBUILDER_API_CERT" ]] && [[ -f "$IMAGEBUILDER_API_KEY" ]] && cert_has_expected_sans "$IMAGEBUILDER_API_CERT" "${IMAGEBUILDER_API_SANS[@]}"; then
+        echo "[10/14] Skipped generation of ImageBuilder API TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-imagebuilder-api" \
             "$IMAGEBUILDER_API_KEY" "$IMAGEBUILDER_API_CERT" \
@@ -503,8 +526,8 @@ if [[ ${#PROMETHEUS_SANS[@]} -gt 0 ]]; then
     PROMETHEUS_KEY="$CERT_DIR/flightctl-prometheus/server.key"
     PROMETHEUS_CERT="$CERT_DIR/flightctl-prometheus/server.crt"
 
-    if [[ -f "$PROMETHEUS_CERT" ]] && [[ -f "$PROMETHEUS_KEY" ]]; then
-        echo "[11/14] Skipped generation of Prometheus TLS certificate (already exists)"
+    if [[ -f "$PROMETHEUS_CERT" ]] && [[ -f "$PROMETHEUS_KEY" ]] && cert_has_expected_sans "$PROMETHEUS_CERT" "${PROMETHEUS_SANS[@]}"; then
+        echo "[11/14] Skipped generation of Prometheus TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-prometheus" \
             "$PROMETHEUS_KEY" "$PROMETHEUS_CERT" \
@@ -523,8 +546,8 @@ if [[ ${#GRAFANA_SANS[@]} -gt 0 ]]; then
     GRAFANA_KEY="$CERT_DIR/flightctl-grafana/server.key"
     GRAFANA_CERT="$CERT_DIR/flightctl-grafana/server.crt"
 
-    if [[ -f "$GRAFANA_CERT" ]] && [[ -f "$GRAFANA_KEY" ]]; then
-        echo "[12/14] Skipped generation of Grafana TLS certificate (already exists)"
+    if [[ -f "$GRAFANA_CERT" ]] && [[ -f "$GRAFANA_KEY" ]] && cert_has_expected_sans "$GRAFANA_CERT" "${GRAFANA_SANS[@]}"; then
+        echo "[12/14] Skipped generation of Grafana TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-grafana" \
             "$GRAFANA_KEY" "$GRAFANA_CERT" \
@@ -543,8 +566,8 @@ if [[ ${#USERINFO_PROXY_SANS[@]} -gt 0 ]]; then
     USERINFO_PROXY_KEY="$CERT_DIR/flightctl-userinfo-proxy/server.key"
     USERINFO_PROXY_CERT="$CERT_DIR/flightctl-userinfo-proxy/server.crt"
 
-    if [[ -f "$USERINFO_PROXY_CERT" ]] && [[ -f "$USERINFO_PROXY_KEY" ]]; then
-        echo "[13/14] Skipped generation of UserInfo Proxy TLS certificate (already exists)"
+    if [[ -f "$USERINFO_PROXY_CERT" ]] && [[ -f "$USERINFO_PROXY_KEY" ]] && cert_has_expected_sans "$USERINFO_PROXY_CERT" "${USERINFO_PROXY_SANS[@]}"; then
+        echo "[13/14] Skipped generation of UserInfo Proxy TLS certificate (already exists with correct SANs)"
     else
         generate_server_cert "flightctl-userinfo-proxy" \
             "$USERINFO_PROXY_KEY" "$USERINFO_PROXY_CERT" \

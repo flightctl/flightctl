@@ -644,5 +644,7 @@ SBOM
 SBOMs
 Trustify
 v2
+canonical
+unencoded
 - docs/user/using/viewing-vulnerabilities.md
 NVD

@@ -1527,8 +1527,11 @@ type EnrollmentRequestApproval struct {
 	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
-	// Labels A set of labels to apply to the device.
+	// Labels Labels to set on the device. If replaceLabels is false (default), labels are merged with agent-provided labels from the enrollment request. If replaceLabels is true, labels are used as the complete final set ignoring agent-provided labels.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// ReplaceLabels Controls whether labels are merged or replaced during approval. If false (default), labels are merged with agent-provided labels from the enrollment request. If true, labels are used as the complete final set and agent-provided labels are ignored.
+	ReplaceLabels *bool `json:"replaceLabels,omitempty"`
 }
 
 // EnrollmentRequestApprovalStatus defines model for EnrollmentRequestApprovalStatus.
@@ -1542,8 +1545,11 @@ type EnrollmentRequestApprovalStatus struct {
 	// ApprovedBy The name of the approver.
 	ApprovedBy string `json:"approvedBy"`
 
-	// Labels A set of labels to apply to the device.
+	// Labels Labels to set on the device. If replaceLabels is false (default), labels are merged with agent-provided labels from the enrollment request. If replaceLabels is true, labels are used as the complete final set ignoring agent-provided labels.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// ReplaceLabels Controls whether labels are merged or replaced during approval. If false (default), labels are merged with agent-provided labels from the enrollment request. If true, labels are used as the complete final set and agent-provided labels are ignored.
+	ReplaceLabels *bool `json:"replaceLabels,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.

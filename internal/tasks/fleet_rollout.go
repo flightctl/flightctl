@@ -735,7 +735,9 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 		case domain.InlineConfigProviderType:
 			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
 		case domain.HttpConfigProviderType:
-			newConfigItem, errs = f.replaceHTTPConfigParameters(device, configItem)
+			var refs []model.DependencyRef
+			newConfigItem, refs, errs = f.replaceHTTPConfigParameters(device, configItem)
+			depRefs = append(depRefs, refs...)
 		default:
 			errs = append(errs, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
 		}
@@ -905,13 +907,17 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device,
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {
 	httpSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert config to http config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed to convert config to http config: %w", err)}
 	}
 
 	errs := []error{}
+	var originalSuffix string
+	if httpSpec.HttpRef.Suffix != nil {
+		originalSuffix = *httpSpec.HttpRef.Suffix
+	}
 
 	if httpSpec.HttpRef.Suffix != nil {
 		suffix, err := ReplaceParametersInString(*httpSpec.HttpRef.Suffix, device)
@@ -927,16 +933,34 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, c
 	}
 
 	if len(errs) > 0 {
-		return nil, errs
+		return nil, nil, errs
+	}
+
+	var refs []model.DependencyRef
+	if isParameterized(originalSuffix) {
+		deviceName := lo.FromPtr(device.Metadata.Name)
+		ownerFleetName, _, _ := getOwnerFleet(device)
+		resolvedSuffix := ""
+		if httpSpec.HttpRef.Suffix != nil {
+			resolvedSuffix = *httpSpec.HttpRef.Suffix
+		}
+		refs = append(refs, model.DependencyRef{
+			FleetName:      &ownerFleetName,
+			DeviceName:     &deviceName,
+			RefType:        "http",
+			ResourceKey:    httpResourceKey(httpSpec.HttpRef.Repository, resolvedSuffix),
+			RepositoryName: &httpSpec.HttpRef.Repository,
+			HTTPSuffix:     httpSpec.HttpRef.Suffix,
+		})
 	}
 
 	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromHttpConfigProviderSpec(httpSpec)
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting http config: %w", err)}
+		return nil, nil, []error{fmt.Errorf("failed converting http config: %w", err)}
 	}
 
-	return &newConfigItem, nil
+	return &newConfigItem, refs, nil
 }
 
 func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *domain.Device, newDeviceSpec *domain.DeviceSpec, delayDeviceRender bool) error {

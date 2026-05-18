@@ -154,13 +154,16 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if httpSpec.HttpRef.Suffix != nil {
 				suffix = *httpSpec.HttpRef.Suffix
 			}
+			if isParameterized(suffix) {
+				continue
+			}
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
 				FleetName:      &fn,
 				DeviceName:     &dn,
 				RefType:        "http",
-				ResourceKey:    fmt.Sprintf("http:%s/%s", httpSpec.HttpRef.Repository, suffix),
+				ResourceKey:    httpResourceKey(httpSpec.HttpRef.Repository, suffix),
 				RepositoryName: &httpSpec.HttpRef.Repository,
 				HTTPSuffix:     httpSpec.HttpRef.Suffix,
 			})

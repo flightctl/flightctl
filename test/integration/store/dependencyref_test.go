@@ -2,7 +2,10 @@ package store_test
 
 import (
 	"context"
+	"strings"
+	"time"
 
+	domain "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -58,7 +61,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			httpRef := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:my-http-repo//config.json",
+				ResourceKey:    "http:my-http-repo/config.json",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -129,7 +132,7 @@ var _ = Describe("DependencyRefStore", func() {
 			}
 			ref2 := &model.DependencyRef{
 				OrgID:          orgId,
-				ResourceKey:    "http:repo-b//data",
+				ResourceKey:    "http:repo-b/data",
 				FleetName:      lo.ToPtr("fleet-1"),
 				DeviceName:     lo.ToPtr(""),
 				RefType:        "http",
@@ -310,6 +313,221 @@ var _ = Describe("DependencyRefStore", func() {
 			refs, err := storeInst.DependencyRef().ListSecretDependencyTargets(ctx, "prod", "nonexistent", "sha256:any")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(refs).To(BeEmpty())
+		})
+	})
+
+	Context("When listing due HTTP dependencies", func() {
+		var httpRepoName string
+
+		createHttpRepo := func(name, url string) {
+			spec := domain.RepositorySpec{}
+			Expect(spec.FromHttpRepoSpec(domain.HttpRepoSpec{
+				Url:  url,
+				Type: domain.HttpRepoSpecTypeHttp,
+			})).To(Succeed())
+			repo := &domain.Repository{
+				ApiVersion: "v1beta1",
+				Kind:       domain.RepositoryKind,
+				Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec:       spec,
+			}
+			_, err := storeInst.Repository().Create(ctx, orgId, repo, nil)
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		BeforeEach(func() {
+			httpRepoName = "http-repo-1"
+			createHttpRepo(httpRepoName, "https://example.com/config")
+		})
+
+		It("should return probes for HTTP refs that have never been checked", func() {
+			ref := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].RepositoryName).To(Equal(httpRepoName))
+			Expect(probes[0].HTTPSuffix).To(Equal("/config.json"))
+			Expect(probes[0].Fingerprint).To(BeNil())
+			Expect(probes[0].FleetNames).To(ContainElement("fleet-a"))
+			Expect(probes[0].DeviceNames).To(BeNil())
+			Expect(probes[0].RepoSpec).ToNot(BeNil())
+		})
+
+		It("should not return probes that were recently checked", func() {
+			ref := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			syncState := &model.SyncState{
+				OrgID:         orgId,
+				ResourceKey:   "http:http-repo-1/config.json",
+				Fingerprint:   `"etag-abc"`,
+				LastCheckedAt: time.Now(),
+			}
+			Expect(storeInst.SyncState().Set(ctx, orgId, syncState)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(BeEmpty())
+		})
+
+		It("should return probes whose last check exceeds the poll interval", func() {
+			ref := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			syncState := &model.SyncState{
+				OrgID:         orgId,
+				ResourceKey:   "http:http-repo-1/config.json",
+				Fingerprint:   `"etag-abc"`,
+				LastCheckedAt: time.Now().Add(-20 * time.Minute),
+			}
+			Expect(storeInst.SyncState().Set(ctx, orgId, syncState)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].Fingerprint).ToNot(BeNil())
+			Expect(*probes[0].Fingerprint).To(Equal(`"etag-abc"`))
+		})
+
+		It("should aggregate multiple fleets and devices referencing the same repo+suffix", func() {
+			for _, fleet := range []string{"fleet-a", "fleet-b"} {
+				ref := &model.DependencyRef{
+					OrgID:          orgId,
+					ResourceKey:    "http:http-repo-1/config.json",
+					FleetName:      lo.ToPtr(fleet),
+					DeviceName:     lo.ToPtr(""),
+					RefType:        "http",
+					RepositoryName: lo.ToPtr(httpRepoName),
+					HTTPSuffix:     lo.ToPtr("/config.json"),
+				}
+				Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+			}
+			deviceRef := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr("device-x"),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, deviceRef)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].FleetNames).To(ContainElements("fleet-a", "fleet-b"))
+			Expect(probes[0].DeviceNames).To(ContainElement("device-x"))
+		})
+
+		It("should return separate probes for different suffixes on the same repo", func() {
+			for _, suffix := range []string{"/config.json", "/data.yaml"} {
+				ref := &model.DependencyRef{
+					OrgID:          orgId,
+					ResourceKey:    "http:http-repo-1/" + strings.TrimPrefix(suffix, "/"),
+					FleetName:      lo.ToPtr("fleet-a"),
+					DeviceName:     lo.ToPtr(""),
+					RefType:        "http",
+					RepositoryName: lo.ToPtr(httpRepoName),
+					HTTPSuffix:     lo.ToPtr(suffix),
+				}
+				Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+			}
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(2))
+		})
+
+		It("should carry the repository spec for URL and auth extraction", func() {
+			ref := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(HaveLen(1))
+			Expect(probes[0].RepoSpec).ToNot(BeNil())
+
+			httpSpec, err := probes[0].RepoSpec.Data.AsHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://example.com/config"))
+		})
+
+		It("should not return git refs", func() {
+			gitRef := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "git:http-repo-1/main",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "git",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				Revision:       lo.ToPtr("main"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, gitRef)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(BeEmpty())
+		})
+
+		It("should enforce org isolation", func() {
+			ref := &model.DependencyRef{
+				OrgID:          orgId,
+				ResourceKey:    "http:http-repo-1/config.json",
+				FleetName:      lo.ToPtr("fleet-a"),
+				DeviceName:     lo.ToPtr(""),
+				RefType:        "http",
+				RepositoryName: lo.ToPtr(httpRepoName),
+				HTTPSuffix:     lo.ToPtr("/config.json"),
+			}
+			Expect(storeInst.DependencyRef().Upsert(ctx, orgId, ref)).To(Succeed())
+
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, storeInst, otherOrg)).To(Succeed())
+
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, otherOrg, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(BeEmpty())
+		})
+
+		It("should return empty when no HTTP refs exist", func() {
+			probes, err := storeInst.DependencyRef().ListDueHttpDependencies(ctx, orgId, 15*time.Minute)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(probes).To(BeEmpty())
 		})
 	})
 })

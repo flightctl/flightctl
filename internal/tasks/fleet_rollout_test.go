@@ -1479,6 +1479,122 @@ func TestDeviceSecretDependencyRefLifecycle(t *testing.T) {
 	})
 }
 
+func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
+	fleetName := "fleet-a"
+	owner := util.SetResourceOwner(domain.FleetKind, fleetName)
+
+	t.Run("When HTTP suffix is not parameterized it should produce no device-level refs", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:  lo.ToPtr("device-1"),
+				Owner: owner,
+			},
+		}
+		suffix := "/config.json"
+		configItem := makeHttpConfigItem(t, "http-cfg", "http-repo", &suffix)
+		_, refs, errs := logic.replaceHTTPConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		assert.Empty(t, refs, "non-parameterized suffix should not produce device-level refs")
+	})
+
+	t.Run("When HTTP suffix is parameterized it should create device-level ref with resolved value", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"env": "prod"},
+			},
+		}
+		suffix := "/{{ .metadata.labels.env }}/config.json"
+		configItem := makeHttpConfigItem(t, "http-cfg", "http-repo", &suffix)
+		_, refs, errs := logic.replaceHTTPConfigParameters(device, configItem)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, fleetName, *refs[0].FleetName)
+		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		assert.Equal(t, "http", refs[0].RefType)
+		assert.Equal(t, "http:http-repo/prod/config.json", refs[0].ResourceKey)
+		assert.Equal(t, "/prod/config.json", *refs[0].HTTPSuffix)
+	})
+
+	t.Run("When device labels change and HTTP suffix uses label template it should produce different ref", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		suffix := "/{{ .metadata.labels.env }}/config.json"
+		configItem := makeHttpConfigItem(t, "http-cfg", "http-repo", &suffix)
+
+		deviceBefore := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"env": "staging"},
+			},
+		}
+		_, refsBefore, errsBefore := logic.replaceHTTPConfigParameters(deviceBefore, configItem)
+		require.Empty(t, errsBefore)
+		require.Len(t, refsBefore, 1)
+		assert.Equal(t, "http:http-repo/staging/config.json", refsBefore[0].ResourceKey)
+
+		deviceAfter := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"env": "prod"},
+			},
+		}
+		_, refsAfter, errsAfter := logic.replaceHTTPConfigParameters(deviceAfter, configItem)
+		require.Empty(t, errsAfter)
+		require.Len(t, refsAfter, 1)
+		assert.Equal(t, "http:http-repo/prod/config.json", refsAfter[0].ResourceKey)
+		assert.NotEqual(t, refsBefore[0].ResourceKey, refsAfter[0].ResourceKey)
+	})
+
+	t.Run("When getDeviceConfig has parameterized HTTP suffix it should include HTTP refs in output", func(t *testing.T) {
+		logic := FleetRolloutsLogic{
+			log: logrus.New(),
+			event: domain.Event{
+				InvolvedObject: domain.ObjectReference{Name: fleetName},
+			},
+		}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:   lo.ToPtr("device-1"),
+				Owner:  owner,
+				Labels: &map[string]string{"env": "prod"},
+			},
+		}
+		suffix := "/{{ .metadata.labels.env }}/config.json"
+		tv := &domain.TemplateVersion{
+			Status: &domain.TemplateVersionStatus{
+				Config: &[]domain.ConfigProviderSpec{
+					makeHttpConfigItem(t, "http-cfg", "http-repo", &suffix),
+				},
+			},
+		}
+		_, refs, errs := logic.getDeviceConfig(device, tv)
+		require.Empty(t, errs)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "http", refs[0].RefType)
+		assert.Equal(t, "http:http-repo/prod/config.json", refs[0].ResourceKey)
+	})
+}
+
 func TestFleetRolloutIterationContext(t *testing.T) {
 	t.Run("child not expired when parent deadline passed", func(t *testing.T) {
 		parent, cancel := context.WithTimeout(context.Background(), 0)

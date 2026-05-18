@@ -91,8 +91,11 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		Approval:    approval,
 	}
 
-	// union user-provided labels with agent-provided labels
-	if enrollmentRequest.Spec.Labels != nil {
+	// Merge user-provided labels with agent-provided labels (only if not replacing)
+	// If replaceLabels is true, use approval.Labels as-is (the complete final set)
+	// If replaceLabels is false/nil (default), merge with agent-provided labels
+	replaceLabels := approval.ReplaceLabels != nil && *approval.ReplaceLabels
+	if !replaceLabels && enrollmentRequest.Spec.Labels != nil {
 		for k, v := range *enrollmentRequest.Spec.Labels {
 			// don't override user-provided labels
 			if _, ok := (*enrollmentRequest.Status.Approval.Labels)[k]; !ok {
@@ -459,10 +462,11 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 		}
 
 		approvalStatus := domain.EnrollmentRequestApprovalStatus{
-			Approved:   approval.Approved,
-			Labels:     approval.Labels,
-			ApprovedAt: time.Now(),
-			ApprovedBy: approvedBy,
+			Approved:      approval.Approved,
+			Labels:        approval.Labels,
+			ReplaceLabels: approval.ReplaceLabels,
+			ApprovedAt:    time.Now(),
+			ApprovedBy:    approvedBy,
 		}
 		approvalStatusToReturn = &approvalStatus
 

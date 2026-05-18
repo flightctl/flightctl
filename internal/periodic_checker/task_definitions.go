@@ -41,6 +41,7 @@ const (
 	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
+	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
 )
 
 type PeriodicTaskMetadata struct {
@@ -58,6 +59,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -259,6 +261,18 @@ func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.Fiel
 	depSync.Poll(taskCtx, orgId)
 }
 
+type DependencySyncHttpExecutor struct {
+	log            logrus.FieldLogger
+	serviceHandler service.Service
+	cfg            *config.Config
+}
+
+func (e *DependencySyncHttpExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncHttp)
+	depSync := tasks.NewDependencySyncHttp(e.log, e.serviceHandler, e.cfg)
+	depSync.Poll(taskCtx, orgId)
+}
+
 func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -307,6 +321,12 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 
 	executors[PeriodicTaskTypeDependencySyncGit] = &DependencySyncGitExecutor{
 		log:            log.WithField("pkg", "dependency-sync-git"),
+		serviceHandler: serviceHandler,
+		cfg:            cfg,
+	}
+
+	executors[PeriodicTaskTypeDependencySyncHttp] = &DependencySyncHttpExecutor{
+		log:            log.WithField("pkg", "dependency-sync-http"),
 		serviceHandler: serviceHandler,
 		cfg:            cfg,
 	}

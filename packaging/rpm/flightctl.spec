@@ -635,6 +635,24 @@ if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
     if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+        SCRIPT="%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh"
+        # Versions before the EDM-3833 fix hardcode the wrong image name and overwrite
+        # the DB_SETUP_IMAGE env var. Detect this and patch just that line in a temp copy
+        # so the rest of the script (config reading, secrets, network) stays correct for
+        # the currently installed system state.
+        # Can be removed once all deployments have upgraded past the fix.
+        if grep -q 'DB_SETUP_IMAGE="quay.io/flightctl/flightctl-db-setup:' "$SCRIPT" 2>/dev/null; then
+            TMPSCRIPT=$(mktemp /tmp/flightctl-dry-run.XXXXXX.sh)
+            cp "$SCRIPT" "$TMPSCRIPT"
+            chmod +x "$TMPSCRIPT"
+%if 0%{?rhel} == 10
+            CORRECT_IMAGE="quay.io/flightctl/flightctl-db-setup-el10:${IMAGE_TAG}"
+%else
+            CORRECT_IMAGE="quay.io/flightctl/flightctl-db-setup-el9:${IMAGE_TAG}"
+%endif
+            sed -i "s|DB_SETUP_IMAGE=.*|DB_SETUP_IMAGE=\"${CORRECT_IMAGE}\"|" "$TMPSCRIPT"
+            SCRIPT="$TMPSCRIPT"
+        fi
         IMAGE_TAG="$IMAGE_TAG" \
         DB_SETUP_REGISTRY="quay.io" \
 %if 0%{?rhel} == 10
@@ -643,10 +661,12 @@ if [ "$1" -eq 2 ]; then
         DB_SETUP_IMAGE="flightctl/flightctl-db-setup-el9" \
 %endif
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
-        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+        bash "$SCRIPT" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+            [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
             echo "flightctl: dry-run failed; aborting upgrade." >&2
             exit 1
         }
+        [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
     else
         echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
     fi

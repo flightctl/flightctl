@@ -25,6 +25,7 @@ type DependencyRef interface {
 	ReplaceByStandaloneDevice(ctx context.Context, orgID uuid.UUID, deviceName string, refs []model.DependencyRef) error
 	BulkUpsertDeviceRefs(ctx context.Context, orgID uuid.UUID, refs []model.DependencyRef) error
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
+	ListDueHttpDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, error)
 	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, error)
 }
 
@@ -178,6 +179,31 @@ func (s *DependencyRefStore) ListDueGitDependencies(ctx context.Context, orgID u
 		Where("dr.revision NOT LIKE ?", "%{{%").
 		Where("ss.last_checked_at IS NULL OR ss.last_checked_at + ? * INTERVAL '1 second' < NOW()", pollInterval.Seconds()).
 		Group("dr.repository_name, dr.revision, ss.fingerprint, r.spec").
+		Scan(&probes).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return probes, nil
+}
+
+// ListDueHttpDependencies returns HTTP dependency probes that are due for
+// polling. Mirrors ListDueGitDependencies but filters by ref_type='http' and
+// groups by (repository_name, http_suffix).
+func (s *DependencyRefStore) ListDueHttpDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, error) {
+	var probes []model.HttpDependencyProbe
+	err := s.getDB(ctx).
+		Table("dependency_refs dr").
+		Select(
+			"dr.repository_name, dr.http_suffix, ss.fingerprint, r.spec AS repo_spec, "+
+				"array_agg(DISTINCT dr.fleet_name) FILTER (WHERE dr.fleet_name <> '' AND dr.device_name = '') AS fleet_names, "+
+				"array_agg(DISTINCT dr.device_name) FILTER (WHERE dr.device_name <> '') AS device_names",
+		).
+		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
+		Joins("LEFT JOIN repositories r ON r.org_id = dr.org_id AND r.name = dr.repository_name").
+		Where("dr.org_id = ?", orgID).
+		Where("dr.ref_type = 'http'").
+		Where("ss.last_checked_at IS NULL OR ss.last_checked_at + ? * INTERVAL '1 second' < NOW()", pollInterval.Seconds()).
+		Group("dr.repository_name, dr.http_suffix, ss.fingerprint, r.spec").
 		Scan(&probes).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)
