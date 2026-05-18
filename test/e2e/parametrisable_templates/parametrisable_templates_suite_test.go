@@ -66,6 +66,7 @@ var _ = AfterEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

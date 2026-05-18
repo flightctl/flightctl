@@ -40,6 +40,7 @@ var _ = Describe("CLI - device console", func() {
 	AfterEach(func() {
 		harness := e2e.GetWorkerHarness()
 		harness.PrintAgentLogsIfFailed()
+		harness.CaptureDeploymentLogsIfFailed()
 	})
 
 	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent", "client"), func() {
