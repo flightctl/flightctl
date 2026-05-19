@@ -399,7 +399,7 @@ func TestNewDependencySyncHttp(t *testing.T) {
 	defer ctrl.Finish()
 	mockService := service.NewMockService(ctrl)
 
-	d := NewDependencySyncHttp(logrus.New(), mockService, &config.Config{})
+	d := NewDependencySyncHttp(logrus.New(), mockService, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.conditionalHead)

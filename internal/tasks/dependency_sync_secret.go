@@ -180,5 +180,16 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 	}
 	if st := d.serviceHandler.SetSyncState(ctx, uuid.Nil, state); st.Code != http.StatusOK {
 		d.log.Errorf("failed setting sync state for %s: %s", resourceKey, st.Message)
+		return
+	}
+
+	connected := d.IsInformerConnected()
+	for _, ref := range refs {
+		if ref.FleetName != "" {
+			RefreshFleetDependencySyncStatus(ctx, d.serviceHandler, d.log, ref.OrgID, ref.FleetName, &connected)
+		}
+		if ref.DeviceName != "" {
+			RefreshDeviceDependencySyncStatus(ctx, d.serviceHandler, d.log, ref.OrgID, ref.DeviceName, &connected)
+		}
 	}
 }
