@@ -359,7 +359,10 @@ func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) 
 	if response.HTTPResponse != nil {
 		statuscode := response.HTTPResponse.StatusCode
 		if statuscode != http.StatusOK && statuscode != http.StatusCreated {
-			return nil, fmt.Errorf("%s: reading CertificateSigningRequest: %s", name, string(response.Body))
+			return nil, &CLIError{
+				Context: fmt.Sprintf("reading certificatesigningrequest %s: failed", name),
+				Err:     &APIError{Status: ParseStatusFromBody(response.Body)},
+			}
 		}
 	}
 

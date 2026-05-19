@@ -192,7 +192,7 @@ func TestResumeOptions_runSingleResume(t *testing.T) {
 			httpStatus:    http.StatusInternalServerError,
 			responseBody:  `{}`,
 			expectError:   true,
-			errorContains: "unsuccessful resume request",
+			errorContains: "resuming device error-device: failed",
 		},
 	}
 
