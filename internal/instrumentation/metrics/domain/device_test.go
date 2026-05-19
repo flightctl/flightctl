@@ -202,9 +202,6 @@ func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, org
 func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error {
-	return nil
-}
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation

@@ -183,13 +183,4 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		return
 	}
 
-	connected := d.IsInformerConnected()
-	for _, ref := range refs {
-		if ref.FleetName != "" {
-			RefreshFleetDependencySyncStatus(ctx, d.serviceHandler, d.log, ref.OrgID, ref.FleetName, &connected)
-		}
-		if ref.DeviceName != "" {
-			RefreshDeviceDependencySyncStatus(ctx, d.serviceHandler, d.log, ref.OrgID, ref.DeviceName, &connected)
-		}
-	}
 }
