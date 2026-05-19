@@ -110,15 +110,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			}
 		}
 
-		// Don't render if the device spec hash hasn't changed since the last render.
-		// Bypass for DependencyChangeDetected: standalone devices need to re-render
-		// when external dependencies change even though the device spec is unchanged.
-		if t.event.Reason != domain.EventReasonDependencyChangeDetected {
-			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
-				if val == specHash {
-					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
-					return nil
-				}
+		// Don't render if the device spec hash hasn't changed since the last render
+		if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
+			if val == specHash {
+				t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
+				return nil
 			}
 		}
 	}
@@ -450,10 +446,14 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if data != nil {
 			var cached cachedSecretData
 			if err = json.Unmarshal(data, &cached); err != nil {
-				return &k8sSpec.Name, nil, nil, fmt.Errorf("failed parsing cached secret data: %w", err)
+				// Backward compatibility: old format stored raw secret data
+				if unmarshalErr := json.Unmarshal(data, &secretData); unmarshalErr != nil {
+					return &k8sSpec.Name, nil, nil, fmt.Errorf("failed parsing cached secret data: %w", unmarshalErr)
+				}
+			} else {
+				secretData = cached.Data
+				resourceVersion = cached.ResourceVersion
 			}
-			secretData = cached.Data
-			resourceVersion = cached.ResourceVersion
 		} else {
 			needToStoreData = true
 		}

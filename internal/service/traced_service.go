@@ -208,9 +208,9 @@ func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string) domain.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash)
+	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash, configFingerprints)
 	endSpan(span, st)
 	return st
 }
