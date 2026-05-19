@@ -162,20 +162,13 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	// Transactionally replace all device-level dependency refs for this fleet
 	// so readers never see a partially empty set.
 	fleetName := f.event.InvolvedObject.Name
-	refsReplaced := false
 	if st := f.serviceHandler.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
 		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
-	} else {
-		refsReplaced = true
 	}
 
 	if failureCount != 0 {
 		// TODO: Retry when we have a mechanism that allows it
 		return fmt.Errorf("failed updating %d devices", failureCount)
-	}
-
-	if refsReplaced {
-		RefreshFleetDependencySyncStatus(ctx, f.serviceHandler, f.log, f.orgId, fleetName, nil)
 	}
 
 	return nil
