@@ -150,15 +150,20 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 2c: Verifying SBOM contains correct image digest")
 
-			// Validate the SBOM was pushed and contains the correct digest
-			sbomResult, err := workerHarness.ValidateImageSBOM(registryAddress, destImageName, manifestDigest)
-			Expect(err).ToNot(HaveOccurred(), "Should be able to validate SBOM")
-			Expect(sbomResult.Found).To(BeTrue(), "SBOM should be found as a referrer")
+			// Validate the SBOM was pushed and contains the correct digest.
+			// Use Eventually to handle registry referrer propagation delays.
+			var sbomResult *e2e.SBOMValidationResult
+			Eventually(func(g Gomega) {
+				var err error
+				sbomResult, err = workerHarness.ValidateImageSBOM(registryAddress, destImageName, manifestDigest)
+				g.Expect(err).ToNot(HaveOccurred(), "Should be able to validate SBOM")
+				g.Expect(sbomResult.Found).To(BeTrue(), "SBOM should be found as a referrer")
+				g.Expect(sbomResult.DigestMatches).To(BeTrue(),
+					"SBOM should contain the correct image digest (expected: %s, got: %s)", manifestDigest, sbomResult.ImageDigest)
+			}, "30s", "2s").Should(Succeed(), "SBOM validation should eventually succeed")
 			GinkgoWriter.Printf("SBOM referrer digest: %s\n", sbomResult.ReferrerDigest)
 			GinkgoWriter.Printf("SBOM image PURL: %s\n", sbomResult.ImagePURL)
 			GinkgoWriter.Printf("SBOM image digest: %s\n", sbomResult.ImageDigest)
-			Expect(sbomResult.DigestMatches).To(BeTrue(),
-				"SBOM should contain the correct image digest (expected: %s, got: %s)", manifestDigest, sbomResult.ImageDigest)
 
 			// ============================================================
 			// Step 3: Build the image export
