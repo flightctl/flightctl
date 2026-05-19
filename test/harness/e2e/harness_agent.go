@@ -469,11 +469,6 @@ func (h *Harness) WaitForAgentJournalToContain(description, substring, since str
 	})
 }
 
-// GetFlightctlAgentLogs returns logs from the flightctl-agent service.
-func (h *Harness) GetFlightctlAgentLogs() (string, error) {
-	return h.VM.GetServiceLogs("flightctl-agent")
-}
-
 // WaitForPodmanImagePresence waits until a podman image is present/absent on the VM.
 func (h *Harness) WaitForPodmanImagePresence(imageRef string, shouldExist bool) {
 	GinkgoWriter.Printf("Waiting for podman image presence (image=%s shouldExist=%t)\n", imageRef, shouldExist)
