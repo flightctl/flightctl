@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	domain "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"

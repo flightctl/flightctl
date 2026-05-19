@@ -221,7 +221,6 @@ func (t *TracedService) SetDeviceServiceConditions(ctx context.Context, orgId uu
 	return st
 }
 
-
 func (t *TracedService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, refs ...string) domain.Status {
 	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
 	st := t.inner.OverwriteDeviceRepositoryRefs(ctx, orgId, name, refs...)
@@ -408,7 +407,6 @@ func (t *TracedService) UpdateFleetConditions(ctx context.Context, orgId uuid.UU
 	endSpan(span, st)
 	return st
 }
-
 
 func (t *TracedService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateFleetAnnotations")
@@ -722,21 +720,6 @@ func (t *TracedService) ListDueHttpDependencies(ctx context.Context, orgId uuid.
 func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status) {
 	ctx, span := startSpan(ctx, "ListSecretDependencyTargets")
 	resp, st := t.inner.ListSecretDependencyTargets(ctx, secretNamespace, secretName, newFingerprint)
-	endSpan(span, st)
-	return resp, st
-}
-
-
-func (t *TracedService) ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status) {
-	ctx, span := startSpan(ctx, "ListDistinctDependencyRefOwners")
-	resp, st := t.inner.ListDistinctDependencyRefOwners(ctx, orgId)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, domain.Status) {
-	ctx, span := startSpan(ctx, "ListDistinctOrgIDsByRefType")
-	resp, st := t.inner.ListDistinctOrgIDsByRefType(ctx, refType)
 	endSpan(span, st)
 	return resp, st
 }
