@@ -119,7 +119,8 @@ The following fields in device templates support placeholders (including within 
 
 In addition to the templating mechanism, you can also reference Kubernetes secrets in your device templates. This is useful for injecting sensitive information like passwords or certificates into your devices.
 
-Note: When a Kubernetes secret referenced in a device template changes, a new template version is not created immediately. Instead, the secret change will be included in the next template version that gets created when you update the fleet's device template.
+> [!NOTE]
+> When a Kubernetes secret referenced in a device template changes and auto-sync is configured (the secret is labeled for watching and `clusterLevelSecretAccess` is enabled), a new template version is created automatically. See [Auto-syncing External Dependencies](auto-syncing-dependencies.md) for setup details. If auto-sync is not configured for the secret, the change is picked up the next time a template version is created for another reason (for example, a fleet template update).
 
 To use a Kubernetes secret, you can use the `secretRef` field in your device template. The `secretRef` field has the following subfields:
 
@@ -221,6 +222,10 @@ Note: Both the Role/ClusterRole and its corresponding RoleBinding/ClusterRoleBin
 
 * **Minimize Permissions**: The `ClusterRole` example above grants permission to read secrets in *all* namespaces. If you only need access to a few specific namespaces, it is more secure to create a `Role` and `RoleBinding` in each of those namespaces.
 * **Service Account Namespace**: The service account must be specified with the namespace where it is deployed (`<flightctl-namespace>`). This service account can then be granted permissions in other namespaces via `RoleBinding` or across the cluster via `ClusterRoleBinding`.
+
+### Auto-syncing external dependencies
+
+Flight Control can automatically detect changes in referenced git repositories, HTTP endpoints, and Kubernetes secrets and create new template versions without manual intervention. For details on configuration, secret labeling, and troubleshooting, see [Auto-syncing External Dependencies](auto-syncing-dependencies.md).
 
 ## Defining Rollout Policies
 
