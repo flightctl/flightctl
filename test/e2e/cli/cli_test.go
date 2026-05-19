@@ -54,7 +54,8 @@ var _ = Describe("cli operation", func() {
 			By("should error when creating incomplete fleet")
 			out, err := harness.CLIWithStdin(incompleteFleetYaml, applyOperation, "-f", "-")
 			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("fleet: failed to apply"))
+			Expect(out).To(ContainSubstring("applying fleet"))
+			Expect(out).To(ContainSubstring("failed"))
 
 			By("should work for a complete fleet")
 			// make sure it doesn't exist
