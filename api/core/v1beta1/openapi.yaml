@@ -6714,53 +6714,30 @@ components:
           description: The batch number currently being rolled out.
     DependencySyncStatus:
       type: object
-      description: DependencySyncStatus represents the aggregated synchronization status for all external dependencies of a fleet or device.
+      description: DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
       properties:
-        lastProbeTime:
-          type: string
-          format: date-time
-          description: The last time any dependency was probed.
-        lastSuccessfulProbeTime:
-          type: string
-          format: date-time
-          description: The last time a probe completed successfully (status=Synced).
         configRefs:
           type: array
-          description: Per-config-provider dependency synchronization status.
+          description: Per-config-provider fingerprint and last update time, set when the device renders.
           items:
             $ref: '#/components/schemas/DependencySyncConfigRefStatus'
       additionalProperties: false
     DependencySyncConfigRefStatus:
       type: object
-      description: DependencySyncConfigRefStatus represents the synchronization status for a single config provider's dependencies.
+      description: DependencySyncConfigRefStatus represents the rendered fingerprint for a single config provider's external dependency.
       required:
         - configProviderName
-        - status
       properties:
         configProviderName:
           type: string
-          description: The name of the config provider (e.g. the inline config or config source name).
-        status:
-          type: string
-          description: The synchronization status for this config provider's dependencies.
-          enum:
-            - Synced
-            - ProbeFailed
-            - SecretWatchDisconnected
-        message:
-          type: string
-          description: Human-readable message with details about the current status.
+          description: The name of the config provider (e.g. the git or HTTP config source name).
         fingerprint:
           type: string
-          description: The current upstream fingerprint (e.g. git SHA, ETag, resource version).
-        lastProbeTime:
-          type: string
-          format: date-time
-          description: The last time the dependency was probed or synced.
+          description: The fingerprint of the rendered content (e.g. git commit SHA, sha256 of HTTP body, K8s secret ResourceVersion).
         lastUpdatedAt:
           type: string
           format: date-time
-          description: The last time the fingerprint changed.
+          description: The last time the fingerprint changed (i.e. the dependency content was updated).
       additionalProperties: false
     FleetStatus:
       type: object
@@ -6775,8 +6752,6 @@ components:
             $ref: '#/components/schemas/Condition'
         devicesSummary:
           $ref: '#/components/schemas/DevicesSummary'
-        dependencySync:
-          $ref: '#/components/schemas/DependencySyncStatus'
       required:
         - conditions
       additionalProperties: false
@@ -7179,8 +7154,6 @@ components:
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
-      - 'DependenciesSynced'    # Fleet
-      - 'DependenciesSynced'    # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - EnrollmentRequestTPMVerified
@@ -7198,8 +7171,6 @@ components:
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning
-      - FleetDependenciesSynced
-      - DeviceDependenciesSynced
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
