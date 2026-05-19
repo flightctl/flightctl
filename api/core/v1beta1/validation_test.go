@@ -768,6 +768,56 @@ func TestValidateConfigs(t *testing.T) {
 			configs: []ConfigProviderSpec{},
 			wantErr: false,
 		},
+		{
+			name: "When duplicate http config names are used it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec("my-config", "/path/a"),
+				newNamedHttpConfigProviderSpec("my-config", "/path/b"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate inline config names are used it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedInlineConfigProviderSpec("my-config", []string{"/path/a"}),
+				newNamedInlineConfigProviderSpec("my-config", []string{"/path/b"}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across http and inline types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec("shared-name", "/path/a"),
+				newNamedInlineConfigProviderSpec("shared-name", []string{"/path/b"}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across git and http types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedGitConfigProviderSpec("shared-name"),
+				newNamedHttpConfigProviderSpec("shared-name", "/path/a"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across k8s and inline types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedK8sSecretConfigProviderSpec("shared-name", "/mnt/secret"),
+				newNamedInlineConfigProviderSpec("shared-name", []string{"/path/a"}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When all config names are unique it should accept",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec("config-a", "/path/a"),
+				newNamedHttpConfigProviderSpec("config-b", "/path/b"),
+				newNamedInlineConfigProviderSpec("config-c", []string{"/path/c"}),
+				newNamedGitConfigProviderSpec("config-d"),
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -815,6 +865,76 @@ func newInlineConfigProviderSpec(paths []string) ConfigProviderSpec {
 	}
 
 	_ = provider.FromInlineConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedHttpConfigProviderSpec(name, path string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := HttpConfigProviderSpec{
+		Name: name,
+		HttpRef: struct {
+			FilePath   string  `json:"filePath"`
+			Repository string  `json:"repository"`
+			Suffix     *string `json:"suffix,omitempty"`
+		}{
+			FilePath:   path,
+			Repository: "default-repo",
+			Suffix:     nil,
+		},
+	}
+	_ = provider.FromHttpConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedInlineConfigProviderSpec(name string, paths []string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	var inlines []FileSpec
+	for _, p := range paths {
+		inlines = append(inlines, FileSpec{Path: p})
+	}
+	spec := InlineConfigProviderSpec{
+		Name:   name,
+		Inline: inlines,
+	}
+	_ = provider.FromInlineConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedGitConfigProviderSpec(name string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := GitConfigProviderSpec{
+		Name: name,
+		GitRef: struct {
+			Path           string `json:"path"`
+			Repository     string `json:"repository"`
+			TargetRevision string `json:"targetRevision"`
+		}{
+			Path:           "/etc/app",
+			Repository:     "default-repo",
+			TargetRevision: "main",
+		},
+	}
+	_ = provider.FromGitConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedK8sSecretConfigProviderSpec(name, mountPath string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := KubernetesSecretProviderSpec{
+		Name: name,
+		SecretRef: struct {
+			Group     string   `json:"group,omitempty"`
+			MountPath string   `json:"mountPath"`
+			Name      string   `json:"name"`
+			Namespace string   `json:"namespace"`
+			User      Username `json:"user,omitempty"`
+		}{
+			MountPath: mountPath,
+			Name:      "my-secret",
+			Namespace: "default",
+		},
+	}
+	_ = provider.FromKubernetesSecretProviderSpec(spec)
 	return provider
 }
 
