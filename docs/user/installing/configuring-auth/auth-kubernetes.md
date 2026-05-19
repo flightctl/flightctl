@@ -39,6 +39,8 @@ The following variables need to be set:
 - Optionally set **global.auth.caCert**, **global.auth.insecureSkipTlsVerify**
 - Optionally set `global.auth.k8s.organizationNamePrefix`. When set, the single organization name (normally `default`) is exposed as prefix + `default` (e.g. `k8s-default`). Useful when mixing multiple auth sources so Kubernetes-backed organizations have a distinct name prefix.
 
+**Important:** Set `organizationNamePrefix` during initial deployment only. Adding or changing the prefix on an existing deployment changes organization names, causing users to lose access to resources created under the previous names. If you must change the prefix, plan for data migration.
+
 With these settings, the k8s cluster on which Flight Control will be deployed will be used as auth authority.
 
 ### Using External Kubernetes Cluster
