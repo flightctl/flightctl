@@ -450,14 +450,10 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if data != nil {
 			var cached cachedSecretData
 			if err = json.Unmarshal(data, &cached); err != nil {
-				// Backward compatibility: old format stored raw secret data
-				if unmarshalErr := json.Unmarshal(data, &secretData); unmarshalErr != nil {
-					return &k8sSpec.Name, nil, nil, fmt.Errorf("failed parsing cached secret data: %w", unmarshalErr)
-				}
-			} else {
-				secretData = cached.Data
-				resourceVersion = cached.ResourceVersion
+				return &k8sSpec.Name, nil, nil, fmt.Errorf("failed parsing cached secret data: %w", err)
 			}
+			secretData = cached.Data
+			resourceVersion = cached.ResourceVersion
 		} else {
 			needToStoreData = true
 		}
