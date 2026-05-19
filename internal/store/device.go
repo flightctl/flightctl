@@ -1097,40 +1097,13 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
 	}
-
-	specUnchanged := false
+	// Check if the rendered content has changed by comparing hashes
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
+		// if the hash is the same, we shouldn't update the rendered version
 		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
-			specUnchanged = true
+			return false, "", nil
 		}
 	}
-
-	// Build dependency sync status from fingerprints, preserving lastUpdatedAt for unchanged entries
-	updatedServiceConditions := buildDependencySyncStatus(existingRecord.ServiceConditions, configFingerprints)
-
-	if specUnchanged && len(configFingerprints) == 0 {
-		return false, "", nil
-	}
-
-	// Spec unchanged but fingerprints provided (dependency-change-triggered render):
-	// only update service_conditions with new fingerprints, skip the full re-render.
-	if specUnchanged {
-		if updatedServiceConditions != nil {
-			result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-				"service_conditions": updatedServiceConditions,
-				"resource_version":   gorm.Expr("resource_version + 1"),
-			})
-			err = ErrorFromGormError(result.Error)
-			if err != nil {
-				return strings.Contains(err.Error(), "deadlock"), "", err
-			}
-			if result.RowsAffected == 0 {
-				return true, "", flterrors.ErrNoRowsUpdated
-			}
-		}
-		return false, "", nil
-	}
-
 	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
@@ -1138,18 +1111,13 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		renderedApplicationsJSON = "[]"
 	}
 
-	updates := map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"annotations":           model.MakeJSONMap(existingAnnotations),
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
 		"resource_version":      gorm.Expr("resource_version + 1"),
 		"render_timestamp":      time.Now(),
-	}
-	if updatedServiceConditions != nil {
-		updates["service_conditions"] = updatedServiceConditions
-	}
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(updates)
+	})
 
 	err = ErrorFromGormError(result.Error)
 	if err != nil {
@@ -1159,50 +1127,6 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		return true, "", flterrors.ErrNoRowsUpdated
 	}
 	return false, nextRenderedVersion, nil
-}
-
-// buildDependencySyncStatus merges new fingerprints with existing service conditions,
-// preserving lastUpdatedAt for entries whose fingerprint hasn't changed.
-func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions], fingerprints []domain.DependencySyncConfigRefStatus) *model.JSONField[model.ServiceConditions] {
-	if len(fingerprints) == 0 {
-		return nil
-	}
-
-	now := time.Now()
-
-	// Build lookup of previous fingerprints by config provider name
-	prevByName := map[string]domain.DependencySyncConfigRefStatus{}
-	if existing != nil && existing.Data.DependencySync != nil && existing.Data.DependencySync.ConfigRefs != nil {
-		for _, ref := range *existing.Data.DependencySync.ConfigRefs {
-			prevByName[ref.ConfigProviderName] = ref
-		}
-	}
-
-	refs := make([]domain.DependencySyncConfigRefStatus, 0, len(fingerprints))
-	for _, fp := range fingerprints {
-		ref := domain.DependencySyncConfigRefStatus{
-			ConfigProviderName: fp.ConfigProviderName,
-			Fingerprint:        fp.Fingerprint,
-		}
-		if prev, ok := prevByName[fp.ConfigProviderName]; ok && prev.Fingerprint != nil && *prev.Fingerprint == lo.FromPtr(fp.Fingerprint) {
-			ref.LastUpdatedAt = prev.LastUpdatedAt
-		} else {
-			ref.LastUpdatedAt = &now
-		}
-		refs = append(refs, ref)
-	}
-
-	sc := model.ServiceConditions{
-		DependencySync: &domain.DependencySyncStatus{
-			ConfigRefs: &refs,
-		},
-	}
-	// Preserve existing conditions
-	if existing != nil {
-		sc.Conditions = existing.Data.Conditions
-	}
-
-	return model.MakeJSONField(sc)
 }
 
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error) {
