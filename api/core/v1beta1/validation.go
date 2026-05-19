@@ -119,6 +119,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenPath := make(map[string]struct{}, len(configs))
+	seenNames := make(map[string]struct{}, len(configs))
 	for i, config := range configs {
 		t, err := config.Type()
 		if err != nil {
@@ -126,6 +127,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 			return allErrs
 		}
 
+		var configName string
 		switch t {
 		case GitConfigProviderType:
 			provider, err := config.AsGitConfigProviderSpec()
@@ -133,6 +135,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 		case HttpConfigProviderType:
 			provider, err := config.AsHttpConfigProviderSpec()
@@ -140,6 +143,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			path := provider.HttpRef.FilePath
 			if _, exists := seenPath[path]; exists {
 				allErrs = append(allErrs, fmt.Errorf("spec.config[%d].httpRef, device path must be unique for all config providers: %s", i, path))
@@ -153,6 +157,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 
 			for j, inline := range provider.Inline {
 				path := inline.Path
@@ -169,10 +174,20 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 		default:
-			// if we hit this case, it means that the type should be added to the switch statement above
 			allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+		}
+
+		// configName is empty only when type-specific decoding failed (break above).
+		// Empty names are separately rejected by each provider's Validate() (ValidateConfigName enforces minLen=1).
+		if configName != "" {
+			if _, exists := seenNames[configName]; exists {
+				allErrs = append(allErrs, fmt.Errorf("spec.config[%d]: duplicate config provider name: %s", i, configName))
+			} else {
+				seenNames[configName] = struct{}{}
+			}
 		}
 	}
 	return allErrs
