@@ -485,11 +485,6 @@ func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId u
 	return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
-	err := h.store.Device().SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
-	return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-}
-
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
 func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
 	// Track condition changes for MultipleOwners

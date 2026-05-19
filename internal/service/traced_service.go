@@ -221,12 +221,6 @@ func (t *TracedService) SetDeviceServiceConditions(ctx context.Context, orgId uu
 	return st
 }
 
-func (t *TracedService) SetDeviceDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
-	ctx, span := startSpan(ctx, "SetDeviceDependencySyncStatus")
-	st := t.inner.SetDeviceDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
-	endSpan(span, st)
-	return st
-}
 
 func (t *TracedService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, refs ...string) domain.Status {
 	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
@@ -732,12 +726,6 @@ func (t *TracedService) ListSecretDependencyTargets(ctx context.Context, secretN
 	return resp, st
 }
 
-func (t *TracedService) ListDependencyRefsWithSyncState(ctx context.Context, orgId uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, domain.Status) {
-	ctx, span := startSpan(ctx, "ListDependencyRefsWithSyncState")
-	resp, st := t.inner.ListDependencyRefsWithSyncState(ctx, orgId, fleetName, deviceName)
-	endSpan(span, st)
-	return resp, st
-}
 
 func (t *TracedService) ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status) {
 	ctx, span := startSpan(ctx, "ListDistinctDependencyRefOwners")
