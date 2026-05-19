@@ -103,7 +103,11 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 		d.metrics.ObserveProbeLatency(periodic.RefTypeGit, time.Since(probeStart))
 	}
 
-	d.reconcile(ctx, orgId, results)
+	if !d.reconcile(ctx, orgId, results) {
+		return
+	}
+
+	refreshAffectedOwners(ctx, d.serviceHandler, d.log, orgId, results)
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
@@ -264,4 +268,23 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 		}
 	}
 	return true
+}
+
+func refreshAffectedOwners(ctx context.Context, svc service.Service, log logrus.FieldLogger, orgId uuid.UUID, results []probeResult) {
+	fleets := make(map[string]bool)
+	devices := make(map[string]bool)
+	for _, r := range results {
+		for _, f := range r.probe.FleetNames {
+			fleets[f] = true
+		}
+		for _, d := range r.probe.DeviceNames {
+			devices[d] = true
+		}
+	}
+	for f := range fleets {
+		RefreshFleetDependencySyncStatus(ctx, svc, log, orgId, f, nil)
+	}
+	for d := range devices {
+		RefreshDeviceDependencySyncStatus(ctx, svc, log, orgId, d, nil)
+	}
 }
