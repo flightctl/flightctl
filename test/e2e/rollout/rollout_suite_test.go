@@ -18,7 +18,6 @@ const FASTPOLLING = "100ms" // Fast polling for catching quick batch transitions
 const POLLINGINTERVAL = "10s"
 const MEDIUMTIMEOUT = "10m"
 const LONGTIMEOUT = "15m"
-const DEVICEWAITTIME = "30s"
 const DEFAULTUPDATETIMEOUT = "90s"
 
 var auxSvcs *auxiliary.Services

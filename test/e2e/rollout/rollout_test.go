@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -84,10 +84,6 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
-
-			// Wait for devices to stabilize after enrollment
-			waitDuration, _ := time.ParseDuration(DEVICEWAITTIME)
-			time.Sleep(waitDuration)
 
 			// Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
@@ -484,13 +480,17 @@ const (
 	siteRome         = "rome"
 	functionWeb      = "web"
 	functionDb       = "db"
+	labelFleet       = "fleet"
 	labelSite        = "site"
 	labelFunction    = "function"
 	SuccessThreshold = "100%"
+
+	maxConcurrentVMs        = 2
+	pendingDevicesSeparator = "; "
 )
 
 var testFleetSelector = api.LabelSelector{
-	MatchLabels: &map[string]string{"fleet": fleetName},
+	MatchLabels: &map[string]string{labelFleet: fleetName},
 }
 
 func percentageLimit(p api.Percentage) *api.Batch_Limit {
@@ -599,7 +599,6 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 
 	// Use goroutines to set up devices concurrently
 	// Limit concurrent VM creation to avoid resource exhaustion in nested VM environments
-	maxConcurrentVMs := 2
 	GinkgoWriter.Printf("Creating %d device VMs (max %d concurrent)...\n", numDevices, maxConcurrentVMs)
 	var wg sync.WaitGroup
 	errChan := make(chan error, numDevices)
@@ -632,8 +631,17 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 			GinkgoWriter.Printf("✅ [VM %d] Created successfully (Test ID: %s)\n", index+1, testID)
 			tc.harnesses[index] = vmHarness
 
-			labels := labelsList[index]
-			labels["fleet"] = fleetName
+			if index >= len(labelsList) {
+				errChan <- fmt.Errorf("VM %d: missing labels entry at index %d", index+1, index)
+				return
+			}
+			labelsListEntry := labelsList[index]
+
+			labels := map[string]string{}
+			for key, value := range labelsListEntry {
+				labels[key] = value
+			}
+			labels[labelFleet] = fleetName
 
 			GinkgoWriter.Printf("🔄 [VM %d] Enrolling device...\n", index+1)
 			deviceID, device := vmHarness.EnrollAndWaitForOnlineStatus(labels)
@@ -659,6 +667,11 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 	}
 
 	GinkgoWriter.Printf("✅ All %d devices created and enrolled successfully\n", numDevices)
+	err = tc.waitForDevicesStable()
+	if err != nil {
+		return err
+	}
+	GinkgoWriter.Printf("✅ All %d devices stabilized and ready for rollout\n", len(tc.deviceIDs))
 	return nil
 }
 
@@ -709,6 +722,62 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 		}
 		return nil
 	}, MEDIUMTIMEOUT, POLLINGINTERVAL).Should(Succeed())
+	return nil
+}
+
+// waitForDevicesStable waits until all enrolled devices are ready for a rollout.
+func (tc *TestContext) waitForDevicesStable() error {
+	var lastPending string
+	Eventually(func() error {
+		var pending []string
+		for _, deviceID := range tc.deviceIDs {
+			if deviceID == "" {
+				pending = append(pending, "empty device ID")
+				continue
+			}
+
+			if err := tc.deviceStabilityError(deviceID); err != nil {
+				pending = append(pending, err.Error())
+			}
+		}
+
+		if len(pending) > 0 {
+			currentPending := strings.Join(pending, pendingDevicesSeparator)
+			if currentPending != lastPending {
+				GinkgoWriter.Printf("Waiting for devices to stabilize before rollout: %s\n", currentPending)
+				lastPending = currentPending
+			}
+			return fmt.Errorf("devices did not stabilize before rollout: %s", currentPending)
+		}
+
+		return nil
+	}, TIMEOUT, POLLINGINTERVAL).Should(Succeed())
+	return nil
+}
+
+// deviceStabilityError reports why a device is not ready for a rollout.
+func (tc *TestContext) deviceStabilityError(deviceID string) error {
+	response, err := tc.harness.Client.GetDeviceWithResponse(tc.harness.Context, deviceID)
+	if err != nil {
+		return fmt.Errorf("device %s: failed to get device: %w", deviceID, err)
+	}
+	if response == nil || response.JSON200 == nil {
+		return fmt.Errorf("device %s: response is nil", deviceID)
+	}
+	device := response.JSON200
+	if device.Status == nil {
+		return fmt.Errorf("device %s: status is nil", deviceID)
+	}
+	if device.Status.Summary.Status != api.DeviceSummaryStatusOnline {
+		return fmt.Errorf("device %s: summary status is %q", deviceID, device.Status.Summary.Status)
+	}
+	if !e2e.IsDeviceUpToDate(device) {
+		info := lo.FromPtr(device.Status.Updated.Info)
+		return fmt.Errorf("device %s: update status is %q: %s", deviceID, device.Status.Updated.Status, info)
+	}
+	if _, err := e2e.GetRenderedVersion(device); err != nil {
+		return fmt.Errorf("device %s: rendered version %q is invalid: %w", deviceID, device.Status.Config.RenderedVersion, err)
+	}
 	return nil
 }
 
