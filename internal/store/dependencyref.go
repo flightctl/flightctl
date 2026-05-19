@@ -27,8 +27,6 @@ type DependencyRef interface {
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 	ListDueHttpDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, error)
 	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, error)
-	ListDistinctRefOwners(ctx context.Context, orgID uuid.UUID) ([]model.DependencyRefOwner, error)
-	ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, error)
 }
 
 type DependencyRefStore struct {
@@ -231,36 +229,4 @@ func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, se
 		return nil, ErrorFromGormError(err)
 	}
 	return refs, nil
-}
-
-// ListDistinctRefOwners returns distinct (fleet_name, device_name) pairs that
-// have dependency refs in the given org. Used by the status updater to
-// enumerate all entities needing status computation.
-func (s *DependencyRefStore) ListDistinctRefOwners(ctx context.Context, orgID uuid.UUID) ([]model.DependencyRefOwner, error) {
-	var results []model.DependencyRefOwner
-	err := s.getDB(ctx).
-		Table("dependency_refs").
-		Select("DISTINCT fleet_name, device_name").
-		Where("org_id = ?", orgID).
-		Scan(&results).Error
-	if err != nil {
-		return nil, ErrorFromGormError(err)
-	}
-	return results, nil
-}
-
-// ListDistinctOrgIDsByRefType returns distinct org IDs that have dependency
-// refs of the given type. Used by the secret informer disconnect handler to
-// enumerate all orgs needing status propagation.
-func (s *DependencyRefStore) ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, error) {
-	var orgIDs []uuid.UUID
-	err := s.getDB(ctx).
-		Table("dependency_refs").
-		Select("DISTINCT org_id").
-		Where("ref_type = ?", refType).
-		Scan(&orgIDs).Error
-	if err != nil {
-		return nil, ErrorFromGormError(err)
-	}
-	return orgIDs, nil
 }

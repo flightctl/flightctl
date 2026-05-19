@@ -184,7 +184,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 // Events are emitted before updating the fingerprint so that ordering is
 // correct for consumers: by the time sync state shows the new SHA, all
 // downstream consumers have already been notified.
-func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, results []probeResult) bool {
+func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, results []probeResult) {
 	now := time.Now().UTC()
 
 	for _, r := range results {
@@ -254,7 +254,7 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	if len(upsertStates) > 0 {
 		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
-			return false
+			return
 		}
 	}
 
@@ -263,5 +263,4 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
 		}
 	}
-	return true
 }
