@@ -121,10 +121,6 @@ func (d *DependencySyncSecret) handleSecretEvent(ctx context.Context, obj interf
 		return
 	}
 
-	if d.metrics != nil {
-		d.metrics.ObserveProbeCycle("secret")
-	}
-
 	d.reconcile(ctx, secret.Namespace, secret.Name, secret.ResourceVersion)
 }
 
