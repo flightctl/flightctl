@@ -589,7 +589,11 @@ func (p *InfraProvider) mergeAndWriteServiceConfig(updates map[string]interface{
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	for k, v := range updates {
-		serviceConfig[k] = v
+		if v == nil {
+			delete(serviceConfig, k)
+		} else {
+			serviceConfig[k] = v
+		}
 	}
 	out, err := yaml.Marshal(serviceConfig)
 	if err != nil {
