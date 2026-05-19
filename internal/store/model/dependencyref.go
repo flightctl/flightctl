@@ -4,7 +4,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
@@ -79,19 +78,6 @@ type SecretDependencyRef struct {
 	FleetName   string
 	DeviceName  string
 	Fingerprint *string
-}
-
-// DependencyRefWithSyncState joins a dependency ref with its sync state for
-// status computation. Returned by ListDependencyRefsWithSyncState.
-type DependencyRefWithSyncState struct {
-	ResourceKey        string
-	RefType            string
-	ConfigProviderName string
-	Fingerprint        *string
-	ProbeStatus        *string
-	ProbeMessage       *string
-	LastCheckedAt      *time.Time
-	LastChangeAt       *time.Time
 }
 
 // DependencyRefOwner is a distinct (fleet_name, device_name) pair returned by

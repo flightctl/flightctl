@@ -27,7 +27,6 @@ type DependencyRef interface {
 	ListDueGitDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, error)
 	ListDueHttpDependencies(ctx context.Context, orgID uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, error)
 	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, error)
-	ListDependencyRefsWithSyncState(ctx context.Context, orgID uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, error)
 	ListDistinctRefOwners(ctx context.Context, orgID uuid.UUID) ([]model.DependencyRefOwner, error)
 	ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, error)
 }
@@ -232,35 +231,6 @@ func (s *DependencyRefStore) ListSecretDependencyTargets(ctx context.Context, se
 		return nil, ErrorFromGormError(err)
 	}
 	return refs, nil
-}
-
-// ListDependencyRefsWithSyncState returns dependency refs for a fleet or device
-// joined with their sync state. Used by the status updater to compute the
-// DependencySyncStatus block. Exactly one of fleetName or deviceName must be
-// non-nil.
-func (s *DependencyRefStore) ListDependencyRefsWithSyncState(ctx context.Context, orgID uuid.UUID, fleetName *string, deviceName *string) ([]model.DependencyRefWithSyncState, error) {
-	q := s.getDB(ctx).
-		Table("dependency_refs dr").
-		Select("dr.resource_key, dr.ref_type, dr.config_provider_name, "+
-			"ss.fingerprint, ss.probe_status, ss.probe_message, ss.last_checked_at, ss.last_change_at").
-		Joins("LEFT JOIN sync_states ss ON ss.org_id = dr.org_id AND ss.resource_key = dr.resource_key").
-		Where("dr.org_id = ?", orgID)
-
-	if (fleetName == nil) == (deviceName == nil) {
-		return nil, fmt.Errorf("ListDependencyRefsWithSyncState: exactly one of fleetName or deviceName must be non-nil")
-	}
-
-	if fleetName != nil {
-		q = q.Where("dr.fleet_name = ? AND dr.device_name = ''", *fleetName)
-	} else {
-		q = q.Where("dr.device_name = ?", *deviceName)
-	}
-
-	var results []model.DependencyRefWithSyncState
-	if err := q.Scan(&results).Error; err != nil {
-		return nil, ErrorFromGormError(err)
-	}
-	return results, nil
 }
 
 // ListDistinctRefOwners returns distinct (fleet_name, device_name) pairs that
