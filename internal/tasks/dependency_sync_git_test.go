@@ -79,10 +79,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
-
 		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "newsha123456789"}, nil
 		}
@@ -116,10 +112,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
-
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "samesha123"}, nil
 		}
@@ -151,15 +143,11 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
-				assert.Equal(t, string(domain.DependencySyncConfigRefStatusProbeFailed), states[0].ProbeStatus)
+				assert.Equal(t, "ProbeFailed", states[0].ProbeStatus)
 				assert.Contains(t, states[0].ProbeMessage, "connection refused")
 				return statusOK
 			},
 		)
-
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return nil, fmt.Errorf("connection refused")
@@ -207,10 +195,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
-
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "newsha456"}, nil
 		}
@@ -240,10 +224,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
-
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().SetDeviceDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "devicenewsha"}, nil
@@ -277,10 +257,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 				assert.Equal(t, "initialsha123", states[0].Fingerprint)
 				return statusOK
 			})
-
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 			return map[string]string{"main": "initialsha123"}, nil
@@ -322,10 +298,6 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			})
 
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
-
-		mockService.EXPECT().ListDependencyRefsWithSyncState(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(
-			[]model.DependencyRefWithSyncState{}, statusOK).AnyTimes()
-		mockService.EXPECT().UpdateFleetDependencySyncStatus(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 		d := &DependencySyncGit{
 			log: logrus.New(), serviceHandler: mockService,
