@@ -28,19 +28,46 @@ import (
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Simple mock K8s client for testing path validation
+// Simple mock K8s client for testing path validation and fingerprinting
 type mockK8sClient struct{}
 
 func (m *mockK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
-	// Return a fake secret with dummy data
 	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			ResourceVersion: "42",
+		},
 		Data: map[string][]byte{
 			"key1": []byte("value1"),
 			"key2": []byte("value2"),
 		},
 	}, nil
+}
+
+type failingK8sClient struct{}
+
+func (m *failingK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+	return nil, fmt.Errorf("secret %s/%s not found", namespace, name)
+}
+
+func (m *failingK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListProjects(ctx context.Context, token string, opts ...k8sclient.ListProjectsOption) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
@@ -534,6 +561,171 @@ var _ = Describe("DeviceRender", func() {
 			inlineConfigSpec, err := (*device.Spec.Config)[0].AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inlineConfigSpec.Name).To(Equal("motd"), "Device spec should remain unchanged when labels don't change")
+		})
+	})
+
+	Context("dependency sync fingerprinting", func() {
+		It("When a standalone device has a K8s secret config it should capture ResourceVersion as fingerprint", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "app-secrets"}
+			k8sConfig.SecretRef.Name = "my-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fingerprint-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil())
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("app-secrets"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
+			Expect(ref.LastUpdatedAt).ToNot(BeNil())
+		})
+
+		It("When a device has only inline config it should have no dependencySync entries", func() {
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name: "motd",
+				Inline: []api.FileSpec{
+					{Path: "/etc/motd", Content: "Hello", Mode: lo.ToPtr(420)},
+				},
+			}
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-inline-only-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			if device.Status.DependencySync != nil && device.Status.DependencySync.ConfigRefs != nil {
+				Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(0))
+			}
+		})
+
+		It("When a device has mixed config providers it should only fingerprint external deps", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "db-creds"}
+			k8sConfig.SecretRef.Name = "db-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/db"
+
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name: "banner",
+				Inline: []api.FileSpec{
+					{Path: "/etc/motd", Content: "Welcome", Mode: lo.ToPtr(420)},
+				},
+			}
+
+			k8sProvider := api.ConfigProviderSpec{}
+			err := k8sProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineProvider := api.ConfigProviderSpec{}
+			err = inlineProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-mixed-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{k8sProvider, inlineProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil())
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("db-creds"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
+		})
+
+		It("When render fails it should not populate dependencySync", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "missing-secret"}
+			k8sConfig.SecretRef.Name = "nonexistent"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fail-render-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &failingK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).To(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			if device.Status.DependencySync != nil && device.Status.DependencySync.ConfigRefs != nil {
+				Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(0))
+			}
 		})
 	})
 })
