@@ -154,8 +154,6 @@ type Service interface {
 	ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status)
 	ListDueHttpDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, domain.Status)
 	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status)
-	ListDistinctDependencyRefOwners(ctx context.Context, orgId uuid.UUID) ([]model.DependencyRefOwner, domain.Status)
-	ListDistinctOrgIDsByRefType(ctx context.Context, refType string) ([]uuid.UUID, domain.Status)
 
 	// SyncState
 	GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status)
