@@ -259,6 +259,8 @@ The following parameters are supported for AAP authentication configuration:
 
 **Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
 
+**Important:** Set `organizationNamePrefix` during initial deployment only. Adding or changing the prefix on an existing deployment changes organization names, causing users to lose access to resources created under the previous names. If you must change the prefix, plan for data migration.
+
 ### Single Provider
 
 Flight Control supports one AAP Gateway per deployment. Changes to authentication configuration require restarting the Flight Control services.

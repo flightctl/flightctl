@@ -69,6 +69,8 @@ global:
 
 Optional: `global.auth.openshift.organizationNamePrefix`. When set, OpenShift project names are exposed in Flight Control as prefix + project name (e.g. `ocp-` + `my-project` → `ocp-my-project`). Useful when mixing multiple auth sources so OpenShift-backed organizations have a distinct name prefix.
 
+**Important:** Set `organizationNamePrefix` during initial deployment only. Adding or changing the prefix on an existing deployment changes organization names, causing users to lose access to resources created under the previous names. If you must change the prefix, plan for data migration.
+
 ### Single Provider
 
 One OpenShift cluster per Flight Control deployment. Changes to authentication configuration require service restart.
