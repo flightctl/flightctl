@@ -86,6 +86,25 @@ The event `details` contain `detailType: DeviceVulnerabilityCVE` with the follow
 | **Repositories**      | `RepositoryAccessible`, `RepositoryInaccessible`                                              |
 | **ResourceSync**      | `ResourceSyncAccessible`, `ResourceSyncInaccessible`, `ResourceSyncCommitDetected`, `ResourceSyncParsed`, `ResourceSyncParsingFailed`, `ResourceSyncSynced`, `ResourceSyncSyncFailed`, `ResourceSyncCompleted` |
 
+### Dependency sync events
+
+When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Control emits events to track dependency change detection and probe failures. Each event has `involvedObject.kind` set to `Fleet` or `Device` depending on what owns the dependency.
+
+| Event Reason | Type | Description |
+|-------------|------|-------------|
+| `DependencyChangeDetected` | Normal | A dependency fingerprint changed — triggers template version creation or device re-render. |
+| `DependencySyncProbeFailed` | Warning | A probe failed (git, HTTP, or secret informer error). |
+
+**`DependencyChangeDetected`** event details (`detailType: DependencyChangeDetected`):
+
+* `resourceKey` — the dependency identifier (for example, `git:my-repo/main`, `http:my-repo/path`)
+* `fingerprint` — the new fingerprint value
+
+**`DependencySyncProbeFailed`** event details (`detailType: DependencySyncProbeFailed`):
+
+* `resourceKey` — the dependency that failed
+* `errorMessage` — sanitized error description (credentials redacted)
+
 ### System Events
 
 - `InternalTaskFailed`

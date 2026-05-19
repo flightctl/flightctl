@@ -648,3 +648,11 @@ canonical
 unencoded
 - docs/user/using/viewing-vulnerabilities.md
 NVD
+- docs/user/using/auto-syncing-dependencies.md
+DependencyChangeDetected
+DependencySyncProbeFailed
+ETag
+ETags
+parameterized
+SharedInformer
+sha256
