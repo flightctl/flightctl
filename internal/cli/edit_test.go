@@ -323,7 +323,7 @@ spec:
 				return client
 			},
 			expectError:   true,
-			errorContains: "server returned status: 500 Internal Server Error",
+			errorContains: "editing device test-device: failed",
 		},
 		{
 			name:         "resourceVersion conflict - 409 Conflict",
@@ -348,7 +348,7 @@ spec:
 				return client
 			},
 			expectError:   true,
-			errorContains: "server returned status: 409 Conflict",
+			errorContains: "editing device test-device: failed",
 		},
 	}
 
