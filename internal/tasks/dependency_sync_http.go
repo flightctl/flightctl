@@ -195,7 +195,7 @@ func (d *DependencySyncHttp) probeEndpoint(ctx context.Context, client *http.Cli
 	return r
 }
 
-func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, results []httpProbeResult) bool {
+func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, results []httpProbeResult) {
 	now := time.Now().UTC()
 
 	for _, r := range results {
@@ -270,7 +270,7 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	if len(upsertStates) > 0 {
 		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
-			return false
+			return
 		}
 	}
 
@@ -279,7 +279,6 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
 		}
 	}
-	return true
 }
 
 func httpResourceKey(repoName, suffix string) string {
