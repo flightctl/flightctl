@@ -5,7 +5,6 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -35,7 +34,6 @@ type Fleet interface {
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback EventCallback) error
-	UpdateDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
@@ -459,54 +457,6 @@ func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name
 	return retryUpdate(func() (bool, error) {
 		return s.updateConditions(ctx, orgId, name, conditions, eventCallback)
 	})
-}
-
-func (s *FleetStore) UpdateDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateDependencySyncStatus(ctx, orgId, name, conditions, syncStatus)
-	})
-}
-
-func (s *FleetStore) updateDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) (bool, error) {
-	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).Take(&existingRecord)
-	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
-	}
-
-	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(domain.FleetStatus{})
-	}
-	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []domain.Condition{}
-	}
-
-	oldConditions := make([]domain.Condition, len(existingRecord.Status.Data.Conditions))
-	copy(oldConditions, existingRecord.Status.Data.Conditions)
-	oldSyncStatus := existingRecord.Status.Data.DependencySync
-
-	for _, condition := range conditions {
-		domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
-	}
-	existingRecord.Status.Data.DependencySync = syncStatus
-
-	if reflect.DeepEqual(oldConditions, existingRecord.Status.Data.Conditions) &&
-		reflect.DeepEqual(oldSyncStatus, syncStatus) {
-		return false, nil
-	}
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"status":           existingRecord.Status,
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-	err := ErrorFromGormError(result.Error)
-	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
-	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
-	return false, nil
 }
 
 func (s *FleetStore) updateAnnotations(ctx context.Context, existingRecord model.Fleet, existingAnnotations map[string]string) (bool, error) {

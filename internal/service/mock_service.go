@@ -2178,20 +2178,6 @@ func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, orgId, name, condi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetConditions", reflect.TypeOf((*MockService)(nil).UpdateFleetConditions), ctx, orgId, name, conditions)
 }
 
-// UpdateFleetDependencySyncStatus mocks base method.
-func (m *MockService) UpdateFleetDependencySyncStatus(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, syncStatus *domain.DependencySyncStatus) domain.Status {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateFleetDependencySyncStatus", ctx, orgId, name, conditions, syncStatus)
-	ret0, _ := ret[0].(domain.Status)
-	return ret0
-}
-
-// UpdateFleetDependencySyncStatus indicates an expected call of UpdateFleetDependencySyncStatus.
-func (mr *MockServiceMockRecorder) UpdateFleetDependencySyncStatus(ctx, orgId, name, conditions, syncStatus any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetDependencySyncStatus", reflect.TypeOf((*MockService)(nil).UpdateFleetDependencySyncStatus), ctx, orgId, name, conditions, syncStatus)
-}
-
 // UpdateRenderedDevice mocks base method.
 func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
 	m.ctrl.T.Helper()
