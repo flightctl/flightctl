@@ -1,0 +1,29 @@
+# Minimal fixture for mirror-images.sh unit tests.
+# Contains two variants with a mix of:
+#   - images that carry an explicit tag (db, alertmanager)
+#   - images with no tag field  (api, worker) — should fall back to appVersion
+# A third variant (community-el10) is intentionally absent to test missing-variant handling.
+community-el9:
+  name: flightctl
+  images:
+    db:
+      image: quay.io/sclorg/postgresql-16-c9s
+      tag: "20250214"
+    alertmanager:
+      image: quay.io/prometheus/alertmanager
+      tag: "v0.28.1"
+    api:
+      image: quay.io/flightctl/flightctl-api-el9
+    worker:
+      image: quay.io/flightctl/flightctl-worker-el9
+
+redhat-el9:
+  name: redhat-rhem
+  images:
+    db:
+      image: registry.redhat.io/rhel9/postgresql-16
+      tag: "9.7-1766414426"
+    api:
+      image: registry.redhat.io/rhem/flightctl-api-rhel9
+    worker:
+      image: registry.redhat.io/rhem/flightctl-worker-rhel9

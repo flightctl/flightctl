@@ -37,19 +37,22 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Primary image source: per-variant image map.
 # Structure: <variant>.images.<service>.{image,tag}
-HELM_CHART_OPTS="${REPO_ROOT}/deploy/helm/helm-chart-opts.yaml"
+# Allow callers (e.g. the bats test suite) to override path constants via
+# environment variables before invoking the script.  The ${VAR:-default}
+# expansion leaves the variable unchanged if already set in the environment.
+HELM_CHART_OPTS="${HELM_CHART_OPTS:-${REPO_ROOT}/deploy/helm/helm-chart-opts.yaml}"
 
 # Helm chart metadata — used to read appVersion as the fallback tag for
 # flightctl component images that have no explicit tag in helm-chart-opts.yaml.
-CHART_YAML="${REPO_ROOT}/deploy/helm/flightctl/Chart.yaml"
+CHART_YAML="${CHART_YAML:-${REPO_ROOT}/deploy/helm/flightctl/Chart.yaml}"
 
 # Secondary image source: observability images installed by RPMs.
 # These are NOT listed in helm-chart-opts.yaml so they must be sourced here.
-OBS_IMAGES_EL9="${REPO_ROOT}/packaging/images/el9/images.yaml"
-OBS_IMAGES_EL10="${REPO_ROOT}/packaging/images/el10/images.yaml"
+OBS_IMAGES_EL9="${OBS_IMAGES_EL9:-${REPO_ROOT}/packaging/images/el9/images.yaml}"
+OBS_IMAGES_EL10="${OBS_IMAGES_EL10:-${REPO_ROOT}/packaging/images/el10/images.yaml}"
 
 # RPM spec — parsed for runtime Requires to populate the manifest's rpms[] list.
-RPM_SPEC="${REPO_ROOT}/packaging/rpm/flightctl.spec"
+RPM_SPEC="${RPM_SPEC:-${REPO_ROOT}/packaging/rpm/flightctl.spec}"
 
 # Script version, embedded in the artifact manifest metadata section.
 SCRIPT_VERSION="1.0.0"
@@ -265,6 +268,11 @@ validate_args() {
 get_app_version() {
     # Read the appVersion scalar from Chart.yaml.
     # yq e returns the raw string value without surrounding quotes.
+    if [[ ! -f "${CHART_YAML}" ]]; then
+        log_error "Chart.yaml not found: ${CHART_YAML}"
+        return 1
+    fi
+
     local ver
     ver=$(yq e '.appVersion' "${CHART_YAML}")
 
