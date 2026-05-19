@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -511,19 +512,28 @@ func validateExplicitAliasFromProductName(result *labelFromSystemInfoScenarioRes
 	if deviceProductName != enrollmentProductName {
 		return fmt.Errorf("device productName = %q, want enrollment productName %q", deviceProductName, enrollmentProductName)
 	}
+	wantEnrollmentAlias, err := sanitizedLabelFromSystemInfoValue(enrollmentProductName, labelFromSystemInfoFieldProductName, labelFromSystemInfoDefaultAliasLabel)
+	if err != nil {
+		return err
+	}
+	wantDeviceAlias, err := sanitizedLabelFromSystemInfoValue(deviceProductName, labelFromSystemInfoFieldProductName, labelFromSystemInfoDefaultAliasLabel)
+	if err != nil {
+		return err
+	}
+
 	got, ok := result.enrollmentLabels[labelFromSystemInfoDefaultAliasLabel]
 	if !ok {
-		return fmt.Errorf("enrollment request alias is absent, want productName %q", enrollmentProductName)
+		return fmt.Errorf("enrollment request alias is absent, want sanitized productName %q from raw productName %q", wantEnrollmentAlias, enrollmentProductName)
 	}
-	if got != enrollmentProductName {
-		return fmt.Errorf("enrollment request alias = %q, want productName %q", got, enrollmentProductName)
+	if got != wantEnrollmentAlias {
+		return fmt.Errorf("enrollment request alias = %q, want sanitized productName %q from raw productName %q", got, wantEnrollmentAlias, enrollmentProductName)
 	}
 	got, ok = result.deviceLabels[labelFromSystemInfoDefaultAliasLabel]
 	if !ok {
-		return fmt.Errorf("device alias is absent, want productName %q", deviceProductName)
+		return fmt.Errorf("device alias is absent, want sanitized productName %q from raw productName %q", wantDeviceAlias, deviceProductName)
 	}
-	if got != deviceProductName {
-		return fmt.Errorf("device alias = %q, want productName %q", got, deviceProductName)
+	if got != wantDeviceAlias {
+		return fmt.Errorf("device alias = %q, want sanitized productName %q from raw productName %q", got, wantDeviceAlias, deviceProductName)
 	}
 	return nil
 }
@@ -599,4 +609,15 @@ func systemInfoValue(systemInfo v1beta1.DeviceSystemInfo, key string) string {
 		return ""
 	}
 	return value
+}
+
+func sanitizedLabelFromSystemInfoValue(value, fieldName, labelName string) (string, error) {
+	sanitized := validation.SanitizeLabelValue(value)
+	if sanitized == "" {
+		return "", fmt.Errorf("systemInfo field %q value %q for label %q cannot be sanitized to a valid label value", fieldName, value, labelName)
+	}
+	if sanitized != value {
+		GinkgoWriter.Printf("Sanitized systemInfo field %q for label %q: %q -> %q\n", fieldName, labelName, value, sanitized)
+	}
+	return sanitized, nil
 }
