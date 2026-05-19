@@ -466,7 +466,7 @@ func (o *EditOptions) applyPatch(ctx context.Context, client *apiclient.ClientWi
 		return err
 	}
 
-	return o.handlePatchResponse(httpResponse, responseBody)
+	return o.handlePatchResponse(httpResponse, responseBody, kind, name)
 }
 
 // executePatchOperation executes the appropriate PATCH operation based on resource kind
@@ -525,7 +525,7 @@ func (o *EditOptions) extractResponseData(response interface{}, err error) (*htt
 }
 
 // handlePatchResponse handles the response from the PATCH operation
-func (o *EditOptions) handlePatchResponse(httpResponse *http.Response, responseBody []byte) error {
+func (o *EditOptions) handlePatchResponse(httpResponse *http.Response, responseBody []byte, kind ResourceKind, name string) error {
 	if httpResponse == nil {
 		return nil
 	}
@@ -535,10 +535,10 @@ func (o *EditOptions) handlePatchResponse(httpResponse *http.Response, responseB
 	}
 
 	// Handle error response
-	if len(responseBody) > 0 {
-		return fmt.Errorf("server returned status: %s\nError details: %s", httpResponse.Status, string(responseBody))
+	return &CLIError{
+		Context: fmt.Sprintf("editing %s %s: failed", kind, name),
+		Err:     &APIError{Status: ParseStatusFromBody(responseBody)},
 	}
-	return fmt.Errorf("server returned status: %s", httpResponse.Status)
 }
 
 func (o *EditOptions) saveToTempFile(content []byte, kind ResourceKind, name string) (string, error) {
