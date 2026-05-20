@@ -3,6 +3,7 @@
 
 %global goipath github.com/flightctl/flightctl
 
+# SELinux specifics
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
 
@@ -18,7 +19,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source:         1%{?dist}
+Source0:         1%{?dist}
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -29,6 +30,7 @@ BuildRequires:  systemd-rpm-macros
 Requires: openssl
 
 %global flightctl_target flightctl.target
+
 
 %description
 # Main package is empty and not created.
@@ -289,7 +291,10 @@ fi
     # SELinux modules build
     %make_build --directory packaging/selinux
 
+%if %{fips_enabled}
     GOFLAGS='' GOBIN="$PWD/bin" go install github.com/flightctl/fips-validator@v0.0.0-20250930084220-ceca2caa6e48
+%endif
+
 
 %install
     mkdir -p %{buildroot}/usr/bin
@@ -403,19 +408,15 @@ fi
      mkdir -p %{buildroot}/var/lib/grafana
 
 %check
-%if %{fips_enabled}
-    bin/fips-validator binary bin/flightctl
-    bin/fips-validator binary bin/flightctl-agent
-    bin/fips-validator binary bin/flightctl-restore
-    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
-%endif
-
-    out="$("bin/flightctl-agent" version)"
+    # Run the installed binary from the buildroot and capture its output
+    out="$("%{buildroot}%{_bindir}/flightctl-agent" version)"
     echo "$out"
 
+    # Extract the parts after the colons
     version=$(printf '%s\n' "$out" | sed -n 's/^Agent Version:[[:space:]]*//p')
     commit=$(printf '%s\n' "$out" | sed -n 's/^Git Commit:[[:space:]]*//p')
 
+    # Fail if either is empty
     if [ -z "$version" ]; then
         echo "ERROR: Agent Version is empty"
         exit 1
@@ -425,6 +426,13 @@ fi
         echo "ERROR: Git Commit is empty"
         exit 1
     fi
+
+%if %{fips_enabled}
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-agent
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-restore
+    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
+%endif
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
