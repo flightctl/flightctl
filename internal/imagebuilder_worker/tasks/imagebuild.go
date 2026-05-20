@@ -237,8 +237,13 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
-	// Update ImageBuild status with the pushed image reference
-	statusUpdater.UpdateImageReference(imageRef)
+	if manifestDigest == "" {
+		log.Error("Push succeeded but manifest digest is empty")
+		return fmt.Errorf("push succeeded but manifest digest is empty")
+	}
+
+	// Update ImageBuild status with the pushed image reference and manifest digest
+	statusUpdater.UpdateImageReference(imageRef, manifestDigest)
 
 	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
 	if c.shouldRunSBOMPipeline() {

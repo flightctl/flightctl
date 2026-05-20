@@ -110,6 +110,12 @@ func (m *mockImageBuildServiceForStatusUpdater) getUpdateLogsCallsCount() int {
 	return m.updateLogsCalls
 }
 
+func (m *mockImageBuildServiceForStatusUpdater) getImageBuild() *api.ImageBuild {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.imageBuild
+}
+
 func (m *mockImageBuildServiceForStatusUpdater) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req api.ImageBuildNewVersionRequest) (*api.ImageBuild, v1beta1.Status) {
 	return nil, v1beta1.StatusOK()
 }
@@ -406,7 +412,8 @@ func TestStatusUpdater_updateImageReference(t *testing.T) {
 	defer cleanup()
 
 	imageRef := "quay.io/test/image:tag"
-	updater.UpdateImageReference(imageRef)
+	manifestDigest := "sha256:abc123def456"
+	updater.UpdateImageReference(imageRef, manifestDigest)
 
 	// Give goroutine time to process
 	time.Sleep(100 * time.Millisecond)
@@ -414,6 +421,14 @@ func TestStatusUpdater_updateImageReference(t *testing.T) {
 	// Should have called Get and UpdateStatus
 	assert.GreaterOrEqual(t, mockService.getCallsCount(), 1)
 	assert.GreaterOrEqual(t, mockService.getUpdateCallsCount(), 1)
+
+	// Verify both ImageReference and ManifestDigest were set correctly
+	updatedBuild := mockService.getImageBuild()
+	require.NotNil(t, updatedBuild.Status, "Status should not be nil")
+	require.NotNil(t, updatedBuild.Status.ImageReference, "ImageReference should not be nil")
+	require.NotNil(t, updatedBuild.Status.ManifestDigest, "ManifestDigest should not be nil")
+	assert.Equal(t, imageRef, *updatedBuild.Status.ImageReference)
+	assert.Equal(t, manifestDigest, *updatedBuild.Status.ManifestDigest)
 }
 
 func TestStatusUpdater_reportOutput(t *testing.T) {
@@ -573,7 +588,7 @@ func TestStatusUpdater_updateStatus_withFailedCondition(t *testing.T) {
 		LastTransitionTime: time.Now().UTC(),
 	}
 
-	updater.updateStatus(&failedCondition, nil, nil)
+	updater.updateStatus(&failedCondition, nil, nil, nil)
 
 	// Should have persisted logs when condition is Failed
 	assert.Equal(t, 1, mockService.getUpdateLogsCallsCount())
