@@ -1,40 +1,10 @@
 # Disable debug information package creation
 %define debug_package %{nil}
 
-# Define the Go Import Path
 %global goipath github.com/flightctl/flightctl
-%global go_bin_dir %{gobuilddir}/bin
 
-# FIPS build configuration
-%global fips_enabled 0%{?rhel}
-%global fips_validator %{go_bin_dir}/fips-validator
-%if %{fips_enabled}
-%global disable_fips %{nil}
-%else
-%global disable_fips DISABLE_FIPS="true"
-%endif
-
-# Package metadata
-%global grafana_uid 472
-%global db_setup_registry quay.io
-%global db_setup_image    flightctl/flightctl-db-setup-%{?rhel:el%{rhel}}%{!?rhel:el9}
-%global images_config     packaging/images/%{?rhel:el%{rhel}}%{!?rhel:el9}/images.yaml
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
-%global flightctl_target flightctl.target
-
-# Downstream override hooks
-%global extra_ldflags %{nil}
-%global rpm_build_flags %{nil}
-%global rpm_ld_flags %{nil}
-%global set_proxy \
-GOENVFILE=$(go env GOROOT)/go.env \
-if [[ ! -f "${GOENVFILE}" ]]; then \
-    export GOPROXY='https://proxy.golang.org,direct' \
-fi
-%global build_fips_validator GOFLAGS='' GOBIN=%{go_bin_dir}/ go install github.com/flightctl/fips-validator@v0.0.0-20250930084220-ceca2caa6e48
-%global pre_render_quadlets %{nil}
-%global post_render_quadlets %{nil}
 
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
@@ -43,18 +13,14 @@ Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Flight Control service
 
-%gometa -L -f
+%gometa
 
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source:         %{gosource}
-Source1:        overrides.inc
+Source:         1%{?dist}
 
-%include %{S:1}
-
-BuildRequires:  go-srpm-macros
-BuildRequires:  compiler(go-compiler)
+BuildRequires:  golang
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
@@ -62,6 +28,7 @@ BuildRequires:  systemd-rpm-macros
 
 Requires: openssl
 
+%global flightctl_target flightctl.target
 
 %description
 # Main package is empty and not created.
@@ -207,7 +174,6 @@ echo "Running post-install actions for Flight Control Observability Stack..."
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
-chown %{grafana_uid}:%{grafana_uid} /var/lib/grafana
 
 # Apply persistent SELinux contexts for volumes and configuration files.
 /usr/sbin/semanage fcontext -a -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
@@ -280,12 +246,25 @@ if [ -f /run/flightctl-observability-was-active ]; then
 fi
 
 %prep
-%goprep -A -k
+%goprep -A
 %setup -q %{forgesetupargs}
-%autopatch -p1
 
 %build
-    %{?set_proxy}
+
+%global fips_enabled 0%{?rhel}
+
+%if %{fips_enabled}
+%define disable_fips %{nil}
+%else
+%define disable_fips DISABLE_FIPS="true"
+%endif
+
+    # if this is a buggy version of go we need to set GOPROXY as workaround
+    # see https://github.com/golang/go/issues/61928
+    GOENVFILE=$(go env GOROOT)/go.env
+    if [[ ! -f "${GOENVFILE}" ]]; then
+        export GOPROXY='https://proxy.golang.org,direct'
+    fi
 
     SOURCE_GIT_TAG="$(
         tag=$(./hack/current-version 2>/dev/null || true);
@@ -305,23 +284,18 @@ fi
         fi;
         echo "${commit:-unknown}";
     )" \
-    EXTRA_LD_FLAGS="%{?extra_ldflags}" \
-    %{?rpm_build_flags:GO_BUILD_FLAGS=%{rpm_build_flags}} \
-    %{?rpm_ld_flags:LD_FLAGS=%{rpm_ld_flags}} \
-    %{?disable_fips} %make_build GOBIN=%{go_bin_dir}/ build-cli build-agent build-restore build-standalone
+    %{?disable_fips} %make_build build-cli build-agent build-restore build-standalone
 
     # SELinux modules build
     %make_build --directory packaging/selinux
 
-%if %{fips_enabled}
-    %{build_fips_validator}
-%endif
+    GOFLAGS='' GOBIN="$PWD/bin" go install github.com/flightctl/fips-validator@v0.0.0-20250930084220-ceca2caa6e48
 
 %install
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
-    install -m 0755 %{go_bin_dir}/flightctl %{buildroot}/usr/bin
-    install -m 0755 %{go_bin_dir}/flightctl-restore %{buildroot}/usr/bin
+    cp bin/flightctl %{buildroot}/usr/bin
+    cp bin/flightctl-restore %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
@@ -335,7 +309,7 @@ fi
     mkdir -p %{buildroot}/usr/libexec/flightctl
     install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
     install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
-    install -m 0755 %{go_bin_dir}/flightctl-agent %{buildroot}/usr/bin
+    cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
@@ -344,11 +318,11 @@ fi
     echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
-    %{go_bin_dir}/flightctl completion bash > flightctl-completion.bash
+    bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
-    %{go_bin_dir}/flightctl completion fish > flightctl-completion.fish
+    bin/flightctl completion fish > flightctl-completion.fish
     install -Dpm 0644 flightctl-completion.fish -t %{buildroot}/%{_datadir}/fish/vendor_completions.d/
-    %{go_bin_dir}/flightctl completion zsh > _flightctl-completion
+    bin/flightctl completion zsh > _flightctl-completion
     install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-functions/
     install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
     install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
@@ -362,7 +336,7 @@ fi
 
     # Collect license files (top-level + vendored dependencies if present)
     rm -f licenses.list
-    find -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
+    find -type f \( -name LICENSE -o -name License \) | while read LICENSE_FILE; do
         install -Dv -m0644 "${LICENSE_FILE}" "%{buildroot}%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}"
         echo "%%license %{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
     done
@@ -376,6 +350,7 @@ fi
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
     IMAGE_TAG=$(echo %{version} | tr '~' '-')
+    %define images_config       packaging/images/%{?rhel:el%{rhel}}%{!?rhel:el9}/images.yaml
 
     # Check if IMAGE_TAG matches a release version pattern (x.x.x or x.x.x-rcX).
     # Release versions match: 1.2.3 or 1.2.3-rc1
@@ -385,9 +360,8 @@ fi
     else
         APPLY_UI_OVERRIDE=""
     fi
-    %{?pre_render_quadlets}
 
-    %{go_bin_dir}/flightctl-standalone render quadlets \
+    bin/flightctl-standalone render quadlets \
         --config "%{images_config}" \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         ${APPLY_UI_OVERRIDE} \
@@ -395,12 +369,10 @@ fi
         --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
         --systemd-dir "%{buildroot}/usr/lib/systemd/system" \
-        --bin-source-dirs "%{go_bin_dir}" \
         --bin-dir "%{buildroot}/usr/bin" \
         --var-tmp-dir "%{buildroot}%{_var}/tmp" \
         --var-lib-dir "%{buildroot}/var/lib"
 
-    %{?post_render_quadlets}
 
     mkdir -p %{buildroot}%{_sysconfdir}/flightctl/tpm-cas
 
@@ -432,13 +404,13 @@ fi
 
 %check
 %if %{fips_enabled}
-    %{fips_validator} binary %{go_bin_dir}/flightctl
-    %{fips_validator} binary %{go_bin_dir}/flightctl-agent
-    %{fips_validator} binary %{go_bin_dir}/flightctl-restore
-    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols %{go_bin_dir}/flightctl version |& grep OPENSSL
+    bin/fips-validator binary bin/flightctl
+    bin/fips-validator binary bin/flightctl-agent
+    bin/fips-validator binary bin/flightctl-restore
+    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
 %endif
 
-    out="$("%{go_bin_dir}/flightctl-agent" version)"
+    out="$("bin/flightctl-agent" version)"
     echo "$out"
 
     version=$(printf '%s\n' "$out" | sed -n 's/^Agent Version:[[:space:]]*//p')
@@ -680,6 +652,8 @@ fi
 # $1 == 2 if it's an upgrade
 if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
+    %define db_setup_registry   quay.io
+    %define db_setup_image      flightctl/flightctl-db-setup-%{?rhel:el%{rhel}}%{!?rhel:el9}
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
     if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
         SCRIPT="%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh"
