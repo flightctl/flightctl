@@ -283,17 +283,17 @@ func FormatStatusError(status *api.Status) string {
 }
 
 // ParseStatusFromBody attempts to parse the response body as an api.Status.
-// Returns nil if parsing fails or the body is empty.
+// Returns a Status with diagnostic text if parsing fails, body is empty, or Message is missing.
 func ParseStatusFromBody(body []byte) *api.Status {
 	if len(body) == 0 {
-		return nil
+		return &api.Status{Message: "empty response body"}
 	}
 	var status api.Status
 	if err := json.Unmarshal(body, &status); err != nil {
-		return nil
+		return &api.Status{Message: fmt.Sprintf("malformed response: %s", string(body))}
 	}
 	if status.Message == "" {
-		return nil
+		status.Message = fmt.Sprintf("no message in response: %s", string(body))
 	}
 	return &status
 }

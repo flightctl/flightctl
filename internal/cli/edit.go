@@ -527,7 +527,10 @@ func (o *EditOptions) extractResponseData(response interface{}, err error) (*htt
 // handlePatchResponse handles the response from the PATCH operation
 func (o *EditOptions) handlePatchResponse(httpResponse *http.Response, responseBody []byte, kind ResourceKind, name string) error {
 	if httpResponse == nil {
-		return nil
+		return &CLIError{
+			Context: fmt.Sprintf("editing %s %s: failed", kind, name),
+			Err:     fmt.Errorf("no HTTP response received"),
+		}
 	}
 
 	if httpResponse.StatusCode == http.StatusOK || httpResponse.StatusCode == http.StatusCreated || httpResponse.StatusCode == http.StatusNoContent {
