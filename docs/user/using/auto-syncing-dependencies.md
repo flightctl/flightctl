@@ -170,15 +170,7 @@ flightctl get events --field-selector="reason=DependencySyncProbeFailed"
 
 ### An HTTP endpoint is not triggering updates
 
-If the HTTP endpoint does not return ETag or Last-Modified headers, changes are only detected passively when a device re-renders for another reason.
-
-To verify whether an endpoint supports active change detection:
-
-```console
-curl -I <endpoint-url>
-```
-
-Look for `ETag` or `Last-Modified` in the response headers. If neither is present, consider configuring your HTTP server to return one of these headers for reliable active sync.
+Verify that the endpoint returns ETag or Last-Modified headers (see [HTTP endpoints](#http-endpoints) above). If neither is present, changes are only detected passively during re-renders triggered by other means.
 
 ### A Kubernetes secret is not being tracked
 
