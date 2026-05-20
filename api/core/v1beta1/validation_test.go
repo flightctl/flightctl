@@ -732,6 +732,11 @@ func TestValidateAlertRules(t *testing.T) {
 }
 
 func TestValidateConfigs(t *testing.T) {
+	const (
+		dupName    = "my-config"
+		sharedName = "shared-name"
+	)
+
 	require := require.New(t)
 	tests := []struct {
 		name    string
@@ -771,40 +776,40 @@ func TestValidateConfigs(t *testing.T) {
 		{
 			name: "When duplicate http config names are used it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedHttpConfigProviderSpec("my-config", "/path/a"),
-				newNamedHttpConfigProviderSpec("my-config", "/path/b"),
+				newNamedHttpConfigProviderSpec(dupName, "/path/a"),
+				newNamedHttpConfigProviderSpec(dupName, "/path/b"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate inline config names are used it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedInlineConfigProviderSpec("my-config", []string{"/path/a"}),
-				newNamedInlineConfigProviderSpec("my-config", []string{"/path/b"}),
+				newNamedInlineConfigProviderSpec(dupName, []string{"/path/a"}),
+				newNamedInlineConfigProviderSpec(dupName, []string{"/path/b"}),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate names across http and inline types it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedHttpConfigProviderSpec("shared-name", "/path/a"),
-				newNamedInlineConfigProviderSpec("shared-name", []string{"/path/b"}),
+				newNamedHttpConfigProviderSpec(sharedName, "/path/a"),
+				newNamedInlineConfigProviderSpec(sharedName, []string{"/path/b"}),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate names across git and http types it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedGitConfigProviderSpec("shared-name"),
-				newNamedHttpConfigProviderSpec("shared-name", "/path/a"),
+				newNamedGitConfigProviderSpec(sharedName),
+				newNamedHttpConfigProviderSpec(sharedName, "/path/a"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate names across k8s and inline types it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedK8sSecretConfigProviderSpec("shared-name", "/mnt/secret"),
-				newNamedInlineConfigProviderSpec("shared-name", []string{"/path/a"}),
+				newNamedK8sSecretConfigProviderSpec(sharedName, "/mnt/secret"),
+				newNamedInlineConfigProviderSpec(sharedName, []string{"/path/a"}),
 			},
 			wantErr: true,
 		},
