@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -162,13 +163,14 @@ func validateResumeArgs(opts *ResumeOptions, args []string) error {
 
 func TestResumeOptions_runSingleResume(t *testing.T) {
 	tests := []struct {
-		name          string
-		deviceName    string
-		httpStatus    int
-		responseBody  string
-		expectError   bool
-		errorContains string
-		expectOutput  string
+		name           string
+		deviceName     string
+		httpStatus     int
+		responseBody   string
+		expectError    bool
+		errorContains  string
+		expectOutput   string
+		expectAPIError bool // when true, assert error unwraps to CLIError -> APIError
 	}{
 		{
 			name:         "successful resume",
@@ -187,12 +189,13 @@ func TestResumeOptions_runSingleResume(t *testing.T) {
 			errorContains: "failed resuming device missing-device, device doesnt exists or already resumed",
 		},
 		{
-			name:          "server error",
-			deviceName:    "error-device",
-			httpStatus:    http.StatusInternalServerError,
-			responseBody:  `{}`,
-			expectError:   true,
-			errorContains: "resuming device error-device: failed",
+			name:           "server error",
+			deviceName:     "error-device",
+			httpStatus:     http.StatusInternalServerError,
+			responseBody:   `{}`,
+			expectError:    true,
+			errorContains:  "resuming device error-device: failed",
+			expectAPIError: true,
 		},
 	}
 
@@ -220,6 +223,18 @@ func TestResumeOptions_runSingleResume(t *testing.T) {
 					}
 					if tt.errorContains != "" && !containsString(err.Error(), tt.errorContains) {
 						t.Errorf("expected error to contain %q, got %q", tt.errorContains, err.Error())
+					}
+					if tt.expectAPIError {
+						var cliErr *CLIError
+						if !errors.As(err, &cliErr) {
+							t.Errorf("expected error to unwrap to *CLIError, got %T", err)
+						}
+						var apiErr *APIError
+						if !errors.As(err, &apiErr) {
+							t.Errorf("expected error to unwrap to *APIError, got %T", err)
+						} else if apiErr.Status == nil {
+							t.Errorf("expected APIError.Status to be non-nil")
+						}
 					}
 				} else {
 					if err != nil {
