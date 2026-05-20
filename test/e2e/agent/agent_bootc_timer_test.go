@@ -12,27 +12,29 @@ import (
 const (
 	bootcTimerUnit     = "bootc-fetch-apply-updates.timer"
 	bootcTimerUnitFile = "/usr/lib/systemd/system/bootc-fetch-apply-updates.timer"
+	// Composefs-safe probe: unit file path, find under /usr/lib/systemd, or list-unit-files.
+	bootcTimerDetectShell = "test -f " + bootcTimerUnitFile + " && echo exists || " +
+		"(find /usr/lib/systemd -name 'bootc-fetch-apply-updates.timer' -quit 2>/dev/null | grep -q . && echo exists) || " +
+		"(systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | grep -q '^bootc-fetch-apply-updates.timer' && echo exists) || echo not-exists"
 )
 
 var _ = Describe("Bootc timer masking", func() {
 	It("should automatically mask bootc timer on installation", Label("bootc-timer", "sanity", "agent"), func() {
 		harness := e2e.GetWorkerHarness()
 
+		By("Checking if bootc timer unit exists on the e2e device image")
+		stdout, err := harness.VM.RunSSH([]string{"sh", "-c", bootcTimerDetectShell}, nil)
+		Expect(err).ToNot(HaveOccurred())
+		if strings.TrimSpace(stdout.String()) != "exists" {
+			Skip("bootc timer unit not present on this e2e device VM (need bootc-based disk.qcow2 from make e2e-agent-images; non-bootc images skip)")
+		}
+
 		By("Enrolling a device")
 		deviceName := harness.StartVMAndEnroll()
 
 		By("Waiting for device to come online")
-		_, err := harness.CheckDeviceStatus(deviceName, v1beta1.DeviceSummaryStatusOnline)
+		_, err = harness.CheckDeviceStatus(deviceName, v1beta1.DeviceSummaryStatusOnline)
 		Expect(err).ToNot(HaveOccurred())
-
-		By("Checking if bootc timer file exists on the device")
-		stdout, err := harness.VM.RunSSH([]string{"sh", "-c", "test -f " + bootcTimerUnitFile + " && echo exists || echo not-exists"}, nil)
-		Expect(err).ToNot(HaveOccurred())
-		timerFileExists := strings.TrimSpace(stdout.String()) == "exists"
-
-		if !timerFileExists {
-			Skip("Bootc timer unit file does not exist on this device (CentOS Stream doesn't include bootc timer, only RHEL does)")
-		}
 
 		By("Verifying bootc timer is masked after agent installation")
 		// Check for the actual mask symlink pointing to /dev/null
