@@ -620,58 +620,65 @@ func TestShouldPopulateDependencyRefs(t *testing.T) {
 	})
 }
 
+// TestCollectConfigRefs_DuplicateNameWarning verifies that collectConfigRefs
+// emits exactly one warning per duplicated config provider name, ensuring
+// pre-existing specs with duplicates are surfaced without flooding logs.
 func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
-	t.Run("When configs have duplicate names it should log a warning", func(t *testing.T) {
+	const (
+		testFleet  = "my-fleet"
+		testBranch = "main"
+		dupName    = "dup"
+	)
+	httpSuffix := "/config.yaml"
+
+	newTestLogger := func() (*logrus.Logger, *logHook) {
 		logger := logrus.New()
 		logger.SetLevel(logrus.WarnLevel)
 		hook := &logHook{}
 		logger.AddHook(hook)
+		return logger, hook
+	}
 
-		suffix := "/config.yaml"
+	t.Run("When configs have duplicate names it should log a warning", func(t *testing.T) {
+		logger, hook := newTestLogger()
+
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, "shared-name", "repo-a", "main"),
-			makeHttpConfigItem(t, "shared-name", "repo-b", &suffix),
+			makeGitConfigItem(t, dupName, "repo-a", testBranch),
+			makeHttpConfigItem(t, dupName, "repo-b", &httpSuffix),
 		}
 
-		refs := collectConfigRefs(logger, config, "my-fleet", "")
+		refs := collectConfigRefs(logger, config, testFleet, "")
 
 		require.Len(t, refs, 2, "both refs should still be collected")
 		require.Len(t, hook.entries, 1, "expected exactly one warning for the duplicate")
 		assert.Contains(t, hook.entries[0].Message, "duplicate name")
-		assert.Contains(t, hook.entries[0].Message, "shared-name")
+		assert.Contains(t, hook.entries[0].Message, dupName)
 	})
 
 	t.Run("When configs have unique names it should not log any warning", func(t *testing.T) {
-		logger := logrus.New()
-		logger.SetLevel(logrus.WarnLevel)
-		hook := &logHook{}
-		logger.AddHook(hook)
+		logger, hook := newTestLogger()
 
-		suffix := "/config.yaml"
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, "git-cfg", "repo-a", "main"),
-			makeHttpConfigItem(t, "http-cfg", "repo-b", &suffix),
+			makeGitConfigItem(t, "git-cfg", "repo-a", testBranch),
+			makeHttpConfigItem(t, "http-cfg", "repo-b", &httpSuffix),
 		}
 
-		refs := collectConfigRefs(logger, config, "my-fleet", "")
+		refs := collectConfigRefs(logger, config, testFleet, "")
 
 		require.Len(t, refs, 2)
 		assert.Empty(t, hook.entries, "no warnings expected for unique names")
 	})
 
 	t.Run("When three configs share a name it should log exactly one warning", func(t *testing.T) {
-		logger := logrus.New()
-		logger.SetLevel(logrus.WarnLevel)
-		hook := &logHook{}
-		logger.AddHook(hook)
+		logger, hook := newTestLogger()
 
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, "dup", "repo-a", "main"),
-			makeGitConfigItem(t, "dup", "repo-b", "main"),
-			makeGitConfigItem(t, "dup", "repo-c", "main"),
+			makeGitConfigItem(t, dupName, "repo-a", testBranch),
+			makeGitConfigItem(t, dupName, "repo-b", testBranch),
+			makeGitConfigItem(t, dupName, "repo-c", testBranch),
 		}
 
-		refs := collectConfigRefs(logger, config, "my-fleet", "")
+		refs := collectConfigRefs(logger, config, testFleet, "")
 
 		require.Len(t, refs, 3)
 		assert.Len(t, hook.entries, 1, "expected one warning per unique duplicate name")
