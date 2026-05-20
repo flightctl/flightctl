@@ -117,6 +117,8 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 	}
 
 	var refs []model.DependencyRef
+	seenNames := make(map[string]struct{})
+	warnedNames := make(map[string]struct{})
 	for i := range *config {
 		configItem := (*config)[i]
 		configType, err := configItem.Type()
@@ -134,6 +136,7 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if isParameterized(gitSpec.GitRef.TargetRevision) {
 				continue
 			}
+			warnDuplicateConfigName(log, seenNames, warnedNames, gitSpec.Name, i, fleetName, deviceName)
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
@@ -158,6 +161,7 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if isParameterized(suffix) {
 				continue
 			}
+			warnDuplicateConfigName(log, seenNames, warnedNames, httpSpec.Name, i, fleetName, deviceName)
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
@@ -178,6 +182,7 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 			if isParameterized(k8sSpec.SecretRef.Namespace) || isParameterized(k8sSpec.SecretRef.Name) {
 				continue
 			}
+			warnDuplicateConfigName(log, seenNames, warnedNames, k8sSpec.Name, i, fleetName, deviceName)
 			fn := fleetName
 			dn := deviceName
 			refs = append(refs, model.DependencyRef{
@@ -192,6 +197,22 @@ func collectConfigRefs(log logrus.FieldLogger, config *[]domain.ConfigProviderSp
 		}
 	}
 	return refs
+}
+
+// warnDuplicateConfigName logs a single warning per unique duplicate name to
+// surface pre-existing specs that have not yet been corrected. The warnedNames
+// map ensures each name is warned about at most once per call to collectConfigRefs,
+// preventing log spam on repeated invocations for the same spec.
+func warnDuplicateConfigName(log logrus.FieldLogger, seenNames, warnedNames map[string]struct{}, name string, idx int, fleetName, deviceName string) {
+	if _, seen := seenNames[name]; seen {
+		if _, alreadyWarned := warnedNames[name]; !alreadyWarned {
+			log.WithField("duplicate_config_name", name).Warnf(
+				"config[%d] has duplicate name %q (fleet=%q device=%q); dependency sync may be unreliable until the spec is corrected",
+				idx, name, fleetName, deviceName)
+			warnedNames[name] = struct{}{}
+		}
+	}
+	seenNames[name] = struct{}{}
 }
 
 func isParameterized(s string) bool {

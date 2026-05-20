@@ -620,6 +620,78 @@ func TestShouldPopulateDependencyRefs(t *testing.T) {
 	})
 }
 
+func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
+	t.Run("When configs have duplicate names it should log a warning", func(t *testing.T) {
+		logger := logrus.New()
+		logger.SetLevel(logrus.WarnLevel)
+		hook := &logHook{}
+		logger.AddHook(hook)
+
+		suffix := "/config.yaml"
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "shared-name", "repo-a", "main"),
+			makeHttpConfigItem(t, "shared-name", "repo-b", &suffix),
+		}
+
+		refs := collectConfigRefs(logger, config, "my-fleet", "")
+
+		require.Len(t, refs, 2, "both refs should still be collected")
+		require.Len(t, hook.entries, 1, "expected exactly one warning for the duplicate")
+		assert.Contains(t, hook.entries[0].Message, "duplicate name")
+		assert.Contains(t, hook.entries[0].Message, "shared-name")
+	})
+
+	t.Run("When configs have unique names it should not log any warning", func(t *testing.T) {
+		logger := logrus.New()
+		logger.SetLevel(logrus.WarnLevel)
+		hook := &logHook{}
+		logger.AddHook(hook)
+
+		suffix := "/config.yaml"
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "git-cfg", "repo-a", "main"),
+			makeHttpConfigItem(t, "http-cfg", "repo-b", &suffix),
+		}
+
+		refs := collectConfigRefs(logger, config, "my-fleet", "")
+
+		require.Len(t, refs, 2)
+		assert.Empty(t, hook.entries, "no warnings expected for unique names")
+	})
+
+	t.Run("When three configs share a name it should log exactly one warning", func(t *testing.T) {
+		logger := logrus.New()
+		logger.SetLevel(logrus.WarnLevel)
+		hook := &logHook{}
+		logger.AddHook(hook)
+
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "dup", "repo-a", "main"),
+			makeGitConfigItem(t, "dup", "repo-b", "main"),
+			makeGitConfigItem(t, "dup", "repo-c", "main"),
+		}
+
+		refs := collectConfigRefs(logger, config, "my-fleet", "")
+
+		require.Len(t, refs, 3)
+		assert.Len(t, hook.entries, 1, "expected one warning per unique duplicate name")
+	})
+}
+
+// logHook captures logrus entries for test assertions.
+type logHook struct {
+	entries []logrus.Entry
+}
+
+func (h *logHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *logHook) Fire(entry *logrus.Entry) error {
+	h.entries = append(h.entries, *entry)
+	return nil
+}
+
 func makeUpdateDetails(t *testing.T, fields ...domain.ResourceUpdatedDetailsUpdatedFields) *domain.EventDetails {
 	t.Helper()
 	details := domain.ResourceUpdatedDetails{
