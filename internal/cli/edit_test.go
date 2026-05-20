@@ -213,13 +213,14 @@ func TestEditOptions_resourceToYAML(t *testing.T) {
 
 func TestEditOptions_applyChanges(t *testing.T) {
 	tests := []struct {
-		name          string
-		kind          ResourceKind
-		resourceName  string
-		yamlContent   string
-		setupClient   func(t *testing.T) *apiclient.ClientWithResponses
-		expectError   bool
-		errorContains string
+		name           string
+		kind           ResourceKind
+		resourceName   string
+		yamlContent    string
+		setupClient    func(t *testing.T) *apiclient.ClientWithResponses
+		expectError    bool
+		errorContains  string
+		expectAPIError bool // when true, assert error unwraps to CLIError -> APIError
 	}{
 		{
 			name:         "successful device update",
@@ -322,8 +323,9 @@ spec:
 				client, _ := newTestClient(t, response)
 				return client
 			},
-			expectError:   true,
-			errorContains: "editing device test-device: failed",
+			expectError:    true,
+			errorContains:  "editing device test-device: failed",
+			expectAPIError: true,
 		},
 		{
 			name:         "resourceVersion conflict - 409 Conflict",
@@ -342,13 +344,14 @@ spec:
 				response := &http.Response{
 					StatusCode: 409,
 					Status:     "409 Conflict",
-					Body:       io.NopCloser(strings.NewReader(`{"error": "resourceVersion conflict"}`)),
+					Body:       io.NopCloser(strings.NewReader(`{"message": "resourceVersion conflict"}`)),
 				}
 				client, _ := newTestClient(t, response)
 				return client
 			},
-			expectError:   true,
-			errorContains: "editing device test-device: failed",
+			expectError:    true,
+			errorContains:  "editing device test-device: failed",
+			expectAPIError: true,
 		},
 	}
 
@@ -395,6 +398,18 @@ spec:
 					if tc.errorContains != "" && !strings.Contains(err.Error(), tc.errorContains) {
 						t.Errorf("expected error to contain %q, got %q", tc.errorContains, err.Error())
 					}
+					if tc.expectAPIError {
+						var cliErr *CLIError
+						if !errors.As(err, &cliErr) {
+							t.Errorf("expected error to unwrap to *CLIError, got %T", err)
+						}
+						var apiErr *APIError
+						if !errors.As(err, &apiErr) {
+							t.Errorf("expected error to unwrap to *APIError, got %T", err)
+						} else if apiErr.Status == nil {
+							t.Errorf("expected APIError.Status to be non-nil")
+						}
+					}
 				} else {
 					if err != nil {
 						t.Errorf("unexpected error: %v", err)
@@ -422,6 +437,18 @@ spec:
 					}
 					if tc.errorContains != "" && !strings.Contains(err.Error(), tc.errorContains) {
 						t.Errorf("expected error to contain %q, got %q", tc.errorContains, err.Error())
+					}
+					if tc.expectAPIError {
+						var cliErr *CLIError
+						if !errors.As(err, &cliErr) {
+							t.Errorf("expected error to unwrap to *CLIError, got %T", err)
+						}
+						var apiErr *APIError
+						if !errors.As(err, &apiErr) {
+							t.Errorf("expected error to unwrap to *APIError, got %T", err)
+						} else if apiErr.Status == nil {
+							t.Errorf("expected APIError.Status to be non-nil")
+						}
 					}
 				} else {
 					if err != nil {
