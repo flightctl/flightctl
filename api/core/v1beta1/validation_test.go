@@ -735,6 +735,10 @@ func TestValidateConfigs(t *testing.T) {
 	const (
 		dupName    = "my-config"
 		sharedName = "shared-name"
+		pathA      = "/path/a"
+		pathB      = "/path/b"
+		pathC      = "/path/c"
+		mntSecret  = "/mnt/secret"
 	)
 
 	require := require.New(t)
@@ -776,24 +780,24 @@ func TestValidateConfigs(t *testing.T) {
 		{
 			name: "When duplicate http config names are used it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedHttpConfigProviderSpec(dupName, "/path/a"),
-				newNamedHttpConfigProviderSpec(dupName, "/path/b"),
+				newNamedHttpConfigProviderSpec(dupName, pathA),
+				newNamedHttpConfigProviderSpec(dupName, pathB),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate inline config names are used it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedInlineConfigProviderSpec(dupName, []string{"/path/a"}),
-				newNamedInlineConfigProviderSpec(dupName, []string{"/path/b"}),
+				newNamedInlineConfigProviderSpec(dupName, []string{pathA}),
+				newNamedInlineConfigProviderSpec(dupName, []string{pathB}),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate names across http and inline types it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedHttpConfigProviderSpec(sharedName, "/path/a"),
-				newNamedInlineConfigProviderSpec(sharedName, []string{"/path/b"}),
+				newNamedHttpConfigProviderSpec(sharedName, pathA),
+				newNamedInlineConfigProviderSpec(sharedName, []string{pathB}),
 			},
 			wantErr: true,
 		},
@@ -801,24 +805,24 @@ func TestValidateConfigs(t *testing.T) {
 			name: "When duplicate names across git and http types it should reject",
 			configs: []ConfigProviderSpec{
 				newNamedGitConfigProviderSpec(sharedName),
-				newNamedHttpConfigProviderSpec(sharedName, "/path/a"),
+				newNamedHttpConfigProviderSpec(sharedName, pathA),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When duplicate names across k8s and inline types it should reject",
 			configs: []ConfigProviderSpec{
-				newNamedK8sSecretConfigProviderSpec(sharedName, "/mnt/secret"),
-				newNamedInlineConfigProviderSpec(sharedName, []string{"/path/a"}),
+				newNamedK8sSecretConfigProviderSpec(sharedName, mntSecret),
+				newNamedInlineConfigProviderSpec(sharedName, []string{pathA}),
 			},
 			wantErr: true,
 		},
 		{
 			name: "When all config names are unique it should accept",
 			configs: []ConfigProviderSpec{
-				newNamedHttpConfigProviderSpec("config-a", "/path/a"),
-				newNamedHttpConfigProviderSpec("config-b", "/path/b"),
-				newNamedInlineConfigProviderSpec("config-c", []string{"/path/c"}),
+				newNamedHttpConfigProviderSpec("config-a", pathA),
+				newNamedHttpConfigProviderSpec("config-b", pathB),
+				newNamedInlineConfigProviderSpec("config-c", []string{pathC}),
 				newNamedGitConfigProviderSpec("config-d"),
 			},
 			wantErr: false,

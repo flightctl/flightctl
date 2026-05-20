@@ -628,6 +628,11 @@ func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
 		testFleet  = "my-fleet"
 		testBranch = "main"
 		dupName    = "dup"
+		repoA      = "repo-a"
+		repoB      = "repo-b"
+		repoC      = "repo-c"
+		gitCfg     = "git-cfg"
+		httpCfg    = "http-cfg"
 	)
 	httpSuffix := "/config.yaml"
 
@@ -643,8 +648,8 @@ func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
 		logger, hook := newTestLogger()
 
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, dupName, "repo-a", testBranch),
-			makeHttpConfigItem(t, dupName, "repo-b", &httpSuffix),
+			makeGitConfigItem(t, dupName, repoA, testBranch),
+			makeHttpConfigItem(t, dupName, repoB, &httpSuffix),
 		}
 
 		refs := collectConfigRefs(logger, config, testFleet, "")
@@ -659,8 +664,8 @@ func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
 		logger, hook := newTestLogger()
 
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, "git-cfg", "repo-a", testBranch),
-			makeHttpConfigItem(t, "http-cfg", "repo-b", &httpSuffix),
+			makeGitConfigItem(t, gitCfg, repoA, testBranch),
+			makeHttpConfigItem(t, httpCfg, repoB, &httpSuffix),
 		}
 
 		refs := collectConfigRefs(logger, config, testFleet, "")
@@ -673,9 +678,9 @@ func TestCollectConfigRefs_DuplicateNameWarning(t *testing.T) {
 		logger, hook := newTestLogger()
 
 		config := &[]domain.ConfigProviderSpec{
-			makeGitConfigItem(t, dupName, "repo-a", testBranch),
-			makeGitConfigItem(t, dupName, "repo-b", testBranch),
-			makeGitConfigItem(t, dupName, "repo-c", testBranch),
+			makeGitConfigItem(t, dupName, repoA, testBranch),
+			makeGitConfigItem(t, dupName, repoB, testBranch),
+			makeGitConfigItem(t, dupName, repoC, testBranch),
 		}
 
 		refs := collectConfigRefs(logger, config, testFleet, "")
@@ -690,15 +695,18 @@ type logHook struct {
 	entries []logrus.Entry
 }
 
+// Levels returns all log levels so the hook captures every entry.
 func (h *logHook) Levels() []logrus.Level {
 	return logrus.AllLevels
 }
 
+// Fire appends the log entry to the hook's slice for later assertion.
 func (h *logHook) Fire(entry *logrus.Entry) error {
 	h.entries = append(h.entries, *entry)
 	return nil
 }
 
+// makeUpdateDetails builds an EventDetails with ResourceUpdated type for the given fields.
 func makeUpdateDetails(t *testing.T, fields ...domain.ResourceUpdatedDetailsUpdatedFields) *domain.EventDetails {
 	t.Helper()
 	details := domain.ResourceUpdatedDetails{
