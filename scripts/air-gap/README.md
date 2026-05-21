@@ -175,9 +175,12 @@ Both implementations pull image references from the same two YAML files:
 | Source | Path | Content |
 |--------|------|---------|
 | Helm chart options | `deploy/helm/helm-chart-opts.yaml` | All FlightControl component images, keyed by variant |
-| Observability images | `packaging/images/el9/images.yaml` (or `el10/`) | Images installed by the `flightctl-observability` RPM — **not** in the Helm chart |
+| RPM-only images (community-el9) | `packaging/images/el9/images.yaml` | Images installed by flightctl RPMs that are **not** in the Helm chart (pam-issuer, userinfo-proxy, grafana, prometheus) — community registry sources |
+| RPM-only images (community-el10) | `packaging/images/el10/images.yaml` | Same set of RPM-only images for the el10 community variant |
+| RPM-only images (redhat-el9) | `packaging/images/rhel9/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el9 variant |
+| RPM-only images (redhat-el10) | `packaging/images/rhel10/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el10 variant |
 
-Images that appear in both files with the same `image:tag` pair are deduplicated — each unique source reference appears exactly once in the output.
+The tool selects exactly one RPM images file per run based on the variant. Images that appear in both the Helm chart options and the RPM images file with the same `image:tag` are deduplicated — each unique source reference appears exactly once in the output.
 
 ### Tag fallback
 
@@ -255,8 +258,17 @@ type ImageSpec struct {
 }
 ```
 
-**`ParseObsImages(el9Path, el10Path, variant)`**
-Selects `el9/images.yaml` or `el10/images.yaml` based on the variant name. A missing file is a non-fatal warning (observability images are optional). Images from `registry.redhat.io` trigger an additional warning about pull credentials.
+**`ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant)`**
+Selects one of four RPM-only image files based on the variant's distribution (community vs redhat) and OS version (el9 vs el10):
+
+| Variant | File used |
+|---------|-----------|
+| `community-el9` | `packaging/images/el9/images.yaml` |
+| `community-el10` | `packaging/images/el10/images.yaml` |
+| `redhat-el9` | `packaging/images/rhel9/images.yaml` |
+| `redhat-el10` | `packaging/images/rhel10/images.yaml` |
+
+A missing file is a non-fatal warning. For community variants, images unexpectedly sourced from `registry.redhat.io` trigger a pull-credentials warning; for redhat variants all images are expected to come from `registry.redhat.io` so no warning is emitted.
 
 **`ParseRPMRequires(specPath)`**
 Scans `packaging/rpm/flightctl.spec` line by line with `bufio.Scanner`. Collects all `Requires:` lines (not `BuildRequires:`), strips version constraints (`>= 1.1` etc.), excludes file-path dependencies (`/bin/bash` etc.), then returns a sorted, deduplicated list.
@@ -350,28 +362,44 @@ make build-mirror-images
     --variant community-el9 \
     --dest-registry localhost:5000
 
-# 3. Stdout cleanliness — should produce no output (no [INFO]/[WARN] lines)
+# 3. Stdout cleanliness — should produce no output (no [INFO]/[WARN] lines on stdout)
 ./bin/mirror-images \
     --variant community-el9 \
     --dest-registry localhost:5000 2>/dev/null \
     | grep -v "^skopeo"
 
-# 4. Image count — expect 21 for community-el9 on the current repo
-yq e '.images | length' artifact-manifest-community-el9.yaml
+# 4. Image count per variant (counts may change as the chart evolves)
+for v in community-el9 community-el10 redhat-el9 redhat-el10; do
+    n=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null | wc -l)
+    echo "$v: $n images"
+done
 
-# 5. Red Hat variant uses registry.redhat.io sources
-./bin/mirror-images \
-    --variant redhat-el9 \
-    --dest-registry localhost:5000 2>/dev/null \
-    | grep registry.redhat.io
+# 5. Community variants must NOT include registry.redhat.io sources
+for v in community-el9 community-el10; do
+    hits=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
+           | grep "registry.redhat.io" | wc -l)
+    echo "$v: $hits registry.redhat.io sources (expect 0)"
+done
 
-# 6. Invalid variant exits 1
-./bin/mirror-images --variant bad --dest-registry localhost:5000
-echo "exit: $?"
+# 6. Redhat variants must NOT include quay.io or docker.io sources
+for v in redhat-el9 redhat-el10; do
+    hits=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
+           | grep -E "quay\.io|docker\.io" | wc -l)
+    echo "$v: $hits quay.io/docker.io sources (expect 0)"
+done
 
-# 7. URL scheme in --dest-registry is rejected
-./bin/mirror-images --variant community-el9 --dest-registry https://localhost:5000
-echo "exit: $?"
+# 7. Redhat variants must include the 4 RPM-only downstream images
+for v in redhat-el9 redhat-el10; do
+    echo "=== $v RPM-only images ==="
+    ./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
+        | grep -E "pam-issuer|userinfo|grafana|prometheus"
+done
+
+# 8. Invalid variant exits 1
+./bin/mirror-images --variant bad --dest-registry localhost:5000; echo "exit: $?"
+
+# 9. URL scheme in --dest-registry is rejected
+./bin/mirror-images --variant community-el9 --dest-registry https://localhost:5000; echo "exit: $?"
 ```
 
 ### Fixture-based test (isolated from real repo files)

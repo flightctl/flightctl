@@ -163,25 +163,29 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant string) ([
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		// Optional file — warn and continue
-		logWarn("Observability images file not found: %s", path)
-		logWarn("Skipping observability image enumeration.")
+		logWarn("RPM images file not found: %s", path)
+		logWarn("Skipping RPM-only image enumeration.")
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read observability images: %w", err)
+		return nil, fmt.Errorf("read RPM images file: %w", err)
 	}
 
 	var obs ObsImages
 	if err := yaml.Unmarshal(data, &obs); err != nil {
-		return nil, fmt.Errorf("parse observability images: %w", err)
+		return nil, fmt.Errorf("parse RPM images file: %w", err)
 	}
 
-	logInfo("Found %d observability image entries", len(obs))
+	logInfo("Found %d RPM-only image entries", len(obs))
+
+	// For redhat variants every image is expected to come from registry.redhat.io;
+	// warn only when community variants unexpectedly reference the downstream registry.
+	warnOnRedhatRegistry := !strings.Contains(variant, "redhat")
 
 	pairs := make([]ImagePair, 0, len(obs))
 	for key, spec := range obs {
 		if spec.Image == "" {
-			logWarn("Skipping observability entry '%s': missing image field", key)
+			logWarn("Skipping RPM image entry '%s': missing image field", key)
 			continue
 		}
 
@@ -190,10 +194,8 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant string) ([
 			tag = "latest"
 		}
 
-		// Warn when this image requires downstream (registry.redhat.io) access —
-		// the connected preparation system needs valid pull credentials.
-		if strings.HasPrefix(spec.Image, "registry.redhat.io/") {
-			logWarn("Observability image '%s' requires downstream registry access:", key)
+		if warnOnRedhatRegistry && strings.HasPrefix(spec.Image, "registry.redhat.io/") {
+			logWarn("RPM image '%s' requires downstream registry access:", key)
 			logWarn("  %s:%s", spec.Image, tag)
 			logWarn("  Ensure the connected system has credentials for registry.redhat.io")
 		}
