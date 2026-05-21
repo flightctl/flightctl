@@ -1,0 +1,262 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// -----------------------------------------------------------------------------
+// Input YAML types
+//
+// These structs map directly onto the two YAML sources the tool reads:
+//   1. deploy/helm/helm-chart-opts.yaml  — per-variant image map
+//   2. packaging/images/el{9,10}/images.yaml — observability images
+// -----------------------------------------------------------------------------
+
+// HelmChartOpts is the top-level structure of helm-chart-opts.yaml.
+// The outer key is the variant name (e.g. "community-el9"); the value
+// describes everything the Helm chart needs to deploy for that variant.
+type HelmChartOpts map[string]ChartVariant
+
+// ChartVariant holds the images sub-map for a single variant.
+// Other fields in the file (name, description, annotations, etc.) are ignored.
+type ChartVariant struct {
+	Images map[string]ImageSpec `yaml:"images"`
+}
+
+// ImageSpec is a single image entry.  Tag is optional in helm-chart-opts.yaml
+// (absent for core flightctl service images whose tag is set at packaging time);
+// it is always present in the observability images.yaml files.
+type ImageSpec struct {
+	Image string `yaml:"image"`
+	Tag   string `yaml:"tag"`
+}
+
+// ObsImages is the top-level structure of packaging/images/*/images.yaml.
+// It reuses ImageSpec — every entry must have both image and tag.
+type ObsImages map[string]ImageSpec
+
+// ChartMeta holds just the appVersion field from Chart.yaml.
+// Used as the fallback tag for ImageSpec entries with no Tag.
+type ChartMeta struct {
+	AppVersion string `yaml:"appVersion"`
+}
+
+// -----------------------------------------------------------------------------
+// ReadAppVersion
+// -----------------------------------------------------------------------------
+
+// ReadAppVersion reads appVersion from the Helm Chart.yaml at the given path.
+// If appVersion is "latest" it emits a warning — this means the repo is not
+// on a release tag and mirrored images will track :latest (non-reproducible).
+func ReadAppVersion(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Chart.yaml: %w", err)
+	}
+
+	var meta ChartMeta
+	if err := yaml.Unmarshal(data, &meta); err != nil {
+		return "", fmt.Errorf("parse Chart.yaml: %w", err)
+	}
+
+	if meta.AppVersion == "latest" {
+		logWarn("Chart.yaml appVersion is 'latest' — tagless images will be mirrored as :latest.")
+		logWarn("For reproducible air-gapped installs, use a release-tagged checkout.")
+	}
+
+	return meta.AppVersion, nil
+}
+
+// -----------------------------------------------------------------------------
+// ParseHelmChartOpts  (EDM-3958)
+// -----------------------------------------------------------------------------
+
+// ParseHelmChartOpts reads deploy/helm/helm-chart-opts.yaml and returns one
+// ImagePair per image under the requested variant.
+//
+// Tag fallback: images whose Tag field is empty (e.g. api, worker, periodic)
+// receive appVersion as their tag.  At packaging time the tag is overwritten
+// with the release version; on a dev checkout appVersion is typically "latest".
+func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
+	logInfo("Parsing helm-chart-opts.yaml for variant '%s'...", variant)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read helm-chart-opts.yaml: %w", err)
+	}
+
+	var opts HelmChartOpts
+	if err := yaml.Unmarshal(data, &opts); err != nil {
+		return nil, fmt.Errorf("parse helm-chart-opts.yaml: %w", err)
+	}
+
+	cv, ok := opts[variant]
+	if !ok {
+		return nil, fmt.Errorf("variant %q not found in helm-chart-opts.yaml", variant)
+	}
+
+	if len(cv.Images) == 0 {
+		logWarn("No images found for variant '%s' in helm-chart-opts.yaml", variant)
+		return nil, nil
+	}
+
+	logInfo("Found %d image entries in helm-chart-opts.yaml", len(cv.Images))
+
+	pairs := make([]ImagePair, 0, len(cv.Images))
+	for _, spec := range cv.Images {
+		tag := spec.Tag
+		if tag == "" {
+			// No explicit tag: use the chart appVersion as the fallback.
+			tag = appVersion
+		}
+		pairs = append(pairs, ImagePair{
+			Source: spec.Image + ":" + tag,
+			Dest:   ImageToDest(spec.Image, tag),
+		})
+	}
+
+	return pairs, nil
+}
+
+// -----------------------------------------------------------------------------
+// ParseObsImages  (EDM-3959)
+// -----------------------------------------------------------------------------
+
+// ParseObsImages reads the observability images file for the given variant.
+//
+// Observability images (grafana, prometheus, alertmanager, etc.) are installed
+// by the flightctl-observability RPM and are NOT listed in helm-chart-opts.yaml.
+// The correct file is chosen based on the OS version in the variant name:
+//   - *el9* variants → packaging/images/el9/images.yaml
+//   - *el10* variants → packaging/images/el10/images.yaml
+//
+// A missing file is treated as a non-fatal warning so the tool can still emit
+// helm-chart-opts images even when the observability file is absent.
+func ParseObsImages(el9Path, el10Path, variant string) ([]ImagePair, error) {
+	// Select file based on OS version embedded in the variant name
+	path := el9Path
+	if strings.Contains(variant, "el10") {
+		path = el10Path
+	}
+
+	osVersion := "el9"
+	if strings.Contains(variant, "el10") {
+		osVersion = "el10"
+	}
+	logInfo("Parsing observability images from %s/images.yaml...", osVersion)
+
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// Optional file — warn and continue
+		logWarn("Observability images file not found: %s", path)
+		logWarn("Skipping observability image enumeration.")
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read observability images: %w", err)
+	}
+
+	var obs ObsImages
+	if err := yaml.Unmarshal(data, &obs); err != nil {
+		return nil, fmt.Errorf("parse observability images: %w", err)
+	}
+
+	logInfo("Found %d observability image entries", len(obs))
+
+	pairs := make([]ImagePair, 0, len(obs))
+	for key, spec := range obs {
+		if spec.Image == "" {
+			logWarn("Skipping observability entry '%s': missing image field", key)
+			continue
+		}
+
+		tag := spec.Tag
+		if tag == "" {
+			tag = "latest"
+		}
+
+		// Warn when this image requires downstream (registry.redhat.io) access —
+		// the connected preparation system needs valid pull credentials.
+		if strings.HasPrefix(spec.Image, "registry.redhat.io/") {
+			logWarn("Observability image '%s' requires downstream registry access:", key)
+			logWarn("  %s:%s", spec.Image, tag)
+			logWarn("  Ensure the connected system has credentials for registry.redhat.io")
+		}
+
+		pairs = append(pairs, ImagePair{
+			Source: spec.Image + ":" + tag,
+			Dest:   ImageToDest(spec.Image, tag),
+		})
+	}
+
+	return pairs, nil
+}
+
+// -----------------------------------------------------------------------------
+// ParseRPMRequires  (EDM-3960)
+// -----------------------------------------------------------------------------
+
+// ParseRPMRequires scans the flightctl RPM spec file and returns a sorted,
+// deduplicated list of runtime dependency package names.
+//
+// It collects all "Requires:" lines (not BuildRequires), strips version
+// constraints (e.g. "openssl >= 1.1"), and excludes file-path dependencies
+// that start with "/".
+func ParseRPMRequires(specPath string) ([]string, error) {
+	f, err := os.Open(specPath)
+	if err != nil {
+		return nil, fmt.Errorf("open spec file: %w", err)
+	}
+	defer f.Close()
+
+	seen := make(map[string]struct{})
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Only process bare "Requires:" lines, not "BuildRequires:"
+		if !strings.HasPrefix(line, "Requires:") {
+			continue
+		}
+
+		// Second space-separated token is the package name (or constraint start)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pkg := fields[1]
+
+		// Skip file-path dependencies (e.g. Requires: /bin/bash)
+		if strings.HasPrefix(pkg, "/") {
+			continue
+		}
+
+		// Strip inline version constraint: "openssl >= 1.1" → "openssl"
+		pkg = strings.Split(pkg, "=")[0]
+		pkg = strings.TrimRight(pkg, " \t<>!")
+		pkg = strings.TrimSpace(pkg)
+
+		if pkg != "" {
+			seen[pkg] = struct{}{}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan spec file: %w", err)
+	}
+
+	result := make([]string, 0, len(seen))
+	for pkg := range seen {
+		result = append(result, pkg)
+	}
+	sort.Strings(result)
+
+	return result, nil
+}
