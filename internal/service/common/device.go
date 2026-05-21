@@ -343,9 +343,15 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domai
 	oldDigest := getOSImageDigest(oldDevice)
 	newDigest := getOSImageDigest(newDevice)
 	if oldDigest != newDigest && newDigest != "" {
+		var details string
+		if oldDigest == "" {
+			details = fmt.Sprintf("Initial OS image detected: %s", newDigest)
+		} else {
+			details = fmt.Sprintf("OS image changed from %s to %s", oldDigest, newDigest)
+		}
 		resourceUpdates = append(resourceUpdates, ResourceUpdate{
 			Reason:  domain.EventReasonDeviceOSImageChanged,
-			Details: fmt.Sprintf("OS image changed from %s to %s", oldDigest, newDigest),
+			Details: details,
 		})
 	}
 
