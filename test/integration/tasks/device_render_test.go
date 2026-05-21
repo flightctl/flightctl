@@ -824,14 +824,20 @@ var _ = Describe("DeviceRender", func() {
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify rendering proceeded by checking that dependencySync fingerprints
-			// were written for the new template version. If the render was skipped
-			// (the bug), no fingerprints would be stored.
+			// Verify rendering proceeded: renderedVersion should bump to "2" and
+			// dependencySync fingerprints should be written.
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
 			Expect(err).ToNot(HaveOccurred())
+
+			secondRenderedVersion := ""
+			if device.Metadata.Annotations != nil {
+				secondRenderedVersion = (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]
+			}
+			Expect(secondRenderedVersion).To(Equal("2"),
+				"Fleet-owned device should bump renderedVersion on FleetRolloutDeviceSelected even when spec hash is unchanged")
+
 			Expect(device.Status).ToNot(BeNil())
-			Expect(device.Status.DependencySync).ToNot(BeNil(),
-				"Fleet-owned device should re-render on FleetRolloutDeviceSelected even when spec hash is unchanged")
+			Expect(device.Status.DependencySync).ToNot(BeNil())
 			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
 			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
 			ref := (*device.Status.DependencySync.ConfigRefs)[0]
