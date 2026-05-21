@@ -17,22 +17,54 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	"sigs.k8s.io/yaml"
 )
+
+// pkiSecretNames lists all PKI/TLS Secrets required for backup.
+// These Secrets contain CA keys, TLS certificates, and private keys needed
+// for device mTLS reconnection after restore.
+var pkiSecretNames = []string{
+	"flightctl-ca",
+	"flightctl-client-signer-ca",
+	"flightctl-api-server-tls",
+	"flightctl-telemetry-gateway-server-tls",
+	"flightctl-alertmanager-proxy-server-tls",
+	"flightctl-imagebuilder-api-server-tls",
+	"flightctl-ui-server-tls",
+	"flightctl-cli-artifacts-server-tls",
+	"flightctl-ca-bundle",
+	"flightctl-ui-certs",
+	"flightctl-alertmanager-proxy-certs",
+}
 
 // KubernetesDeployer implements Deployer for Kubernetes/Helm deployments
 type KubernetesDeployer struct {
-	cfg       *config.Config
-	log       logrus.FieldLogger
-	namespace string // Optional: if empty, defaults to "flightctl"
+	cfg               *config.Config
+	log               logrus.FieldLogger
+	namespace         string // For PKI Secrets (Release namespace, defaults to "flightctl")
+	internalNamespace string // For DB pod (internal namespace, defaults to namespace if empty)
+	clientset         kubernetes.Interface
 }
 
 // NewKubernetesDeployer creates a new Kubernetes deployer.
-// If namespace is empty, defaults to "flightctl" (production namespace).
-func NewKubernetesDeployer(cfg *config.Config, log logrus.FieldLogger, namespace string) *KubernetesDeployer {
+// namespace: For PKI Secrets (Release namespace). Defaults to "flightctl" if empty.
+// internalNamespace: For DB pod (internal namespace). Defaults to namespace if empty (single-namespace deployment).
+// clientset: If nil, creates in-cluster client automatically (use for production). Pass explicit clientset for testing.
+func NewKubernetesDeployer(cfg *config.Config, log logrus.FieldLogger, namespace string, internalNamespace string, clientset kubernetes.Interface) *KubernetesDeployer {
+	// Set default namespace at construction time
+	if namespace == "" {
+		namespace = "flightctl"
+	}
+	// Default internal namespace to main namespace (single-namespace deployment)
+	if internalNamespace == "" {
+		internalNamespace = namespace
+	}
 	return &KubernetesDeployer{
-		cfg:       cfg,
-		log:       log,
-		namespace: namespace,
+		cfg:               cfg,
+		log:               log,
+		namespace:         namespace,
+		internalNamespace: internalNamespace,
+		clientset:         clientset,
 	}
 }
 
@@ -56,12 +88,9 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 		return fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	// Determine namespace: use provided namespace, otherwise use production default.
-	namespace := k.namespace
-	if namespace == "" {
-		namespace = "flightctl"
-	}
-	k.log.Debugf("Using namespace: %s", namespace)
+	// Use internal namespace for finding DB pod (defaults to namespace if not set)
+	namespace := k.internalNamespace
+	k.log.Debugf("Using namespace for DB pod: %s", namespace)
 
 	labelSelector := "app=flightctl-db"
 
@@ -158,9 +187,84 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 	return nil
 }
 
-// BackupPKI is a stub (implemented in EDM-3891)
+// BackupPKI backs up PKI materials by exporting all PKI/TLS Secrets to YAML files.
+// Writes one YAML file per Secret to <outputDir>/pki/<secretName>.yaml.
+// All YAML files are created with pkiFileMode permissions (contain sensitive data).
 func (k *KubernetesDeployer) BackupPKI(ctx context.Context, outputDir string) error {
-	k.log.Debug("BackupPKI called (stub implementation)")
+	// Use namespace (set in constructor, defaults to "flightctl")
+	namespace := k.namespace
+	k.log.Infof("Starting PKI backup from namespace %s...", namespace)
+
+	// Get or create Kubernetes clientset
+	clientset := k.clientset
+	if clientset == nil {
+		// Create in-cluster client
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			return fmt.Errorf("failed to get in-cluster config: %w", err)
+		}
+
+		var clientErr error
+		clientset, clientErr = kubernetes.NewForConfig(config)
+		if clientErr != nil {
+			return fmt.Errorf("failed to create Kubernetes client: %w", clientErr)
+		}
+	}
+
+	// Verify at least one required Secret exists before creating output directory
+	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, pkiSecretNames[0], metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to verify PKI secrets exist (checked %s): %w", pkiSecretNames[0], err)
+	}
+
+	pkiDir := filepath.Join(outputDir, "pki")
+
+	// Create PKI output directory only after validation
+	if err := os.MkdirAll(pkiDir, pkiDirMode); err != nil {
+		return fmt.Errorf("failed to create PKI output directory: %w", err)
+	}
+
+	// Clean up PKI directory on error (ensures all-or-nothing semantics)
+	success := false
+	defer func() {
+		if !success {
+			os.RemoveAll(pkiDir)
+		}
+	}()
+
+	// Export each Secret to YAML
+	for _, secretName := range pkiSecretNames {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("PKI backup cancelled: %w", ctx.Err())
+		default:
+		}
+
+		k.log.Debugf("Exporting Secret: %s", secretName)
+
+		// Get Secret from Kubernetes API
+		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get Secret %s: %w", secretName, err)
+		}
+
+		// Marshal to YAML
+		yamlBytes, err := yaml.Marshal(secret)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Secret %s to YAML: %w", secretName, err)
+		}
+
+		// Write YAML file with restrictive permissions
+		yamlPath := filepath.Join(pkiDir, secretName+".yaml")
+		if err := os.WriteFile(yamlPath, yamlBytes, pkiFileMode); err != nil {
+			return fmt.Errorf("failed to write Secret YAML %s: %w", secretName, err)
+		}
+	}
+
+	k.log.Infof("PKI backup completed. Backed up %d Secrets to %s", len(pkiSecretNames), pkiDir)
+
+	success = true
 	return nil
 }
 

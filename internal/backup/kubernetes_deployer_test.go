@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestKubernetesDeployer_BackupDatabase_ExternalDB(t *testing.T) {
@@ -22,7 +23,7 @@ func TestKubernetesDeployer_BackupDatabase_ExternalDB(t *testing.T) {
 
 	log, _ := test.NewNullLogger()
 
-	deployer := NewKubernetesDeployer(cfg, log, "")
+	deployer := NewKubernetesDeployer(cfg, log, "", "", nil)
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -48,7 +49,7 @@ func TestKubernetesDeployer_BackupDatabase_InternalDB_DirectoryCreation(t *testi
 	cfg.Database.Password = "password"
 
 	log, _ := test.NewNullLogger()
-	deployer := NewKubernetesDeployer(cfg, log, "")
+	deployer := NewKubernetesDeployer(cfg, log, "", "", nil)
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -94,7 +95,7 @@ func TestKubernetesDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			cfg.Database.Password = "testpass"
 
 			log, _ := test.NewNullLogger()
-			deployer := NewKubernetesDeployer(cfg, log, "")
+			deployer := NewKubernetesDeployer(cfg, log, "", "", nil)
 			ctx := context.Background()
 			outputDir := t.TempDir()
 
@@ -112,4 +113,27 @@ func TestKubernetesDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			require.Error(t, err, "should fail when Kubernetes cluster is not available")
 		})
 	}
+}
+
+func TestKubernetesDeployer_BackupPKI_NoDirectoryOnValidationFailure(t *testing.T) {
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	// Use fake clientset with explicit namespace (no Secrets in fake cluster)
+	fakeClient := fake.NewSimpleClientset()
+	deployer := NewKubernetesDeployer(cfg, log, "nonexistent-namespace", "", fakeClient)
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupPKI will fail during validation (Secret not found in fake cluster)
+	err := deployer.BackupPKI(ctx, outputDir)
+
+	// Verify error is returned
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to verify PKI secrets exist")
+
+	// Verify PKI directory was NOT created (validation fails before directory creation)
+	pkiDir := filepath.Join(outputDir, "pki")
+	_, statErr := os.Stat(pkiDir)
+	require.True(t, os.IsNotExist(statErr), "PKI directory should not be created when validation fails")
 }

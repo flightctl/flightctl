@@ -24,6 +24,19 @@ const (
 	DeploymentTypeUnknown    DeploymentType = "unknown"
 )
 
+// PKI backup permission modes
+const (
+	// pkiDirMode is the permission mode for PKI backup output directories.
+	// 0700 (owner-only access) ensures PKI materials are only accessible
+	// to the backup process owner.
+	pkiDirMode os.FileMode = 0700
+
+	// pkiFileMode is the permission mode for sensitive PKI files in backups.
+	// 0600 (owner-only read/write) protects private keys and certificates
+	// from unauthorized access.
+	pkiFileMode os.FileMode = 0600
+)
+
 // Deployer interface for backup operations across deployment types
 type Deployer interface {
 	Type() DeploymentType
@@ -65,12 +78,12 @@ func DetectDeployment(cfg *config.Config, log logrus.FieldLogger, basePath strin
 
 	if podmanDetected {
 		log.Debug("Podman deployment detected")
-		return NewPodmanDeployer(cfg, log), nil
+		return NewPodmanDeployer(cfg, log, ""), nil
 	}
 
 	if k8sDetected {
 		log.Debug("Kubernetes deployment detected")
-		return NewKubernetesDeployer(cfg, log, ""), nil
+		return NewKubernetesDeployer(cfg, log, "", "", nil), nil
 	}
 
 	return nil, fmt.Errorf(
