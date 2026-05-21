@@ -43,11 +43,9 @@ imagebuilder-worker:
   image: quay.io/flightctl/flightctl-imagebuilder-worker-el10
   tag: latest
 grafana:
-  # Using public registry - same version without auth requirements
   image: quay.io/ceph/grafana
   tag: "9.4.10"
 prometheus:
-  # Using official Prometheus registry - same version without auth requirements
   image: quay.io/prometheus/prometheus
   tag: "v2.43.1"
 telemetry-gateway:
