@@ -130,7 +130,7 @@ func TestPodmanDeployer(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Database.Hostname = "localhost"
 	log, _ := testLogger()
-	deployer := NewPodmanDeployer(cfg, log)
+	deployer := NewPodmanDeployer(cfg, log, "")
 
 	require.Equal(t, DeploymentTypePodman, deployer.Type())
 
@@ -143,7 +143,7 @@ func TestKubernetesDeployer(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Database.Hostname = "flightctl-db"
 	log, _ := testLogger()
-	deployer := NewKubernetesDeployer(cfg, log, "")
+	deployer := NewKubernetesDeployer(cfg, log, "", "", nil)
 
 	require.Equal(t, DeploymentTypeKubernetes, deployer.Type())
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestPodmanDeployer_BackupDatabase_ExternalDB(t *testing.T) {
 
 	log, _ := test.NewNullLogger()
 
-	deployer := NewPodmanDeployer(cfg, log)
+	deployer := NewPodmanDeployer(cfg, log, "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -48,7 +49,7 @@ func TestPodmanDeployer_BackupDatabase_InternalDB_DirectoryCreation(t *testing.T
 	cfg.Database.Password = "password"
 
 	log, _ := test.NewNullLogger()
-	deployer := NewPodmanDeployer(cfg, log)
+	deployer := NewPodmanDeployer(cfg, log, "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -105,7 +106,7 @@ func TestPodmanDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			cfg.Database.Password = "testpass"
 
 			log, _ := test.NewNullLogger()
-			deployer := NewPodmanDeployer(cfg, log)
+			deployer := NewPodmanDeployer(cfg, log, "")
 			ctx := context.Background()
 			outputDir := t.TempDir()
 
@@ -125,4 +126,95 @@ func TestPodmanDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPodmanDeployer_BackupPKI_Success(t *testing.T) {
+	// Create mock PKI directory structure
+	tmpRoot := t.TempDir()
+	pkiSrc := filepath.Join(tmpRoot, "pki")
+
+	// Create directory structure
+	caDir := filepath.Join(pkiSrc, "ca")
+	require.NoError(t, os.MkdirAll(caDir, 0755))
+
+	// Create mock PKI files with different permissions
+	require.NoError(t, os.WriteFile(filepath.Join(caDir, "ca.crt"), []byte("cert"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(caDir, "ca.key"), []byte("key"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(pkiSrc, "tls.crt"), []byte("tls"), 0644))
+
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+	log.SetLevel(logrus.InfoLevel)
+
+	// Create deployer with custom PKI path
+	deployer := NewPodmanDeployer(cfg, log, pkiSrc)
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// Test BackupPKI public API
+	err := deployer.BackupPKI(ctx, outputDir)
+	require.NoError(t, err)
+
+	// Verify files copied
+	pkiDst := filepath.Join(outputDir, "pki")
+	require.FileExists(t, filepath.Join(pkiDst, "ca", "ca.crt"))
+	require.FileExists(t, filepath.Join(pkiDst, "ca", "ca.key"))
+	require.FileExists(t, filepath.Join(pkiDst, "tls.crt"))
+
+	// Verify file permissions preserved
+	info, err := os.Stat(filepath.Join(pkiDst, "ca", "ca.key"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+
+	info, err = os.Stat(filepath.Join(pkiDst, "ca", "ca.crt"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0644), info.Mode().Perm())
+
+	// Verify directory permissions preserved
+	dirInfo, err := os.Stat(filepath.Join(pkiDst, "ca"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0755), dirInfo.Mode().Perm())
+}
+
+func TestPodmanDeployer_BackupPKI_MissingDirectory(t *testing.T) {
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	// Use explicit non-existent path instead of relying on default
+	nonExistentPath := filepath.Join(t.TempDir(), "does-not-exist")
+	deployer := NewPodmanDeployer(cfg, log, nonExistentPath)
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupPKI will fail because the specified PKI directory doesn't exist
+	err := deployer.BackupPKI(ctx, outputDir)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "PKI directory not found")
+}
+
+func TestPodmanDeployer_BackupPKI_RejectsSymlinks(t *testing.T) {
+	// Create mock PKI directory with a symlink
+	pkiSrc := t.TempDir()
+
+	// Create a regular file and a symlink to it
+	regularFile := filepath.Join(pkiSrc, "regular.txt")
+	require.NoError(t, os.WriteFile(regularFile, []byte("content"), 0644))
+
+	symlinkFile := filepath.Join(pkiSrc, "symlink.txt")
+	require.NoError(t, os.Symlink(regularFile, symlinkFile))
+
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	// Create deployer with custom PKI path
+	deployer := NewPodmanDeployer(cfg, log, pkiSrc)
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupPKI should fail due to symlink (security measure)
+	err := deployer.BackupPKI(ctx, outputDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "symlinks not supported")
+	require.Contains(t, err.Error(), "symlink.txt")
 }
