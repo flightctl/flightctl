@@ -287,7 +287,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Expect(apiPort).ToNot(BeEmpty())
 
 			DeferCleanup(func() {
-				harness.UnblockTrafficOnVM(apiIP, apiPort)
+				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
 			By("Blocking this worker VM from reaching the API during the renewal window")
@@ -307,7 +307,8 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 				Should(Equal(initialSerial), "certificate serial should remain unchanged while the API is unavailable")
 
 			By("Restoring API connectivity for this worker VM")
-			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			err = harness.UnblockTrafficOnVM(apiIP, apiPort)
+			Expect(err).ToNot(HaveOccurred(), "failed to remove iptables block")
 
 			By("Waiting for certificate rotation after service recovery")
 			Eventually(deviceCertSerialOrFallbackFunc(harness, deviceId, initialSerial), certRotationTimeout, e2e.POLLINGLONG).
@@ -381,7 +382,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic to prevent CSR submission")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				harness.UnblockTrafficOnVM(apiIP, apiPort)
+				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
 			By("Verifying iptables block is effective")
@@ -412,7 +413,8 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}
 
 			By("Restoring network connectivity")
-			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			err = harness.UnblockTrafficOnVM(apiIP, apiPort)
+			Expect(err).ToNot(HaveOccurred(), "failed to remove iptables block")
 			GinkgoWriter.Printf("[87911] traffic unblocked, %v remaining before cert expiry\n", time.Until(notAfterTime))
 
 			By("Waiting for certificate rotation")
@@ -464,7 +466,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic on the VM")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				harness.UnblockTrafficOnVM(apiIP, apiPort)
+				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
 			By("Waiting for renewal failure indicators in metrics")
@@ -486,7 +488,8 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}
 
 			By("Unblocking agent→API traffic")
-			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			err = harness.UnblockTrafficOnVM(apiIP, apiPort)
+			Expect(err).ToNot(HaveOccurred(), "failed to remove iptables block")
 
 			By("Verifying certificate serial does NOT change (expired cert cannot renew)")
 			Consistently(func() string {
@@ -573,7 +576,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic to cause renewal failures")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				harness.UnblockTrafficOnVM(apiIP, apiPort)
+				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
 			By("Verifying agent service remains running while blocked")
@@ -603,7 +606,8 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Expect(hasDuration).To(BeTrue(), "renewal duration histogram metric should be present")
 
 			By("Restoring network connectivity")
-			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			err = harness.UnblockTrafficOnVM(apiIP, apiPort)
+			Expect(err).ToNot(HaveOccurred(), "failed to remove iptables block")
 
 			By("Verifying device recovers connectivity after network restore")
 			Eventually(func() v1beta1.DeviceSummaryStatusType {
