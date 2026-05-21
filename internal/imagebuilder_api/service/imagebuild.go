@@ -68,27 +68,29 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store              store.ImageBuildStore
-	repositoryStore    mainstore.Repository
-	imageExportService ImageExportService
-	eventHandler       *internalservice.EventHandler
-	queueProducer      queues.QueueProducer
-	kvStore            kvstore.KVStore
-	cfg                *config.ImageBuilderServiceConfig
-	log                logrus.FieldLogger
+	store                 store.ImageBuildStore
+	repositoryStore       mainstore.Repository
+	imageExportService    ImageExportService
+	imagePromotionService ImagePromotionService
+	eventHandler          *internalservice.EventHandler
+	queueProducer         queues.QueueProducer
+	kvStore               kvstore.KVStore
+	cfg                   *config.ImageBuilderServiceConfig
+	log                   logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
-		store:              s,
-		repositoryStore:    repositoryStore,
-		imageExportService: imageExportService,
-		eventHandler:       eventHandler,
-		queueProducer:      queueProducer,
-		kvStore:            kvStore,
-		cfg:                cfg,
-		log:                log,
+		store:                 s,
+		repositoryStore:       repositoryStore,
+		imageExportService:    imageExportService,
+		imagePromotionService: imagePromotionService,
+		eventHandler:          eventHandler,
+		queueProducer:         queueProducer,
+		kvStore:               kvStore,
+		cfg:                   cfg,
+		log:                   log,
 	}
 }
 
@@ -186,6 +188,13 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 		}
 	}
 
+	// Delete all related ImagePromotions that reference this ImageBuild as source.
+	if s.imagePromotionService != nil {
+		if err := s.deleteRelatedImagePromotions(ctx, orgId, name); err != nil {
+			s.log.WithError(err).WithField("name", name).Warn("Error deleting related ImagePromotions, proceeding with ImageBuild deletion")
+		}
+	}
+
 	// If ImageBuild is in a cancelable state, cancel it first and wait
 	if isCancelableBuildState(imageBuild) {
 		s.log.WithField("orgId", orgId).WithField("name", name).Info("ImageBuild is in cancelable state, canceling before delete")
@@ -231,6 +240,27 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 		if delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
 			s.log.WithField("imageExport", exportName).WithField("status", delStatus.Message).Warn("Failed to delete related ImageExport")
 			// Continue deleting other exports
+		}
+	}
+
+	return nil
+}
+
+// deleteRelatedImagePromotions deletes all ImagePromotions whose source references the given ImageBuild.
+func (s *imageBuildService) deleteRelatedImagePromotions(ctx context.Context, orgId uuid.UUID, imageBuildName string) error {
+	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef=%s", imageBuildName)
+	promotions, status := s.imagePromotionService.List(ctx, orgId, domain.ListImagePromotionsParams{
+		FieldSelector: lo.ToPtr(fieldSelectorStr),
+	})
+	if !IsStatusOK(status) {
+		return fmt.Errorf("failed to list ImagePromotions: %s", status.Message)
+	}
+
+	for _, promotion := range promotions.Items {
+		promotionName := lo.FromPtr(promotion.Metadata.Name)
+		s.log.WithField("imageBuild", imageBuildName).WithField("imagePromotion", promotionName).Info("Deleting related ImagePromotion")
+		if delStatus := s.imagePromotionService.Delete(ctx, orgId, promotionName); !IsStatusOK(delStatus) {
+			s.log.WithField("imagePromotion", promotionName).WithField("status", delStatus.Message).Warn("Failed to delete related ImagePromotion")
 		}
 	}
 
@@ -420,31 +450,36 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 		return result, err
 	}
 
-	// Create event for status update
-	var event *coredomain.Event
-	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
-		// Create a simple status update event since status is not in UpdatedFields enum
-		event = coredomain.GetBaseEvent(
-			ctx,
-			coredomain.ResourceKind(string(domain.ResourceKindImageBuild)),
-			*result.Metadata.Name,
-			coredomain.EventReasonResourceUpdated,
-			fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageBuild)),
-			nil,
-		)
-		if event != nil {
-			s.eventHandler.CreateEvent(ctx, orgId, event)
-		}
+	if result == nil || result.Metadata.Name == nil {
+		return nil, fmt.Errorf("invalid ImageBuild status update result")
 	}
 
-	// Enqueue event to imagebuild-queue if image is ready (Completed)
-	if result != nil && event != nil && s.queueProducer != nil {
-		// Check if Ready condition is True with reason Completed
-		if result.Status != nil && result.Status.Conditions != nil {
-			readyCondition := domain.FindImageBuildStatusCondition(*result.Status.Conditions, domain.ImageBuildConditionTypeReady)
-			if readyCondition != nil &&
-				readyCondition.Status == domain.ConditionStatusTrue &&
-				readyCondition.Reason == string(domain.ImageBuildConditionReasonCompleted) {
+	event := coredomain.GetBaseEvent(
+		ctx,
+		coredomain.ResourceKind(string(domain.ResourceKindImageBuild)),
+		*result.Metadata.Name,
+		coredomain.EventReasonResourceUpdated,
+		fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageBuild)),
+		nil,
+	)
+
+	// Publish a core event for audit/observability.
+	if s.eventHandler != nil {
+		s.eventHandler.CreateEvent(ctx, orgId, event)
+	}
+
+	// Enqueue a worker event for terminal states that require downstream action:
+	// Completed → requeue pending exports and evaluate promotions.
+	// Failed/Canceled → fail waiting promotions.
+	// This is independent of the eventHandler so it fires even when the core event system is absent.
+	if s.queueProducer != nil &&
+		result.Status != nil && result.Status.Conditions != nil {
+		readyCondition := domain.FindImageBuildStatusCondition(*result.Status.Conditions, domain.ImageBuildConditionTypeReady)
+		if readyCondition != nil {
+			switch readyCondition.Reason {
+			case string(domain.ImageBuildConditionReasonCompleted),
+				string(domain.ImageBuildConditionReasonFailed),
+				string(domain.ImageBuildConditionReasonCanceled):
 				if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
 					s.log.WithError(err).WithField("orgId", orgId).WithField("name", *result.Metadata.Name).Error("failed to enqueue imageBuild event")
 					// Don't fail the update if enqueue fails - the event can be retried later
@@ -453,7 +488,7 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 		}
 	}
 
-	return result, err
+	return result, nil
 }
 
 // NewVersion creates a new ImageBuild derived from a parent, copying its spec with optional tag overrides.

@@ -69,6 +69,9 @@ type ImageExportService interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
+	// ListCompletedForBuild returns the most recently completed ImageExport for the given
+	// imageBuildRef and export format, or nil if none exists yet.
+	ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error)
 }
 
 // ImageExportDownload contains information for downloading an ImageExport artifact
@@ -1091,6 +1094,25 @@ func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId 
 
 func (s *imageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
 	return s.imageExportStore.UpdateLogs(ctx, orgId, name, logs)
+}
+
+func (s *imageExportService) ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{
+		"spec.source.imageBuildRef":      imageBuildRef,
+		"spec.format":                    string(format),
+		"status.conditions.ready.reason": string(domain.ImageExportConditionReasonCompleted),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build field selector: %w", err)
+	}
+	exports, err := s.imageExportStore.List(ctx, orgId, mainstore.ListParams{FieldSelector: fs, Limit: 1})
+	if err != nil {
+		return nil, err
+	}
+	if len(exports.Items) == 0 {
+		return nil, nil
+	}
+	return &exports.Items[0], nil
 }
 
 // GetLogs retrieves logs for an ImageExport

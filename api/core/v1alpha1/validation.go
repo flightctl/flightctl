@@ -142,7 +142,8 @@ func isValidCatalogItemArtifactType(t CatalogItemArtifactType) bool {
 		CatalogItemArtifactTypeVmdk,
 		CatalogItemArtifactTypeVhd,
 		CatalogItemArtifactTypeRaw,
-		CatalogItemArtifactTypeGce:
+		CatalogItemArtifactTypeGce,
+		CatalogItemArtifactTypeQcow2DiskContainer:
 		return true
 	default:
 		return false

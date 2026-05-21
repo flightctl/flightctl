@@ -113,6 +113,9 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if kind == ImageExportKind {
 		return o.runImageExportDelete(ctx, args, kind, name)
 	}
+	if kind == ImagePromotionKind {
+		return o.runImagePromotionDelete(ctx, args, kind, name)
+	}
 
 	c, err := o.BuildClient()
 	if err != nil {
@@ -213,6 +216,52 @@ func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *clien
 
 	for _, name := range names {
 		response, deleteErr := c.DeleteImageExportWithResponse(ctx, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
+}
+
+func (o *DeleteOptions) runImagePromotionDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+	ibClient.Start(ctx)
+	defer ibClient.Stop()
+
+	if len(args) == 1 {
+		response, err := ibClient.DeleteImagePromotionWithResponse(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, nil, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
+	}
+
+	names := args[1:]
+	return o.deleteMultipleImagePromotions(ctx, ibClient, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultipleImagePromotions(ctx context.Context, c *client.ImageBuilderClient, kind ResourceKind, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := c.DeleteImagePromotionWithResponse(ctx, name)
 
 		processErr := processDeletionReponse(response, deleteErr, kind, name)
 		if processErr != nil {

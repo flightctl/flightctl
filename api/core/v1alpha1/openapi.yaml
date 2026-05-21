@@ -1807,6 +1807,7 @@ components:
         - vhd
         - raw
         - gce
+        - qcow2-disk-container
       x-enum-varnames:
         - CatalogItemArtifactTypeContainer
         - CatalogItemArtifactTypeQcow2
@@ -1817,6 +1818,7 @@ components:
         - CatalogItemArtifactTypeVhd
         - CatalogItemArtifactTypeRaw
         - CatalogItemArtifactTypeGce
+        - CatalogItemArtifactTypeQcow2DiskContainer
     CatalogItemConfigurable:
       type: object
       description: 'Configuration fields that can be specified at item level (as defaults) and overridden at version level. Version-level values fully replace item-level values (not merged).'

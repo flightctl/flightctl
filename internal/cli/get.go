@@ -490,7 +490,7 @@ type SingleFetcher func(name string) (interface{}, error)
 
 // createFetchers returns the appropriate list and single fetchers based on the resource kind.
 func (o *GetOptions) createFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, func(), error) {
-	if kind == ImageBuildKind || kind == ImageExportKind {
+	if kind == ImageBuildKind || kind == ImageExportKind || kind == ImagePromotionKind {
 		return o.createImageBuilderFetchers(ctx, kind)
 	}
 	return o.createMainAPIFetchers(ctx, kind)
@@ -589,6 +589,33 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 		}
 		singleFetcher = func(name string) (interface{}, error) {
 			response, err := c.GetImageExportWithResponse(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+	case ImagePromotionKind:
+		listFetcher = func() (interface{}, error) {
+			params := &imagebuilderapi.ListImagePromotionsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			response, err := c.ListImagePromotionsWithResponse(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+		singleFetcher = func(name string) (interface{}, error) {
+			response, err := c.GetImagePromotionWithResponse(ctx, name)
 			if err != nil {
 				return nil, err
 			}

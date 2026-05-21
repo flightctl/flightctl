@@ -34,6 +34,7 @@ const (
 	FleetKind                     ResourceKind = "fleet"
 	ImageBuildKind                ResourceKind = "imagebuild"
 	ImageExportKind               ResourceKind = "imageexport"
+	ImagePromotionKind            ResourceKind = "imagepromotion"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
@@ -75,6 +76,7 @@ var (
 		FleetKind:                     {},
 		ImageBuildKind:                {},
 		ImageExportKind:               {},
+		ImagePromotionKind:            {},
 		OrganizationKind:              {},
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
@@ -95,6 +97,7 @@ var (
 		"fleets":                     FleetKind,
 		"imagebuilds":                ImageBuildKind,
 		"imageexports":               ImageExportKind,
+		"imagepromotions":            ImagePromotionKind,
 		"organizations":              OrganizationKind,
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
@@ -113,6 +116,7 @@ var (
 		FleetKind:                     "fleets",
 		ImageBuildKind:                "imagebuilds",
 		ImageExportKind:               "imageexports",
+		ImagePromotionKind:            "imagepromotions",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
@@ -131,6 +135,7 @@ var (
 		"flt":  FleetKind,
 		"ib":   ImageBuildKind,
 		"ie":   ImageExportKind,
+		"ip":   ImagePromotionKind,
 		"org":  OrganizationKind,
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,

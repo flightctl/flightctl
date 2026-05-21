@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -11,6 +15,28 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
+
+// safePathRecorder is a goroutine-safe recorder for HTTP request paths captured
+// by test servers running in their own goroutines.
+type safePathRecorder struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (r *safePathRecorder) append(p string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.paths = append(r.paths, p)
+}
+
+// get returns a copy of the recorded paths under lock.
+func (r *safePathRecorder) get() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.paths))
+	copy(out, r.paths)
+	return out
+}
 
 func verifyRepoPatchFailed(require *require.Assertions, status domain.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
@@ -868,7 +894,7 @@ func TestCheckRepositoryOciTagRejectsNonOciRepo(t *testing.T) {
 	})
 	require.Equal(int32(201), status.Code)
 
-	_, status = serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "git-repo", "quay.io/myorg/myimage", "latest")
+	_, status = serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "git-repo", "myorg/myimage", "latest")
 	require.Equal(int32(400), status.Code)
 }
 
@@ -928,6 +954,93 @@ func TestCheckRepositoryOciImageRejectsInvalidImageName(t *testing.T) {
 
 	_, status := serviceHandler.CheckRepositoryOciImage(ctx, store.NullOrgId, "any-repo", "quay.io/myorg/myimage:latest")
 	require.Equal(int32(400), status.Code)
+}
+
+// newOciTestServer starts an httptest.Server that records every request path and
+// returns 404 for all requests (simulating an unreachable image without crashing).
+func newOciTestServer(t *testing.T) (*httptest.Server, *safePathRecorder) {
+	t.Helper()
+	rec := &safePathRecorder{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.append(r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, rec
+}
+
+// createOciRepository creates an OCI repository in the service handler backed by the
+// given registry host and using plain HTTP (suitable for httptest.Server).
+func createOciRepository(t *testing.T, serviceHandler ServiceHandler, name, registry string) {
+	t.Helper()
+	require := require.New(t)
+	spec := domain.RepositorySpec{}
+	err := spec.FromOciRepoSpec(domain.OciRepoSpec{
+		Registry: registry,
+		Type:     domain.OciRepoSpecTypeOci,
+		Scheme:   lo.ToPtr(domain.OciRepoSchemeHttp),
+	})
+	require.NoError(err)
+	_, status := serviceHandler.CreateRepository(context.Background(), store.NullOrgId, domain.Repository{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec:     spec,
+	})
+	require.Equal(int32(201), status.Code)
+}
+
+func TestCheckRepositoryOciTagUsesRegistryFromSpec(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	srv, paths := newOciTestServer(t)
+	registry := strings.TrimPrefix(srv.URL, "http://")
+	createOciRepository(t, serviceHandler, "oci-repo", registry)
+
+	result, status := serviceHandler.CheckRepositoryOciTag(ctx, store.NullOrgId, "oci-repo", "myorg/myimage", "latest")
+
+	require.Equal(int32(200), status.Code)
+	require.NotNil(result)
+	require.False(result.Accessible)
+	// At least one request must have been directed to the test server and
+	// must include the imageName path segment — confirming the registry from
+	// the spec was prepended rather than parsed out of imageName.
+	recorded := paths.get()
+	require.NotEmpty(recorded, "expected ORAS to contact the registry from the spec")
+	found := false
+	for _, p := range recorded {
+		if strings.Contains(p, "myorg/myimage") {
+			found = true
+			break
+		}
+	}
+	require.True(found, "expected a request path containing 'myorg/myimage', got %v", recorded)
+}
+
+func TestCheckRepositoryOciImageUsesRegistryFromSpec(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	serviceHandler := createServiceHandler()
+
+	srv, paths := newOciTestServer(t)
+	registry := strings.TrimPrefix(srv.URL, "http://")
+	createOciRepository(t, serviceHandler, "oci-repo-2", registry)
+
+	result, status := serviceHandler.CheckRepositoryOciImage(ctx, store.NullOrgId, "oci-repo-2", "myorg/myimage")
+
+	require.Equal(int32(200), status.Code)
+	require.NotNil(result)
+	require.False(result.Accessible)
+	recorded := paths.get()
+	require.NotEmpty(recorded, "expected ORAS to contact the registry from the spec")
+	found := false
+	for _, p := range recorded {
+		if strings.Contains(p, "myorg/myimage") {
+			found = true
+			break
+		}
+	}
+	require.True(found, "expected a request path containing 'myorg/myimage', got %v", recorded)
 }
 
 func TestHttpRepositoryDelete(t *testing.T) {
