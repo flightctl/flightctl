@@ -111,9 +111,13 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render.
-		// Bypass for DependencyChangeDetected: standalone devices need to re-render
+		// Bypass for DependencyChangeDetected (standalone devices) and
+		// FleetRolloutDeviceSelected (fleet-owned devices): both need to re-render
 		// when external dependencies change even though the device spec is unchanged.
-		if t.event.Reason != domain.EventReasonDependencyChangeDetected {
+		// fleet-owned devices receive FleetRolloutDeviceSelected (not
+		// DependencyChangeDetected) after dependency sync triggers a new template version.
+		if t.event.Reason != domain.EventReasonDependencyChangeDetected &&
+			t.event.Reason != domain.EventReasonFleetRolloutDeviceSelected {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
 					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
