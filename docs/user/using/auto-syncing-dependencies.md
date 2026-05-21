@@ -1,10 +1,10 @@
 # Auto-syncing external dependencies
 
-Flight Control automatically monitors external configuration references (git repositories, HTTP endpoints, and Kubernetes secrets) for changes. When a referenced dependency changes upstream, affected devices are updated automatically through the standard rollout pipeline.
+Flight Control can detect changes in external configuration references — git repositories, HTTP endpoints, and Kubernetes secrets — and automatically roll out updates to affected devices when an upstream change occurs.
 
 ## How auto-sync works
 
-Any fleet or device that references an external config provider is automatically monitored for upstream changes. When a change is detected, fleet-owned devices receive a new template version and the rollout policy governs how the update reaches them. Standalone devices (not owned by a fleet) are re-rendered directly.
+When Flight Control detects an upstream change in an external config provider, fleet-owned devices receive a new template version and the rollout policy governs how the update reaches them. Standalone devices (not owned by a fleet) are re-rendered directly. The detection mechanism varies by source type — see [Setting up auto-sync for each source type](#setting-up-auto-sync-for-each-source-type) for details.
 
 Fleet templates can contain placeholders (for example, `{{ .metadata.labels.branch }}`) in fields such as git `targetRevision` or HTTP `suffix`. When placeholders are used, each device's resolved reference is tracked independently — only devices whose specific dependency changed receive an update.
 
@@ -16,7 +16,7 @@ Git-based config providers are monitored automatically. No additional setup is r
 
 ### HTTP endpoints
 
-HTTP config providers are monitored automatically. For best results, use an endpoint that returns **ETag** or **Last-Modified** response headers — this enables efficient change detection without downloading the full response body each cycle.
+Active change detection for HTTP config providers requires the endpoint to return **ETag** or **Last-Modified** response headers. When these headers are present, Flight Control probes the endpoint at each polling interval and triggers a rollout when a change is detected.
 
 To verify whether your endpoint supports these headers:
 
@@ -27,7 +27,7 @@ curl -I <endpoint-url>
 Look for `ETag` or `Last-Modified` in the response headers.
 
 > [!NOTE]
-> If the endpoint does not return ETag or Last-Modified headers, changes are still detected, but only passively — the next time the device re-renders for any reason (for example, another dependency changes or the fleet template is updated), the new content is picked up and reflected in the sync status.
+> Endpoints that do not return ETag or Last-Modified headers are **not actively monitored**. Changes to these endpoints are only detected passively — the next time a device re-renders for another reason (for example, a different dependency changes or the fleet template is updated), the full body is fetched, a `sha256` hash is computed, and the new fingerprint is reflected in the device's sync status.
 
 ### Kubernetes secrets
 
@@ -94,7 +94,7 @@ status:
 
 ## Configuring the polling interval
 
-Git and HTTP dependencies are checked at a configurable global polling interval. The default is 15 minutes.
+Git repositories and HTTP endpoints that support ETag or Last-Modified are checked at a configurable global polling interval. The default is 15 minutes.
 
 **For Helm deployments**, the polling interval is set in the service configuration that gets mounted into the `flightctl-periodic` pod. Edit the `periodic` section of the Helm-generated ConfigMap (typically `flightctl-periodic-config`) or add the setting to your values override that populates `service-config.yaml`:
 
