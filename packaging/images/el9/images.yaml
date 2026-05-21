@@ -41,11 +41,11 @@ imagebuilder-worker:
   image: quay.io/flightctl/flightctl-imagebuilder-worker-el9
   tag: latest
 grafana:
-  image: docker.io/grafana/grafana
-  tag: latest
+  image: quay.io/ceph/grafana
+  tag: "9.4.10"
 prometheus:
-  image: docker.io/prom/prometheus
-  tag: v2.13.1
+  image: quay.io/prometheus/prometheus
+  tag: "v2.43.1"
 telemetry-gateway:
   image: quay.io/flightctl/flightctl-telemetry-gateway-el9
   tag: latest
