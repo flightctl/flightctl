@@ -76,6 +76,79 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	assert.Contains(t, updates[0].Details, "has not been updated")
 }
 
+func TestComputeDeviceStatusChanges_OSImageChanged_EDM3986(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	tests := []struct {
+		name            string
+		oldDigest       string
+		newDigest       string
+		expectEvent     bool
+		expectedDetails string
+	}{
+		{
+			name:            "When initial OS image is reported it should emit event with 'Initial OS image detected' message",
+			oldDigest:       "",
+			newDigest:       "sha256:abc123",
+			expectEvent:     true,
+			expectedDetails: "Initial OS image detected: sha256:abc123",
+		},
+		{
+			name:            "When OS image changes it should emit event with from/to message",
+			oldDigest:       "sha256:old111",
+			newDigest:       "sha256:new222",
+			expectEvent:     true,
+			expectedDetails: "OS image changed from sha256:old111 to sha256:new222",
+		},
+		{
+			name:        "When OS image is unchanged it should not emit event",
+			oldDigest:   "sha256:same",
+			newDigest:   "sha256:same",
+			expectEvent: false,
+		},
+		{
+			name:        "When new digest is empty it should not emit event",
+			oldDigest:   "sha256:old",
+			newDigest:   "",
+			expectEvent: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldDevice := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-device")},
+				Status: &domain.DeviceStatus{
+					Os: domain.DeviceOsStatus{ImageDigest: tt.oldDigest},
+				},
+			}
+			newDevice := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-device")},
+				Status: &domain.DeviceStatus{
+					Os: domain.DeviceOsStatus{ImageDigest: tt.newDigest},
+				},
+			}
+
+			updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, nil)
+
+			var osImageEvents []ResourceUpdate
+			for _, u := range updates {
+				if u.Reason == domain.EventReasonDeviceOSImageChanged {
+					osImageEvents = append(osImageEvents, u)
+				}
+			}
+
+			if tt.expectEvent {
+				assert.Len(t, osImageEvents, 1)
+				assert.Equal(t, tt.expectedDetails, osImageEvents[0].Details)
+			} else {
+				assert.Empty(t, osImageEvents)
+			}
+		})
+	}
+}
+
 func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
