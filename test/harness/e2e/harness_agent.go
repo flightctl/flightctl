@@ -754,6 +754,17 @@ func (h *Harness) UnblockTrafficOnVM(ip, port string) error {
 	return err
 }
 
+// IsTrafficBlockedOnVM checks whether an iptables/ip6tables REJECT rule exists
+// for the given IP and port in the OUTPUT chain on the VM.
+func (h *Harness) IsTrafficBlockedOnVM(ip, port string) bool {
+	iptablesCmd := getIPTablesCommand(ip)
+
+	_, err := h.VM.RunSSH([]string{
+		"sudo", iptablesCmd, "-C", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+	}, nil)
+	return err == nil
+}
+
 func (h *Harness) IsAgentServiceRunning() bool {
 	output, err := h.VM.RunSSH([]string{
 		"sudo", "systemctl", "is-active", "flightctl-agent",

@@ -287,7 +287,9 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Expect(apiPort).ToNot(BeEmpty())
 
 			DeferCleanup(func() {
-				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				if harness.IsTrafficBlockedOnVM(apiIP, apiPort) {
+					_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				}
 			})
 
 			By("Blocking this worker VM from reaching the API during the renewal window")
@@ -382,7 +384,9 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic to prevent CSR submission")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				if harness.IsTrafficBlockedOnVM(apiIP, apiPort) {
+					_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				}
 			})
 
 			By("Verifying iptables block is effective")
@@ -466,7 +470,9 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic on the VM")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				if harness.IsTrafficBlockedOnVM(apiIP, apiPort) {
+					_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				}
 			})
 
 			By("Waiting for renewal failure indicators in metrics")
@@ -576,7 +582,9 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			By("Blocking agent→API traffic to cause renewal failures")
 			harness.BlockTrafficOnVM(apiIP, apiPort)
 			DeferCleanup(func() {
-				_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				if harness.IsTrafficBlockedOnVM(apiIP, apiPort) {
+					_ = harness.UnblockTrafficOnVM(apiIP, apiPort)
+				}
 			})
 
 			By("Verifying agent service remains running while blocked")
