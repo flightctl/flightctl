@@ -522,9 +522,17 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
-# Disable bootc automatic updates on bootc systems (flightctl manages updates)
-# Only masks the timer if it exists; silently succeeds otherwise
-systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
+# Disable bootc automatic updates on bootc systems (flightctl manages updates).
+# Mask when the unit is present. systemctl mask --now may exit non-zero in image
+# build chroots (no running systemd) but usually still creates the symlink; the
+# ln -sf fallback ensures bootc e2e images and offline installs are covered.
+if systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | grep -q '^bootc-fetch-apply-updates.timer'; then
+    systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
+    mkdir -p /etc/systemd/system
+    if [ ! -e /etc/systemd/system/bootc-fetch-apply-updates.timer ]; then
+        ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
+    fi
+fi
 
 %postun agent
 # Restore bootc automatic-update timer only on full removal (not upgrade)
