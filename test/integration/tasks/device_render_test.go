@@ -728,4 +728,116 @@ var _ = Describe("DeviceRender", func() {
 			}
 		})
 	})
+
+	Context("spec-hash bypass for fleet rollout events", func() {
+		// The spec-hash optimization at device_render.go:116 fires before config
+		// rendering begins, so it blocks ALL config provider types (git, HTTP, and
+		// K8s secrets) equally. We use K8s secrets here because mockK8sClient is
+		// available without needing external infrastructure.
+		It("When a fleet-owned device receives FleetRolloutDeviceSelected after initial render it should re-render", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "fleet-secret"}
+			k8sConfig.SecretRef.Name = "my-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := &api.Fleet{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
+					Template: struct {
+						Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+						Spec     api.DeviceSpec  `json:"spec"`
+					}{
+						Spec: api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+					},
+				},
+			}
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "v1", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "v1-abc12345", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fleet-rollout-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name:  lo.ToPtr(testDeviceName),
+					Owner: lo.ToPtr("Fleet/" + fleetName),
+				},
+				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			// First render: ResourceCreated — should succeed (no hash stored yet)
+			firstEvent := api.Event{
+				Reason:         api.EventReasonResourceCreated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			annotations := map[string]string{
+				api.DeviceAnnotationTemplateVersion: "v1",
+			}
+			status := serviceHandler.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify renderedVersion was set (render completed)
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			firstRenderedVersion := ""
+			if device.Metadata.Annotations != nil {
+				firstRenderedVersion = (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]
+			}
+			Expect(firstRenderedVersion).To(Equal("1"), "First render should set renderedVersion to 1")
+
+			// Verify the spec hash is now stored
+			specHash := (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedSpecHash]
+			Expect(specHash).ToNot(BeEmpty(), "Spec hash should be stored after first render")
+
+			// Simulate dependency-change rollout: update templateVersion annotation
+			// to a new version (as fleet_rollout.go would do)
+			annotations = map[string]string{
+				api.DeviceAnnotationTemplateVersion: "v1-abc12345",
+			}
+			status = serviceHandler.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			// Second render: FleetRolloutDeviceSelected — previously skipped because
+			// the spec hash hadn't changed and the bypass only covered
+			// DependencyChangeDetected.
+			secondEvent := api.Event{
+				Reason:         api.EventReasonFleetRolloutDeviceSelected,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, secondEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify rendering proceeded by checking that dependencySync fingerprints
+			// were written for the new template version. If the render was skipped
+			// (the bug), no fingerprints would be stored.
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil(),
+				"Fleet-owned device should re-render on FleetRolloutDeviceSelected even when spec hash is unchanged")
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("fleet-secret"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
+		})
+	})
 })
