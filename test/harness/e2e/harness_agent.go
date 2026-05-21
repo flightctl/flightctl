@@ -744,13 +744,14 @@ func (h *Harness) BlockTrafficOnVM(ip, port string) {
 }
 
 // UnblockTrafficOnVM removes the iptables/ip6tables rule on the VM that blocks TCP
-// traffic to the specified IP and port. Silently ignores errors.
-func (h *Harness) UnblockTrafficOnVM(ip, port string) {
+// traffic to the specified IP and port. Returns an error if the rule could not be removed.
+func (h *Harness) UnblockTrafficOnVM(ip, port string) error {
 	iptablesCmd := getIPTablesCommand(ip)
 
-	_, _ = h.VM.RunSSH([]string{
+	_, err := h.VM.RunSSH([]string{
 		"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
 	}, nil)
+	return err
 }
 
 func (h *Harness) IsAgentServiceRunning() bool {
