@@ -227,6 +227,8 @@ scripts/air-gap/mirror-images/
 | `CHART_YAML` | `deploy/helm/flightctl/Chart.yaml` |
 | `OBS_IMAGES_EL9` | `packaging/images/el9/images.yaml` |
 | `OBS_IMAGES_EL10` | `packaging/images/el10/images.yaml` |
+| `OBS_IMAGES_RHEL9` | `packaging/images/rhel9/images.yaml` |
+| `OBS_IMAGES_RHEL10` | `packaging/images/rhel10/images.yaml` |
 | `RPM_SPEC` | `packaging/rpm/flightctl.spec` |
 
 ### parser.go — YAML input parsing

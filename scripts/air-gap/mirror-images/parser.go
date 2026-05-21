@@ -128,28 +128,37 @@ func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
 // ParseObsImages  (EDM-3959)
 // -----------------------------------------------------------------------------
 
-// ParseObsImages reads the observability images file for the given variant.
+// ParseObsImages reads the RPM-only images file for the given variant.
 //
-// Observability images (grafana, prometheus, alertmanager, etc.) are installed
-// by the flightctl-observability RPM and are NOT listed in helm-chart-opts.yaml.
-// The correct file is chosen based on the OS version in the variant name:
-//   - *el9* variants → packaging/images/el9/images.yaml
-//   - *el10* variants → packaging/images/el10/images.yaml
+// These images are installed by flightctl RPMs and are NOT listed in
+// helm-chart-opts.yaml (e.g. pam-issuer, userinfo-proxy, grafana, prometheus).
+// The correct file is chosen from four options based on both the distribution
+// (community vs redhat) and the OS version (el9 vs el10) in the variant name:
+//
+//   - community-el9  → packaging/images/el9/images.yaml
+//   - community-el10 → packaging/images/el10/images.yaml
+//   - redhat-el9     → packaging/images/rhel9/images.yaml
+//   - redhat-el10    → packaging/images/rhel10/images.yaml
 //
 // A missing file is treated as a non-fatal warning so the tool can still emit
-// helm-chart-opts images even when the observability file is absent.
-func ParseObsImages(el9Path, el10Path, variant string) ([]ImagePair, error) {
-	// Select file based on OS version embedded in the variant name
-	path := el9Path
-	if strings.Contains(variant, "el10") {
-		path = el10Path
+// helm-chart-opts images even when the RPM images file is absent.
+func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant string) ([]ImagePair, error) {
+	isRedhat := strings.Contains(variant, "redhat")
+	isEl10 := strings.Contains(variant, "el10")
+
+	var path, label string
+	switch {
+	case isRedhat && isEl10:
+		path, label = rhel10Path, "rhel10"
+	case isRedhat:
+		path, label = rhel9Path, "rhel9"
+	case isEl10:
+		path, label = el10Path, "el10"
+	default:
+		path, label = el9Path, "el9"
 	}
 
-	osVersion := "el9"
-	if strings.Contains(variant, "el10") {
-		osVersion = "el10"
-	}
-	logInfo("Parsing observability images from %s/images.yaml...", osVersion)
+	logInfo("Parsing RPM-only images from %s/images.yaml...", label)
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

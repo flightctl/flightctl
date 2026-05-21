@@ -146,6 +146,8 @@ Examples:
 			chartYAMLPath := envOr("CHART_YAML", filepath.Join(root, "deploy/helm/flightctl/Chart.yaml"))
 			obsEl9Path := envOr("OBS_IMAGES_EL9", filepath.Join(root, "packaging/images/el9/images.yaml"))
 			obsEl10Path := envOr("OBS_IMAGES_EL10", filepath.Join(root, "packaging/images/el10/images.yaml"))
+			obsRhel9Path := envOr("OBS_IMAGES_RHEL9", filepath.Join(root, "packaging/images/rhel9/images.yaml"))
+			obsRhel10Path := envOr("OBS_IMAGES_RHEL10", filepath.Join(root, "packaging/images/rhel10/images.yaml"))
 			rpmSpecPath := envOr("RPM_SPEC", filepath.Join(root, "packaging/rpm/flightctl.spec"))
 
 			// Verify required files exist before doing any work
@@ -196,7 +198,7 @@ Examples:
 				return fmt.Errorf("parse helm-chart-opts: %w", err)
 			}
 
-			obsPairs, err := ParseObsImages(obsEl9Path, obsEl10Path, variant)
+			obsPairs, err := ParseObsImages(obsEl9Path, obsEl10Path, obsRhel9Path, obsRhel10Path, variant)
 			if err != nil {
 				return fmt.Errorf("parse observability images: %w", err)
 			}
