@@ -1,9 +1,0 @@
-# Minimal observability images fixture for el10.
-# Used by the community-el10 and redhat-el10 variants (not present in helm-chart-opts fixture,
-# but the el10 observability path is still exercised in isolation tests).
-api:
-  image: quay.io/flightctl/flightctl-api-el10
-  tag: latest
-grafana:
-  image: docker.io/grafana/grafana
-  tag: "11.0.0"

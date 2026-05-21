@@ -1,22 +1,15 @@
-# Air-gap Image Mirroring
+# Air-gap Image Mirroring — `mirror-images`
 
 Enumerates all RHEM container images for a given deployment variant and
 generates `skopeo copy` commands ready to run against a local registry in an
 air-gapped environment.
 
-Two implementations are available and produce identical output:
-
-| Implementation | Path | Requirements |
-|---------------|------|-------------|
-| **Go tool** (recommended) | `scripts/air-gap/mirror-images/` | Go 1.24+ or `make build-mirror-images` |
-| Bash script | `scripts/air-gap/mirror-images.sh` | `yq` v4+ (mikefarah) |
-
 Related Jira stories: **EDM-3957** (CLI scaffold), **EDM-3958** (helm-chart-opts parsing),
-**EDM-3959** (observability images), **EDM-3960** (artifact manifest).
+**EDM-3959** (RPM-only images), **EDM-3960** (artifact manifest).
 
 ---
 
-## Quick start (Go tool)
+## Quick start
 
 ```bash
 # Build
@@ -33,38 +26,14 @@ make build-mirror-images
 
 ## Prerequisites
 
-### Go tool
-
 | Tool | When required |
 |------|--------------|
 | Go 1.24+ (or `podman`) | Build time only |
 | `skopeo` | Only when using `--execute` |
 
-### Bash script
-
-| Tool | Version | Required for |
-|------|---------|-------------|
-| `yq` (mikefarah) | v4+ | YAML parsing — always required |
-| `skopeo` | any | Only when using `--execute` |
-
-Install `yq` on a connected RHEL system:
-
-```bash
-dnf install yq
-```
-
-Or download the binary (no root required):
-
-```bash
-curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
-    -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
-```
-
 ---
 
 ## Usage
-
-Both implementations accept the same flags.
 
 ```
 mirror-images --variant <variant> --dest-registry <host:port> [OPTIONS]
@@ -90,22 +59,16 @@ mirror-images --variant <variant> --dest-registry <host:port> [OPTIONS]
 |---------------|---------|
 | `stdout` | One `skopeo copy` command per image — pipe-safe, no log noise |
 | `stderr` | Progress logs (`[INFO]`, `[WARN]`, `[ERROR]`) |
-| `artifact-manifest-<variant>.yaml` | Machine-readable manifest listing all images, RPM dependencies, and reserved catalog fields |
+| `artifact-manifest-<variant>.yaml` | Machine-readable manifest listing all images and RPM dependencies |
 
 ---
 
 ## Examples
 
-### 1 — Dry-run: print all mirror commands for the community (upstream) RHEL 9 variant
+### 1 — Dry-run: print all mirror commands
 
 ```bash
-# Go tool
 ./bin/mirror-images \
-    --variant community-el9 \
-    --dest-registry local-registry.example.com:5000
-
-# Bash script
-./scripts/air-gap/mirror-images.sh \
     --variant community-el9 \
     --dest-registry local-registry.example.com:5000
 ```
@@ -170,17 +133,17 @@ yq e '.rpms[]' artifact-manifest-community-el9.yaml
 
 ## Image sources
 
-Both implementations pull image references from the same two YAML files:
+The tool reads image references from two sources per run:
 
 | Source | Path | Content |
 |--------|------|---------|
-| Helm chart options | `deploy/helm/helm-chart-opts.yaml` | All FlightControl component images, keyed by variant |
+| Helm chart options | `deploy/helm/helm-chart-opts.yaml` | All FlightControl Helm component images, keyed by variant |
 | RPM-only images (community-el9) | `packaging/images/el9/images.yaml` | Images installed by flightctl RPMs that are **not** in the Helm chart (pam-issuer, userinfo-proxy, grafana, prometheus) — community registry sources |
 | RPM-only images (community-el10) | `packaging/images/el10/images.yaml` | Same set of RPM-only images for the el10 community variant |
 | RPM-only images (redhat-el9) | `packaging/images/rhel9/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el9 variant |
 | RPM-only images (redhat-el10) | `packaging/images/rhel10/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el10 variant |
 
-The tool selects exactly one RPM images file per run based on the variant. Images that appear in both the Helm chart options and the RPM images file with the same `image:tag` are deduplicated — each unique source reference appears exactly once in the output.
+The tool selects exactly one RPM images file per run based on the variant. Images that appear in both sources with the same `image:tag` are deduplicated — each unique source reference appears exactly once in the output.
 
 ### Tag fallback
 
@@ -199,21 +162,21 @@ For Red Hat variants, the connected preparation system needs valid credentials f
 
 ---
 
-## Go tool — code walkthrough
+## Code walkthrough
 
-The Go tool lives at `scripts/air-gap/mirror-images/` and is organized into four files:
+The tool lives at `scripts/air-gap/mirror-images/` and is organized into four files:
 
 ```
 scripts/air-gap/mirror-images/
 ├── main.go      — CLI entry point, flag validation, workflow orchestration
-├── parser.go    — YAML parsing for all four input files
+├── parser.go    — YAML parsing for all input files
 ├── mirror.go    — image deduplication, destination path calculation, skopeo execution
 └── manifest.go  — artifact manifest YAML generation
 ```
 
 ### main.go — entry point and orchestration
 
-`main.go` wires up the [cobra](https://github.com/spf13/cobra) CLI and drives the six-step workflow in `RunE`:
+Wires up the [cobra](https://github.com/spf13/cobra) CLI and drives the six-step workflow in `RunE`:
 
 1. Validate `--variant` and `--dest-registry` flags.
 2. Resolve input file paths (supports env var overrides for testing).
@@ -222,7 +185,7 @@ scripts/air-gap/mirror-images/
 5. Deduplicate and call `GenerateCommands` (print + optionally execute skopeo).
 6. Call `WriteManifest` to write `artifact-manifest-<variant>.yaml`.
 
-**Path resolution** — the binary is expected to live in `bin/`, one level below the repo root. `repoRoot()` walks up with `os.Executable()` + `filepath.EvalSymlinks` so paths resolve correctly regardless of where you invoke the binary. Every path also supports an environment variable override:
+**Path resolution** — the binary is expected to live in `bin/`, one level below the repo root. `repoRoot()` walks up with `os.Executable()` + `filepath.EvalSymlinks`. Every path also supports an environment variable override for test isolation:
 
 | Env var | Default path |
 |---------|-------------|
@@ -236,7 +199,7 @@ scripts/air-gap/mirror-images/
 
 ### parser.go — YAML input parsing
 
-Parses four different YAML files into typed Go structs. No `yq` dependency.
+Parses four different YAML files into typed Go structs. No external YAML tool dependency.
 
 **`ReadAppVersion(path)`**
 Reads `appVersion` from `deploy/helm/flightctl/Chart.yaml`. Warns to stderr if the value is `"latest"` (non-reproducible).
@@ -284,7 +247,7 @@ type ImagePair struct {
 ```
 
 **`ImageToDest(image, tag)`**
-Strips the source registry hostname (everything up to the first `/`) and prepends `destRegistry`. The package-level `var destRegistry string` (set in `main.go`'s `RunE`) makes the signature simple and mirrors the bash script's global `$DEST_REGISTRY`.
+Strips the source registry hostname (everything up to the first `/`) and prepends `destRegistry`:
 
 ```
 "quay.io/flightctl/flightctl-api-el9" + "latest"
@@ -292,10 +255,10 @@ Strips the source registry hostname (everything up to the first `/`) and prepend
 ```
 
 **`Dedup(pairs)`**
-Removes `ImagePair` entries with duplicate `Source` values using a `map[string]struct{}` seen-set, preserving first-occurrence order.
+Removes `ImagePair` entries with duplicate `Source` values, preserving first-occurrence order.
 
 **`GenerateCommands(ctx, pairs, execute, exec)`**
-Prints one `skopeo copy --all docker://src docker://dst` line per pair to **stdout** (pipe-safe). All progress logs go to **stderr**. When `execute` is true, runs each command via `exec.ExecuteWithContext`. Skopeo failures are non-fatal — the loop logs a warning and continues so one unavailable image does not abort an entire mirror run.
+Prints one `skopeo copy --all docker://src docker://dst` line per pair to **stdout** (pipe-safe). All progress logs go to **stderr**. When `execute` is true, runs each command via `exec.ExecuteWithContext`. All images are attempted even when one fails so the operator gets a complete list of failures; if any copy fails, a summary error is returned after the loop so the process exits non-zero.
 
 ### manifest.go — artifact manifest output
 
@@ -321,11 +284,11 @@ catalogs: []  # reserved for future use
 ```
 
 **`buildRPMList(specRPMs)`**
-Prepends five well-known top-level packages (`flightctl-cli`, `flightctl-agent`, `flightctl-selinux`, `flightctl-services`, `flightctl-observability`) that are not listed as `Requires:` of themselves in the spec file, then appends the transitive runtime dependencies parsed from the spec, skipping duplicates.
+Prepends five well-known top-level packages (`flightctl-cli`, `flightctl-agent`, `flightctl-selinux`, `flightctl-services`, `flightctl-observability`) then appends the transitive runtime dependencies parsed from the spec, skipping duplicates.
 
 ---
 
-## Building the Go tool
+## Building
 
 ```bash
 # Via make (recommended — respects GOENV, GOOS, GOARCH, GO_BUILD_FLAGS)
@@ -344,165 +307,74 @@ podman run --rm \
 
 ---
 
-## Testing the Go tool
+## Testing
 
-The Go tool's testability relies on the same env var path overrides used by the bash script's unit tests. Set the env vars to point at the fixture files under `scripts/air-gap/test/fixtures/` to run the tool without touching real repo files.
-
-### Manual smoke test
+### Smoke test — all four variants
 
 ```bash
-# Build
 make build-mirror-images
 
 # 1. Help text
 ./bin/mirror-images --help
 
-# 2. Dry-run — stdout must contain only skopeo commands
-./bin/mirror-images \
-    --variant community-el9 \
-    --dest-registry localhost:5000
-
-# 3. Stdout cleanliness — should produce no output (no [INFO]/[WARN] lines on stdout)
-./bin/mirror-images \
-    --variant community-el9 \
-    --dest-registry localhost:5000 2>/dev/null \
-    | grep -v "^skopeo"
-
-# 4. Image count per variant (counts may change as the chart evolves)
+# 2. Image count per variant
 for v in community-el9 community-el10 redhat-el9 redhat-el10; do
     n=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null | wc -l)
     echo "$v: $n images"
 done
 
-# 5. Community variants must NOT include registry.redhat.io sources
+# 3. Community variants must NOT include registry.redhat.io sources
 for v in community-el9 community-el10; do
     hits=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
-           | grep "registry.redhat.io" | wc -l)
+           | grep -c "registry.redhat.io" || true)
     echo "$v: $hits registry.redhat.io sources (expect 0)"
 done
 
-# 6. Redhat variants must NOT include quay.io or docker.io sources
+# 4. Redhat variants must NOT include quay.io or docker.io sources
 for v in redhat-el9 redhat-el10; do
     hits=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
-           | grep -E "quay\.io|docker\.io" | wc -l)
+           | grep -cE "quay\.io|docker\.io" || true)
     echo "$v: $hits quay.io/docker.io sources (expect 0)"
 done
 
-# 7. Redhat variants must include the 4 RPM-only downstream images
+# 5. Redhat variants must include the 4 RPM-only downstream images
 for v in redhat-el9 redhat-el10; do
     echo "=== $v RPM-only images ==="
     ./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
         | grep -E "pam-issuer|userinfo|grafana|prometheus"
 done
 
-# 8. Invalid variant exits 1
-./bin/mirror-images --variant bad --dest-registry localhost:5000; echo "exit: $?"
+# 6. Stdout is clean — no [INFO]/[WARN] lines mixed in
+dirty=$(./bin/mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
+        | grep -cE "^\[INFO\]|^\[WARN\]|^\[ERROR\]" || true)
+echo "Dirty stdout lines: $dirty (expect 0)"
 
-# 9. URL scheme in --dest-registry is rejected
-./bin/mirror-images --variant community-el9 --dest-registry https://localhost:5000; echo "exit: $?"
+# 7. Invalid variant exits 1
+./bin/mirror-images --variant bad --dest-registry localhost:5000 2>&1; echo "exit: $?"
+
+# 8. URL scheme rejected
+./bin/mirror-images --variant community-el9 --dest-registry https://localhost:5000 2>&1; echo "exit: $?"
 ```
 
-### Fixture-based test (isolated from real repo files)
+### Fixture-based isolated test
+
+Override the path env vars to point at minimal fixture files so the tool runs without touching live repo files:
 
 ```bash
 export HELM_CHART_OPTS=scripts/air-gap/test/fixtures/helm-chart-opts.yaml
 export CHART_YAML=scripts/air-gap/test/fixtures/Chart.yaml
 export OBS_IMAGES_EL9=scripts/air-gap/test/fixtures/images-el9.yaml
 export OBS_IMAGES_EL10=scripts/air-gap/test/fixtures/images-el10.yaml
-export RPM_SPEC=/dev/null   # no RPM parsing needed for image tests
+export OBS_IMAGES_RHEL9=scripts/air-gap/test/fixtures/images-rhel9.yaml
+export OBS_IMAGES_RHEL10=scripts/air-gap/test/fixtures/images-rhel10.yaml
+export RPM_SPEC=/dev/null
 
 ./bin/mirror-images --variant community-el9 --dest-registry localhost:5000
 ```
 
-The fixture `Chart.yaml` pins `appVersion: "v0.99.0-test"` so tagless images resolve deterministically in tests.
-
----
-
-## Testing the Bash script
-
-Tests use [bats-core](https://github.com/bats-core/bats-core) and `yq`. Both must be available before running.
-
-### Install bats (no root required)
-
-```bash
-git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats-core
-export PATH="/tmp/bats-core/bin:${PATH}"
-bats --version   # should print "Bats 1.x.x"
-```
-
-### Run all tests
-
-```bash
-# From the repository root:
-bats scripts/air-gap/test/mirror-images.bats
-```
-
-Expected output:
-
-```
-1..33
-ok 1 [unit] --help prints usage and exits 0
-ok 2 [unit] missing --variant exits non-zero with error message
-...
-ok 33 [integration] stdout is clean — no [INFO]/[WARN]/[ERROR] lines mixed in
-```
-
-### Run only unit tests (no live registry needed)
-
-```bash
-bats --filter unit scripts/air-gap/test/mirror-images.bats
-```
-
-### Run only integration tests (use the real repo YAML files)
-
-```bash
-bats --filter integration scripts/air-gap/test/mirror-images.bats
-```
-
-Integration tests are skipped automatically if `deploy/helm/helm-chart-opts.yaml` is absent (e.g., a shallow clone).
-
-### Test structure
-
-```
-scripts/air-gap/
-├── mirror-images.sh             # Production bash script
-├── mirror-images/               # Go tool (drop-in replacement)
-│   ├── main.go
-│   ├── parser.go
-│   ├── mirror.go
-│   └── manifest.go
-└── test/
-    ├── fixtures/
-    │   ├── helm-chart-opts.yaml # Minimal variant fixture (community-el9, redhat-el9)
-    │   ├── images-el9.yaml      # Minimal observability fixture for el9
-    │   ├── images-el10.yaml     # Minimal observability fixture for el10
-    │   └── Chart.yaml           # Fixture with appVersion: v0.99.0-test
-    └── mirror-images.bats       # 28 unit tests + 5 integration tests
-```
-
-Unit tests source the bash script (the `BASH_SOURCE` guard prevents `main` from running) and
-override path constants via environment variables — no repository files are touched.
-
-### What is tested (bash script)
-
-| Category | What is covered |
-|----------|----------------|
-| CLI / arg parsing | `--help`, missing flags, invalid variant, all four valid variants |
-| `get_app_version` | Reads `appVersion` from fixture Chart.yaml; fails on missing file |
-| `parse_helm_chart_opts` | Explicit tags, `appVersion` fallback, variant filtering, missing-file error |
-| `image_to_dest` | Registry stripping, single-component paths, multi-component paths |
-| `parse_observability_images` | el9/el10 file selection, line count, missing-file warning |
-| Deduplication | Overlapping images across sources; identical source:tag pairs collapsed to one line |
-| Skopeo format | `--all` flag, `docker://` transport, destination registry in every dest field |
-| Artifact manifest | File created, top-level keys present, variant matches flag, image count consistent |
-| Integration | Real `helm-chart-opts.yaml`, `registry.redhat.io` sources, stdout cleanliness |
-
 ---
 
 ## Troubleshooting
-
-**`yq is required but not installed`** (bash script only)
-Install `yq` v4 (mikefarah) — see [Prerequisites](#prerequisites).
 
 **`required file not found: deploy/helm/helm-chart-opts.yaml`**
 Run the tool from the flightctl repository root, or run `git pull` to fetch the latest files.
@@ -515,3 +387,6 @@ Log in first: `podman login registry.redhat.io` or configure a pull secret for `
 
 **`appVersion is 'latest'` warning**
 The repo is not on a release tag. Mirror commands will use `:latest` for untagged images, which may not be reproducible. Check out a release tag for a pinned manifest.
+
+**`N image(s) failed to copy` error**
+One or more `skopeo copy` commands exited non-zero. The tool attempts all images before reporting — check the `[ERROR]` lines on stderr to identify which images failed and why.

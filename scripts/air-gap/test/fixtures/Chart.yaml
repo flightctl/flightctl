@@ -1,6 +1,0 @@
-# Minimal Chart.yaml fixture.
-# The script reads only the 'appVersion' field; everything else is ignored.
-apiVersion: v2
-name: flightctl
-version: 0.1.0
-appVersion: "v0.99.0-test"

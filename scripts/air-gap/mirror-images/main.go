@@ -239,8 +239,7 @@ Examples:
 		},
 	}
 
-	// Register flags — these are the same flags as mirror-images.sh for a
-	// drop-in replacement experience.
+	// Register flags.
 	cmd.Flags().StringVar(&variant, "variant", "", "Chart variant (community-el9 | community-el10 | redhat-el9 | redhat-el10)")
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
