@@ -64,11 +64,14 @@ func Dedup(pairs []ImagePair) []ImagePair {
 // stdout carries only the skopeo commands (pipe-safe); all progress logs go to
 // stderr via logInfo/logWarn/logError so they do not pollute captured output.
 //
-// Skopeo failures are non-fatal: a failure is logged and the loop continues so
-// that one unavailable image does not abort an entire mirror run.
+// All images are attempted even when one fails so the operator gets a complete
+// picture of what succeeded and what did not.  If any copy fails, an error is
+// returned after the loop so callers (and CI) receive a non-zero exit code.
 func GenerateCommands(ctx context.Context, pairs []ImagePair, execute bool, exec executer.Executer) error {
 	logInfo("Generating skopeo copy commands...")
 	logInfo("Total unique images to mirror: %d", len(pairs))
+
+	var failed []string
 
 	for _, p := range pairs {
 		// Always print the command — this is the dry-run output and lets users
@@ -90,11 +93,14 @@ func GenerateCommands(ctx context.Context, pairs []ImagePair, execute bool, exec
 			"docker://"+p.Dest,
 		)
 		if exitCode != 0 {
-			// Non-fatal: log the failure and continue with remaining images.
-			logWarn("skopeo copy failed for %s (exit %d): %s — continuing", p.Source, exitCode, strings.TrimSpace(stderr))
+			logError("skopeo copy failed for %s (exit %d): %s — continuing", p.Source, exitCode, strings.TrimSpace(stderr))
+			failed = append(failed, p.Source)
 		}
 	}
 
+	if len(failed) > 0 {
+		return fmt.Errorf("%d image(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
+	}
 	return nil
 }
 
