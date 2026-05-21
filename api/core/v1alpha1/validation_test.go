@@ -1517,6 +1517,13 @@ func TestValidateArtifactTypeValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid artifact type qcow2-disk-container",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2DiskContainer, Uri: "quay.io/example/app-qcow2-disk"},
+			},
+			wantErr: false,
+		},
+		{
 			name: "invalid artifact type",
 			artifacts: []CatalogItemArtifact{
 				{Type: CatalogItemArtifactType("invalid-type"), Uri: "quay.io/example/app"},

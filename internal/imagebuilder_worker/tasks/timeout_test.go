@@ -44,6 +44,10 @@ func (m *mockImageBuilderService) ImageExport() imagebuilderapi.ImageExportServi
 	return &mockImageExportService{parent: m}
 }
 
+func (m *mockImageBuilderService) ImagePromotion() imagebuilderapi.ImagePromotionService {
+	return nil
+}
+
 type mockImageBuildService struct {
 	parent *mockImageBuilderService
 }
@@ -275,6 +279,10 @@ func (m *mockImageExportService) CancelWithReason(ctx context.Context, orgId uui
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (m *mockImageExportService) ListCompletedForBuild(_ context.Context, _ uuid.UUID, _ string, _ apiimagebuilder.ExportFormatType) (*apiimagebuilder.ImageExport, error) {
+	return nil, nil
 }
 
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {

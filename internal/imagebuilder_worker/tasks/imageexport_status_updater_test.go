@@ -94,6 +94,10 @@ func (m *mockImageExportServiceForStatusUpdater) UpdateLastSeen(ctx context.Cont
 	return nil
 }
 
+func (m *mockImageExportServiceForStatusUpdater) ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format api.ExportFormatType) (*api.ImageExport, error) {
+	return nil, nil
+}
+
 func (m *mockImageExportServiceForStatusUpdater) getCallsCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

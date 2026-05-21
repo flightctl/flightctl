@@ -11,15 +11,16 @@ import (
 
 // Defines values for CatalogItemArtifactType.
 const (
-	CatalogItemArtifactTypeAmi         CatalogItemArtifactType = "ami"
-	CatalogItemArtifactTypeAnacondaIso CatalogItemArtifactType = "anaconda-iso"
-	CatalogItemArtifactTypeContainer   CatalogItemArtifactType = "container"
-	CatalogItemArtifactTypeGce         CatalogItemArtifactType = "gce"
-	CatalogItemArtifactTypeIso         CatalogItemArtifactType = "iso"
-	CatalogItemArtifactTypeQcow2       CatalogItemArtifactType = "qcow2"
-	CatalogItemArtifactTypeRaw         CatalogItemArtifactType = "raw"
-	CatalogItemArtifactTypeVhd         CatalogItemArtifactType = "vhd"
-	CatalogItemArtifactTypeVmdk        CatalogItemArtifactType = "vmdk"
+	CatalogItemArtifactTypeAmi                CatalogItemArtifactType = "ami"
+	CatalogItemArtifactTypeAnacondaIso        CatalogItemArtifactType = "anaconda-iso"
+	CatalogItemArtifactTypeContainer          CatalogItemArtifactType = "container"
+	CatalogItemArtifactTypeGce                CatalogItemArtifactType = "gce"
+	CatalogItemArtifactTypeIso                CatalogItemArtifactType = "iso"
+	CatalogItemArtifactTypeQcow2              CatalogItemArtifactType = "qcow2"
+	CatalogItemArtifactTypeQcow2DiskContainer CatalogItemArtifactType = "qcow2-disk-container"
+	CatalogItemArtifactTypeRaw                CatalogItemArtifactType = "raw"
+	CatalogItemArtifactTypeVhd                CatalogItemArtifactType = "vhd"
+	CatalogItemArtifactTypeVmdk               CatalogItemArtifactType = "vmdk"
 )
 
 // Defines values for CatalogItemCategory.

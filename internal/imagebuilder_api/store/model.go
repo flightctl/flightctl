@@ -20,6 +20,9 @@ var _ model.ResourceInterface = (*ImageBuild)(nil)
 // Compile-time check that ImageExport implements model.ResourceInterface
 var _ model.ResourceInterface = (*ImageExport)(nil)
 
+// Compile-time check that ImagePromotion implements model.ResourceInterface
+var _ model.ResourceInterface = (*ImagePromotion)(nil)
+
 type ImageBuild struct {
 	model.Resource
 
@@ -346,6 +349,7 @@ var imageBuildStatusSelectors = map[selector.SelectorName]selector.SelectorType{
 // Field selector support for ImageExport
 var imageExportSpecSelectors = map[selector.SelectorName]selector.SelectorType{
 	selector.NewSelectorName("spec.source.imageBuildRef"): selector.String,
+	selector.NewSelectorName("spec.format"):               selector.String,
 }
 
 var imageExportStatusSelectors = map[selector.SelectorName]selector.SelectorType{
@@ -447,6 +451,175 @@ func makeImageBuildStatusJSONBSelectorField(selectorName selector.SelectorName, 
 		}, nil
 	}
 	return nil, fmt.Errorf("unsupported status selector: %s", selectorStr)
+}
+
+// ImagePromotion model
+
+type ImagePromotion struct {
+	model.Resource
+
+	// The desired state, stored as opaque JSON object.
+	Spec *model.JSONField[domain.ImagePromotionSpec] `gorm:"type:jsonb"`
+
+	// The last reported state, stored as opaque JSON object.
+	Status *model.JSONField[domain.ImagePromotionStatus] `gorm:"type:jsonb"`
+}
+
+func (i ImagePromotion) String() string {
+	val, _ := json.Marshal(i)
+	return string(val)
+}
+
+func ImagePromotionAPIVersion() string {
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ImagePromotionAPIVersion)
+}
+
+func NewImagePromotionFromDomain(resource *domain.ImagePromotion) (*ImagePromotion, error) {
+	if resource == nil || resource.Metadata.Name == nil {
+		return &ImagePromotion{}, nil
+	}
+
+	status := domain.ImagePromotionStatus{}
+	if resource.Status != nil {
+		status = *resource.Status
+	}
+	var resourceVersion *int64
+	if resource.Metadata.ResourceVersion != nil {
+		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &i
+	}
+	return &ImagePromotion{
+		Resource: model.Resource{
+			Name:            *resource.Metadata.Name,
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Generation:      resource.Metadata.Generation,
+			Owner:           resource.Metadata.Owner,
+			ResourceVersion: resourceVersion,
+		},
+		Spec:   model.MakeJSONField(resource.Spec),
+		Status: model.MakeJSONField(status),
+	}, nil
+}
+
+func (i *ImagePromotion) ToDomain() (*domain.ImagePromotion, error) {
+	if i == nil {
+		return &domain.ImagePromotion{}, nil
+	}
+
+	spec := domain.ImagePromotionSpec{}
+	if i.Spec != nil {
+		spec = i.Spec.Data
+	}
+
+	status := domain.ImagePromotionStatus{}
+	if i.Status != nil {
+		status = i.Status.Data
+	}
+
+	return &domain.ImagePromotion{
+		ApiVersion: ImagePromotionAPIVersion(),
+		Kind:       string(domain.ResourceKindImagePromotion),
+		Metadata: domain.ObjectMeta{
+			Name:              lo.ToPtr(i.Name),
+			CreationTimestamp: lo.ToPtr(i.CreatedAt.UTC()),
+			Labels:            lo.ToPtr(util.EnsureMap(i.Resource.Labels)),
+			Annotations:       lo.ToPtr(util.EnsureMap(i.Resource.Annotations)),
+			Generation:        i.Generation,
+			Owner:             i.Owner,
+			ResourceVersion:   lo.Ternary(i.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(i.ResourceVersion), 10)), nil),
+		},
+		Spec:   spec,
+		Status: &status,
+	}, nil
+}
+
+func ImagePromotionsToDomain(pubs []ImagePromotion, cont *string, numRemaining *int64) (domain.ImagePromotionList, error) {
+	pubList := make([]domain.ImagePromotion, len(pubs))
+	for i, pub := range pubs {
+		domainResource, _ := pub.ToDomain()
+		pubList[i] = *domainResource
+	}
+	ret := domain.ImagePromotionList{
+		ApiVersion: ImagePromotionAPIVersion(),
+		Kind:       domain.ImagePromotionListKind,
+		Items:      pubList,
+		Metadata:   domain.ListMeta{},
+	}
+	if cont != nil {
+		ret.Metadata.Continue = cont
+		ret.Metadata.RemainingItemCount = numRemaining
+	}
+	return ret, nil
+}
+
+func (i *ImagePromotion) GetKind() string {
+	return string(domain.ResourceKindImagePromotion)
+}
+
+func (i *ImagePromotion) HasNilSpec() bool {
+	return i.Spec == nil
+}
+
+func (i *ImagePromotion) HasSameSpecAs(otherResource any) bool {
+	other, ok := otherResource.(*ImagePromotion)
+	if !ok {
+		return false
+	}
+	if other == nil {
+		return false
+	}
+	if i.Spec == nil && other.Spec == nil {
+		return true
+	}
+	if (i.Spec == nil && other.Spec != nil) || (i.Spec != nil && other.Spec == nil) {
+		return false
+	}
+	thisSpec, _ := json.Marshal(i.Spec.Data)
+	otherSpec, _ := json.Marshal(other.Spec.Data)
+	return string(thisSpec) == string(otherSpec)
+}
+
+func (i *ImagePromotion) GetStatusAsJson() ([]byte, error) {
+	if i.Status == nil {
+		return []byte("{}"), nil
+	}
+	return i.Status.MarshalJSON()
+}
+
+// Field selector support for ImagePromotion
+var imagePromotionSpecSelectors = map[selector.SelectorName]selector.SelectorType{
+	selector.NewSelectorName("spec.source.imageBuildRef"): selector.String,
+}
+
+var imagePromotionStatusSelectors = map[selector.SelectorName]selector.SelectorType{
+	selector.NewSelectorName("status.conditions.ready.reason"): selector.String,
+}
+
+// ResolveSelector resolves a field selector name to a SelectorField for ImagePromotion
+func (i *ImagePromotion) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if typ, exists := imagePromotionSpecSelectors[name]; exists {
+		return makeImageExportJSONBSelectorField(name, typ)
+	}
+	if typ, exists := imagePromotionStatusSelectors[name]; exists {
+		return makeImageBuildStatusJSONBSelectorField(name, typ)
+	}
+	return nil, fmt.Errorf("unable to resolve selector for image build promotion")
+}
+
+// ListSelectors returns all available field selectors for ImagePromotion
+func (i *ImagePromotion) ListSelectors() selector.SelectorNameSet {
+	keys := make([]selector.SelectorName, 0, len(imagePromotionSpecSelectors)+len(imagePromotionStatusSelectors))
+	for sn := range imagePromotionSpecSelectors {
+		keys = append(keys, sn)
+	}
+	for sn := range imagePromotionStatusSelectors {
+		keys = append(keys, sn)
+	}
+	return selector.NewSelectorFieldNameSet().Add(keys...)
 }
 
 // makeImageExportStatusJSONBSelectorField creates a SelectorField for status condition fields in ImageExport

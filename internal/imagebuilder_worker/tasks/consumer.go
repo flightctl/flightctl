@@ -102,7 +102,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 		case coredomain.EventReasonResourceCreated:
 			processingErr = c.processImageBuild(ctx, eventWithOrgId, log)
 		case coredomain.EventReasonResourceUpdated:
-			// Handle ImageBuild updates - if completed, requeue related ImageExports
+			// Handle ImageBuild updates - if completed, requeue related ImageExports and evaluate promotions
 			processingErr = c.HandleImageBuildUpdate(ctx, eventWithOrgId, log)
 		default:
 			log.Debugf("ignoring ImageBuild event with reason %q (only ResourceCreated and ResourceUpdated are processed)", event.Reason)
@@ -119,9 +119,24 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 		switch event.Reason {
 		case coredomain.EventReasonResourceCreated:
 			processingErr = c.processImageExport(ctx, eventWithOrgId, log)
+		case coredomain.EventReasonResourceUpdated:
+			processingErr = c.handleImageExportUpdated(ctx, eventWithOrgId, log)
 		default:
-			log.Debugf("ignoring ImageExport event with reason %q (only ResourceCreated is processed)", event.Reason)
-			// Complete non-ResourceCreated events without processing
+			log.Debugf("ignoring ImageExport event with reason %q", event.Reason)
+			ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
+			defer cancelAck()
+			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
+				log.WithError(ackErr).Errorf("failed to complete message %s", entryID)
+			}
+			return nil
+		}
+
+	case string(domain.ResourceKindImagePromotion):
+		switch event.Reason {
+		case coredomain.EventReasonResourceCreated, coredomain.EventReasonResourceUpdated:
+			processingErr = c.processImagePromotion(ctx, eventWithOrgId, log)
+		default:
+			log.Debugf("ignoring ImagePromotion event with reason %q", event.Reason)
 			ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
 			defer cancelAck()
 			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {

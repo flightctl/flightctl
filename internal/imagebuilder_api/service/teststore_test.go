@@ -210,6 +210,7 @@ func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
 type DummyImageExportStore struct {
 	imageExports *[]api.ImageExport
 	nextRetryAt  map[string]*time.Time // tracks nextRetryAt by name since it's not in API struct
+	listErr      error                 // if set, List returns this error
 }
 
 func NewDummyImageExportStore() *DummyImageExportStore {
@@ -247,6 +248,10 @@ func (s *DummyImageExportStore) Get(ctx context.Context, orgId uuid.UUID, name s
 }
 
 func (s *DummyImageExportStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageExportList, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+
 	items := make([]api.ImageExport, len(*s.imageExports))
 	for i, ie := range *s.imageExports {
 		deepCopy(ie, &items[i])

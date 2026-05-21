@@ -25,6 +25,9 @@ const (
 	ConditionStatusUnknown = corev1beta1.ConditionStatusUnknown
 )
 
+type PatchRequest = corev1beta1.PatchRequest
+type PatchRequestOp = corev1beta1.PatchRequestOp
+
 // ========== Repository Types (needed for validation) ==========
 
 // OciRepoSpec represents OCI repository specification

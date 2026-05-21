@@ -112,17 +112,38 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "operator can delete catalog",
+			name:     "operator cannot delete catalog",
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "catalogs",
+			op:       "delete",
+			expected: false,
+		},
+		{
+			name:     "operator cannot delete catalogitems",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "catalogitems",
+			op:       "delete",
+			expected: false,
+		},
+		{
+			name:     "operator can list imagepromotions",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "imagepromotions",
+			op:       "list",
+			expected: true,
+		},
+		{
+			name:     "operator can delete imagepromotions",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "imagepromotions",
 			op:       "delete",
 			expected: true,
 		},
 		{
-			name:     "operator can delete catalogitems",
+			name:     "operator can create imagepromotions",
 			roles:    []string{v1beta1.RoleOperator},
-			resource: "catalogitems",
-			op:       "delete",
+			resource: "imagepromotions",
+			op:       "create",
 			expected: true,
 		},
 		{
@@ -339,11 +360,11 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "catalogitems",
-					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+					Operations: []string{"get", "list"},
 				},
 				{
 					Resource:   "catalogs",
-					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+					Operations: []string{"get", "list"},
 				},
 				{
 					Resource:   "devices",
@@ -376,6 +397,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "imageexports/download",
 					Operations: []string{"get"},
+				},
+				{
+					Resource:   "imagepromotions",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 				{
 					Resource:   "repositories",

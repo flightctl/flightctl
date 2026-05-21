@@ -135,7 +135,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", registryHostFromURL(server.URL)+"/myimage", "known-tag")
+				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "known-tag")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeTrue())
@@ -164,7 +164,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", registryHostFromURL(server.URL)+"/myimage", "unknown-tag")
+				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "unknown-tag")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeFalse())
@@ -223,7 +223,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "oci-repo", registryHostFromURL(server.URL)+"/myimage")
+				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "oci-repo", "myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeTrue())
@@ -250,7 +250,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "unreachable-oci-repo", "127.0.0.1:1/myimage")
+				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "unreachable-oci-repo", "myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeFalse())

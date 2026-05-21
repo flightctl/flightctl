@@ -373,6 +373,70 @@ func (h *TransportHandler) CreateImageBuildNewVersion(w http.ResponseWriter, r *
 	h.SetResponse(w, apiBody, domainStatus)
 }
 
+// ListImagePromotions handles GET /api/v1/imagepromotions
+func (h *TransportHandler) ListImagePromotions(w http.ResponseWriter, r *http.Request, params api.ListImagePromotionsParams) {
+	domainParams := h.converter.ImagePromotion().ListParamsToDomain(params)
+	domainBody, domainStatus := h.service.ImagePromotion().List(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiBody := h.converter.ImagePromotion().ListFromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
+// CreateImagePromotion handles POST /api/v1/imagepromotions
+func (h *TransportHandler) CreateImagePromotion(w http.ResponseWriter, r *http.Request) {
+	var pub api.ImagePromotion
+	if err := json.NewDecoder(r.Body).Decode(&pub); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	domainPub := h.converter.ImagePromotion().ToDomain(pub)
+	domainBody, domainStatus := h.service.ImagePromotion().Create(r.Context(), OrgIDFromContext(r.Context()), domainPub)
+	apiBody := h.converter.ImagePromotion().FromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
+// GetImagePromotion handles GET /api/v1/imagepromotions/{name}
+func (h *TransportHandler) GetImagePromotion(w http.ResponseWriter, r *http.Request, name string) {
+	domainBody, domainStatus := h.service.ImagePromotion().Get(r.Context(), OrgIDFromContext(r.Context()), name)
+	apiBody := h.converter.ImagePromotion().FromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
+// ReplaceImagePromotion handles PUT /api/v1/imagepromotions/{name}
+func (h *TransportHandler) ReplaceImagePromotion(w http.ResponseWriter, r *http.Request, name string) {
+	var pub api.ImagePromotion
+	if err := json.NewDecoder(r.Body).Decode(&pub); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	pub.Metadata.Name = &name
+
+	domainPub := h.converter.ImagePromotion().ToDomain(pub)
+	domainBody, domainStatus := h.service.ImagePromotion().Replace(r.Context(), OrgIDFromContext(r.Context()), name, domainPub)
+	apiBody := h.converter.ImagePromotion().FromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
+// PatchImagePromotion handles PATCH /api/v1/imagepromotions/{name}
+func (h *TransportHandler) PatchImagePromotion(w http.ResponseWriter, r *http.Request, name string) {
+	var ops domain.PatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	domainBody, domainStatus := h.service.ImagePromotion().Patch(r.Context(), OrgIDFromContext(r.Context()), name, ops)
+	apiBody := h.converter.ImagePromotion().FromDomain(domainBody)
+	h.SetResponse(w, apiBody, domainStatus)
+}
+
+// DeleteImagePromotion handles DELETE /api/v1/imagepromotions/{name}
+func (h *TransportHandler) DeleteImagePromotion(w http.ResponseWriter, r *http.Request, name string) {
+	domainStatus := h.service.ImagePromotion().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	h.SetResponse(w, nil, domainStatus)
+}
+
 // cancelErrorToStatus converts cancellation errors to appropriate API status codes
 func cancelErrorToStatus(err error, kind string, name string) domain.Status {
 	// Check for not cancelable error (409 Conflict - resource in wrong state)

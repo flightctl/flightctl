@@ -1614,3 +1614,71 @@ func TestCreateTLSConfig_InvalidPEM(t *testing.T) {
 	require.Error(err)
 	require.Contains(err.Error(), "failed to append CA certificates")
 }
+
+func TestListCompletedForBuild_NoExports(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _, _ := newTestImageExportService()
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "my-build", api.ExportFormatTypeQCOW2)
+	require.NoError(err)
+	require.Nil(result)
+}
+
+func TestListCompletedForBuild_ReturnsFirstExport(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportService()
+
+	// Store two matching exports; the service should return the first one.
+	// NOTE: field-selector filtering is a store concern tested in integration tests.
+	// The dummy store returns all items regardless of the selector.
+	export1 := newValidImageExport("export-one")
+	export1.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:   api.ImageExportConditionTypeReady,
+				Status: v1beta1.ConditionStatusTrue,
+				Reason: string(api.ImageExportConditionReasonCompleted),
+			},
+		},
+	}
+	_, err := imageExportStore.Create(ctx, orgId, &export1)
+	require.NoError(err)
+
+	export2 := newValidImageExport("export-two")
+	export2.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:   api.ImageExportConditionTypeReady,
+				Status: v1beta1.ConditionStatusTrue,
+				Reason: string(api.ImageExportConditionReasonCompleted),
+			},
+		},
+	}
+	_, err = imageExportStore.Create(ctx, orgId, &export2)
+	require.NoError(err)
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "test-image-build", api.ExportFormatTypeQCOW2)
+	require.NoError(err)
+	require.NotNil(result)
+	require.Equal("export-one", lo.FromPtr(result.Metadata.Name))
+}
+
+func TestListCompletedForBuild_StoreError(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportService()
+	imageExportStore.listErr = errors.New("database unavailable")
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "my-build", api.ExportFormatTypeQCOW2)
+	require.Error(err)
+	require.Contains(err.Error(), "database unavailable")
+	require.Nil(result)
+}

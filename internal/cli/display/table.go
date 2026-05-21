@@ -49,7 +49,7 @@ func (f *TableFormatter) Format(data interface{}, options FormatOptions) error {
 }
 
 // formatList handles formatting for list endpoints (TYPE)
-func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, options FormatOptions) error {
+func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, options FormatOptions) error { //nolint:gocyclo
 	switch {
 	case strings.EqualFold(options.Kind, api.DeviceKind):
 		if options.SummaryOnly {
@@ -85,6 +85,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printImageBuildsTable(w, options.WithExports, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, data.(*imagebuilderclient.ListImageExportsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImagePromotion)):
+		return f.printImagePromotionsTable(w, data.(*imagebuilderclient.ListImagePromotionsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
 		// Special case for AuthConfig which contains providers
 		authConfig := data.(*api.AuthConfig)
@@ -165,6 +167,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printImageBuildsTable(w, options.WithExports, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImagePromotion)):
+		return f.printImagePromotionsTable(w, *data.(*imagebuilderclient.GetImagePromotionResponse).JSON200)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogKind):
 		return f.printCatalogsTable(w, *data.(*apiclientv1alpha1.GetCatalogResponse).JSON200)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
@@ -725,6 +729,57 @@ func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExport
 		}
 
 		f.printTableRowLn(w, name, phase, source, output, format, age)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printImagePromotionsTable(w *tabwriter.Writer, promotions ...imagebuilderapi.ImagePromotion) error {
+	f.printHeaderRowLn(w, "NAME", "PHASE", "BUILD", "CATALOG", "ITEM", "VERSION", "AGE")
+	for _, p := range promotions {
+		name := NoneString
+		if p.Metadata.Name != nil {
+			name = *p.Metadata.Name
+		}
+
+		phase := NoneString
+		if p.Status != nil && p.Status.Conditions != nil {
+			for _, cond := range *p.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImagePromotionConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
+		}
+
+		build := p.Spec.Source.ImageBuildRef
+
+		catalog := NoneString
+		item := NoneString
+		version := NoneString
+		discriminator, err := p.Spec.Target.Discriminator()
+		if err == nil {
+			switch discriminator {
+			case string(imagebuilderapi.ImagePromotionTargetTypeNewCatalogItem):
+				if t, err := p.Spec.Target.AsNewCatalogItemTarget(); err == nil {
+					catalog = t.CatalogName
+					item = t.CatalogItemName
+					version = t.Version
+				}
+			case string(imagebuilderapi.ImagePromotionTargetTypeExistingCatalogItem):
+				if t, err := p.Spec.Target.AsExistingCatalogItemTarget(); err == nil {
+					catalog = t.CatalogName
+					item = t.CatalogItemName
+					version = t.Version
+				}
+			}
+		}
+
+		age := NoneString
+		if p.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*p.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, phase, build, catalog, item, version, age)
 	}
 	return nil
 }
