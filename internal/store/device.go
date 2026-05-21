@@ -1110,25 +1110,6 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		return false, "", nil
 	}
 
-	// Spec unchanged but fingerprints provided (dependency-change-triggered render):
-	// only update service_conditions with new fingerprints, skip the full re-render.
-	if specUnchanged {
-		if updatedServiceConditions != nil {
-			result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-				"service_conditions": updatedServiceConditions,
-				"resource_version":   gorm.Expr("resource_version + 1"),
-			})
-			err = ErrorFromGormError(result.Error)
-			if err != nil {
-				return strings.Contains(err.Error(), "deadlock"), "", err
-			}
-			if result.RowsAffected == 0 {
-				return true, "", flterrors.ErrNoRowsUpdated
-			}
-		}
-		return false, "", nil
-	}
-
 	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
