@@ -400,14 +400,18 @@ func (h *Harness) checkLogsForPanicAVC(sinceTime time.Time) {
 	}
 	if isK8sEnvironment() {
 		for _, svc := range []string{ServiceAPI, ServiceWorker, ServicePeriodic} {
-			nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec // svc iterates a hardcoded list
+			cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			nsOut, err := exec.CommandContext(cmdCtx, "kubectl", "get", "pods", "--all-namespaces", //nolint:gosec // svc iterates a hardcoded list
 				"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
+			cancel()
 			if err != nil || len(nsOut) == 0 {
 				continue
 			}
 			ns := string(nsOut)
-			out, err := exec.Command("kubectl", "logs", "-n", ns, "-l", "flightctl.service="+svc,
+			cmdCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+			out, err := exec.CommandContext(cmdCtx, "kubectl", "logs", "-n", ns, "-l", "flightctl.service="+svc,
 				"--since-time="+sinceArg).Output()
+			cancel()
 			if err != nil {
 				logrus.Warnf("checkLogsForPanicAVC: failed to read logs for %s: %v", svc, err)
 				continue
@@ -446,7 +450,9 @@ func isK8sEnvironment() bool {
 	if env := os.Getenv("E2E_ENVIRONMENT"); env != "" {
 		return env == "kind" || env == "ocp" || env == "k8s"
 	}
-	return exec.Command("kubectl", "config", "current-context").Run() == nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "kubectl", "config", "current-context").Run() == nil
 }
 
 // isQuadletEnvironment returns true if running in a quadlet (systemd + Podman) environment.
