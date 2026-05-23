@@ -20,14 +20,17 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/harness"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -49,7 +52,11 @@ const (
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
 )
 
 func TestAgent(t *testing.T) {
@@ -60,6 +67,17 @@ func TestAgent(t *testing.T) {
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Agent Suite")
 	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Device Agent behavior", func() {
@@ -77,7 +95,7 @@ var _ = Describe("Device Agent behavior", func() {
 			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
 			GinkgoWriter.Printf("Error in go routine: %v\n", err)
 			GinkgoRecover()
-		})
+		}, harness.WithRedis(redisHost, redisPort, redisPassword))
 		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
 	})

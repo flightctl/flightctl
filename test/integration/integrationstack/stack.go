@@ -1,11 +1,12 @@
-// Package integrationstack starts or stops the named Postgres, Redis, and Alertmanager
+// Package integrationstack starts or stops the named Postgres and Alertmanager
 // testcontainers used by integration tests. Host ports are assigned by the runtime (ephemeral);
 // tests resolve them via PublishedTCPPort which queries podman/docker port.
+// Redis is NOT part of the shared stack - each test suite creates its own ephemeral Redis
+// via testdb.CreateTestRedis() to enable parallel test execution.
 package integrationstack
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/test/harness/containers"
@@ -22,18 +24,19 @@ import (
 )
 
 // Container names for integration stack services.
+// Note: Redis is NOT part of the shared stack - each test suite creates its own ephemeral Redis.
 const (
 	PostgresContainerName     = "flightctl-integration-postgres"
-	RedisContainerName        = "flightctl-integration-redis"
 	AlertmanagerContainerName = "flightctl-integration-alertmanager"
 )
 
 const (
 	postgresImage     = "docker.io/library/postgres:16-alpine"
-	redisImage        = "docker.io/library/redis:7-alpine"
 	alertmanagerImage = "docker.io/prom/alertmanager:v0.27.0"
 	// defaultIntegrationPassword matches test/test.mk when integration env vars are unset (e.g. go run preflight alone).
 	defaultIntegrationPassword = "adminpass"
+	// migrationSentinelPath stores the database ID after successful migrations to skip redundant runs.
+	migrationSentinelPath = "/tmp/flightctl-integration-migrations.done"
 )
 
 const alertmanagerYAML = `
@@ -50,8 +53,68 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// getFlightctlDatabaseID returns a unique identifier for the flightctl database instance.
+// It combines the cluster's system_identifier with the database OID to ensure uniqueness:
+// - system_identifier changes when the cluster is reinitialized (new container)
+// - database OID changes when the database is dropped and recreated within the same cluster
+func getFlightctlDatabaseID(ctx context.Context) (string, bool) {
+	h, p, ok := PublishedTCPPort(PostgresContainerName, "5432/tcp")
+	if !ok {
+		return "", false
+	}
+
+	masterPW := envOrDefault("FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD", defaultIntegrationPassword)
+
+	sub, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	//nolint:gosec // G204: arguments are from controlled integration test environment
+	cmd := exec.CommandContext(sub, "psql",
+		"-h", h,
+		"-p", strconv.FormatUint(uint64(p), 10),
+		"-U", "postgres",
+		"-d", "postgres",
+		"-t", "-A",
+		"-c", "SELECT system_identifier || ':' || (SELECT oid FROM pg_database WHERE datname = 'flightctl') FROM pg_control_system()")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", masterPW))
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" || strings.HasSuffix(id, ":") {
+		return "", false
+	}
+	return id, true
+}
+
+// migrationsSentinelValid returns true if the sentinel exists AND matches the current flightctl database ID.
+// This ensures migrations are re-run if the container was recreated OR the database was dropped/recreated.
+func migrationsSentinelValid(ctx context.Context) bool {
+	data, err := os.ReadFile(migrationSentinelPath)
+	if err != nil {
+		return false
+	}
+	savedID := strings.TrimSpace(string(data))
+	currentID, ok := getFlightctlDatabaseID(ctx)
+	if !ok {
+		return false
+	}
+	return savedID == currentID
+}
+
+// createMigrationsSentinel creates the sentinel file with the current flightctl database ID.
+func createMigrationsSentinel(ctx context.Context) error {
+	id, ok := getFlightctlDatabaseID(ctx)
+	if !ok {
+		return fmt.Errorf("could not get flightctl database ID")
+	}
+	return os.WriteFile(migrationSentinelPath, []byte(id), 0600)
+}
+
 func integrationStackAlreadyRunning() bool {
-	for _, n := range []string{PostgresContainerName, RedisContainerName, AlertmanagerContainerName} {
+	for _, n := range []string{PostgresContainerName, AlertmanagerContainerName} {
 		if !containers.ContainerRunningByName(n) {
 			return false
 		}
@@ -107,14 +170,13 @@ func parseHostPort(output string) (host string, port uint, ok bool) {
 }
 
 // integrationStackTCPReachable is true when host-published ports for the integration
-// Postgres, Redis, and Alertmanager containers accept a TCP connection.
+// Postgres and Alertmanager containers accept a TCP connection.
 func integrationStackTCPReachable() bool {
 	probes := []struct {
 		name string
 		spec string
 	}{
 		{PostgresContainerName, "5432/tcp"},
-		{RedisContainerName, "6379/tcp"},
 		{AlertmanagerContainerName, "9093/tcp"},
 	}
 	for _, p := range probes {
@@ -152,52 +214,30 @@ func inspectPostgresMasterPassword(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-func inspectRedisRequirepass(ctx context.Context) (string, bool) {
-	cli := containers.RuntimeCLIName()
-	sub, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	//nolint:gosec // G204: cli is docker|podman; container name is a package constant.
-	cmd := exec.CommandContext(sub, cli, "inspect", "-f", "{{json .Config.Cmd}}", RedisContainerName)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false
-	}
-	var argv []string
-	if err := json.Unmarshal(out, &argv); err != nil {
-		return "", false
-	}
-	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] == "--requirepass" {
-			return argv[i+1], true
-		}
-	}
-	return "", false
-}
-
-// integrationStackCredentialMismatch is true when Postgres/Redis are up but env passwords differ from
+// integrationStackCredentialMismatch is true when Postgres is up but env password differs from
 // running container config (inspect), or inspect failed — caller should recreate the stack.
-func integrationStackCredentialMismatch(ctx context.Context, postgresMaster, redisPass string) bool {
-	if !containers.ContainerRunningByName(PostgresContainerName) || !containers.ContainerRunningByName(RedisContainerName) {
+func integrationStackCredentialMismatch(ctx context.Context, postgresMaster string) bool {
+	if !containers.ContainerRunningByName(PostgresContainerName) {
 		return false
 	}
-	pm, ok1 := inspectPostgresMasterPassword(ctx)
-	rp, ok2 := inspectRedisRequirepass(ctx)
-	if !ok1 || !ok2 {
+	pm, ok := inspectPostgresMasterPassword(ctx)
+	if !ok {
 		return true
 	}
-	return pm != postgresMaster || rp != redisPass
+	return pm != postgresMaster
 }
 
-// EnsureRunning starts Postgres, Redis, and Alertmanager with reuse if they are not already running,
+// EnsureRunning starts Postgres and Alertmanager with reuse if they are not already running,
 // then runs database migrations using the flightctl-db-migrate binary (same code path as production).
-// If all three containers are running and Postgres/Redis credentials match FLIGHTCTL_* env, skips container start.
-// Migrations are always run (idempotent via schema_migrations table).
-// If credentials differ from running containers, removes them so init SQL and Redis requirepass apply.
+// If both containers are running and Postgres credentials match FLIGHTCTL_* env, skips container start.
+// Migrations are run with a file lock to prevent parallel test suites from deadlocking on CREATE INDEX.
+// If credentials differ from running containers, removes them so init SQL applies.
+// Note: Redis is NOT started here - each test suite creates its own ephemeral Redis via testdb.CreateTestRedis().
 func EnsureRunning(ctx context.Context) error {
 	if err := ensureContainersRunning(ctx); err != nil {
 		return err
 	}
-	return RunMigrations(ctx)
+	return RunMigrationsWithLock(ctx)
 }
 
 // EnsureContainersOnly starts containers without running migrations.
@@ -210,10 +250,9 @@ func ensureContainersRunning(ctx context.Context) error {
 	containers.ConfigureDockerHost()
 
 	masterPW := envOrDefault("FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD", defaultIntegrationPassword)
-	kvPW := envOrDefault("FLIGHTCTL_KV_PASSWORD", defaultIntegrationPassword)
 
 	if integrationStackAlreadyRunning() {
-		credMismatch := integrationStackCredentialMismatch(ctx, masterPW, kvPW)
+		credMismatch := integrationStackCredentialMismatch(ctx, masterPW)
 		reachable := integrationStackTCPReachable()
 		if !credMismatch && reachable {
 			logrus.Info("Integration stack already running; skipping container start")
@@ -258,19 +297,6 @@ func ensureContainersRunning(ctx context.Context) error {
 	}
 	logrus.Info("Postgres integration container is up")
 
-	redisReq := testcontainers.ContainerRequest{
-		Image:        redisImage,
-		Name:         RedisContainerName,
-		ExposedPorts: []string{"6379/tcp"},
-		Cmd:          []string{"redis-server", "--requirepass", kvPW},
-		WaitingFor:   wait.ForListeningPort("6379/tcp").WithStartupTimeout(60 * time.Second),
-		SkipReaper:   reuse,
-	}
-	if _, err := containers.GenericStart(ctx, redisReq, reuse, containers.WithNetwork(network), containers.WithHostAccess()); err != nil {
-		return fmt.Errorf("redis container: %w", err)
-	}
-	logrus.Info("Redis integration container is up")
-
 	amReq := testcontainers.ContainerRequest{
 		Image:        alertmanagerImage,
 		Name:         AlertmanagerContainerName,
@@ -290,15 +316,65 @@ func ensureContainersRunning(ctx context.Context) error {
 }
 
 // Stop removes integration containers by name (best effort for each).
+// Also removes the migrations sentinel so the next run will re-migrate.
 func Stop(_ context.Context) error {
+	// Remove migrations sentinel so next run will re-migrate
+	_ = os.Remove(migrationSentinelPath)
+
 	for _, name := range []string{
 		AlertmanagerContainerName,
-		RedisContainerName,
 		PostgresContainerName,
 	} {
 		if err := containers.RemoveContainerByName(name); err != nil {
 			logrus.Warnf("remove %s: %v", name, err)
 		}
+	}
+	return nil
+}
+
+// RunMigrationsWithLock runs migrations with a file lock to prevent parallel test suites
+// from deadlocking when they all try to run CREATE INDEX statements simultaneously.
+// The lock file is stored in /tmp and is automatically released when the process exits.
+// A sentinel file tracks which database instance has been migrated to avoid redundant runs.
+func RunMigrationsWithLock(ctx context.Context) error {
+	// Fast path: check sentinel BEFORE acquiring lock
+	// Sentinel is only valid if it matches the current database ID (system_identifier:oid)
+	if migrationsSentinelValid(ctx) {
+		logrus.Info("Migrations already completed for this database; skipping")
+		return nil
+	}
+
+	lockPath := "/tmp/flightctl-integration-migrations.lock"
+
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return fmt.Errorf("open migration lock file: %w", err)
+	}
+	defer lockFile.Close()
+
+	logrus.Debug("Acquiring migration lock...")
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	}()
+	logrus.Debug("Migration lock acquired")
+
+	// Double-check after acquiring lock (another proc may have completed migrations while we waited)
+	if migrationsSentinelValid(ctx) {
+		logrus.Info("Migrations completed by another process while waiting for lock; skipping")
+		return nil
+	}
+
+	// Run migrations
+	if err := RunMigrations(ctx); err != nil {
+		return err
+	}
+
+	// Create sentinel with current database ID (system_identifier:oid)
+	if err := createMigrationsSentinel(ctx); err != nil {
+		logrus.Warnf("Failed to create migrations sentinel: %v", err)
 	}
 	return nil
 }

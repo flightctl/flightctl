@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/service"
@@ -30,7 +31,13 @@ import (
 	"gorm.io/gorm"
 )
 
-var suiteCtx context.Context
+var (
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
+)
 
 // Mock task executor for testing
 type mockPeriodicTaskExecutor struct {
@@ -84,6 +91,17 @@ func TestStore(t *testing.T) {
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Periodic Suite")
 	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Periodic", func() {
@@ -130,11 +148,11 @@ var _ = Describe("Periodic", func() {
 		}
 
 		processID := fmt.Sprintf("periodic-test-%s", uuid.New().String())
-		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword(), queues.DefaultRetryConfig())
+		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup kvStore for test
-		kvStore, err = kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
+		kvStore, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 
 		queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
@@ -181,10 +199,8 @@ var _ = Describe("Periodic", func() {
 			queuesProvider.Stop()
 		}
 
-		// Clean up kvStore
+		// Close kvStore (no need to DeleteAllKeys - ephemeral container handles cleanup)
 		if kvStore != nil {
-			err := kvStore.DeleteAllKeys(ctx)
-			Expect(err).ToNot(HaveOccurred())
 			kvStore.Close()
 		}
 

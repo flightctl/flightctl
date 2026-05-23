@@ -5,18 +5,63 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
+const redisImage = "docker.io/library/redis:7-alpine"
+
 // InitDBFunc is a function that initializes a database connection
 type InitDBFunc func(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error)
+
+// CreateTestRedis starts an ephemeral Redis container for test isolation.
+// Each test suite gets its own Redis instance, enabling parallel test execution.
+// Returns connection params and a cleanup function. Call cleanup in AfterSuite.
+func CreateTestRedis(ctx context.Context, log *logrus.Logger) (host string, port uint, password domain.SecureString, cleanup func(), err error) {
+	containers.ConfigureDockerHost()
+	password = IntegrationRedisPassword()
+	network := containers.GetDockerNetwork()
+
+	req := testcontainers.ContainerRequest{
+		Image:        redisImage,
+		ExposedPorts: []string{"6379/tcp"},
+		Cmd:          []string{"redis-server", "--requirepass", string(password)},
+		WaitingFor:   wait.ForListeningPort("6379/tcp").WithStartupTimeout(60 * time.Second),
+	}
+
+	c, err := containers.GenericStart(ctx, req, false,
+		containers.WithNetwork(network), containers.WithHostAccess())
+	if err != nil {
+		return "", 0, "", nil, fmt.Errorf("starting Redis container: %w", err)
+	}
+
+	mapped, err := c.MappedPort(ctx, "6379/tcp")
+	if err != nil {
+		_ = c.Terminate(ctx)
+		return "", 0, "", nil, fmt.Errorf("getting Redis mapped port: %w", err)
+	}
+
+	host = "127.0.0.1"
+	cleanup = func() {
+		if err := c.Terminate(ctx); err != nil {
+			log.Warnf("failed to terminate Redis container: %v", err)
+		}
+	}
+
+	log.Infof("Started ephemeral Redis container on %s:%d", host, mapped.Int())
+	return host, uint(mapped.Int()), password, cleanup, nil
+}
 
 // CreateTestDB creates a temporary test database by cloning from the migrated 'flightctl' database.
 // IMPORTANT: Call integrationstack.EnsureRunning() in your test suite's BeforeSuite before using this.

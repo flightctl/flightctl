@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -19,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
@@ -47,7 +49,8 @@ type TestHarness struct {
 	skipAutoStart  bool
 
 	// internals for server
-	serverListener net.Listener
+	serverListener  net.Listener
+	serversFinished chan struct{}
 
 	// error handler for go routines
 	goRoutineErrorHandler func(error)
@@ -60,6 +63,11 @@ type TestHarness struct {
 	ctrl          *gomock.Controller
 
 	vulnerabilityEnabled bool
+
+	// Redis connection params (must be set via WithRedis for ephemeral Redis isolation)
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
 
 	// attributes for the test harness
 	Context        context.Context
@@ -145,10 +153,23 @@ func WithoutAutoStartAgent() TestHarnessOption {
 	}
 }
 
+// WithRedis sets the Redis connection parameters for the test harness.
+// This is required for parallel test execution where each suite has its own ephemeral Redis.
+// Call testdb.CreateTestRedis() in BeforeSuite and pass the connection params here.
+func WithRedis(host string, port uint, password domain.SecureString) TestHarnessOption {
+	return func(h *TestHarness) {
+		h.redisHost = host
+		h.redisPort = port
+		h.redisPassword = password
+	}
+}
+
 // NewTestHarness creates a new test harness and returns a new test harness
 // The test harness can be used from testing code to interact with a
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
+// IMPORTANT: For parallel test execution, you MUST pass WithRedis() with connection params
+// from testdb.CreateTestRedis() called in your suite's BeforeSuite.
 func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error), opts ...TestHarnessOption) (*TestHarness, error) {
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/", "/proc/net"})
 	if err != nil {
@@ -162,6 +183,19 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
+	// Create a temporary harness to collect options (we need Redis params before creating KV store)
+	tempHarness := &TestHarness{}
+	for _, o := range opts {
+		if o != nil {
+			o(tempHarness)
+		}
+	}
+
+	// Validate that Redis params were provided (required for parallel test isolation)
+	if tempHarness.redisHost == "" || tempHarness.redisPort == 0 {
+		return nil, fmt.Errorf("NewTestHarness: Redis connection params required - call testdb.CreateTestRedis() in BeforeSuite and pass WithRedis(host, port, password)")
+	}
+
 	serverCfg := *config.NewDefault()
 	testdb.ApplyIntegrationConnectionOverrides(&serverCfg)
 	serverLog := log.InitLogs("debug")
@@ -171,6 +205,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	_, dbName, db := testdb.CreateTestDB(ctx, serverLog, "", store.InitDB)
 	storeInst := store.NewStore(db, serverLog.WithField("pkg", "store"))
 	serverCfg.Database.Name = dbName
+
+	// Apply Redis params from options to server config
+	serverCfg.KV.Hostname = tempHarness.redisHost
+	serverCfg.KV.Port = tempHarness.redisPort
+	serverCfg.KV.Password = tempHarness.redisPassword
 
 	// create certs
 	serverCfg.Service.CertStore = filepath.Join(testDirPath, "etc", "flightctl", "certs")
@@ -187,7 +226,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	provider := testutil.NewTestProvider(serverLog)
 
-	// Create KV store and initialize rendered bus before agent server (agent server also creates its own kvStore to same Redis)
+	// Create KV store using Redis params from options (ephemeral per-suite Redis)
 	kvStore, err := kvstore.NewKVStore(ctx, serverLog, serverCfg.KV.Hostname, serverCfg.KV.Port, serverCfg.KV.Password)
 	if err != nil {
 		cancel()
@@ -223,33 +262,43 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	serverCfg.Service.Address = listener.Addr().String()
 	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
 
+	// Track when all servers have finished for proper cleanup
+	var serversWg sync.WaitGroup
+	serversFinished := make(chan struct{})
+
 	// start main api server
+	serversWg.Add(1)
 	go func() {
+		defer serversWg.Done()
 		err := apiServer.Run(ctx)
-		if err != nil {
-			// provide a wrapper to allow require.NoError or ginkgo handling
+		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
 		}
-		cancel()
 	}()
 
+	serversWg.Add(1)
 	go func() {
+		defer serversWg.Done()
 		err := workerServer.Run(context.WithValue(ctx, consts.InternalRequestCtxKey, true))
-		if err != nil {
-			// provide a wrapper to allow require.NoError or ginkgo handling
+		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
 		}
-		cancel()
 	}()
 
 	// start agent api server
+	serversWg.Add(1)
 	go func() {
+		defer serversWg.Done()
 		err := agentServer.Run(ctx)
-		if err != nil {
-			// provide a wrapper to allow require.NoError or ginkgo handling
+		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting main agent api server: %w", err))
 		}
-		cancel()
+	}()
+
+	// Close serversFinished when all servers exit
+	go func() {
+		serversWg.Wait()
+		close(serversFinished)
 	}()
 
 	fetchSpecInterval := util.Duration(2 * time.Second)
@@ -272,21 +321,25 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	cfg.SpecFetchInterval = fetchSpecInterval
 	cfg.StatusUpdateInterval = statusUpdateInterval
 	if err := cfg.Complete(); err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	// create client to talk to the server
 	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.GetCABundleX509())
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	testHarness := &TestHarness{
 		agentConfig:           cfg,
 		serverListener:        listener,
+		serversFinished:       serversFinished,
 		goRoutineErrorHandler: goRoutineErrorHandler,
 		Context:               ctx,
 		cancelCtx:             cancel,
@@ -296,10 +349,16 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		KVStore:               kvStore,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
-		TestDirPath:           testDirPath}
+		TestDirPath:           testDirPath,
+		// Copy option values from tempHarness (options were already applied above)
+		vulnerabilityEnabled: tempHarness.vulnerabilityEnabled,
+		skipAutoStart:        tempHarness.skipAutoStart,
+		redisHost:            tempHarness.redisHost,
+		redisPort:            tempHarness.redisPort,
+		redisPassword:        tempHarness.redisPassword,
+	}
 
-	// Apply options before constructing subsystems that depend on option values
-	// (e.g. vulnerabilityEnabled is read when creating the service handler below).
+	// Re-apply options that modify agentConfig (tempHarness.agentConfig is nil since agentConfig is created later)
 	for _, o := range opts {
 		if o != nil {
 			o(testHarness)
@@ -329,6 +388,10 @@ func (h *TestHarness) Cleanup() {
 	h.StopAgent()
 	// stop any pending API requests
 	h.cancelCtx()
+	// wait for all servers to finish gracefully
+	if h.serversFinished != nil {
+		<-h.serversFinished
+	}
 	// unset env var for the test dir path
 	os.Unsetenv(agent_config.TestRootDirEnvKey)
 	h.ctrl.Finish()

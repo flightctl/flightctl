@@ -121,7 +121,7 @@ var _ = Describe("RepoTester", func() {
 		publisher := queues.NewMockQueueProducer(ctrl)
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient := worker_client.NewWorkerClient(publisher, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
+		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		repotestr = tasks.NewRepoTester(log, serviceHandler, func(repository *api.Repository) tasks.TypeSpecificRepoTester {
