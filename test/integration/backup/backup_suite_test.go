@@ -16,7 +16,6 @@ func TestBackup(t *testing.T) {
 	RunSpecs(t, "Backup Integration Suite")
 }
 
-var _ = SynchronizedBeforeSuite(func() []byte {
+var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Backup Integration Suite")
-	return nil
-}, func(_ []byte) {})
+})

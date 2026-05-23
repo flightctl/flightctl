@@ -29,6 +29,7 @@ var _ = Describe("Agent label-from-systeminfo", func() {
 				GinkgoWriter.Printf("Error in go routine: %v\n", err)
 				GinkgoRecover()
 			},
+			harness.WithRedis(redisHost, redisPort, redisPassword),
 			harness.WithoutAutoStartAgent())
 		Expect(err).ToNot(HaveOccurred())
 	})

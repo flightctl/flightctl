@@ -105,8 +105,23 @@ var _ = Describe("Telemetry Gateway", func() {
 		// base config + reset mutators
 		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
 		cfgMutators = nil
+
+		// Use random port for OTel internal metrics to avoid port 8888 conflicts during parallel test execution
+		otelMetricsPort := localAddr() // returns "localhost:port"
+		_, port, _ := net.SplitHostPort(otelMetricsPort)
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
+			telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: localhost
+                port: %s
+`, port)),
 		}
 	})
 

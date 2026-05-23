@@ -10,12 +10,14 @@ import (
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -28,20 +30,34 @@ import (
 	"gorm.io/gorm"
 )
 
-var suiteCtx context.Context
+var (
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
+)
 
 func TestServiceSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Service Integration Suite")
 }
 
-var _ = SynchronizedBeforeSuite(func() []byte {
-	// Initialize the root tracer/span for the entire service integration suite once
+var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Service Integration Suite")
-	// Ensure integration stack is running (containers + migrations)
 	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
-	return nil
-}, func(_ []byte) {})
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
+})
 
 // ServiceTestSuite provides common setup and teardown for service integration tests
 type ServiceTestSuite struct {
@@ -95,7 +111,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.workerClient = worker_client.NewWorkerClient(s.mockQueueProducer, s.Log)
 	s.mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
+	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, redisHost, redisPort, redisPassword)
 	Expect(err).ToNot(HaveOccurred())
 
 	// Setup CA for CSR tests

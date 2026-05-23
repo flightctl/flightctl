@@ -12,6 +12,9 @@ GO_E2E_DIRS 			= ./test/e2e/...
 INTEGRATION_TEST_COUNT ?= 1
 # Optional Ginkgo focus regex for suites under test/integration that use Ginkgo (e.g. imagebuilder_worker, agent).
 INTEGRATION_GINKGO_FOCUS ?=
+# Number of parallel test suite processes. Each suite gets its own ephemeral Redis container.
+# Set to 1 to disable parallel execution. Default: 4.
+INTEGRATION_PROCS ?= 4
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
 
@@ -37,11 +40,12 @@ _integration_test: $(REPORTS)
 	if [ "$${count:-1}" -gt 1 ] 2>/dev/null; then repeat_flag="--repeat=$$((count - 1))"; fi; \
 	$$GOBIN/ginkgo run \
 		--race \
+		--procs=$(INTEGRATION_PROCS) \
 		--timeout=$(TIMEOUT) \
 		--output-dir=$(REPORTS) \
 		--junit-report=junit_integration_test.xml \
 		--json-report=integration_timing.json \
-		--coverprofile=integration-coverage.out \
+		--keep-going \
 		$(if $(VERBOSE),--vv) \
 		$(if $(strip $(INTEGRATION_GINKGO_FOCUS)),--focus="$(INTEGRATION_GINKGO_FOCUS)") \
 		$(if $(TESTS),--focus="$(TESTS)") \
@@ -88,7 +92,8 @@ $(BIN_DB_MIGRATE):
 .PHONY: build-db-migrate
 build-db-migrate: $(BIN_DB_MIGRATE)
 
-# Start integration testcontainers (Postgres, Redis, Alertmanager) and run migrations.
+# Start integration testcontainers (Postgres, Alertmanager) and run migrations.
+# Redis is NOT started here - each test suite creates its own ephemeral Redis container for isolation.
 # The migration binary is idempotent - safe to run multiple times.
 start-integration-services: $(BIN_PREFLIGHT) $(BIN_DB_MIGRATE)
 	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" start
@@ -178,9 +183,8 @@ e2e-test: deploy prepare-e2e-qcow-config
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
-view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out
-	# TODO: merge unit and integration coverage reports
-	go tool cover -html=$(REPORTS)/unit-coverage.out -html=$(REPORTS)/integration-coverage.out
+view-coverage: $(REPORTS)/unit-coverage.out
+	go tool cover -html=$(REPORTS)/unit-coverage.out
 
 test: unit-test integration-test e2e-test
 
@@ -210,10 +214,6 @@ $(REPORTS):
 
 $(REPORTS)/unit-coverage.out:
 	$(MAKE) unit-test || true
-
-
-$(REPORTS)/integration-coverage.out:
-	$(MAKE) integration-test || true
 
 start-registry: bin/e2e-certs/ca.pem
 	go run ./cmd/aux-service start registry

@@ -128,9 +128,15 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 				if !ok {
 					return
 				}
-				if err := handler(ctx, b, "test-entry-id", t, log); err != nil {
+				// Use detached context with grace period for in-flight work.
+				// This allows handlers to complete database operations even when
+				// the test context is cancelled during cleanup.
+				processCtx, cancel := context.WithTimeout(
+					context.WithoutCancel(ctx), 30*time.Second)
+				if err := handler(processCtx, b, "test-entry-id", t, log); err != nil {
 					log.WithError(err).Errorf("handling message: %s", string(b))
 				}
+				cancel()
 			}
 		}
 	}()

@@ -91,7 +91,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 
 		// Create kvStore for Redis operations
 		var kvErr error
-		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, testutilpkg.IntegrationRedisHost(), testutilpkg.IntegrationRedisPort(), testutilpkg.IntegrationRedisPassword())
+		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(kvErr).ToNot(HaveOccurred())
 
 		// Create config with defaults (must keep integration DB/KV endpoints, not localhost:5432)

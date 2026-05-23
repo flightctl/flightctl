@@ -130,7 +130,7 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		var err error
-		kvStoreInst, err = kvstore.NewKVStore(ctx, log, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword())
+		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
 
@@ -138,7 +138,7 @@ var _ = Describe("DeviceRender", func() {
 		// Only initialize once (singleton pattern), subsequent calls are no-ops
 		if queuesProvider == nil {
 			processID := fmt.Sprintf("device-render-test-%s", uuid.New().String())
-			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, testutil.IntegrationRedisHost(), testutil.IntegrationRedisPort(), testutil.IntegrationRedisPassword(), queues.DefaultRetryConfig())
+			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 			Expect(err).ToNot(HaveOccurred())
 			err = rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)
 			Expect(err).ToNot(HaveOccurred())
@@ -146,13 +146,6 @@ var _ = Describe("DeviceRender", func() {
 	})
 
 	AfterEach(func() {
-		// Clean up Redis keys but keep connections open
-		// The queuesProvider and rendered.Bus singleton persist across all tests in this suite
-		// since singletons are meant to live for the process lifetime
-		if kvStoreInst != nil {
-			_ = kvStoreInst.DeleteAllKeys(ctx)
-		}
-
 		_ = storeInst.Close()
 		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
 		ctrl.Finish()

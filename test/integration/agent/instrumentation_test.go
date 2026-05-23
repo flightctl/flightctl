@@ -33,6 +33,7 @@ var _ = Describe("Agent instrumentation", func() {
 				GinkgoWriter.Printf("Error in go routine: %v\n", err)
 				GinkgoRecover()
 			},
+			harness.WithRedis(redisHost, redisPort, redisPassword),
 			harness.WithAgentMetrics(),
 			harness.WithAgentPprof())
 		// check for test harness creation errors

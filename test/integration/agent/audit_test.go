@@ -32,7 +32,7 @@ var _ = Describe("Agent Audit Log", func() {
 				fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
 				GinkgoWriter.Printf("Error in go routine: %v\n", err)
 				GinkgoRecover()
-			}, harness.WithAgentAudit())
+			}, harness.WithRedis(redisHost, redisPort, redisPassword), harness.WithAgentAudit())
 		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
 	})

@@ -64,10 +64,9 @@ jobs:
       - name: Running integration tests
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
-          make integration-test VERBOSE=true
+          make integration-test INTEGRATION_PROCS=8
         env:
           DISABLE_FIPS: true
-          FLIGHTCTL_TEST_DB_STRATEGY: template
 
       - name: Detect baseline for compatibility testing
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
@@ -137,8 +136,7 @@ jobs:
         # if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         if: false
         run: |
-          make integration-test VERBOSE=true
+          make integration-test INTEGRATION_PROCS=8
         env:
           DISABLE_FIPS: true
-          FLIGHTCTL_TEST_DB_STRATEGY: template
 
