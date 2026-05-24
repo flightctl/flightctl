@@ -54,7 +54,8 @@ func CreateTestRedis(ctx context.Context, log *logrus.Logger) (host string, port
 
 	host = "127.0.0.1"
 	cleanup = func() {
-		if err := c.Terminate(ctx); err != nil {
+		// Use Background context since the original ctx may be cancelled by the time AfterSuite runs
+		if err := c.Terminate(context.Background()); err != nil {
 			log.Warnf("failed to terminate Redis container: %v", err)
 		}
 	}
@@ -191,7 +192,7 @@ func cloneFromMigratedDB(ctx context.Context, cfg *config.Config, dbName string,
 	defer CloseDB(adminDB)
 
 	log.Debugf("Creating test database from template: flightctl")
-	res := adminDB.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s TEMPLATE flightctl;", dbName))
+	res := adminDB.WithContext(ctx).Exec(fmt.Sprintf(`CREATE DATABASE "%s" TEMPLATE flightctl;`, dbName))
 	if res.Error != nil {
 		return nil, fmt.Errorf("creating test db %s: %w", dbName, res.Error)
 	}
