@@ -26,21 +26,15 @@ var (
 	defaultTeamLabelValue             = "c"
 	contentWithFunction               = "{{ replace \"a\" \"c\" .metadata.labels.team }}"
 	pathWithFunction                  = "/var/home/user/{{ upper .metadata.labels.team | lower }}/test.txt"
-	repoTestUrl                       = "https://github.com/flightctl/flightctl-demos"
 	deviceAlias                       = "base"
 	branchTargetRevision              = "demo"
-	gitRepoConfigPath                 = "/demos/basic-nginx-demo/configuration"
-	httpConfigPath                    = "/var/home/user/{{ .metadata.labels.config }}"
+	gitRepoConfigPath                 = "/configuration"
 	configLabelKey                    = "config"
 	configLabelValue                  = "fedora-bootc"
 	revisionLabelKey                  = "revision"
-	revisionLabelValue                = "c5ff21b9a8116bb5daf72c8f07b67449c221b596"
-	suffix                            = "{{ .metadata.labels.suffix }}"
+	revisionLabelValue                = "main"
 	gitConfigName                     = "git-config"
-	httpConfigName                    = "http-config"
 	revision                          = "{{ .metadata.labels.revision }}"
-	suffixLabelValue                  = ""
-	suffixLabelKey                    = "suffix"
 	aliasKey                          = "alias"
 	sizeLabelKey                      = "size"
 	sizeLabelSmallValue               = "small"
@@ -120,30 +114,6 @@ var testFleetSelector = v1beta1.LabelSelector{
 
 var deviceSpec v1beta1.DeviceSpec
 
-var gitRepositorySpec v1beta1.RepositorySpec
-var _ = gitRepositorySpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
-	Url:  repoTestUrl,
-	Type: v1beta1.GitRepoSpecTypeGit,
-})
-
-var gitMetadata = v1beta1.ObjectMeta{
-	Name:   nil, // Will be set dynamically in test
-	Labels: &map[string]string{},
-}
-
-var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.HttpRepoSpecTypeHttp,
-	Url:  repoTestUrl,
-}
-
-var httpRepositoryspec v1beta1.RepositorySpec
-
-var _ = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
-
-var httpRepoMetadata = v1beta1.ObjectMeta{
-	Name: nil, // Will be set dynamically in test
-}
-
 var gitConfigvalid = v1beta1.GitConfigProviderSpec{
 	GitRef: struct {
 		Path           string `json:"path"`
@@ -155,19 +125,6 @@ var gitConfigvalid = v1beta1.GitConfigProviderSpec{
 		TargetRevision: revision,
 	},
 	Name: gitConfigName,
-}
-
-var httpConfigvalid = v1beta1.HttpConfigProviderSpec{
-	HttpRef: struct {
-		FilePath   string  `json:"filePath"`
-		Repository string  `json:"repository"`
-		Suffix     *string `json:"suffix,omitempty"`
-	}{
-		FilePath:   httpConfigPath,
-		Repository: "", // Will be set dynamically in test
-		Suffix:     &suffix,
-	},
-	Name: httpConfigName,
 }
 
 var motdGitConfigSpec = v1beta1.GitConfigProviderSpec{
@@ -471,29 +428,67 @@ var _ = Describe("Template variables in the device configuration", func() {
 				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
 
-				By("Create a git and a http repository")
+				By("Create a git repository on the local e2e git server")
+				gitConfig, gitInternalHost, gitInternalPort, sshKeyPath, sshKeyContent, gitErr := getGitEnv(harness.Context)
+				Expect(gitErr).ToNot(HaveOccurred())
+
 				repoTestName := fmt.Sprintf("git-repo-%s", testID)
-				gitMetadata.Name = &repoTestName
-				err = harness.CreateRepository(gitRepositorySpec, gitMetadata)
+				err = harness.CreateGitRepositoryOnServer(gitConfig, sshKeyPath, repoTestName)
 				Expect(err).ToNot(HaveOccurred())
-				GinkgoWriter.Printf("Created git repository %s\n", *gitMetadata.Name)
+				GinkgoWriter.Printf("Created git repository %s on e2e git server\n", repoTestName)
 
+				By("Push configuration content to the git repo at the expected path")
+				configContent := "# FlightCtl Demo Config\ntest_key: test_value\n"
+				err = harness.PushContentToGitServerRepo(
+					gitConfig, sshKeyPath,
+					repoTestName,
+					"configuration/etc/demo-config.yaml",
+					configContent,
+					"Add demo configuration",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a demo branch for later target-revision label change test")
+				err = harness.CreateGitBranchOnServer(gitConfig, sshKeyPath, repoTestName, branchTargetRevision)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a Repository resource with SSH credentials for git repo")
+				err = harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repoTestName, sshKeyContent)
+				Expect(err).ToNot(HaveOccurred())
+				GinkgoWriter.Printf("Created Repository resource for %s\n", repoTestName)
+
+				By("Wait for git repository to become accessible")
+				err = harness.WaitForRepositoryAccessible(repoTestName, 3*time.Minute, testutil.POLLING)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a second git repository for HTTP config testing (using git backend)")
 				httpRepoName := fmt.Sprintf("http-repo-%s", testID)
-				httpRepoMetadata.Name = &httpRepoName
-				err = harness.CreateRepository(httpRepositoryspec, httpRepoMetadata)
+				err = harness.CreateGitRepositoryOnServer(gitConfig, sshKeyPath, httpRepoName)
 				Expect(err).ToNot(HaveOccurred())
-				GinkgoWriter.Printf("Created http repository %s\n", *httpRepoMetadata.Name)
 
-				By("Create the device spec adding inline. git, http configs")
+				By("Push content to the http-repo at the templated path")
+				httpConfigContent := "# HTTP Config Content\nhttp_key: http_value\n"
+				err = harness.PushContentToGitServerRepo(
+					gitConfig, sshKeyPath,
+					httpRepoName,
+					"configs/fedora-bootc/var/home/user/http-config.yaml",
+					httpConfigContent,
+					"Add HTTP config content",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a Repository resource with SSH credentials for http-repo")
+				err = harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, httpRepoName, sshKeyContent)
+				Expect(err).ToNot(HaveOccurred())
+				GinkgoWriter.Printf("Created Repository resource for %s\n", httpRepoName)
+
+				By("Wait for http repository to become accessible")
+				err = harness.WaitForRepositoryAccessible(httpRepoName, 3*time.Minute, testutil.POLLING)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create the device spec adding inline and git configs (using local git server)")
 				gitConfigWithRepo := gitConfigvalid
 				gitConfigWithRepo.GitRef.Repository = repoTestName
-
-				httpConfigWithRepo := httpConfigvalid
-				httpConfigWithRepo.HttpRef.Repository = httpRepoName
-
-				httpConfigProviderSpec := v1beta1.ConfigProviderSpec{}
-				err = httpConfigProviderSpec.FromHttpConfigProviderSpec(httpConfigWithRepo)
-				Expect(err).ToNot(HaveOccurred())
 
 				gitConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 				err = gitConfigProviderSpec.FromGitConfigProviderSpec(gitConfigWithRepo)
@@ -503,7 +498,25 @@ var _ = Describe("Template variables in the device configuration", func() {
 				err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid)
 				Expect(err).ToNot(HaveOccurred())
 
-				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
+				By("Create second git config to test additional template variables")
+				secondGitConfig := v1beta1.GitConfigProviderSpec{
+					GitRef: struct {
+						Path           string `json:"path"`
+						Repository     string `json:"repository"`
+						TargetRevision string `json:"targetRevision"`
+					}{
+						Path:           "/configs/{{ .metadata.labels.config }}",
+						Repository:     httpRepoName,
+						TargetRevision: "main",
+					},
+					Name: "second-git-config",
+				}
+
+				secondGitConfigProviderSpec := v1beta1.ConfigProviderSpec{}
+				err = secondGitConfigProviderSpec.FromGitConfigProviderSpec(secondGitConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, secondGitConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
 				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", harness.GetDeviceImageRefForFleet(registryHost, registryPort, ""))
@@ -515,7 +528,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				deviceSpec.Os = &osImageSpec
 				deviceSpec.Config = &configProviderSpec
 
-				By("Create a fleet with parametrisable templates in the os image, inlineconfig, gitconfig")
+				By("Create a fleet with parametrisable templates in the os image, inline config, and git configs")
 				fleetTestName := fmt.Sprintf("fleet-test-%s", testID)
 				err = harness.CreateOrUpdateTestFleet(fleetTestName, testFleetSelector, deviceSpec)
 				Expect(err).ToNot(HaveOccurred())
@@ -532,7 +545,6 @@ var _ = Describe("Template variables in the device configuration", func() {
 						aliasKey:         deviceAlias,
 						configLabelKey:   configLabelValue,
 						revisionLabelKey: revisionLabelValue,
-						suffixLabelKey:   suffixLabelValue,
 					})
 					GinkgoWriter.Printf("Updating %s with labels\n", deviceId)
 				})
@@ -556,10 +568,10 @@ var _ = Describe("Template variables in the device configuration", func() {
 				gitConfigResponse, err := harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
-				httpConfigResponse, err := harness.GetDeviceHttpConfig(device, httpConfigName)
+
+				secondGitConfigResponse, err := harness.GetDeviceGitConfig(device, "second-git-config")
 				Expect(err).ToNot(HaveOccurred())
-				Expect(httpConfigResponse.HttpRef.FilePath).To(ContainSubstring(configLabelValue))
-				Expect(*httpConfigResponse.HttpRef.Suffix).To(ContainSubstring(suffixLabelValue))
+				Expect(secondGitConfigResponse.GitRef.Path).To(ContainSubstring(configLabelValue))
 
 				By("Check that the template variable is replaced in the device os image")
 				deviceOsImage, err := harness.GetDeviceOsImage(device)
@@ -579,9 +591,11 @@ var _ = Describe("Template variables in the device configuration", func() {
 				err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)
 				Expect(err).ToNot(HaveOccurred())
 
+				device, err = harness.GetDevice(deviceId)
+				Expect(err).ToNot(HaveOccurred())
 				gitConfigResponse, err = harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
+				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(branchTargetRevision))
 
 				By("Update the fleet inline config with a template variable with getOrDefault function")
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -610,7 +624,6 @@ var _ = Describe("Template variables in the device configuration", func() {
 						aliasKey:         deviceAlias,
 						configLabelKey:   configLabelValue,
 						revisionLabelKey: revisionLabelValue,
-						suffixLabelKey:   suffixLabelValue,
 					})
 					GinkgoWriter.Printf("Updating %s with labels\n", deviceId)
 				})
