@@ -64,12 +64,21 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, capturedRefs, 2)
 
-		assert.Equal(t, "git", capturedRefs[0].RefType)
-		assert.Equal(t, "git:my-repo/main", capturedRefs[0].ResourceKey)
-		assert.Equal(t, &fleetName, capturedRefs[0].FleetName)
+		refsByResourceKey := map[string]model.DependencyRef{}
+		for _, ref := range capturedRefs {
+			refsByResourceKey[ref.ResourceKey] = ref
+		}
 
-		assert.Equal(t, "http", capturedRefs[1].RefType)
-		assert.Equal(t, "http:http-repo/config.yaml", capturedRefs[1].ResourceKey)
+		expectedGitKey := "git:my-repo/main"
+		gitRef, ok := refsByResourceKey[expectedGitKey]
+		require.True(t, ok)
+		assert.Equal(t, "git", gitRef.RefType)
+		assert.Equal(t, &fleetName, gitRef.FleetName)
+
+		expectedHTTPKey := "http:http-repo/config.yaml"
+		httpRef, ok := refsByResourceKey[expectedHTTPKey]
+		require.True(t, ok)
+		assert.Equal(t, "http", httpRef.RefType)
 	})
 
 	t.Run("When fleet has multiple git configs it should produce refs with independent pointers", func(t *testing.T) {
