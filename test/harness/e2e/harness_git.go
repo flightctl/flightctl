@@ -208,6 +208,34 @@ func (h *Harness) PushContentToGitServerRepo(config GitServerConfig, keyPath uti
 	return nil
 }
 
+// CreateGitBranchOnServer creates a new branch from main in a git repository on the server.
+func (h *Harness) CreateGitBranchOnServer(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, branchName string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if branchName == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
+	defer os.RemoveAll(workDir)
+
+	if err := h.CloneGitRepositoryFromServer(config, keyPath, repoName, workDir); err != nil {
+		return fmt.Errorf("failed to clone repository: %w", err)
+	}
+
+	err := h.runGitCommands(workDir, keyPath, [][]string{
+		{"git", "checkout", "-b", branchName},
+		{"git", "push", "origin", branchName},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", branchName, err)
+	}
+
+	logrus.Infof("Created branch %s in git repository %s", branchName, repoName)
+	return nil
+}
+
 // PushContentToGitServerRepoFromPath reads content from a local file or directory and pushes it to a git repository on the server.
 func (h *Harness) PushContentToGitServerRepoFromPath(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, sourcePath, commitMessage string) error {
 	if repoName == "" {

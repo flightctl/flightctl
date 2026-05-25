@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var errConfigNameMismatch = errors.New("config name mismatch")
+
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.GetDeviceResponse, error) {
 	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	if err != nil {
@@ -789,12 +791,13 @@ func GetDeviceConfig[T any](device *v1beta1.Device, configType v1beta1.ConfigPro
 				return config, fmt.Errorf("failed to get config type: %w", err)
 			}
 			if itemType == configType {
-				// Convert to the expected config type
 				config, err := asConfig(configItem)
 				if err != nil {
+					if errors.Is(err, errConfigNameMismatch) {
+						continue
+					}
 					return config, fmt.Errorf("failed to convert config: %w", err)
 				}
-
 				return config, nil
 			}
 		}
@@ -816,7 +819,7 @@ func (h *Harness) GetDeviceInlineConfig(device *v1beta1.Device, configName strin
 				logrus.Infof("Inline configuration found %s", configName)
 				return inlineConfig, nil
 			}
-			return v1beta1.InlineConfigProviderSpec{}, fmt.Errorf("inline config not found")
+			return v1beta1.InlineConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
@@ -832,7 +835,7 @@ func (h *Harness) GetDeviceGitConfig(device *v1beta1.Device, configName string) 
 				logrus.Infof("Git configuration found %s", configName)
 				return gitConfig, nil
 			}
-			return v1beta1.GitConfigProviderSpec{}, fmt.Errorf("git config not found")
+			return v1beta1.GitConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
@@ -848,7 +851,7 @@ func (h *Harness) GetDeviceHttpConfig(device *v1beta1.Device, configName string)
 				logrus.Infof("Http configuration found %s", configName)
 				return httpConfig, nil
 			}
-			return v1beta1.HttpConfigProviderSpec{}, fmt.Errorf("http config not found")
+			return v1beta1.HttpConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
