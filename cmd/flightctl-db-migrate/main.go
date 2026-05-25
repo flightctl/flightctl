@@ -6,22 +6,12 @@ import (
 	"flag"
 
 	"github.com/flightctl/flightctl/internal/config"
-	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
-
-// runImageBuildMigrations runs migrations for the ImageBuild store
-func runImageBuildMigrations(ctx context.Context, db *gorm.DB, log logrus.FieldLogger) error {
-	imageBuildStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuild-migration"))
-	return imageBuildStore.RunMigrations(ctx)
-}
-
-// errDryRunComplete signals that migrations validated successfully in dry-run mode.
-var errDryRunComplete = errors.New("dry-run complete")
 
 func main() {
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
@@ -35,8 +25,6 @@ func main() {
 	flag.Parse()
 
 	ctx := context.Background()
-	// Bypass span check for migration operations
-	ctx = store.WithBypassSpanCheck(ctx)
 
 	startMsg := "Starting Flight Control database migration"
 	if *dryRun {
@@ -77,30 +65,9 @@ func main() {
 	} else {
 		log.Info("Running database migrations with migration user")
 	}
-	// Run all schema changes atomically so that a failure leaves the DB unchanged.
-	if err = migrationDB.Transaction(func(tx *gorm.DB) error {
-		// Create a temporary store bound to the transaction and run migrations
-		if err = store.NewStore(tx, log.WithFields(logrus.Fields{
-			"pkg":     "migration-store-tx",
-			"dry_run": *dryRun,
-		})).RunMigrations(ctx); err != nil {
-			return err // rollback
-		}
 
-		// Run ImageBuild migrations (separate store for imagebuilder-api)
-		if err = runImageBuildMigrations(ctx, tx, log.WithFields(logrus.Fields{
-			"pkg":     "imagebuild-migration-tx",
-			"dry_run": *dryRun,
-		})); err != nil {
-			return err // rollback
-		}
-
-		if *dryRun {
-			return errDryRunComplete // rollback but indicate success
-		}
-		return nil // commit
-	}); err != nil {
-		if errors.Is(err, errDryRunComplete) {
+	if err = migration.Run(ctx, migrationDB, log, *dryRun); err != nil {
+		if errors.Is(err, migration.ErrDryRunComplete) {
 			log.Info("Dry-run completed successfully; no changes were committed.")
 			return
 		}
