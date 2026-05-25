@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -278,9 +280,8 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 	if fingerprint == "" {
 		return base
 	}
-	shortHash := fingerprint
-	if len(shortHash) > 8 {
-		shortHash = shortHash[:8]
-	}
-	return base + "-" + shortHash
+	// Hash the fingerprint to guarantee RFC 1123 compliance — raw HTTP ETags
+	// contain quotes and Last-Modified headers contain spaces/colons.
+	h := sha256.Sum256([]byte(fingerprint))
+	return base + "-" + hex.EncodeToString(h[:4])
 }
