@@ -3,7 +3,6 @@ package cli_test
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -155,8 +154,7 @@ var _ = Describe("cli operation", func() {
 			By("Attempting to reapply the same enrollment request")
 			out, err = harness.ApplyResource(erYAMLPath)
 			Expect(err).To(HaveOccurred())
-			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
-			Expect(out).To(ContainSubstring(badRequestMessage))
+			Expect(out).To(ContainSubstring("response status: 400"))
 			Expect(out).To(ContainSubstring("a resource with this name already exists"))
 		})
 	})
