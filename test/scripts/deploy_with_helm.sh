@@ -133,6 +133,14 @@ fi
 # Always deploy with Kubernetes auth
 AUTH_ARGS="--set global.auth.type=k8s"
 
+# Opt-in cluster-level secret access for dependency-sync K8s secret tests.
+# Disabled by default to avoid broadening RBAC for normal deploys.
+# Usage: ENABLE_SECRET_SYNC=true make deploy-helm
+SECRET_ACCESS_ARGS=""
+if [ "${ENABLE_SECRET_SYNC:-}" = "true" ]; then
+  SECRET_ACCESS_ARGS="--set periodic.clusterLevelSecretAccess=true --set worker.clusterLevelSecretAccess=true"
+fi
+
 helm dependency build ./deploy/helm/flightctl
 
 # Format IP for DNS: use sslip.io for IPv6 (replace : with -), nip.io for IPv4
@@ -145,6 +153,7 @@ fi
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${BASE_DOMAIN} \
+                  ${SECRET_ACCESS_ARGS} \
                   ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
@@ -162,7 +171,6 @@ kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- createdb a
 if [ "$ONLY_DB" ]; then
   exit 0
 fi
-
 
 kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 

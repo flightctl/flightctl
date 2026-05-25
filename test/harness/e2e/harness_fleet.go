@@ -142,6 +142,38 @@ func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelec
 	return err
 }
 
+// CreateFleetWithLabelConfig creates a fleet that selects devices by a single label key/value
+// and applies the given config providers.
+func (h *Harness) CreateFleetWithLabelConfig(fleetName, labelKey string, configs ...v1beta1.ConfigProviderSpec) error {
+	selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{labelKey: fleetName}}
+	deviceSpec := v1beta1.DeviceSpec{
+		Config: &configs,
+	}
+	return h.CreateOrUpdateTestFleet(fleetName, selector, deviceSpec)
+}
+
+// CreateFleetAndEnrollDevice creates a fleet with the given config providers, enrolls a device
+// with a matching label, waits for it to become UpToDate, and returns the device ID and initial
+// rendered version. Returns an error if any step fails.
+func (h *Harness) CreateFleetAndEnrollDevice(fleetName, labelKey string, configs ...v1beta1.ConfigProviderSpec) (string, int, error) {
+	if err := h.CreateFleetWithLabelConfig(fleetName, labelKey, configs...); err != nil {
+		return "", 0, fmt.Errorf("failed to create fleet %s: %w", fleetName, err)
+	}
+
+	deviceID, _ := h.EnrollAndWaitForOnlineStatus(map[string]string{labelKey: fleetName})
+	if deviceID == "" {
+		return "", 0, fmt.Errorf("enrolled device ID is empty for fleet %s", fleetName)
+	}
+
+	initialVersion, err := h.GetCurrentDeviceRenderedVersion(deviceID)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to get rendered version for device %s: %w", deviceID, err)
+	}
+
+	logrus.Infof("Fleet %s: device %s enrolled with initial rendered version %d", fleetName, deviceID, initialVersion)
+	return deviceID, initialVersion, nil
+}
+
 func (h *Harness) DeleteFleet(testFleetName string) error {
 	_, err := h.Client.DeleteFleet(h.Context, testFleetName)
 	return err
@@ -339,4 +371,19 @@ func (h *Harness) WaitForFleetCount(params *v1beta1.ListFleetsParams, expectedCo
 		return len(resp.JSON200.Items), nil
 	}, timeout, polling).Should(Equal(expectedCount),
 		fmt.Sprintf("Expected %d fleets matching params", expectedCount))
+}
+
+// CountTemplateVersions returns the number of template versions for a fleet.
+func (h *Harness) CountTemplateVersions(fleetName string) (int, error) {
+	resp, err := h.Client.ListTemplateVersionsWithResponse(h.Context, fleetName, &v1beta1.ListTemplateVersionsParams{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list template versions for fleet %s: %w", fleetName, err)
+	}
+	if resp == nil {
+		return 0, fmt.Errorf("nil response listing template versions for fleet %s", fleetName)
+	}
+	if resp.JSON200 == nil {
+		return 0, fmt.Errorf("unexpected status %d listing template versions for fleet %s", resp.StatusCode(), fleetName)
+	}
+	return len(resp.JSON200.Items), nil
 }

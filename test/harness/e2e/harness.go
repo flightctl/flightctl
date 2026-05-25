@@ -759,17 +759,22 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 }
 
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
-	return h.SHWithStdin(stdin, flightctlPath(), args...)
+	return h.SHWithStdin(stdin, flightctlPath(), false, args...)
 }
 
-func (h *Harness) SHWithStdin(stdin, command string, args ...string) (string, error) {
+// SHWithStdin runs a command with stdin. Set redactStdin to true to suppress stdin from logs (e.g. secrets).
+func (h *Harness) SHWithStdin(stdin, command string, redactStdin bool, args ...string) (string, error) {
 	cmd := exec.Command(command)
 
 	cmd.Stdin = strings.NewReader(stdin)
 
 	h.setArgsInCmd(cmd, args...)
 
-	logrus.Infof("running: %s with stdin: %s", strings.Join(cmd.Args, " "), stdin)
+	stdinLog := stdin
+	if redactStdin {
+		stdinLog = "<redacted>"
+	}
+	logrus.Infof("running: %s with stdin: %s", strings.Join(cmd.Args, " "), stdinLog)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		logrus.Errorf("executing cli: %s", err)
@@ -829,7 +834,7 @@ func (h *Harness) CLIWithEnvAndShell(env map[string]string, shellCommand string)
 }
 
 func (h *Harness) SH(command string, args ...string) (string, error) {
-	return h.SHWithStdin("", command, args...)
+	return h.SHWithStdin("", command, false, args...)
 }
 
 func updateResourceWithRetries(updateFunc func() error) {
