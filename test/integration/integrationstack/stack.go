@@ -17,6 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/migration"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -382,10 +386,10 @@ func RunMigrationsWithLock(ctx context.Context) error {
 // RunMigrations sets up database users and runs migrations against the integration Postgres container.
 // This matches the exact production flow used by Helm and Quadlet deployments:
 // 1. Run setup_database_users.sql to create both migrator and app users with privileges
-// 2. Run flightctl-db-migrate binary to apply schema migrations
+// 2. Run flightctl-db-migrate to apply schema migrations
 // The process is idempotent - users are created only if they don't exist, and migrations use
 // the schema_migrations table to skip already-applied migrations.
-// Requires: psql (postgresql-client), envsubst, and flightctl-db-migrate binary on $PATH or in bin/.
+// Requires: psql (postgresql-client) and envsubst.
 func RunMigrations(ctx context.Context) error {
 	h, p, ok := PublishedTCPPort(PostgresContainerName, "5432/tcp")
 	if !ok {
@@ -401,11 +405,6 @@ func RunMigrations(ctx context.Context) error {
 	}
 
 	sqlPath, err := findSetupDatabaseUsersSQL()
-	if err != nil {
-		return err
-	}
-
-	migrateBinary, err := findMigrateBinary()
 	if err != nil {
 		return err
 	}
@@ -433,9 +432,9 @@ func RunMigrations(ctx context.Context) error {
 		return err
 	}
 
-	// Step 2: Run flightctl-db-migrate binary (same as production)
-	logrus.Info("Running flightctl-db-migrate...")
-	if err := runMigrateBinary(ctx, migrateBinary, env); err != nil {
+	// Step 2: Run database migrations using the same code path as flightctl-db-migrate
+	logrus.Info("Running database migrations...")
+	if err := runMigrate(ctx, h, p, "flightctl_migrator", migratorPW); err != nil {
 		return err
 	}
 
@@ -493,21 +492,27 @@ func runSetupDatabaseUsers(ctx context.Context, sqlPath, host string, port uint,
 	return nil
 }
 
-// runMigrateBinary executes the flightctl-db-migrate binary.
-func runMigrateBinary(ctx context.Context, binaryPath string, env []string) error {
-	sub, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+// runMigrate runs database migrations using the same code path as flightctl-db-migrate.
+func runMigrate(ctx context.Context, host string, port uint, migrationUser, migrationPassword string) error {
+	cfg := config.NewDefault()
+	cfg.Database.Hostname = host
+	cfg.Database.Port = port
+	cfg.Database.MigrationUser = migrationUser
+	cfg.Database.MigrationPassword = api.SecureString(migrationPassword)
 
-	//nolint:gosec // G204: binaryPath is resolved from known locations within the repository
-	cmd := exec.CommandContext(sub, binaryPath)
-	cmd.Env = env
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	log := logrus.StandardLogger()
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("flightctl-db-migrate failed: %w", err)
+	migrationDB, err := store.InitMigrationDB(cfg, log)
+	if err != nil {
+		return fmt.Errorf("initializing migration database: %w", err)
 	}
-	return nil
+	defer func() {
+		if sqlDB, err := migrationDB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	return migration.Run(ctx, migrationDB, log, false)
 }
 
 // findSetupDatabaseUsersSQL locates deploy/scripts/setup_database_users.sql relative to repository root.
@@ -534,41 +539,6 @@ func findSetupDatabaseUsersSQL() (string, error) {
 	}
 
 	return "", fmt.Errorf("deploy/scripts/setup_database_users.sql not found (are you running from the repository root?)")
-}
-
-// findMigrateBinary locates the flightctl-db-migrate binary.
-// Checks bin/flightctl-db-migrate relative to repository root (found via go.mod),
-// then current directory, then $PATH.
-func findMigrateBinary() (string, error) {
-	candidates := []string{}
-
-	// Try to find repository root by looking for go.mod
-	if repoRoot := findRepoRoot(); repoRoot != "" {
-		candidates = append(candidates, filepath.Join(repoRoot, "bin", "flightctl-db-migrate"))
-	}
-
-	// Also check relative to current directory
-	candidates = append(candidates,
-		"bin/flightctl-db-migrate",
-		"./bin/flightctl-db-migrate",
-	)
-
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			abs, err := filepath.Abs(c)
-			if err != nil {
-				return c, nil
-			}
-			return abs, nil
-		}
-	}
-
-	path, err := exec.LookPath("flightctl-db-migrate")
-	if err == nil {
-		return path, nil
-	}
-
-	return "", fmt.Errorf("flightctl-db-migrate binary not found (build with: make build-db-migrate)")
 }
 
 // findRepoRoot finds the repository root by looking for go.mod in parent directories.

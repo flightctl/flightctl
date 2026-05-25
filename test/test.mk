@@ -83,19 +83,10 @@ $(BIN_PREFLIGHT): $(PREFLIGHT_SRC)
 .PHONY: build-integration-preflight
 build-integration-preflight: $(BIN_PREFLIGHT)
 
-BIN_DB_MIGRATE := $(ROOT_DIR)/bin/flightctl-db-migrate
-
-$(BIN_DB_MIGRATE):
-	@mkdir -p "$(ROOT_DIR)/bin"
-	cd "$(ROOT_DIR)" && go build -o $@ ./cmd/flightctl-db-migrate
-
-.PHONY: build-db-migrate
-build-db-migrate: $(BIN_DB_MIGRATE)
-
 # Start integration testcontainers (Postgres, Alertmanager) and run migrations.
 # Redis is NOT started here - each test suite creates its own ephemeral Redis container for isolation.
-# The migration binary is idempotent - safe to run multiple times.
-start-integration-services: $(BIN_PREFLIGHT) $(BIN_DB_MIGRATE)
+# Migrations are run via 'go run ./cmd/flightctl-db-migrate' to always use current source code.
+start-integration-services: $(BIN_PREFLIGHT)
 	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" start
 	@cd "$(ROOT_DIR)" && "$(BIN_PREFLIGHT)" migrate
 
@@ -258,7 +249,7 @@ stop-aux:
 	go run ./cmd/aux-service stop all
 
 .PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-aux stop-aux
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight build-db-migrate start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing
 SCHEMATHESIS_IMAGE ?= flightctl-schemathesis:latest
