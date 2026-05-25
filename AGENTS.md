@@ -22,7 +22,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
 - **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite.
-- **Integration tests:** `make integration-test` (starts DB/KV/alertmanager via deploy targets).
+- **Integration tests:** `make integration-test` (uses testcontainers for Postgres/Redis/Alertmanager; requires Podman). Key options: `INTEGRATION_PROCS=N` for parallelism, `TEST_DIR=./test/integration/store` for specific suites, `INTEGRATION_GINKGO_FOCUS="pattern"` for specific tests.
 - **E2E tests:** `make e2e-test` or `make in-cluster-e2e-test`; see [test/AGENTS.md](test/AGENTS.md).
 - **Lint:** `make lint` (do not invoke golangci-lint directly; `make lint` installs and configures it automatically), `make lint-openapi`, `make lint-docs`, `make lint-helm`, `make rpmlint`, `make lint-diagrams`.
 - **Documentation checks:** `make spellcheck-docs` to check spelling, `make fix-spelling` for interactive fixing.
@@ -51,7 +51,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
 3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying go.mod files.
 4. **Run lint** – Run `make lint` before committing and fix any issues.
-5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they start DB/KV/Alertmanager automatically). Fix any failures before pushing.
+5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they use testcontainers for Postgres/Redis/Alertmanager). Fix any failures before pushing.
 
 ## Pointers to area-specific guidance
 

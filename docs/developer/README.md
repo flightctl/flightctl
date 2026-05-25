@@ -19,6 +19,17 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 `go install gotest.tools/gotestsum@latest`
 
+To run integration tests, use `make integration-test`. This requires Podman (or Docker) - the test
+framework uses testcontainers to automatically start ephemeral Postgres, Redis, and Alertmanager
+instances. No manual setup is required.
+
+Key options for integration tests:
+- `INTEGRATION_PROCS=N` - Number of parallel processes (default: 4)
+- `TEST_DIR=./test/integration/store` - Run specific test suite
+- `INTEGRATION_GINKGO_FOCUS="pattern"` - Run tests matching pattern
+
+Example: `make integration-test TEST_DIR=./test/integration/agent INTEGRATION_PROCS=1`
+
 To generate API code and mocks, use `make generate`  This requires installing mockgen:
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
