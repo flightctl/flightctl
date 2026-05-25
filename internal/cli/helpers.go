@@ -274,10 +274,13 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 }
 
 // FormatStatusError formats an api.Status for user-facing display.
-// Returns the Message field if available, otherwise returns a generic error string.
+// Returns a formatted string with status code and message.
 func FormatStatusError(status *api.Status) string {
 	if status == nil || status.Message == "" {
 		return "unknown error"
+	}
+	if status.Code != 0 {
+		return fmt.Sprintf("response status: %d, message: %s", status.Code, status.Message)
 	}
 	return status.Message
 }
