@@ -87,7 +87,9 @@ func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = testutil.InitLogsWithDebug()
 
-	s.cfg, s.dbName, s.DB = testdb.CreateTestDB(s.Ctx, s.Log, "", store.InitDB)
+	var err error
+	s.cfg, s.dbName, s.DB, err = testdb.CreateTestDB(s.Ctx, s.Log, "", store.InitDB)
+	Expect(err).NotTo(HaveOccurred())
 	s.Store = store.NewStore(s.DB, s.Log.WithField("pkg", "store"))
 
 	// Add a default admin mapped identity to the context for tests
@@ -128,7 +130,7 @@ func (s *ServiceTestSuite) Setup() {
 // Teardown performs common cleanup for service tests
 func (s *ServiceTestSuite) Teardown() {
 	_ = s.Store.Close()
-	testdb.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.DB, s.dbName)
+	Expect(testdb.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.DB, s.dbName)).To(Succeed())
 	if s.ctrl != nil {
 		s.ctrl.Finish()
 	}

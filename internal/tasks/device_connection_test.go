@@ -45,7 +45,8 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 	require := require.New(b)
 	log.Level = logrus.ErrorLevel
 	for _, deviceCount := range []int{1000, 2000, 5000} {
-		cfg, dbName, db := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		cfg, dbName, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		require.NoError(err)
 		dbStore := store.NewStore(db, log.WithField("pkg", "store"))
 
 		ctrl := gomock.NewController(b)
@@ -67,7 +68,7 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		cleanupFn := func() {
 			kvStore.Close()
 			_ = dbStore.Close()
-			testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+			require.NoError(testdb.DeleteTestDB(ctx, log, cfg, db, dbName))
 		}
 		b.Run(fmt.Sprintf("update_summary_status_%d_devices", deviceCount), func(b *testing.B) {
 			err := benchmarkUpdateSummaryStatusBatch(ctx, b, log, db, serviceHandler, deviceNames)

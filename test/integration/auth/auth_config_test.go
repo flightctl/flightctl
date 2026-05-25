@@ -46,7 +46,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		log := util.InitLogsWithDebug()
 
 		// Setup test database and service handler
-		_, _, db := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		_, _, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		testStore := store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Add admin identity to context for auth provider operations
@@ -74,7 +75,6 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		cfg.Service.BaseUrl = "https://localhost:3443"
 
 		// Initialize MultiAuth using production code path
-		var err error
 		authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(authN).ToNot(BeNil(), "Expected auth instance")

@@ -55,7 +55,9 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		outputRepoName = fmt.Sprintf("output-repo-%s", testID)
 
 		// Use testdb.CreateTestDB which includes organizations table
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		mainStore = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
@@ -63,7 +65,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err := testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories
@@ -98,7 +100,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			kvStoreInst.Close()
 		}
 		_ = mainStore.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Log persistence to Redis and DB", func() {

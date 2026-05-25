@@ -202,7 +202,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	serverLog.SetOutput(os.Stdout)
 
 	// create store using template cloning (faster than running migrations)
-	_, dbName, db := testdb.CreateTestDB(ctx, serverLog, "", store.InitDB)
+	_, dbName, db, err := testdb.CreateTestDB(ctx, serverLog, "", store.InitDB)
+	if err != nil {
+		return nil, fmt.Errorf("NewTestHarness: CreateTestDB: %w", err)
+	}
 	storeInst := store.NewStore(db, serverLog.WithField("pkg", "store"))
 	serverCfg.Database.Name = dbName
 

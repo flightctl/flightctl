@@ -50,7 +50,9 @@ var _ = Describe("FleetSelector", func() {
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
@@ -75,7 +77,7 @@ var _ = Describe("FleetSelector", func() {
 
 	AfterEach(func() {
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	// Helper function to get events for a specific involved object
