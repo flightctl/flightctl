@@ -389,19 +389,11 @@ func RunMigrationsWithLock(ctx context.Context) error {
 // 2. Run flightctl-db-migrate to apply schema migrations
 // The process is idempotent - users are created only if they don't exist, and migrations use
 // the schema_migrations table to skip already-applied migrations.
-// Requires: psql (postgresql-client) and envsubst.
+// No host dependencies required - psql runs inside the Postgres container via podman exec.
 func RunMigrations(ctx context.Context) error {
 	h, p, ok := PublishedTCPPort(PostgresContainerName, "5432/tcp")
 	if !ok {
 		return fmt.Errorf("postgres container %q is not running or has no published port 5432/tcp", PostgresContainerName)
-	}
-
-	if _, err := exec.LookPath("psql"); err != nil {
-		return fmt.Errorf("psql not found: install postgresql-client (e.g., 'dnf install postgresql' or 'apt install postgresql-client')")
-	}
-
-	if _, err := exec.LookPath("envsubst"); err != nil {
-		return fmt.Errorf("envsubst not found: install gettext (e.g., 'dnf install gettext' or 'apt install gettext')")
 	}
 
 	sqlPath, err := findSetupDatabaseUsersSQL()
@@ -413,22 +405,22 @@ func RunMigrations(ctx context.Context) error {
 	migratorPW := envOrDefault("FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD", defaultIntegrationPassword)
 	appUserPW := envOrDefault("FLIGHTCTL_POSTGRESQL_USER_PASSWORD", defaultIntegrationPassword)
 
-	// Environment variables for setup_database_users.sql (same as production Helm/Quadlets)
-	env := append(os.Environ(),
-		fmt.Sprintf("DB_HOST=%s", h),
-		fmt.Sprintf("DB_PORT=%d", p),
-		"DB_NAME=flightctl",
-		"DB_ADMIN_USER=postgres",
-		fmt.Sprintf("DB_ADMIN_PASSWORD=%s", masterPW),
-		"DB_MIGRATION_USER=flightctl_migrator",
-		fmt.Sprintf("DB_MIGRATION_PASSWORD=%s", migratorPW),
-		"DB_APP_USER=flightctl_app",
-		fmt.Sprintf("DB_APP_PASSWORD=%s", appUserPW),
-	)
+	// Environment variable substitutions for setup_database_users.sql (same as production Helm/Quadlets)
+	envSubstitutions := map[string]string{
+		"DB_HOST":               "localhost", // Inside container, connect to localhost
+		"DB_PORT":               "5432",
+		"DB_NAME":               "flightctl",
+		"DB_ADMIN_USER":         "postgres",
+		"DB_ADMIN_PASSWORD":     masterPW,
+		"DB_MIGRATION_USER":     "flightctl_migrator",
+		"DB_MIGRATION_PASSWORD": migratorPW,
+		"DB_APP_USER":           "flightctl_app",
+		"DB_APP_PASSWORD":       appUserPW,
+	}
 
 	// Step 1: Run setup_database_users.sql (matching production Helm/Quadlet flow)
 	logrus.Infof("Setting up database users via setup_database_users.sql against %s:%d", h, p)
-	if err := runSetupDatabaseUsers(ctx, sqlPath, h, p, masterPW, env); err != nil {
+	if err := runSetupDatabaseUsersInContainer(ctx, sqlPath, masterPW, envSubstitutions); err != nil {
 		return err
 	}
 
@@ -442,47 +434,31 @@ func RunMigrations(ctx context.Context) error {
 	return nil
 }
 
-// runSetupDatabaseUsers runs envsubst on the SQL file and pipes to psql (matching production).
-func runSetupDatabaseUsers(ctx context.Context, sqlPath, host string, port uint, adminPW string, env []string) error {
+// runSetupDatabaseUsersInContainer runs setup_database_users.sql inside the Postgres container via podman exec.
+// This eliminates the need for psql and envsubst on the host - the Postgres container has psql built-in.
+func runSetupDatabaseUsersInContainer(ctx context.Context, sqlPath, adminPW string, envSubstitutions map[string]string) error {
 	sub, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	// Create a temp file for the substituted SQL (same approach as Helm/Quadlets)
-	tmpFile, err := os.CreateTemp("", "setup_database_users_*.sql")
-	if err != nil {
-		return fmt.Errorf("create temp SQL file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-
-	// Run envsubst to substitute environment variables in the SQL file
-	envsubstCmd := exec.CommandContext(sub, "envsubst")
-	envsubstCmd.Env = env
+	// Read and substitute environment variables in the SQL file (replaces envsubst)
 	sqlContent, err := os.ReadFile(sqlPath)
 	if err != nil {
 		return fmt.Errorf("read SQL file: %w", err)
 	}
-	envsubstCmd.Stdin = strings.NewReader(string(sqlContent))
-	substitutedSQL, err := envsubstCmd.Output()
-	if err != nil {
-		return fmt.Errorf("envsubst failed: %w", err)
-	}
-	if err := os.WriteFile(tmpPath, substitutedSQL, 0600); err != nil {
-		return fmt.Errorf("write substituted SQL: %w", err)
-	}
+	substitutedSQL := substituteEnvVars(string(sqlContent), envSubstitutions)
 
-	// Run psql with the substituted SQL file (matching production exactly)
-	//nolint:gosec // G204: arguments are from controlled integration test environment
-	psqlCmd := exec.CommandContext(sub, "psql",
-		"-v", "ON_ERROR_STOP=1",
-		"-h", host,
-		"-p", strconv.FormatUint(uint64(port), 10),
-		"-U", "postgres",
-		"-d", "flightctl",
-		"-f", tmpPath,
+	// Get container runtime CLI (podman or docker)
+	cli := containers.RuntimeCLIName()
+
+	// Run psql inside the Postgres container via exec
+	// The container connects to localhost:5432 internally
+	//nolint:gosec // G204: cli is podman|docker; container name is a constant
+	psqlCmd := exec.CommandContext(sub, cli, "exec", "-i",
+		"-e", fmt.Sprintf("PGPASSWORD=%s", adminPW),
+		PostgresContainerName,
+		"psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "flightctl",
 	)
-	psqlCmd.Env = append(env, fmt.Sprintf("PGPASSWORD=%s", adminPW))
+	psqlCmd.Stdin = strings.NewReader(substitutedSQL)
 	psqlCmd.Stdout = os.Stdout
 	psqlCmd.Stderr = os.Stderr
 
@@ -490,6 +466,16 @@ func runSetupDatabaseUsers(ctx context.Context, sqlPath, host string, port uint,
 		return fmt.Errorf("setup_database_users.sql failed: %w", err)
 	}
 	return nil
+}
+
+// substituteEnvVars replaces ${VAR} patterns in the input string with values from the map.
+// Only matches the braced ${VAR} format to avoid interfering with PostgreSQL dollar-quoting ($$).
+func substituteEnvVars(input string, vars map[string]string) string {
+	result := input
+	for key, value := range vars {
+		result = strings.ReplaceAll(result, "${"+key+"}", value)
+	}
+	return result
 }
 
 // runMigrate runs database migrations using the same code path as flightctl-db-migrate.
