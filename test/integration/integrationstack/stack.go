@@ -61,9 +61,9 @@ func envOrDefault(key, fallback string) string {
 // It combines the cluster's system_identifier with the database OID to ensure uniqueness:
 // - system_identifier changes when the cluster is reinitialized (new container)
 // - database OID changes when the database is dropped and recreated within the same cluster
+// Runs psql inside the Postgres container via podman exec to avoid host psql dependency.
 func getFlightctlDatabaseID(ctx context.Context) (string, bool) {
-	h, p, ok := PublishedTCPPort(PostgresContainerName, "5432/tcp")
-	if !ok {
+	if _, _, ok := PublishedTCPPort(PostgresContainerName, "5432/tcp"); !ok {
 		return "", false
 	}
 
@@ -72,15 +72,14 @@ func getFlightctlDatabaseID(ctx context.Context) (string, bool) {
 	sub, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	//nolint:gosec // G204: arguments are from controlled integration test environment
-	cmd := exec.CommandContext(sub, "psql",
-		"-h", h,
-		"-p", strconv.FormatUint(uint64(p), 10),
-		"-U", "postgres",
-		"-d", "postgres",
-		"-t", "-A",
-		"-c", "SELECT system_identifier || ':' || (SELECT oid FROM pg_database WHERE datname = 'flightctl') FROM pg_control_system()")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", masterPW))
+	cli := containers.RuntimeCLIName()
+	query := "SELECT system_identifier || ':' || (SELECT oid FROM pg_database WHERE datname = 'flightctl') FROM pg_control_system()"
+
+	//nolint:gosec // G204: cli is podman|docker; container name is a constant
+	cmd := exec.CommandContext(sub, cli, "exec",
+		"-e", fmt.Sprintf("PGPASSWORD=%s", masterPW),
+		PostgresContainerName,
+		"psql", "-U", "postgres", "-d", "postgres", "-t", "-A", "-c", query)
 
 	out, err := cmd.Output()
 	if err != nil {

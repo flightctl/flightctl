@@ -52,7 +52,9 @@ var _ = Describe("FleetValidate", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl := gomock.NewController(GinkgoT())
 		producer := queues.NewMockQueueProducer(ctrl)
@@ -147,7 +149,7 @@ var _ = Describe("FleetValidate", func() {
 
 	AfterEach(func() {
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	When("a Fleet has a valid configuration", func() {

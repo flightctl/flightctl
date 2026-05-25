@@ -119,7 +119,9 @@ var _ = Describe("DeviceRender", func() {
 		fleetName = "myfleet"
 		deviceName = "mydevice"
 		repoName = "contents"
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
@@ -129,7 +131,6 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
-		var err error
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
@@ -147,7 +148,7 @@ var _ = Describe("DeviceRender", func() {
 
 	AfterEach(func() {
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 

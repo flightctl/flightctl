@@ -135,7 +135,9 @@ var _ = Describe("Periodic", func() {
 		log = flightlog.InitLogs()
 
 		// Setup database and store
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Grab default org id from the database
@@ -206,7 +208,7 @@ var _ = Describe("Periodic", func() {
 
 		// Clean up database
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 
 		// Clean up channel manager
 		if channelManager != nil {

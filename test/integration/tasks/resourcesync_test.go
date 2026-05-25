@@ -49,7 +49,9 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		internalCtx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
@@ -65,7 +67,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 	AfterEach(func() {
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 

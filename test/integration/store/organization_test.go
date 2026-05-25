@@ -32,13 +32,15 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 	})
 
 	AfterEach(func() {
 		_ = storeInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Organization Store", func() {
@@ -248,12 +250,14 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			freshLog := flightlog.InitLogs()
 
 			// Create an empty test database (no template, no migrations)
-			freshCfg, freshDbName, freshGormDb := testdb.CreateEmptyTestDB(freshCtx, freshLog, "test_org_race_", store.InitDB)
-			defer testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)
+			freshCfg, freshDbName, freshGormDb, err := testdb.CreateEmptyTestDB(freshCtx, freshLog, "test_org_race_", store.InitDB)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
 
 			// Manually create the organizations table structure WITHOUT running InitialMigration
 			db := freshGormDb.WithContext(freshCtx)
-			var err error
 			err = db.AutoMigrate(&model.Organization{})
 			Expect(err).ToNot(HaveOccurred())
 

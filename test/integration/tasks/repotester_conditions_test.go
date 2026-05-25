@@ -115,7 +115,9 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		stores = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockQueueProducer(ctrl)
@@ -131,7 +133,7 @@ var _ = Describe("RepoTester", func() {
 
 	AfterEach(func() {
 		_ = stores.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Conditions", func() {

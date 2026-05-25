@@ -66,8 +66,8 @@ func CreateTestRedis(ctx context.Context, log *logrus.Logger) (host string, port
 
 // CreateTestDB creates a temporary test database by cloning from the migrated 'flightctl' database.
 // IMPORTANT: Call integrationstack.EnsureRunning() in your test suite's BeforeSuite before using this.
-// Returns the config, db name, and gorm.DB connection.
-func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*config.Config, string, *gorm.DB) {
+// Returns the config, db name, gorm.DB connection, and any error.
+func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*config.Config, string, *gorm.DB, error) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/store/testutil", "CreateTestDB")
 	defer span.End()
 
@@ -78,19 +78,19 @@ func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB
 
 	gormDb, err := cloneFromMigratedDB(ctx, cfg, randomDBName, log, initDB)
 	if err != nil {
-		log.Fatal(err)
+		return nil, "", nil, err
 	}
 
 	cfg.Database.Name = randomDBName
-	return cfg, randomDBName, gormDb
+	return cfg, randomDBName, gormDb, nil
 }
 
 // CreateEmptyTestDB creates a completely empty database for testing migration scenarios.
 // Unlike CreateTestDB which clones from the migrated 'flightctl' template, this creates a truly
 // empty database with no schema. The caller must run any needed migrations/schema setup after creation.
 // IMPORTANT: Call DeleteTestDB in your test's cleanup (e.g., AfterEach or defer) to drop the database.
-// Returns the config, db name, and gorm.DB connection (same signature as CreateTestDB).
-func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*config.Config, string, *gorm.DB) {
+// Returns the config, db name, gorm.DB connection, and any error.
+func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*config.Config, string, *gorm.DB, error) {
 	cfg := config.NewDefault()
 	ApplyIntegrationConnectionOverrides(cfg)
 	dbName := generateRandomDBName(prefix)
@@ -107,11 +107,11 @@ func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, i
 	// Use minimal admin connection for CREATE DATABASE (no template)
 	adminDB, err := OpenMinimalAdminDB(adminCfg, log)
 	if err != nil {
-		log.Fatalf("admin connection for CREATE DATABASE: %v", err)
+		return nil, "", nil, fmt.Errorf("admin connection for CREATE DATABASE: %w", err)
 	}
 	if err := adminDB.WithContext(ctx).Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)).Error; err != nil {
 		CloseDB(adminDB)
-		log.Fatalf("creating empty test db %s: %v", dbName, err)
+		return nil, "", nil, fmt.Errorf("creating empty test db %s: %w", dbName, err)
 	}
 	CloseDB(adminDB)
 
@@ -119,13 +119,13 @@ func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, i
 	adminCfg.Database.Name = dbName
 	adminDB, err = OpenMinimalAdminDB(adminCfg, log)
 	if err != nil {
-		log.Fatalf("admin connection for setup: %v", err)
+		return nil, "", nil, fmt.Errorf("admin connection for setup: %w", err)
 	}
 
 	// Create extensions that migrations need (app user lacks CREATE EXTENSION privilege)
 	if err := adminDB.WithContext(ctx).Exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm`).Error; err != nil {
 		CloseDB(adminDB)
-		log.Fatalf("creating pg_trgm extension: %v", err)
+		return nil, "", nil, fmt.Errorf("creating pg_trgm extension: %w", err)
 	}
 
 	// Grant schema permissions to app user (empty databases don't inherit grants from template)
@@ -137,7 +137,7 @@ func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, i
 	for _, grant := range grants {
 		if err := adminDB.WithContext(ctx).Exec(grant).Error; err != nil {
 			CloseDB(adminDB)
-			log.Fatalf("granting schema permissions: %v", err)
+			return nil, "", nil, fmt.Errorf("granting schema permissions: %w", err)
 		}
 	}
 	CloseDB(adminDB)
@@ -146,10 +146,10 @@ func CreateEmptyTestDB(ctx context.Context, log *logrus.Logger, prefix string, i
 	cfg.Database.Name = dbName
 	gormDb, err := initDB(cfg, log)
 	if err != nil {
-		log.Fatalf("initializing empty test db %s: %v", dbName, err)
+		return nil, "", nil, fmt.Errorf("initializing empty test db %s: %w", dbName, err)
 	}
 
-	return cfg, dbName, gormDb
+	return cfg, dbName, gormDb, nil
 }
 
 // OpenMinimalAdminDB creates a minimal GORM connection for admin operations (CREATE/DROP DATABASE).
@@ -209,7 +209,7 @@ func cloneFromMigratedDB(ctx context.Context, cfg *config.Config, dbName string,
 
 // DeleteTestDB drops the test database.
 // Uses a minimal admin connection (postgres user) for DROP DATABASE - no prometheus/tracing plugins.
-func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, db *gorm.DB, dbName string) {
+func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, db *gorm.DB, dbName string) error {
 	CloseDB(db)
 
 	// Create minimal admin connection for DROP DATABASE
@@ -222,7 +222,7 @@ func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, d
 
 	adminDB, err := OpenMinimalAdminDB(adminCfg, log)
 	if err != nil {
-		log.Fatalf("admin connection: %v", err)
+		return fmt.Errorf("admin connection: %w", err)
 	}
 	defer CloseDB(adminDB)
 
@@ -259,8 +259,9 @@ func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, d
 	// Drop the test database
 	adminDB = adminDB.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
 	if adminDB.Error != nil {
-		log.Fatalf("dropping database: %v", adminDB.Error)
+		return fmt.Errorf("dropping database: %w", adminDB.Error)
 	}
+	return nil
 }
 
 // CloseDB closes the database connection

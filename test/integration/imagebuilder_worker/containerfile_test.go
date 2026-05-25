@@ -137,7 +137,9 @@ var _ = Describe("Containerfile Generation", func() {
 		log = flightlog.InitLogs()
 
 		// Use testdb.CreateTestDB which includes organizations table
-		cfg, dbName, db = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
 		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
@@ -160,7 +162,7 @@ var _ = Describe("Containerfile Generation", func() {
 
 	AfterEach(func() {
 		_ = mainStoreInst.Close()
-		testdb.DeleteTestDB(ctx, log, cfg, db, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Late binding containerfile generation", func() {
