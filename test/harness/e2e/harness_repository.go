@@ -69,6 +69,8 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, k
 		Spec: repoSpec,
 	}
 
+	h.addTestLabelToRepositoryMetadata(&repository.Metadata)
+
 	resp, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	if err != nil {
 		return fmt.Errorf("failed to create repository: %w", err)
@@ -317,4 +319,42 @@ func (h *Harness) CreateGitRepositoryNoAuth(name, url string) (*v1beta1.Reposito
 // addTestLabelToRepositoryMetadata adds test labels to repository metadata.
 func (h *Harness) addTestLabelToRepositoryMetadata(metadata *v1beta1.ObjectMeta) {
 	h.SetLabelsForRepositoryMetadata(metadata, nil)
+}
+
+// FileContentPusher is satisfied by auxiliary.FileServer.
+type FileContentPusher interface {
+	PushFile(relativePath, content string) error
+	GetInternalURL() string
+}
+
+// HTTPRepoSetupOpts holds options for SetupHTTPRepoWithContent.
+type HTTPRepoSetupOpts struct {
+	FileServer FileContentPusher
+	RepoName   string
+	FilePath   string
+	Content    string
+}
+
+// SetupHTTPRepoWithContent pushes content to the file server and creates an HTTP Repository resource.
+func (h *Harness) SetupHTTPRepoWithContent(opts HTTPRepoSetupOpts) (*v1beta1.Repository, error) {
+	if opts.FileServer == nil {
+		return nil, fmt.Errorf("missing FileServer in HTTPRepoSetupOpts")
+	}
+	if opts.RepoName == "" {
+		return nil, fmt.Errorf("missing RepoName in HTTPRepoSetupOpts")
+	}
+	if opts.FilePath == "" {
+		return nil, fmt.Errorf("missing FilePath in HTTPRepoSetupOpts")
+	}
+	if err := opts.FileServer.PushFile(opts.FilePath, opts.Content); err != nil {
+		return nil, fmt.Errorf("push file to server: %w", err)
+	}
+
+	repoURL := fmt.Sprintf("%s/%s", opts.FileServer.GetInternalURL(), opts.FilePath)
+	repo, err := h.CreateHTTPRepository(opts.RepoName, repoURL, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP repository: %w", err)
+	}
+
+	return repo, nil
 }

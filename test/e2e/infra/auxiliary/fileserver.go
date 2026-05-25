@@ -101,3 +101,8 @@ func (f *FileServer) PushFile(relativePath, content string) error {
 	}
 	return os.WriteFile(fullPath, []byte(content), 0600)
 }
+
+// GetInternalURL returns the internal (cluster-reachable) URL of the file server.
+func (f *FileServer) GetInternalURL() string {
+	return f.InternalURL
+}
