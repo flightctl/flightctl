@@ -12,10 +12,12 @@ api:
 cliArtifacts:
   enabled: true
 worker:
+  clusterLevelSecretAccess: true
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
+  clusterLevelSecretAccess: true
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
