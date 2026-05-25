@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/flightctl/flightctl/internal/cli"
@@ -11,16 +10,14 @@ import (
 func main() {
 	command := NewFlightCtlCommand()
 	if err := command.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func NewFlightCtlCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "flightctl [flags] [options]",
-		Short:         "flightctl controls the Flight Control fleet management service.",
-		SilenceErrors: true,
+		Use:   "flightctl [flags] [options]",
+		Short: "flightctl controls the Flight Control fleet management service.",
 		Run: func(cmd *cobra.Command, args []string) {
 			_ = cmd.Help()
 			os.Exit(1)

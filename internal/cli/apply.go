@@ -398,7 +398,7 @@ func extractApplyResult(response interface{}, err error) applyResult {
 }
 
 func buildApplyResult(httpResponse *http.Response, body []byte) applyResult {
-	if httpResponse != nil && httpResponse.StatusCode < http.StatusMultipleChoices {
+	if httpResponse != nil && (httpResponse.StatusCode == http.StatusOK || httpResponse.StatusCode == http.StatusCreated) {
 		return applyResult{httpResponse: httpResponse}
 	}
 	return applyResult{httpResponse: httpResponse, status: ParseStatusFromBody(body)}
