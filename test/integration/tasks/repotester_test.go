@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	b64 "encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -64,25 +65,44 @@ func startHttpsMTLSRepo(tlsConfig *tls.Config) {
 	log.Fatal(server.ListenAndServeTLS("", ""))
 }
 
-func startSshGitRepo(pubKey gossh.PublicKey) {
-	ssh.Handle(func(s ssh.Session) {
-		path, err := filepath.Abs("./git/base")
-		if err != nil {
-			return
-		}
-		indexData, err := os.ReadFile(path)
-		if err != nil {
-			return
-		}
-		_, _ = s.Write(indexData)
-		<-s.Context().Done()
-	})
+func startSshGitRepo(ctx context.Context, pubKey gossh.PublicKey) <-chan error {
+	errCh := make(chan error, 1)
 
-	publicKeyOption := ssh.PublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-		return ssh.KeysEqual(key, pubKey)
-	})
+	server := &ssh.Server{
+		Addr: "127.0.0.1:2222",
+		Handler: func(s ssh.Session) {
+			path, err := filepath.Abs("./git/base")
+			if err != nil {
+				errCh <- fmt.Errorf("failed to get absolute path: %w", err)
+				_ = s.Exit(1)
+				return
+			}
+			indexData, err := os.ReadFile(path)
+			if err != nil {
+				errCh <- fmt.Errorf("failed to read test data file %s: %w", path, err)
+				_ = s.Exit(1)
+				return
+			}
+			_, _ = s.Write(indexData)
+			<-s.Context().Done()
+		},
+		PublicKeyHandler: func(_ ssh.Context, key ssh.PublicKey) bool {
+			return ssh.KeysEqual(key, pubKey)
+		},
+	}
 
-	log.Fatal(ssh.ListenAndServe("127.0.0.1:2222", nil, publicKeyOption))
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != ssh.ErrServerClosed {
+			errCh <- fmt.Errorf("SSH server error: %w", err)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		_ = server.Shutdown(context.Background())
+	}()
+
+	return errCh
 }
 
 func startTLSOciRegistryServer(mock *MockOciRegistry) (*httptest.Server, string) {
@@ -166,7 +186,11 @@ var _ = Describe("RepoTester", func() {
 			Expect(err).NotTo(HaveOccurred())
 			publicRsaKey, err := gossh.NewPublicKey(&privateKey.PublicKey)
 			Expect(err).NotTo(HaveOccurred())
-			go startSshGitRepo(publicRsaKey)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sshErrCh := startSshGitRepo(ctx, publicRsaKey)
+
 			repotester := tasks.GitRepoTester{}
 
 			privatePEM := pem.EncodeToMemory(&pem.Block{
@@ -189,6 +213,12 @@ var _ = Describe("RepoTester", func() {
 
 			err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 			Expect(err).NotTo(HaveOccurred())
+
+			select {
+			case sshErr := <-sshErrCh:
+				Expect(sshErr).NotTo(HaveOccurred())
+			default:
+			}
 		})
 	})
 

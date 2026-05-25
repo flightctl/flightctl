@@ -273,6 +273,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		err := apiServer.Run(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
+			cancel() // cascade failure to other servers
 		}
 	}()
 
@@ -282,6 +283,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		err := workerServer.Run(context.WithValue(ctx, consts.InternalRequestCtxKey, true))
 		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
+			cancel() // cascade failure to other servers
 		}
 	}()
 
@@ -292,6 +294,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		err := agentServer.Run(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting main agent api server: %w", err))
+			cancel() // cascade failure to other servers
 		}
 	}()
 
@@ -388,9 +391,14 @@ func (h *TestHarness) Cleanup() {
 	h.StopAgent()
 	// stop any pending API requests
 	h.cancelCtx()
-	// wait for all servers to finish gracefully
+	// wait for all servers to finish gracefully with timeout
 	if h.serversFinished != nil {
-		<-h.serversFinished
+		select {
+		case <-h.serversFinished:
+			// servers shut down gracefully
+		case <-time.After(30 * time.Second):
+			fmt.Fprintf(os.Stderr, "WARNING: test harness servers did not shut down within 30s, proceeding with cleanup\n")
+		}
 	}
 	// unset env var for the test dir path
 	os.Unsetenv(agent_config.TestRootDirEnvKey)
