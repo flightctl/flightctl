@@ -210,8 +210,8 @@ make deploy-kv
 ```
 
 > **NOTE**
-> Deploying individual services makes use of service-name-standalone.container files
-> The -standalone files are handled as a special case and currently used for integration testing 
+> Deploying individual services makes use of service-name-standalone.container files.
+> The -standalone files are handled as a special case for running individual services without the full stack. 
 
 ### Deployment Flow
 
