@@ -367,34 +367,41 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	// Use type switch to extract fields from different response types
 	switch r := response.(type) {
 	case *apiclient.ReplaceDeviceResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceEnrollmentRequestResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceFleetResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceRepositoryResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceResourceSyncResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceCertificateSigningRequestResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceAuthProviderResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclientv1alpha1.ReplaceCatalogResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclientv1alpha1.ReplaceCatalogItemResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.CreateImageBuildResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.CreateImageExportResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.CreateImagePromotionResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.ReplaceImagePromotionResponse:
-		return applyResult{httpResponse: r.HTTPResponse, status: ParseStatusFromBody(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	default:
 		return applyResult{}
 	}
+}
+
+func buildApplyResult(httpResponse *http.Response, body []byte) applyResult {
+	if httpResponse != nil && httpResponse.StatusCode < http.StatusMultipleChoices {
+		return applyResult{httpResponse: httpResponse}
+	}
+	return applyResult{httpResponse: httpResponse, status: ParseStatusFromBody(body)}
 }
 
 func expandIfFilePattern(pattern string) ([]string, error) {
