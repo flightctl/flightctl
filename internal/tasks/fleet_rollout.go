@@ -711,7 +711,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 	}
 
 	deviceConfig := []domain.ConfigProviderSpec{}
-	var depRefs []model.DependencyRef
+	depRefs := make(map[string]model.DependencyRef)
 	configErrs := []error{}
 	for _, configItem := range *templateVersion.Status.Config {
 		var newConfigItem *domain.ConfigProviderSpec
@@ -727,17 +727,23 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 		case domain.GitConfigProviderType:
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceGitConfigParameters(device, configItem)
-			depRefs = append(depRefs, refs...)
+			for _, ref := range refs {
+				depRefs[ref.ResourceKey] = ref
+			}
 		case domain.KubernetesSecretProviderType:
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceKubeSecretConfigParameters(device, configItem)
-			depRefs = append(depRefs, refs...)
+			for _, ref := range refs {
+				depRefs[ref.ResourceKey] = ref
+			}
 		case domain.InlineConfigProviderType:
 			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
 		case domain.HttpConfigProviderType:
 			var refs []model.DependencyRef
 			newConfigItem, refs, errs = f.replaceHTTPConfigParameters(device, configItem)
-			depRefs = append(depRefs, refs...)
+			for _, ref := range refs {
+				depRefs[ref.ResourceKey] = ref
+			}
 		default:
 			errs = append(errs, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
 		}
@@ -752,7 +758,11 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersi
 		return nil, nil, configErrs
 	}
 
-	return &deviceConfig, depRefs, nil
+	refs := make([]model.DependencyRef, 0, len(depRefs))
+	for _, ref := range depRefs {
+		refs = append(refs, ref)
+	}
+	return &deviceConfig, refs, nil
 }
 
 func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []model.DependencyRef, []error) {

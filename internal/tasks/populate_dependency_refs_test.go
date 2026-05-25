@@ -620,6 +620,64 @@ func TestShouldPopulateDependencyRefs(t *testing.T) {
 	})
 }
 
+func TestCollectConfigRefs_DeduplicatesByResourceKey(t *testing.T) {
+	const (
+		testFleet = "my-fleet"
+		repo      = "my-repo"
+		revision  = "main"
+	)
+
+	t.Run("When two git configs share repo and target it should produce one ref", func(t *testing.T) {
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "app-config", repo, revision),
+			makeGitConfigItem(t, "infra-config", repo, revision),
+		}
+
+		refs := collectConfigRefs(logrus.New(), config, testFleet, "")
+
+		require.Len(t, refs, 1)
+		assert.Equal(t, "git:my-repo/main", refs[0].ResourceKey)
+	})
+
+	t.Run("When two HTTP configs share repo and suffix it should produce one ref", func(t *testing.T) {
+		suffix := "/data.json"
+		config := &[]domain.ConfigProviderSpec{
+			makeHttpConfigItem(t, "http-alpha", "http-repo", &suffix),
+			makeHttpConfigItem(t, "http-beta", "http-repo", &suffix),
+		}
+
+		refs := collectConfigRefs(logrus.New(), config, testFleet, "")
+
+		require.Len(t, refs, 1)
+		assert.Equal(t, "http:http-repo/data.json", refs[0].ResourceKey)
+	})
+
+	t.Run("When two secret configs share namespace and name it should produce one ref", func(t *testing.T) {
+		config := &[]domain.ConfigProviderSpec{
+			makeSecretConfigItem(t, "secret-a", "prod", "db-creds"),
+			makeSecretConfigItem(t, "secret-b", "prod", "db-creds"),
+		}
+
+		refs := collectConfigRefs(logrus.New(), config, testFleet, "")
+
+		require.Len(t, refs, 1)
+		assert.Equal(t, "secret:prod/db-creds", refs[0].ResourceKey)
+	})
+
+	t.Run("When configs have distinct resource keys it should produce all refs", func(t *testing.T) {
+		config := &[]domain.ConfigProviderSpec{
+			makeGitConfigItem(t, "cfg-a", "repo-a", "main"),
+			makeGitConfigItem(t, "cfg-b", "repo-b", "main"),
+		}
+
+		refs := collectConfigRefs(logrus.New(), config, testFleet, "")
+
+		require.Len(t, refs, 2)
+		assert.Equal(t, "git:repo-a/main", refs[0].ResourceKey)
+		assert.Equal(t, "git:repo-b/main", refs[1].ResourceKey)
+	})
+}
+
 // TestCollectConfigRefs_DuplicateNameWarning verifies that collectConfigRefs
 // emits exactly one warning per duplicated config provider name, ensuring
 // pre-existing specs with duplicates are surfaced without flooding logs.
