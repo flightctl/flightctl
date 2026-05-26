@@ -13,6 +13,8 @@ tone_instructions: >-
   For security issues, state severity and blast radius.
 
 reviews:
+  approve:
+    enabled: false
   profile: "assertive"
   request_changes_workflow: true
   high_level_summary: true
