@@ -78,12 +78,12 @@ func DetectDeployment(cfg *config.Config, log logrus.FieldLogger, basePath strin
 
 	if podmanDetected {
 		log.Debug("Podman deployment detected")
-		return NewPodmanDeployer(cfg, log, ""), nil
+		return NewPodmanDeployer(cfg, log, "", ""), nil
 	}
 
 	if k8sDetected {
 		log.Debug("Kubernetes deployment detected")
-		return NewKubernetesDeployer(cfg, log, "", "", nil), nil
+		return NewKubernetesDeployer(cfg, log, "", "", "", nil), nil
 	}
 
 	return nil, fmt.Errorf(

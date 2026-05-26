@@ -59,7 +59,7 @@ var _ = Describe("PodmanDeployer Integration", func() {
 		cfg.Database.Password = "adminpass"
 		cfg.Database.Name = "flightctl"
 
-		deployer = backup.NewPodmanDeployer(cfg, log, "")
+		deployer = backup.NewPodmanDeployer(cfg, log, "", "")
 
 		// Create temporary output directory
 		outputDir = GinkgoT().TempDir()
@@ -102,7 +102,7 @@ var _ = Describe("PodmanDeployer Integration", func() {
 			// Create config with external database
 			externalCfg := config.NewDefault()
 			externalCfg.Database.Hostname = "external-db.example.com"
-			externalDeployer := backup.NewPodmanDeployer(externalCfg, log, "")
+			externalDeployer := backup.NewPodmanDeployer(externalCfg, log, "", "")
 
 			err := externalDeployer.BackupDatabase(ctx, outputDir)
 			Expect(err).To(MatchError(backup.ErrExternalDatabase))

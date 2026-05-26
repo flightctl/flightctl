@@ -346,17 +346,37 @@ func PerformBackup(ctx context.Context, deployer Deployer, outputDir string, log
 		return "", fmt.Errorf("archive creation failed: %w", err)
 	}
 
+	// Clean up staging directory (contains sensitive data - must succeed)
+	if err := os.RemoveAll(stagingDir); err != nil {
+		// Cleanup failed - attempt rollback by removing archive and checksum
+		var rollbackErrs []error
+		if errArchive := os.Remove(archivePath); errArchive != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("failed to remove archive during rollback: %w", errArchive))
+		}
+		if errChecksum := os.Remove(checksumPath); errChecksum != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("failed to remove checksum during rollback: %w", errChecksum))
+		}
+
+		// Return comprehensive error including staging cleanup failure and any rollback failures
+		errMsg := fmt.Sprintf("backup failed: unable to clean up staging directory %s (contains sensitive data - MANUAL CLEANUP REQUIRED): %v", stagingDir, err)
+		if len(rollbackErrs) > 0 {
+			errMsg += "; rollback also failed: "
+			for i, rollbackErr := range rollbackErrs {
+				if i > 0 {
+					errMsg += ", "
+				}
+				errMsg += rollbackErr.Error()
+			}
+		}
+		return "", fmt.Errorf("%s", errMsg)
+	}
+	stagingCleaned = true
+	log.Debugf("Staging directory cleaned up: %s", stagingDir)
+
+	// Log success only after cleanup succeeds
 	log.Infof("Backup completed successfully")
 	log.Infof("Archive: %s", archivePath)
 	log.Infof("Checksum: %s", checksumPath)
-
-	// Mark staging directory as cleaned up (CreateArchive succeeded)
-	if err := os.RemoveAll(stagingDir); err != nil {
-		log.Warnf("Failed to clean up staging directory %s: %v", stagingDir, err)
-	} else {
-		stagingCleaned = true
-		log.Debugf("Staging directory cleaned up: %s", stagingDir)
-	}
 
 	return archivePath, nil
 }
