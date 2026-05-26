@@ -361,7 +361,9 @@ func main() {
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on %s, proxying to %s", listenAddress, proxy.target.String())
+	sanitizedTarget := *proxy.target
+	sanitizedTarget.User = nil
+	logger.Printf("Alertmanager proxy listening on %s, proxying to %s", listenAddress, sanitizedTarget.String())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("Server error: %v", err)
 	}

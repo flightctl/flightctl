@@ -843,7 +843,7 @@ func deriveImageBuilderService(mainService client.Service) (*client.Service, err
 		// NodePort mode: use the same host but with the imagebuilder port
 		imageBuilderURL = fmt.Sprintf("%s://%s:%d", parsedUrl.Scheme, hostname, defaultImageBuilderPort)
 	} else {
-		imageBuilderURL = fmt.Sprintf("%s://%s/_/imagebuilder", parsedUrl.Scheme, hostname)
+		imageBuilderURL = fmt.Sprintf("%s://%s/_/imagebuilder", parsedUrl.Scheme, parsedUrl.Host)
 	}
 
 	return &client.Service{

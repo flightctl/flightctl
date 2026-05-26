@@ -19,7 +19,11 @@ Group=0
 Exec=nginx -g "daemon off;"
 
 PublishPort=443:8443
+# Backwards-compat: pre-gateway installations used port 3443 for the API and 8445 for imagebuilder.
+# These are published unconditionally; nginx controls whether they are served based on suppressOldPorts.
+PublishPort=3443:3443
 PublishPort=7443:7443
+PublishPort=8445:8445
 PublishPort=4317:4317
 
 [Service]

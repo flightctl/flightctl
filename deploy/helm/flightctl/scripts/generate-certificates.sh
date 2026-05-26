@@ -398,8 +398,8 @@ if [[ ${#GATEWAY_SANS[@]} -gt 0 ]]; then
   GATEWAY_SERVER_KEY="$CERT_DIR/flightctl-gateway/server.key"
   GATEWAY_SERVER_CERT="$CERT_DIR/flightctl-gateway/server.crt"
 
-  if [[ -f "$GATEWAY_SERVER_CERT" ]] && [[ -f "$GATEWAY_SERVER_KEY" ]]; then
-      echo "Skipped generation of Gateway Server TLS certificate (already exists)"
+  if [[ -f "$GATEWAY_SERVER_CERT" ]] && [[ -f "$GATEWAY_SERVER_KEY" ]] && cert_has_expected_sans "$GATEWAY_SERVER_CERT" "${GATEWAY_SANS[@]}"; then
+      echo "Skipped generation of Gateway Server TLS certificate (already exists with correct SANs)"
   else
       generate_server_cert "flightctl-gateway" \
           "$GATEWAY_SERVER_KEY" "$GATEWAY_SERVER_CERT" \

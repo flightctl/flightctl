@@ -30,7 +30,7 @@ service:
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
 alertmanager:
   proxyListenAddress: ":8080"
-  hostname: "localhost"
+  hostname: "flightctl-alertmanager"
   port: 9093
   maxRetries: 3
   baseDelay: "500ms"

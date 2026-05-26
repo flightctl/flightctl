@@ -27,6 +27,7 @@ http {
 
     location /_/flightctl/ {
       location /_/flightctl/ws/ {
+        proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
 
@@ -60,6 +61,7 @@ http {
       rewrite ^(/ws/v1/.*)$ /_/flightctl$1 last;
 
       location /api/terminal/ {
+        proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
 
@@ -81,6 +83,7 @@ http {
     ssl_certificate_key /etc/flightctl/pki/flightctl-gateway/server.key;
 
     location /ws/ {
+      proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
 
