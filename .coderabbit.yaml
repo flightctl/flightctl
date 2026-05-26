@@ -45,7 +45,6 @@ reviews:
     drafts: false
     base_branches:
       - "main"
-      - "release/.*"
     ignore_usernames:
       - packit-as-a-service
     ignore_title_keywords:
@@ -96,6 +95,8 @@ reviews:
           responses (400, 401, 403, 404, 500)
         - Consistent naming: camelCase for JSON fields, kebab-case for URL paths
         - Validate that enum values match Go type constants in types.go
+        - New enums must include x-enum-varnames for each value (required by
+          the TypeScript client generator used in flightctl-ui)
         - Security schemes defined on all non-public endpoints
 
     # ── API types (hand-maintained source of truth) ──────────────
