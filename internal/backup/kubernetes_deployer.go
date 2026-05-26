@@ -94,15 +94,29 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 
 	labelSelector := "app=flightctl-db"
 
-	// Create Kubernetes clientset
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get in-cluster config: %w", err)
-	}
+	// Get or create Kubernetes clientset
+	clientset := k.clientset
+	var config *rest.Config
+	var err error
 
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	if clientset == nil {
+		// Create in-cluster client
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			return fmt.Errorf("failed to get in-cluster config: %w", err)
+		}
+
+		clientset, err = kubernetes.NewForConfig(config)
+		if err != nil {
+			return fmt.Errorf("failed to create Kubernetes client: %w", err)
+		}
+	} else {
+		// Clientset was injected; still need config for SPDY executor
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			// In testing scenarios, this may fail; executor creation will fail later if needed
+			k.log.Debugf("Could not get in-cluster config (clientset was injected): %v", err)
+		}
 	}
 
 	// List pods with label selector
@@ -157,7 +171,10 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 	}
 	defer outFile.Close()
 
-	// Create executor
+	// Create executor (requires in-cluster config)
+	if config == nil {
+		return fmt.Errorf("cannot create SPDY executor: in-cluster config not available")
+	}
 	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)

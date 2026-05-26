@@ -202,8 +202,15 @@ cert_has_expected_sans() {
     fi
 
     for san in "${expected_sans[@]}"; do
-        if ! openssl x509 -in "$cert_path" -noout -checkhost "$san" >/dev/null 2>&1 && \
-           ! openssl x509 -in "$cert_path" -noout -checkip "$san" >/dev/null 2>&1; then
+        if [[ "$san" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if ! openssl x509 -in "$cert_path" -noout -checkip "$san" >/dev/null 2>&1; then
+                echo "  Certificate $cert_path missing expected SAN: $san - will regenerate"
+                return 1
+            fi
+            continue
+        fi
+
+        if ! openssl x509 -in "$cert_path" -noout -checkhost "$san" >/dev/null 2>&1; then
             echo "  Certificate $cert_path missing expected SAN: $san - will regenerate"
             return 1
         fi

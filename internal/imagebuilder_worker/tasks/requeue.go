@@ -59,10 +59,12 @@ func (c *Consumer) executeRequeue(ctx context.Context) {
 	}
 }
 
-// requeueForOrg checks and requeues imagebuild and imageexport tasks for a specific organization
-// Only requeues resources that are in Pending state (haven't started processing)
-// For resources that have started processing but aren't Completed/Failed, marks them as Failed
-// Returns the number of resources requeued and the number moved to fail
+// requeueForOrg checks and requeues imagebuild, imageexport, and imagepromotion tasks for a
+// specific organization.
+// Only requeues resources that are in Pending/WaitingForArtifacts/AmendmentFailed state
+// (haven't started processing). For resources that have started processing but aren't in a
+// terminal state, marks them as Failed.
+// Returns the number of resources requeued and the number moved to fail.
 func (c *Consumer) requeueForOrg(ctx context.Context, orgID uuid.UUID, log logrus.FieldLogger) (int, int, error) {
 	requeuedCount := 0
 	failedCount := 0
@@ -135,6 +137,37 @@ func (c *Consumer) requeueForOrg(ctx context.Context, orgID uuid.UUID, log logru
 			// Has started processing but isn't Completed/Failed/Canceled - mark as Failed
 			if err := c.markImageExportAsFailed(ctx, orgID, &imageExport, log); err != nil {
 				log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as failed")
+				continue
+			}
+			failedCount++
+		}
+	}
+
+	// Get all ImagePromotions that are not in terminal states.
+	// Terminal states for promotions are: Completed, Failed, BuildFailed, BuildCanceled.
+	promotionFieldSelector := "status.conditions.ready.reason notin (Completed, Failed, BuildFailed, BuildCanceled)"
+	imagePromotions, promotionStatus := c.imageBuilderService.ImagePromotion().List(ctx, orgID, domain.ListImagePromotionsParams{
+		FieldSelector: &promotionFieldSelector,
+	})
+	if !imagebuilderapi.IsStatusOK(promotionStatus) {
+		return requeuedCount, failedCount, fmt.Errorf("failed to list imagepromotions: %v", promotionStatus)
+	}
+	if imagePromotions == nil {
+		return requeuedCount, failedCount, fmt.Errorf("imagePromotions list is nil")
+	}
+
+	for _, imagePromotion := range imagePromotions.Items {
+		if c.shouldRequeueImagePromotion(&imagePromotion) {
+			// WaitingForArtifacts or AmendmentFailed - requeue for re-evaluation
+			if err := c.requeueImagePromotion(ctx, orgID, &imagePromotion, log); err != nil {
+				log.WithError(err).WithField("imagePromotion", lo.FromPtr(imagePromotion.Metadata.Name)).Error("Failed to requeue imagePromotion")
+				continue
+			}
+			requeuedCount++
+		} else {
+			// Publishing state - was mid-flight when worker crashed, mark as Failed
+			if err := c.markImagePromotionAsFailed(ctx, orgID, &imagePromotion, log); err != nil {
+				log.WithError(err).WithField("imagePromotion", lo.FromPtr(imagePromotion.Metadata.Name)).Error("Failed to mark imagePromotion as failed")
 				continue
 			}
 			failedCount++
@@ -246,6 +279,79 @@ func (c *Consumer) requeueImageExport(ctx context.Context, orgID uuid.UUID, imag
 
 	// Enqueue the event
 	return c.enqueueRequeueEvent(ctx, orgID, event, log)
+}
+
+// shouldRequeueImagePromotion returns true when a promotion is in a retriable non-terminal state
+// (WaitingForArtifacts or AmendmentFailed) that was never processed by the worker.
+func (c *Consumer) shouldRequeueImagePromotion(imagePromotion *domain.ImagePromotion) bool {
+	if imagePromotion.Status == nil || imagePromotion.Status.Conditions == nil {
+		return false
+	}
+	readyCondition := domain.FindImagePromotionStatusCondition(*imagePromotion.Status.Conditions, domain.ImagePromotionConditionTypeReady)
+	if readyCondition == nil {
+		return false
+	}
+	return readyCondition.Reason == string(domain.ImagePromotionConditionReasonWaitingForArtifacts) ||
+		readyCondition.Reason == string(domain.ImagePromotionConditionReasonAmendmentFailed)
+}
+
+// requeueImagePromotion re-enqueues an ImagePromotion event so the worker evaluates it.
+func (c *Consumer) requeueImagePromotion(ctx context.Context, orgID uuid.UUID, imagePromotion *domain.ImagePromotion, log logrus.FieldLogger) error {
+	name := lo.FromPtr(imagePromotion.Metadata.Name)
+	if name == "" {
+		return fmt.Errorf("imagePromotion name is empty")
+	}
+
+	event := common.GetResourceCreatedOrUpdatedSuccessEvent(
+		ctx,
+		true,
+		coredomain.ResourceKind(string(domain.ResourceKindImagePromotion)),
+		name,
+		nil,
+		log,
+		nil,
+	)
+	if event == nil {
+		return fmt.Errorf("failed to create event")
+	}
+
+	return c.enqueueRequeueEvent(ctx, orgID, event, log)
+}
+
+// markImagePromotionAsFailed marks an ImagePromotion as Failed because it was in the
+// Publishing state when the worker stopped and cannot be safely resumed.
+func (c *Consumer) markImagePromotionAsFailed(ctx context.Context, orgID uuid.UUID, imagePromotion *domain.ImagePromotion, log logrus.FieldLogger) error {
+	name := lo.FromPtr(imagePromotion.Metadata.Name)
+	if name == "" {
+		return fmt.Errorf("imagePromotion name is empty")
+	}
+
+	now := time.Now().UTC()
+	if imagePromotion.Status == nil {
+		imagePromotion.Status = &domain.ImagePromotionStatus{}
+	}
+	if imagePromotion.Status.Conditions == nil {
+		imagePromotion.Status.Conditions = &[]domain.ImagePromotionCondition{}
+	}
+	domain.SetImagePromotionStatusCondition(imagePromotion.Status.Conditions, domain.ImagePromotionCondition{
+		Type:               domain.ImagePromotionConditionTypeReady,
+		Status:             coredomain.ConditionStatusFalse,
+		Reason:             string(domain.ImagePromotionConditionReasonFailed),
+		Message:            "Operation was in progress on startup and could not be resumed",
+		LastTransitionTime: now,
+	})
+
+	_, err := c.imageBuilderService.ImagePromotion().UpdateStatus(ctx, orgID, imagePromotion)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imagePromotion", name).Debug("ImagePromotion was updated by another process, skipping failed mark")
+			return nil
+		}
+		return fmt.Errorf("failed to update ImagePromotion status: %w", err)
+	}
+
+	log.WithField("imagePromotion", name).Info("Marked ImagePromotion as failed (was in progress on startup)")
+	return nil
 }
 
 // enqueueRequeueEvent enqueues an event to the imagebuild queue

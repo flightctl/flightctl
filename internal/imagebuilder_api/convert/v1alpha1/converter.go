@@ -10,21 +10,24 @@ import (
 type Converter interface {
 	ImageBuild() ImageBuildConverter
 	ImageExport() ImageExportConverter
+	ImagePromotion() ImagePromotionConverter
 	Common() CommonConverter
 }
 
 type converterImpl struct {
-	imageBuild  ImageBuildConverter
-	imageExport ImageExportConverter
-	common      CommonConverter
+	imageBuild     ImageBuildConverter
+	imageExport    ImageExportConverter
+	imagePromotion ImagePromotionConverter
+	common         CommonConverter
 }
 
 // NewConverter creates a new Converter instance with all resource converters.
 func NewConverter() Converter {
 	return &converterImpl{
-		imageBuild:  NewImageBuildConverter(),
-		imageExport: NewImageExportConverter(),
-		common:      NewCommonConverter(),
+		imageBuild:     NewImageBuildConverter(),
+		imageExport:    NewImageExportConverter(),
+		imagePromotion: NewImagePromotionConverter(),
+		common:         NewCommonConverter(),
 	}
 }
 
@@ -34,6 +37,10 @@ func (c *converterImpl) ImageBuild() ImageBuildConverter {
 
 func (c *converterImpl) ImageExport() ImageExportConverter {
 	return c.imageExport
+}
+
+func (c *converterImpl) ImagePromotion() ImagePromotionConverter {
+	return c.imagePromotion
 }
 
 func (c *converterImpl) Common() CommonConverter {

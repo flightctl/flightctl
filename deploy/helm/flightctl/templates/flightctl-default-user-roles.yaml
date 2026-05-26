@@ -35,6 +35,7 @@ rules:
       - catalogs
       - catalogitems
       - vulnerabilities
+      - imagepromotions
   # Viewer can view logs but NOT download
   - verbs:
       - get
@@ -69,6 +70,14 @@ rules:
       - repositories
       - imagebuilds
       - imageexports
+      - imagepromotions
+  # Operator has read-only access to catalog resources; promotion auto-manages catalog items
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
       - catalogs
       - catalogitems
   - verbs:

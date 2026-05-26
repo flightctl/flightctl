@@ -37,15 +37,16 @@ const (
 	CatalogItemTypeData      = v1alpha1.CatalogItemTypeData
 
 	// CatalogItemArtifactType constants (bootc-image-builder output formats)
-	CatalogItemArtifactTypeContainer   = v1alpha1.CatalogItemArtifactTypeContainer
-	CatalogItemArtifactTypeQcow2       = v1alpha1.CatalogItemArtifactTypeQcow2
-	CatalogItemArtifactTypeAmi         = v1alpha1.CatalogItemArtifactTypeAmi
-	CatalogItemArtifactTypeIso         = v1alpha1.CatalogItemArtifactTypeIso
-	CatalogItemArtifactTypeAnacondaIso = v1alpha1.CatalogItemArtifactTypeAnacondaIso
-	CatalogItemArtifactTypeVmdk        = v1alpha1.CatalogItemArtifactTypeVmdk
-	CatalogItemArtifactTypeVhd         = v1alpha1.CatalogItemArtifactTypeVhd
-	CatalogItemArtifactTypeRaw         = v1alpha1.CatalogItemArtifactTypeRaw
-	CatalogItemArtifactTypeGce         = v1alpha1.CatalogItemArtifactTypeGce
+	CatalogItemArtifactTypeContainer          = v1alpha1.CatalogItemArtifactTypeContainer
+	CatalogItemArtifactTypeQcow2              = v1alpha1.CatalogItemArtifactTypeQcow2
+	CatalogItemArtifactTypeAmi                = v1alpha1.CatalogItemArtifactTypeAmi
+	CatalogItemArtifactTypeIso                = v1alpha1.CatalogItemArtifactTypeIso
+	CatalogItemArtifactTypeAnacondaIso        = v1alpha1.CatalogItemArtifactTypeAnacondaIso
+	CatalogItemArtifactTypeVmdk               = v1alpha1.CatalogItemArtifactTypeVmdk
+	CatalogItemArtifactTypeVhd                = v1alpha1.CatalogItemArtifactTypeVhd
+	CatalogItemArtifactTypeRaw                = v1alpha1.CatalogItemArtifactTypeRaw
+	CatalogItemArtifactTypeGce                = v1alpha1.CatalogItemArtifactTypeGce
+	CatalogItemArtifactTypeQcow2DiskContainer = v1alpha1.CatalogItemArtifactTypeQcow2DiskContainer
 )
 
 type ListCatalogsParams = v1alpha1.ListCatalogsParams

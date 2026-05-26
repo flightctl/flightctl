@@ -11,6 +11,9 @@ const (
 	ImageExportAPIVersion = "v1alpha1"
 	ImageExportListKind   = "ImageExportList"
 
+	ImagePromotionAPIVersion = "v1alpha1"
+	ImagePromotionListKind   = "ImagePromotionList"
+
 	// LogStreamCompleteMarker is sent by the server when a log stream is complete.
 	// The CLI uses this to distinguish between orderly completion and abrupt disconnection.
 	LogStreamCompleteMarker = "<<STREAM_COMPLETE>>"

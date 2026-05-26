@@ -69,16 +69,9 @@ func NewCmdVersion() *cobra.Command {
 }
 
 func runBackup(ctx context.Context, outputPath, configPath string) error {
-	// Validate output path exists and is a directory
-	info, err := os.Stat(outputPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("output directory does not exist: %s", outputPath)
-		}
-		return fmt.Errorf("failed to access output path: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("output path is not a directory: %s", outputPath)
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputPath, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Load configuration
@@ -88,32 +81,36 @@ func runBackup(ctx context.Context, outputPath, configPath string) error {
 	}
 
 	// Initialize logging
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting Flight Control backup operation")
-	defer log.Println("Flight Control backup operation completed")
-	log.Printf("Using config: %s", cfg)
-	log.Printf("Output directory: %s", outputPath)
+	logger := log.InitLogs(cfg.Service.LogLevel)
+	logger.Println("Starting Flight Control backup operation")
+	defer logger.Println("Flight Control backup operation completed")
+	logger.Printf("Using config: %s", cfg)
+	logger.Printf("Output directory: %s", outputPath)
 
 	// Initialize tracing (matching restore pattern)
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-backup")
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-backup")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
-			log.Printf("Failed to shut down tracer: %v", err)
+			logger.Printf("Failed to shut down tracer: %v", err)
 		}
 	}()
 
 	// Detect deployment type
-	deployer, err := backup.DetectDeployment(cfg, log, "")
+	deployer, err := backup.DetectDeployment(cfg, logger, "")
 	if err != nil {
 		return fmt.Errorf("detecting deployment type: %w", err)
 	}
 
 	// Log detected deployment type at INFO level
-	log.Printf("Detected deployment type: %s", deployer.Type())
+	logger.Printf("Detected deployment type: %s", deployer.Type())
 
-	// PLACEHOLDER: Actual backup logic will be added in EDM-3890+
-	log.Println("Backup logic placeholder - implementation pending")
-	log.Println("Database backup would be created here")
+	// Perform backup
+	archivePath, err := backup.PerformBackup(ctx, deployer, outputPath, logger)
+	if err != nil {
+		return fmt.Errorf("backup failed: %w", err)
+	}
+
+	logger.Printf("Backup completed successfully: %s", archivePath)
 
 	return nil
 }

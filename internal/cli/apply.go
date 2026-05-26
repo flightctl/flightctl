@@ -323,6 +323,21 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 		}
 		response, err := ibClient.CreateImageExportWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case ImagePromotionKind:
+		if ibClient == nil {
+			return applyResult{err: fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")}
+		}
+		// Try POST (create) first. On 409 Conflict (promotion already exists), fall back to
+		// PUT (replace) which amends the promotion with additional export formats.
+		createResp, err := ibClient.CreateImagePromotionWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+		if err != nil {
+			return applyResult{err: err}
+		}
+		if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict {
+			replaceResp, err := ibClient.ReplaceImagePromotionWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+			return extractApplyResult(replaceResp, err)
+		}
+		return extractApplyResult(createResp, err)
 	case CatalogKind:
 		response, err := c.V1Alpha1().ReplaceCatalogWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
@@ -370,6 +385,10 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	case *imagebuilderclient.CreateImageBuildResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	case *imagebuilderclient.CreateImageExportResponse:
+		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+	case *imagebuilderclient.CreateImagePromotionResponse:
+		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+	case *imagebuilderclient.ReplaceImagePromotionResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	default:
 		return applyResult{}

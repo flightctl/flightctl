@@ -380,8 +380,8 @@ var _ = Describe("CLI - device console", func() {
 // 	return validateIntervalTiming(timestamps, expectedInterval)
 // }
 
-// resetConsoleTestAgentConfig clears enrollment state and label-from-system-info
-// mappings so console tests start from a predictable enrollment configuration.
+// resetConsoleTestAgentConfig clears enrollment state and enrollment labels so
+// console tests start from a predictable enrollment configuration.
 func resetConsoleTestAgentConfig(harness *e2e.Harness) error {
 	if harness == nil {
 		return fmt.Errorf("harness is nil")
@@ -396,6 +396,7 @@ func resetConsoleTestAgentConfig(harness *e2e.Harness) error {
 		return fmt.Errorf("getting agent config: %w", err)
 	}
 
+	cfg.DefaultLabels = map[string]string{}
 	cfg.LabelFromSystemInfo = map[string]string{}
 
 	if err := harness.SetAgentConfig(cfg); err != nil {
