@@ -32,9 +32,10 @@ func NewFlightCtlRestoreCommand() *cobra.Command {
 This command restores a Flight Control server from a backup archive produced
 by flightctl-backup. It performs the following steps:
 
-  1. Validates the archive path and extracts it to a temporary directory
-  2. Reads and validates archive metadata (deployment type compatibility)
-  3. Prepares devices for reconnection after restore
+  1. Verifies the SHA256 checksum of the archive
+  2. Extracts the archive to a temporary directory
+  3. Reads and validates archive metadata (deployment type compatibility)
+  4. Prepares devices for reconnection after restore
 
 The archive-path argument is required and must point to a .tar.gz archive
 created by flightctl-backup.`,
@@ -75,29 +76,6 @@ func runRestore(ctx context.Context, archivePath string) error {
 	log.Println("Starting Flight Control restore")
 	defer log.Println("Flight Control restore completed")
 	log.Printf("Using config: %s", cfg)
-	log.Printf("Restoring from archive: %s", archivePath)
-
-	log.Println("Extracting backup archive")
-	extractDir, err := restore.ExtractArchive(ctx, archivePath)
-	defer func() {
-		if extractDir != "" {
-			if removeErr := os.RemoveAll(extractDir); removeErr != nil {
-				log.Warnf("Failed to clean up temporary extraction directory %s: %v", extractDir, removeErr)
-			}
-		}
-	}()
-	if err != nil {
-		return fmt.Errorf("failed to extract archive: %w", err)
-	}
-	log.Printf("Archive extracted to temporary directory: %s", extractDir)
-
-	log.Println("Reading archive metadata")
-	metadata, err := restore.ReadMetadata(extractDir)
-	if err != nil {
-		return fmt.Errorf("failed to read archive metadata: %w", err)
-	}
-	log.Printf("Archive metadata: version=%s, deploymentType=%s, databaseIncluded=%v, timestamp=%s",
-		metadata.Version, metadata.DeploymentType, metadata.DatabaseIncluded, metadata.Timestamp.Format("2006-01-02T15:04:05Z"))
 
 	log.Println("Detecting current deployment type")
 	deployer, err := backup.DetectDeployment(cfg, log, "")
@@ -106,11 +84,6 @@ func runRestore(ctx context.Context, archivePath string) error {
 	}
 	log.Printf("Current deployment type: %s", deployer.Type())
 
-	if err := restore.ValidateDeploymentType(metadata, deployer.Type()); err != nil {
-		return err
-	}
-	log.Println("Deployment type validation passed")
-
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
@@ -118,7 +91,7 @@ func runRestore(ctx context.Context, archivePath string) error {
 		}
 	}()
 
-	log.Println("Initializing database connection for restore operations")
+	log.Println("Initializing database connection")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing database: %v", err)
@@ -131,19 +104,12 @@ func runRestore(ctx context.Context, archivePath string) error {
 		}
 	}()
 
-	log.Println("Initializing KV store connection for restore operations")
+	log.Println("Initializing KV store connection")
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		log.Fatalf("initializing KV store: %v", err)
 	}
 	defer kvStore.Close()
 
-	log.Println("Running post-restoration device preparation")
-	restoreStore := restore.NewRestoreStore(db)
-	if _, err := restore.PrepareDevices(ctx, restoreStore, kvStore, log); err != nil {
-		log.Fatalf("preparing devices after restore: %v", err)
-	}
-
-	log.Println("Post-restoration device preparation completed successfully")
-	return nil
+	return restore.Restore(ctx, archivePath, deployer.Type(), restore.NewRestoreStore(db), kvStore, log)
 }

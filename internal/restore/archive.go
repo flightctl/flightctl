@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,53 @@ import (
 
 	"github.com/flightctl/flightctl/internal/backup"
 )
+
+// verifyChecksum reads the SHA256 checksum file at archivePath+".sha256",
+// computes the SHA256 digest of the archive file, and returns an error if the
+// checksum file is missing, unreadable, malformed, or the digest does not match.
+//
+// Checksum file format: "<sha256-hex>  <filename>\n" (two spaces,
+// sha256sum-compatible), as written by backup.CreateArchive. Only the leading
+// hex field is used for verification; the filename field is ignored.
+func verifyChecksum(archivePath string) error {
+	checksumPath := archivePath + ".sha256"
+
+	checksumData, err := os.ReadFile(checksumPath)
+	if err != nil {
+		return fmt.Errorf("checksum file %q not found or unreadable: %w", checksumPath, err)
+	}
+
+	fields := strings.Fields(string(checksumData))
+	if len(fields) == 0 {
+		return fmt.Errorf("checksum file %q is empty or malformed", checksumPath)
+	}
+
+	expectedHash := fields[0]
+	if len(expectedHash) != 64 {
+		return fmt.Errorf("checksum file %q is malformed: expected 64-character hex hash, got %d characters", checksumPath, len(expectedHash))
+	}
+	if _, err := hex.DecodeString(expectedHash); err != nil {
+		return fmt.Errorf("checksum file %q is malformed: hash is not valid hex: %w", checksumPath, err)
+	}
+
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("cannot open archive %q for checksum verification: %w", archivePath, err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("failed to compute checksum of archive %q: %w", archivePath, err)
+	}
+
+	actualHash := hex.EncodeToString(h.Sum(nil))
+	if actualHash != expectedHash {
+		return fmt.Errorf("checksum mismatch for archive %q: expected %s, got %s", archivePath, expectedHash, actualHash)
+	}
+
+	return nil
+}
 
 // ExtractArchive validates that archivePath exists and is a readable regular
 // file, then extracts the tar.gz to a new temporary directory.
