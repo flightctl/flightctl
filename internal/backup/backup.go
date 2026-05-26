@@ -1,8 +1,6 @@
 package backup
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -59,93 +58,32 @@ func writeMetadataFile(stagingDir string, metadata BackupMetadata) error {
 	return nil
 }
 
-// createTarGz creates a gzip-compressed tar archive from the staging directory.
+// createTarGz creates a gzip-compressed tar archive from the staging directory using tar command.
 // Archive file is created with 0600 permissions (owner read/write only).
-func createTarGz(ctx context.Context, stagingDir string, archivePath string, log logrus.FieldLogger) (err error) {
-	// Create output file with restrictive permissions
-	outFile, err := os.OpenFile(archivePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+func createTarGz(ctx context.Context, stagingDir string, archivePath string, log logrus.FieldLogger) error {
+	// Pre-create archive file with restrictive permissions to avoid race condition
+	// where tar creates file with umask permissions before we can chmod it
+	archiveFile, err := os.OpenFile(archivePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create archive file: %w", err)
 	}
-	defer func() {
-		if closeErr := outFile.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close archive file: %w", closeErr)
-		}
-	}()
+	archiveFile.Close() // tar will overwrite this file
 
-	// Create gzip writer
-	gzWriter := gzip.NewWriter(outFile)
-	defer func() {
-		if closeErr := gzWriter.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close gzip writer: %w", closeErr)
-		}
-	}()
-
-	// Create tar writer
-	tarWriter := tar.NewWriter(gzWriter)
-	defer func() {
-		if closeErr := tarWriter.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close tar writer: %w", closeErr)
-		}
-	}()
-
-	// Walk staging directory and add files to archive
-	err = filepath.Walk(stagingDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Check for context cancellation
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("archive creation cancelled: %w", ctx.Err())
-		default:
-		}
-
-		// Create tar header from file info
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return fmt.Errorf("failed to create tar header for %s: %w", path, err)
-		}
-
-		// Set name to relative path (remove staging directory prefix)
-		relPath, err := filepath.Rel(stagingDir, path)
-		if err != nil {
-			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
-		}
-
-		// Normalize path separators for portability (use forward slashes in tar)
-		header.Name = filepath.ToSlash(relPath)
-
-		// Skip the root directory itself (empty name)
-		if header.Name == "." {
-			return nil
-		}
-
-		// Write header
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("failed to write tar header for %s: %w", path, err)
-		}
-
-		// Write file content for regular files
-		if info.Mode().IsRegular() {
-			file, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open file %s: %w", path, err)
-			}
-
-			if _, err := io.Copy(tarWriter, file); err != nil {
-				file.Close()
-				return fmt.Errorf("failed to write file content for %s: %w", path, err)
-			}
-			file.Close()
-		}
-
-		return nil
-	})
-
+	// Create tar.gz archive using tar command
+	// -c: create archive
+	// -z: gzip compression
+	// -f: output file
+	// -C: change to directory before archiving
+	// .: archive all contents of staging directory
+	cmd := exec.CommandContext(ctx, "tar", "czf", archivePath, "-C", stagingDir, ".")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to create tar archive: %w", err)
+		return fmt.Errorf("tar command failed: %w (output: %s)", err, string(output))
+	}
+
+	// Set restrictive permissions on archive as safety net (file already has 0600 from creation)
+	if err := os.Chmod(archivePath, 0600); err != nil {
+		return fmt.Errorf("failed to set archive permissions: %w", err)
 	}
 
 	log.Debugf("Created tar.gz archive: %s", archivePath)
