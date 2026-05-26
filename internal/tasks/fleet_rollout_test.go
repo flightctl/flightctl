@@ -1045,11 +1045,16 @@ func TestReplaceGitConfigParameters_DeviceLevelRefs(t *testing.T) {
 		require.Empty(t, errs)
 		require.Len(t, refs, 2)
 
-		assert.Equal(t, "git:repo-a/dev", refs[0].ResourceKey)
-		assert.Equal(t, "device-1", *refs[0].DeviceName)
+		refsByKey := make(map[string]model.DependencyRef, len(refs))
+		for _, r := range refs {
+			refsByKey[r.ResourceKey] = r
+		}
 
-		assert.Equal(t, "git:repo-c/staging", refs[1].ResourceKey)
-		assert.Equal(t, "device-1", *refs[1].DeviceName)
+		assert.Contains(t, refsByKey, "git:repo-a/dev")
+		assert.Equal(t, "device-1", *refsByKey["git:repo-a/dev"].DeviceName)
+
+		assert.Contains(t, refsByKey, "git:repo-c/staging")
+		assert.Equal(t, "device-1", *refsByKey["git:repo-c/staging"].DeviceName)
 	})
 }
 

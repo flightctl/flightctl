@@ -682,8 +682,12 @@ func TestCollectConfigRefs_DeduplicatesByResourceKey(t *testing.T) {
 		refs := collectConfigRefs(logrus.New(), config, testFleet, "")
 
 		require.Len(t, refs, 2)
-		assert.Equal(t, "git:repo-a/main", refs[0].ResourceKey)
-		assert.Equal(t, "git:repo-b/main", refs[1].ResourceKey)
+		keys := make(map[string]bool, len(refs))
+		for _, r := range refs {
+			keys[r.ResourceKey] = true
+		}
+		assert.True(t, keys["git:repo-a/main"])
+		assert.True(t, keys["git:repo-b/main"])
 	})
 }
 
