@@ -225,8 +225,9 @@ func (h *Harness) CreateGitBranchOnServer(config GitServerConfig, keyPath util.S
 	}
 
 	err := h.runGitCommands(workDir, keyPath, [][]string{
-		{"git", "checkout", "-b", branchName},
-		{"git", "push", "origin", branchName},
+		{"git", "fetch", "origin", "main"},
+		{"git", "checkout", "-B", branchName, "origin/main"},
+		{"git", "push", "-u", "origin", branchName},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create branch %s: %w", branchName, err)
