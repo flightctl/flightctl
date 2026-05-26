@@ -48,4 +48,28 @@ spec:
       text: Download flightctl-restore for Windows for x86_64
     - href: '{{ $url }}/arm64/windows/flightctl-restore-windows-arm64.zip'
       text: Download flightctl-restore for Windows for ARM64
+---
+apiVersion: console.openshift.io/v1
+kind: ConsoleCLIDownload
+metadata:
+  name: flightctl-backup-cli-downloads
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
+spec:
+  description: flightctl-backup creates a backup of the Flight Control database. Use for backing up Flight Control data.
+  displayName: flightctl-backup - Database Backup CLI
+  links:
+    - href: '{{ $url }}/amd64/linux/flightctl-backup-linux-amd64.tar.gz'
+      text: Download flightctl-backup for Linux for x86_64
+    - href: '{{ $url }}/arm64/linux/flightctl-backup-linux-arm64.tar.gz'
+      text: Download flightctl-backup for Linux for ARM64
+    - href: '{{ $url }}/amd64/mac/flightctl-backup-darwin-amd64.zip'
+      text: Download flightctl-backup for Mac for x86_64
+    - href: '{{ $url }}/arm64/mac/flightctl-backup-darwin-arm64.zip'
+      text: Download flightctl-backup for Mac for ARM64
+    - href: '{{ $url }}/amd64/windows/flightctl-backup-windows-amd64.zip'
+      text: Download flightctl-backup for Windows for x86_64
+    - href: '{{ $url }}/arm64/windows/flightctl-backup-windows-arm64.zip'
+      text: Download flightctl-backup for Windows for ARM64
 {{ end }}
