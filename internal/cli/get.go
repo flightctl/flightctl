@@ -906,7 +906,7 @@ func getListMetadata(response interface{}) (*listMeta, int, error) {
 	}
 
 	v := reflect.ValueOf(json200)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil, 0, fmt.Errorf("JSON200 pointer is nil")
 		}
