@@ -60,6 +60,7 @@ var (
 	fixedArtifactTag                  = "latest"
 	fixedInlineTag                    = "v1"
 	deviceCouldNotBeUpdatedToFleetMsg = "The device could not be updated to the fleet"
+	repositoryAccessibleTimeout       = 3 * time.Minute
 	containerLabelKey                 = "container"
 	containerLabelValue               = "1.28-alpine-slim"
 	quadletLabelKey                   = "quadlet"
@@ -434,8 +435,8 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 				repoTestName := fmt.Sprintf("git-repo-%s", testID)
 				err = harness.CreateGitRepositoryOnServer(gitConfig, sshKeyPath, repoTestName)
-				Expect(err).ToNot(HaveOccurred())
 				GinkgoWriter.Printf("Created git repository %s on e2e git server\n", repoTestName)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Push configuration content to the git repo at the expected path")
 				configContent := "# FlightCtl Demo Config\ntest_key: test_value\n"
@@ -454,11 +455,11 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 				By("Create a Repository resource with SSH credentials for git repo")
 				err = harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repoTestName, sshKeyContent)
-				Expect(err).ToNot(HaveOccurred())
 				GinkgoWriter.Printf("Created Repository resource for %s\n", repoTestName)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for git repository to become accessible")
-				err = harness.WaitForRepositoryAccessible(repoTestName, 3*time.Minute, testutil.POLLING)
+				err = harness.WaitForRepositoryAccessible(repoTestName, repositoryAccessibleTimeout, testutil.POLLING)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a second git repository for HTTP config testing (using git backend)")
@@ -479,11 +480,11 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 				By("Create a Repository resource with SSH credentials for http-repo")
 				err = harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, httpRepoName, sshKeyContent)
-				Expect(err).ToNot(HaveOccurred())
 				GinkgoWriter.Printf("Created Repository resource for %s\n", httpRepoName)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for http repository to become accessible")
-				err = harness.WaitForRepositoryAccessible(httpRepoName, 3*time.Minute, testutil.POLLING)
+				err = harness.WaitForRepositoryAccessible(httpRepoName, repositoryAccessibleTimeout, testutil.POLLING)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create the device spec adding inline and git configs (using local git server)")
@@ -518,7 +519,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, secondGitConfigProviderSpec}
 
-				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
+				GinkgoWriter.Printf("this is the configProviderSpec %+v\n", configProviderSpec)
 				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", harness.GetDeviceImageRefForFleet(registryHost, registryPort, ""))
 
 				var osImageSpec = v1beta1.DeviceOsSpec{
@@ -567,11 +568,11 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 				gitConfigResponse, err := harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
+				Expect(gitConfigResponse.GitRef.TargetRevision).To(Equal(revisionLabelValue))
 
 				secondGitConfigResponse, err := harness.GetDeviceGitConfig(device, "second-git-config")
 				Expect(err).ToNot(HaveOccurred())
-				Expect(secondGitConfigResponse.GitRef.Path).To(ContainSubstring(configLabelValue))
+				Expect(secondGitConfigResponse.GitRef.Path).To(Equal("/configs/" + configLabelValue))
 
 				By("Check that the template variable is replaced in the device os image")
 				deviceOsImage, err := harness.GetDeviceOsImage(device)
@@ -595,7 +596,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				Expect(err).ToNot(HaveOccurred())
 				gitConfigResponse, err = harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(branchTargetRevision))
+				Expect(gitConfigResponse.GitRef.TargetRevision).To(Equal(branchTargetRevision))
 
 				By("Update the fleet inline config with a template variable with getOrDefault function")
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -637,7 +638,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				device, err = harness.GetDevice(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				GinkgoWriter.Printf("The device labels are %s\n", *device.Metadata.Labels)
+				GinkgoWriter.Printf("The device labels are %v\n", *device.Metadata.Labels)
 
 				inlineConfigResponse, err = harness.GetDeviceInlineConfig(device, inlineConfigName)
 				Expect(err).ToNot(HaveOccurred())
