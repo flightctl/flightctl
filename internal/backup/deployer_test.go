@@ -54,8 +54,9 @@ func TestDetectDeployment(t *testing.T) {
 			name: "Kubernetes deployment - env var set",
 			setupEnv: func(t *testing.T) (string, func()) {
 				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-				// Return empty basePath to use default
-				return "", func() {}
+				// Use a non-existent basePath so Podman indicators are absent
+				// even if /etc/flightctl exists on the developer's machine.
+				return filepath.Join(t.TempDir(), "nonexistent"), func() {}
 			},
 			wantType: DeploymentTypeKubernetes,
 			wantErr:  false,
