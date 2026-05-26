@@ -4,9 +4,13 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +129,99 @@ func buildTestMetadataJSON(t *testing.T, m backup.BackupMetadata) string {
 	data, err := json.Marshal(m)
 	require.NoError(t, err)
 	return string(data)
+}
+
+// buildTestArchiveWithChecksum creates a tar.gz archive containing a minimal
+// metadata.json and writes a correct .sha256 checksum file alongside it.
+// Returns the paths to both files. Both are cleaned up by t.TempDir().
+func buildTestArchiveWithChecksum(t *testing.T) (archivePath, checksumPath string) {
+	t.Helper()
+
+	archivePath = buildTestArchive(t, map[string]string{
+		"metadata.json": `{"version":"1.0.0"}`,
+	})
+
+	f, err := os.Open(archivePath)
+	require.NoError(t, err)
+	defer f.Close()
+
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	require.NoError(t, err)
+
+	hashStr := hex.EncodeToString(h.Sum(nil))
+	checksumPath = archivePath + ".sha256"
+	content := hashStr + "  " + filepath.Base(archivePath) + "\n"
+	require.NoError(t, os.WriteFile(checksumPath, []byte(content), 0600))
+
+	return archivePath, checksumPath
+}
+
+// TestVerifyChecksum validates the behavioral contract of the unexported verifyChecksum.
+func TestVerifyChecksum(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T) string // returns archivePath
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "When archive has a matching .sha256 file it should return nil",
+			setup: func(t *testing.T) string {
+				archivePath, _ := buildTestArchiveWithChecksum(t)
+				return archivePath
+			},
+		},
+		{
+			name: "When .sha256 file is missing it should return error mentioning the path",
+			setup: func(t *testing.T) string {
+				return buildTestArchive(t, map[string]string{
+					"metadata.json": `{"version":"1.0.0"}`,
+				})
+			},
+			wantErr:     true,
+			errContains: ".sha256",
+		},
+		{
+			name: "When .sha256 file contains the wrong hash it should return checksum mismatch error",
+			setup: func(t *testing.T) string {
+				archivePath, checksumPath := buildTestArchiveWithChecksum(t)
+				wrongHash := strings.Repeat("a", 64)
+				require.NoError(t, os.WriteFile(checksumPath,
+					[]byte(wrongHash+"  "+filepath.Base(archivePath)+"\n"), 0600))
+				return archivePath
+			},
+			wantErr:     true,
+			errContains: "checksum mismatch",
+		},
+		{
+			name: "When .sha256 file is empty it should return malformed error",
+			setup: func(t *testing.T) string {
+				archivePath, checksumPath := buildTestArchiveWithChecksum(t)
+				require.NoError(t, os.WriteFile(checksumPath, []byte{}, 0600))
+				return archivePath
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			archivePath := tt.setup(t)
+
+			err := verifyChecksum(archivePath)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					require.ErrorContains(t, err, tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
 // TestExtractArchive validates the behavioral contract of ExtractArchive.
