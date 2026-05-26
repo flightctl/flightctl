@@ -25,3 +25,6 @@ __pycache__/
 /.idea/
 /.cursor/
 /.serena/
+
+# Implementation artifacts (AI workflow)
+/.artifacts/

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -24,23 +25,26 @@ func main() {
 
 func NewFlightCtlRestoreCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "flightctl-restore [flags]",
-		Short: "flightctl-restore prepares devices after database restoration.",
-		Long: `flightctl-restore prepares devices after database restoration.
+		Use:   "flightctl-restore <archive-path> [flags]",
+		Short: "flightctl-restore restores Flight Control state from a backup archive.",
+		Long: `flightctl-restore restores Flight Control state from a backup archive.
 
-This command runs post-restoration device preparation tasks including:
-- Initializing database and KV store connections
-- Setting up organization resolvers and caches
-- Preparing devices for normal operation after restore
+This command restores a Flight Control server from a backup archive produced
+by flightctl-backup. It performs the following steps:
 
-The command should be run after restoring the database from a backup.`,
+  1. Validates the archive path and extracts it to a temporary directory
+  2. Reads and validates archive metadata (deployment type compatibility)
+  3. Prepares devices for reconnection after restore
+
+The archive-path argument is required and must point to a .tar.gz archive
+created by flightctl-backup.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRestore(cmd.Context())
+			return runRestore(cmd.Context(), args[0])
 		},
 		SilenceUsage: true,
 	}
 
-	// Add version command
 	cmd.AddCommand(NewCmdVersion())
 
 	return cmd
@@ -59,8 +63,7 @@ func NewCmdVersion() *cobra.Command {
 	return cmd
 }
 
-func runRestore(ctx context.Context) error {
-	// Bypass span check for restore operations
+func runRestore(ctx context.Context, archivePath string) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
@@ -69,9 +72,44 @@ func runRestore(ctx context.Context) error {
 	}
 
 	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting Flight Control restore preparation")
-	defer log.Println("Flight Control restore preparation completed")
+	log.Println("Starting Flight Control restore")
+	defer log.Println("Flight Control restore completed")
 	log.Printf("Using config: %s", cfg)
+	log.Printf("Restoring from archive: %s", archivePath)
+
+	log.Println("Extracting backup archive")
+	extractDir, err := restore.ExtractArchive(ctx, archivePath)
+	defer func() {
+		if extractDir != "" {
+			if removeErr := os.RemoveAll(extractDir); removeErr != nil {
+				log.Warnf("Failed to clean up temporary extraction directory %s: %v", extractDir, removeErr)
+			}
+		}
+	}()
+	if err != nil {
+		return fmt.Errorf("failed to extract archive: %w", err)
+	}
+	log.Printf("Archive extracted to temporary directory: %s", extractDir)
+
+	log.Println("Reading archive metadata")
+	metadata, err := restore.ReadMetadata(extractDir)
+	if err != nil {
+		return fmt.Errorf("failed to read archive metadata: %w", err)
+	}
+	log.Printf("Archive metadata: version=%s, deploymentType=%s, databaseIncluded=%v, timestamp=%s",
+		metadata.Version, metadata.DeploymentType, metadata.DatabaseIncluded, metadata.Timestamp.Format("2006-01-02T15:04:05Z"))
+
+	log.Println("Detecting current deployment type")
+	deployer, err := backup.DetectDeployment(cfg, log, "")
+	if err != nil {
+		return fmt.Errorf("failed to detect current deployment type: %w", err)
+	}
+	log.Printf("Current deployment type: %s", deployer.Type())
+
+	if err := restore.ValidateDeploymentType(metadata, deployer.Type()); err != nil {
+		return err
+	}
+	log.Println("Deployment type validation passed")
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
 	defer func() {
