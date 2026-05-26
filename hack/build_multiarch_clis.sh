@@ -14,74 +14,93 @@ set -euo pipefail
 # │   ├── amd64
 # │   │   ├── linux
 # │   │   │   ├── flightctl.tar.gz
-# │   │   │   └── flightctl-restore.tar.gz
+# │   │   │   ├── flightctl-restore.tar.gz
+# │   │   │   └── flightctl-backup.tar.gz
 # │   │   ├── mac
 # │   │   │   ├── flightctl.zip
-# │   │   │   └── flightctl-restore.zip
+# │   │   │   ├── flightctl-restore.zip
+# │   │   │   └── flightctl-backup.zip
 # │   │   └── windows
 # │   │       ├── flightctl.zip
-# │   │       └── flightctl-restore.zip
+# │   │       ├── flightctl-restore.zip
+# │   │       └── flightctl-backup.zip
 # │   └── arm64
 # │       ├── linux
 # │       │   ├── flightctl.tar.gz
-# │       │   └── flightctl-restore.tar.gz
+# │       │   ├── flightctl-restore.tar.gz
+# │       │   └── flightctl-backup.tar.gz
 # │       ├── mac
 # │       │   ├── flightctl.zip
-# │       │   └── flightctl-restore.zip
+# │       │   ├── flightctl-restore.zip
+# │       │   └── flightctl-backup.zip
 # │       └── windows
 # │           ├── flightctl.zip
-# │           └── flightctl-restore.zip
+# │           ├── flightctl-restore.zip
+# │           └── flightctl-backup.zip
 # ├── binaries
 # │   ├── amd64
 # │   │   ├── linux
 # │   │   │   ├── flightctl
-# │   │   │   └── flightctl-restore
+# │   │   │   ├── flightctl-restore
+# │   │   │   └── flightctl-backup
 # │   │   ├── mac
 # │   │   │   ├── flightctl
-# │   │   │   └── flightctl-restore
+# │   │   │   ├── flightctl-restore
+# │   │   │   └── flightctl-backup
 # │   │   └── windows
 # │   │       ├── flightctl.exe
-# │   │       └── flightctl-restore.exe
+# │   │       ├── flightctl-restore.exe
+# │   │       └── flightctl-backup.exe
 # │   └── arm64
 # │       ├── linux
 # │       │   ├── flightctl
-# │       │   └── flightctl-restore
+# │       │   ├── flightctl-restore
+# │       │   └── flightctl-backup
 # │       ├── mac
 # │       │   ├── flightctl
-# │       │   └── flightctl-restore
+# │       │   ├── flightctl-restore
+# │       │   └── flightctl-backup
 # │       └── windows
 # │           ├── flightctl.exe
-# │           └── flightctl-restore.exe
+# │           ├── flightctl-restore.exe
+# │           └── flightctl-backup.exe
 # └── gh-archives
 #     ├── index.json   (artifact manifest)
 #     ├── amd64
 #     │   ├── linux
 #     │   │   ├── flightctl-linux-amd64.tar.gz (+ .sha256)
-#     │   │   └── flightctl-restore-linux-amd64.tar.gz (+ .sha256)
+#     │   │   ├── flightctl-restore-linux-amd64.tar.gz (+ .sha256)
+#     │   │   └── flightctl-backup-linux-amd64.tar.gz (+ .sha256)
 #     │   ├── mac
 #     │   │   ├── flightctl-darwin-amd64.zip (+ .sha256)
-#     │   │   └── flightctl-restore-darwin-amd64.zip (+ .sha256)
+#     │   │   ├── flightctl-restore-darwin-amd64.zip (+ .sha256)
+#     │   │   └── flightctl-backup-darwin-amd64.zip (+ .sha256)
 #     │   └── windows
 #     │       ├── flightctl-windows-amd64.zip (+ .sha256)
-#     │       └── flightctl-restore-windows-amd64.zip (+ .sha256)
+#     │       ├── flightctl-restore-windows-amd64.zip (+ .sha256)
+#     │       └── flightctl-backup-windows-amd64.zip (+ .sha256)
 #     └── arm64
 #         ├── linux
 #         │   ├── flightctl-linux-arm64.tar.gz (+ .sha256)
-#         │   └── flightctl-restore-linux-arm64.tar.gz (+ .sha256)
+#         │   ├── flightctl-restore-linux-arm64.tar.gz (+ .sha256)
+#         │   └── flightctl-backup-linux-arm64.tar.gz (+ .sha256)
 #         ├── mac
 #         │   ├── flightctl-darwin-arm64.zip (+ .sha256)
-#         │   └── flightctl-restore-darwin-arm64.zip (+ .sha256)
+#         │   ├── flightctl-restore-darwin-arm64.zip (+ .sha256)
+#         │   └── flightctl-backup-darwin-arm64.zip (+ .sha256)
 #         └── windows
 #             ├── flightctl-windows-arm64.zip (+ .sha256)
-#             └── flightctl-restore-windows-arm64.zip (+ .sha256)
+#             ├── flightctl-restore-windows-arm64.zip (+ .sha256)
+#             └── flightctl-backup-windows-arm64.zip (+ .sha256)
 #
 # When adding a new CLI, each index.json row includes "tool" set to that binary name.
-CLI_TOOLS=(flightctl flightctl-restore)
+CLI_TOOLS=(flightctl flightctl-restore flightctl-backup)
 
 get_cli_make_target() {
   case "$1" in
     flightctl) echo build-cli ;;
     flightctl-restore) echo build-restore ;;
+    flightctl-backup) echo build-backup ;;
     *)
       echo "Unknown downloadable CLI '$1': add a Makefile target mapping in get_cli_make_target()." >&2
       exit 1
