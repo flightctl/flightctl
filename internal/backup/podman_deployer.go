@@ -15,23 +15,29 @@ import (
 
 // PodmanDeployer implements Deployer for Podman/quadlet deployments
 type PodmanDeployer struct {
-	cfg     *config.Config
-	log     logrus.FieldLogger
-	pkiPath string // Optional: if empty, defaults to "/etc/flightctl/pki"
+	cfg               *config.Config
+	log               logrus.FieldLogger
+	pkiPath           string // Optional: if empty, defaults to "/etc/flightctl/pki"
+	serviceConfigPath string // Optional: if empty, defaults to "/etc/flightctl/service-config.yaml"
 }
 
 // NewPodmanDeployer creates a new Podman deployer.
 // If pkiPath is empty, defaults to "/etc/flightctl/pki" (production path).
-// Pass explicit pkiPath for testing with temporary directories.
-func NewPodmanDeployer(cfg *config.Config, log logrus.FieldLogger, pkiPath string) *PodmanDeployer {
-	// Set default PKI path at construction time
+// If serviceConfigPath is empty, defaults to "/etc/flightctl/service-config.yaml" (production path).
+// Pass explicit paths for testing with temporary directories.
+func NewPodmanDeployer(cfg *config.Config, log logrus.FieldLogger, pkiPath string, serviceConfigPath string) *PodmanDeployer {
+	// Set default paths at construction time
 	if pkiPath == "" {
 		pkiPath = "/etc/flightctl/pki"
 	}
+	if serviceConfigPath == "" {
+		serviceConfigPath = "/etc/flightctl/service-config.yaml"
+	}
 	return &PodmanDeployer{
-		cfg:     cfg,
-		log:     log,
-		pkiPath: pkiPath,
+		cfg:               cfg,
+		log:               log,
+		pkiPath:           pkiPath,
+		serviceConfigPath: serviceConfigPath,
 	}
 }
 
@@ -216,8 +222,74 @@ func (p *PodmanDeployer) BackupPKI(ctx context.Context, outputDir string) error 
 	return nil
 }
 
-// BackupConfig is a stub (implemented in EDM-3892)
+// BackupConfig backs up service configuration files for Podman deployments.
+// Copies /etc/flightctl/service-config.yaml to <outputDir>/config/service-config.yaml.
+// Exports PAM Issuer volume to <outputDir>/volumes/pam-issuer-etc.tar.
+// Returns error if service-config.yaml is missing (required file).
+// Logs warning if PAM Issuer volume export fails (optional component).
 func (p *PodmanDeployer) BackupConfig(ctx context.Context, outputDir string) error {
-	p.log.Debug("BackupConfig called (stub implementation)")
+	// Create config directory
+	configDir := filepath.Join(outputDir, "config")
+	if err := os.MkdirAll(configDir, pkiDirMode); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Copy service-config.yaml (required file)
+	serviceConfigSrc := p.serviceConfigPath
+	serviceConfigDst := filepath.Join(configDir, "service-config.yaml")
+
+	// Check if source file exists
+	srcInfo, err := os.Stat(serviceConfigSrc)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("required service configuration file does not exist: %s", serviceConfigSrc)
+		}
+		return fmt.Errorf("failed to access service configuration file %s: %w", serviceConfigSrc, err)
+	}
+
+	// Copy file preserving permissions
+	if err := copyFilePreserveMode(serviceConfigSrc, serviceConfigDst, srcInfo.Mode().Perm(), p.log); err != nil {
+		return fmt.Errorf("failed to copy service configuration: %w", err)
+	}
+
+	p.log.Info("Service configuration backed up")
+
+	// Backup PAM Issuer volume (optional component)
+	volumesDir := filepath.Join(outputDir, "volumes")
+	if err := os.MkdirAll(volumesDir, pkiDirMode); err != nil {
+		return fmt.Errorf("failed to create volumes directory: %w", err)
+	}
+
+	// Check for context cancellation before volume export
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("config backup cancelled: %w", ctx.Err())
+	default:
+	}
+
+	// PAM Issuer volume name (must match Podman/quadlet deployment)
+	// Defined in: packaging/systemd/flightctl-pam-issuer.quadlet
+	volumeName := "flightctl-pam-issuer-etc"
+	volumeArchive := filepath.Join(volumesDir, "pam-issuer-etc.tar")
+
+	// Execute podman volume export
+	cmd := exec.CommandContext(ctx, "podman", "volume", "export", volumeName, "-o", volumeArchive)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Clean up any partial archive before returning
+		if removeErr := os.Remove(volumeArchive); removeErr != nil && !os.IsNotExist(removeErr) {
+			p.log.Warnf("Failed to remove partial PAM Issuer archive %s: %v - manual cleanup may be required", volumeArchive, removeErr)
+		}
+		// Check if failure was due to context cancellation
+		if ctx.Err() != nil {
+			return fmt.Errorf("config backup cancelled during PAM volume export: %w", ctx.Err())
+		}
+		// Log warning but don't fail - PAM Issuer volume is optional
+		p.log.Warnf("PAM Issuer volume export failed (volume may not exist or podman unavailable): %v (output: %s)", err, string(output))
+		p.log.Warn("Continuing backup without PAM Issuer volume")
+		return nil
+	}
+
+	p.log.Info("PAM Issuer volume backed up")
 	return nil
 }

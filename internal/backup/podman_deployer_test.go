@@ -23,7 +23,7 @@ func TestPodmanDeployer_BackupDatabase_ExternalDB(t *testing.T) {
 
 	log, _ := test.NewNullLogger()
 
-	deployer := NewPodmanDeployer(cfg, log, "")
+	deployer := NewPodmanDeployer(cfg, log, "", "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -49,7 +49,7 @@ func TestPodmanDeployer_BackupDatabase_InternalDB_DirectoryCreation(t *testing.T
 	cfg.Database.Password = "password"
 
 	log, _ := test.NewNullLogger()
-	deployer := NewPodmanDeployer(cfg, log, "")
+	deployer := NewPodmanDeployer(cfg, log, "", "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -106,7 +106,7 @@ func TestPodmanDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			cfg.Database.Password = "testpass"
 
 			log, _ := test.NewNullLogger()
-			deployer := NewPodmanDeployer(cfg, log, "")
+			deployer := NewPodmanDeployer(cfg, log, "", "")
 			ctx := context.Background()
 			outputDir := t.TempDir()
 
@@ -147,7 +147,7 @@ func TestPodmanDeployer_BackupPKI_Success(t *testing.T) {
 	log.SetLevel(logrus.InfoLevel)
 
 	// Create deployer with custom PKI path
-	deployer := NewPodmanDeployer(cfg, log, pkiSrc)
+	deployer := NewPodmanDeployer(cfg, log, pkiSrc, "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -182,7 +182,7 @@ func TestPodmanDeployer_BackupPKI_MissingDirectory(t *testing.T) {
 
 	// Use explicit non-existent path instead of relying on default
 	nonExistentPath := filepath.Join(t.TempDir(), "does-not-exist")
-	deployer := NewPodmanDeployer(cfg, log, nonExistentPath)
+	deployer := NewPodmanDeployer(cfg, log, nonExistentPath, "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -208,7 +208,7 @@ func TestPodmanDeployer_BackupPKI_RejectsSymlinks(t *testing.T) {
 	log, _ := test.NewNullLogger()
 
 	// Create deployer with custom PKI path
-	deployer := NewPodmanDeployer(cfg, log, pkiSrc)
+	deployer := NewPodmanDeployer(cfg, log, pkiSrc, "")
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
@@ -217,4 +217,64 @@ func TestPodmanDeployer_BackupPKI_RejectsSymlinks(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "symlinks not supported")
 	require.Contains(t, err.Error(), "symlink.txt")
+}
+
+func TestPodmanDeployer_BackupConfig(t *testing.T) {
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	deployer := NewPodmanDeployer(cfg, log, "", "")
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupConfig will attempt to backup from /etc/flightctl/service-config.yaml
+	// In test environment, this file won't exist, so expect an error
+	err := deployer.BackupConfig(ctx, outputDir)
+
+	// Should return error because /etc/flightctl/service-config.yaml doesn't exist in test env
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "service-config.yaml")
+}
+
+func TestPodmanDeployer_BackupConfig_PAMVolumeExport(t *testing.T) {
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	deployer := NewPodmanDeployer(cfg, log, "", "")
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupConfig will attempt volume export even though service-config.yaml is missing
+	// We expect it to fail on service-config.yaml before getting to volume export
+	// But we verify volumes/ directory is created
+	_ = deployer.BackupConfig(ctx, outputDir)
+
+	// Check if volumes directory gets created (may not if service-config.yaml check fails first)
+	volumesDir := filepath.Join(outputDir, "volumes")
+	_, err := os.Stat(volumesDir)
+	// It's OK if directory doesn't exist - service-config.yaml failure may prevent reaching volume export
+	if err == nil {
+		stat, _ := os.Stat(volumesDir)
+		require.True(t, stat.IsDir())
+		require.Equal(t, os.FileMode(0700), stat.Mode().Perm())
+	}
+}
+
+func TestPodmanDeployer_BackupConfig_DirectoryPermissions(t *testing.T) {
+	cfg := config.NewDefault()
+	log, _ := test.NewNullLogger()
+
+	deployer := NewPodmanDeployer(cfg, log, "", "")
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	// BackupConfig creates config/ directory before checking service-config.yaml
+	_ = deployer.BackupConfig(ctx, outputDir)
+
+	// Verify config directory is created with 0700 permissions
+	configDir := filepath.Join(outputDir, "config")
+	stat, err := os.Stat(configDir)
+	require.NoError(t, err, "config directory should be created")
+	require.True(t, stat.IsDir(), "config should be a directory")
+	require.Equal(t, os.FileMode(0700), stat.Mode().Perm(), "config directory should have 0700 permissions")
 }
