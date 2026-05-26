@@ -523,11 +523,13 @@ mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 # Disable bootc automatic updates on bootc systems (flightctl manages updates).
-# Detect via unit file path: systemctl list-unit-files is unreliable in RPM/chroot
-# and container image builds (no running systemd). Always create the mask symlink
-# for offline installs; systemctl mask applies when systemd is available.
+# Detection matches bootc-timer e2e (agent_bootc_timer_test.go): unit file path,
+# find under /usr/lib/systemd, or list-unit-files. list-unit-files alone is
+# unreliable in RPM/chroot/container image builds; find covers composefs layouts
+# where the unit is present but not at the canonical path during %post.
 _bootc_timer_unit=/usr/lib/systemd/system/bootc-fetch-apply-updates.timer
 if [ -f "${_bootc_timer_unit}" ] || \
+   find /usr/lib/systemd -name 'bootc-fetch-apply-updates.timer' -quit 2>/dev/null | grep -q . || \
    systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | \
      grep -q '^bootc-fetch-apply-updates.timer'; then
     mkdir -p /etc/systemd/system
