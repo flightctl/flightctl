@@ -747,6 +747,13 @@ EOF
 fi
 
 if [ "$1" -eq 2 ]; then # it's an upgrade
+  # Migrate trustXForwardedHeaders: false -> true now that the nginx gateway
+  # terminates TLS and the UI must trust X-Forwarded-Proto/Host headers.
+  svcconfig="%{_sysconfdir}/flightctl/service-config.yaml"
+  if [ -f "$svcconfig" ]; then
+    %{__sed} -E -i 's/^([[:space:]]*trustXForwardedHeaders:[[:space:]]*)("false"|'"'"'false'"'"'|false)([[:space:]]*(#.*)?)$/\1true\3/' "$svcconfig" || :
+  fi
+
   %{__cat} <<'EOF'
 [flightctl] Upgraded.
 
