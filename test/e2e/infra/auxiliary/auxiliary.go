@@ -19,7 +19,7 @@ var (
 	svcs *Services
 )
 
-// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify).
+// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, file server).
 // Same for all deployment types; created once and reused. Each service is nil until started.
 // reuse is kept so Cleanup can no-op when reuse=true (containers stay running for the next run).
 type Services struct {
@@ -29,6 +29,7 @@ type Services struct {
 	Jaeger     *Jaeger
 	Keycloak   *Keycloak
 	Trustify   *Trustify
+	FileServer *FileServer
 
 	reuse bool
 }
@@ -43,11 +44,12 @@ const (
 	ServiceTracing    Service = "tracing"
 	ServiceKeycloak   Service = "keycloak"
 	ServiceTrustify   Service = "trustify"
+	ServiceFileServer Service = "file-server"
 )
 
 // AllServices is the default set of shared aux services (started by Get(ctx)).
 // Does not include ServiceTracing; use infra.TracingProvider for opt-in tracing.
-var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
+var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus, ServiceFileServer}
 
 // Get returns the aux services, starting all of them if needed (singleton).
 func Get(ctx context.Context) *Services {
@@ -113,6 +115,11 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.Trustify.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start trustify: %w", err)
 			}
+		case ServiceFileServer:
+			s.FileServer = &FileServer{}
+			if err := s.FileServer.Start(ctx, network, reuse); err != nil {
+				return nil, fmt.Errorf("failed to start file server: %w", err)
+			}
 		default:
 			return nil, fmt.Errorf("unknown service: %q", svc)
 		}
@@ -138,6 +145,7 @@ var serviceContainerNames = map[Service]string{
 	ServiceTracing:    jaegerContainerName,
 	ServiceKeycloak:   keycloakContainerName,
 	ServiceTrustify:   trustifyAPIContainer,
+	ServiceFileServer: fileServerContainerName,
 }
 
 // StopServices force-removes the containers for the requested aux services.
