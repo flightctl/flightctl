@@ -3,8 +3,8 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
-if [[ -x "bin/flightctl" ]] && [[ -x "bin/flightctl-restore" ]]; then
-    echo -e "\e[32mCLI and flightctl-restore already exist in bin/, skipping build\e[0m"
+if [[ -x "bin/flightctl" ]] && [[ -x "bin/flightctl-restore" ]] && [[ -x "bin/flightctl-backup" ]]; then
+    echo -e "\e[32mCLI, flightctl-restore, and flightctl-backup already exist in bin/, skipping build\e[0m"
     exit 0
 fi
 
@@ -37,12 +37,13 @@ if [[ -n "${BREW_BUILD_URL:-}" ]]; then
     # copy to our local bin directory, where the remaining of tests will consume it from
     sudo cp /usr/bin/flightctl ../flightctl
     sudo cp /usr/bin/flightctl-restore ../flightctl-restore
+    sudo cp /usr/bin/flightctl-backup ../flightctl-backup
 
     cd - > /dev/null
 
 elif [[ -z "${FLIGHTCTL_RPM}" ]]; then
-    echo -e "\e[32mCompiling the flightctl CLI and flightctl-restore\e[0m"
-    make build-cli build-restore
+    echo -e "\e[32mCompiling the flightctl CLI, flightctl-restore, and flightctl-backup\e[0m"
+    make build-cli build-restore build-backup
 else
     COPR_REPO=$(copr_repo)
     PACKAGE_CLI=$(package_cli)
@@ -71,4 +72,5 @@ else
     # copy to our local bin directory, where the remaining of tests will consume it from
     sudo cp /usr/bin/flightctl bin/flightctl
     sudo cp /usr/bin/flightctl-restore bin/flightctl-restore
+    sudo cp /usr/bin/flightctl-backup bin/flightctl-backup
 fi

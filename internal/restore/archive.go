@@ -26,6 +26,22 @@ import (
 func verifyChecksum(archivePath string) error {
 	checksumPath := archivePath + ".sha256"
 
+	archiveInfo, err := os.Stat(archivePath)
+	if err != nil {
+		return fmt.Errorf("cannot access archive %q: %w", archivePath, err)
+	}
+	if !archiveInfo.Mode().IsRegular() {
+		return fmt.Errorf("archive path %q is not a regular file", archivePath)
+	}
+
+	checksumInfo, err := os.Stat(checksumPath)
+	if err != nil {
+		return fmt.Errorf("cannot access checksum file %q: %w", checksumPath, err)
+	}
+	if !checksumInfo.Mode().IsRegular() {
+		return fmt.Errorf("checksum path %q is not a regular file", checksumPath)
+	}
+
 	checksumData, err := os.ReadFile(checksumPath)
 	if err != nil {
 		return fmt.Errorf("checksum file %q not found or unreadable: %w", checksumPath, err)
@@ -126,10 +142,7 @@ func extractTarGz(ctx context.Context, r io.Reader, destDir string) error {
 			return fmt.Errorf("failed to read tar entry: %w", err)
 		}
 
-		target, err := safeJoin(destDir, hdr.Name)
-		if err != nil {
-			return err
-		}
+		target := safeJoin(destDir, hdr.Name)
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -140,7 +153,9 @@ func extractTarGz(ctx context.Context, r io.Reader, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 				return fmt.Errorf("failed to create parent directory for %q: %w", target, err)
 			}
-			if err := writeFile(target, tr, hdr.FileInfo().Mode()); err != nil {
+			// Mask setuid/setgid/sticky bits from the tar header to prevent privilege
+			// escalation if the archive was crafted with elevated mode bits.
+			if err := writeFile(ctx, target, tr, hdr.FileInfo().Mode()&0600); err != nil {
 				return err
 			}
 		}
@@ -149,29 +164,42 @@ func extractTarGz(ctx context.Context, r io.Reader, destDir string) error {
 	return nil
 }
 
-// safeJoin joins base and name, returning an error if the result would escape
-// base (path traversal protection).
-func safeJoin(base, name string) (string, error) {
-	target := filepath.Join(base, filepath.Clean("/"+name))
-	if !strings.HasPrefix(target, filepath.Clean(base)+string(os.PathSeparator)) &&
-		target != filepath.Clean(base) {
-		return "", fmt.Errorf("archive entry %q would escape extraction directory", name)
-	}
-	return target, nil
+// safeJoin joins base and name, neutralizing any path traversal in name.
+// Go's filepath.Join strips the leading separator produced by filepath.Clean("/"+name),
+// so the result is always rooted inside base regardless of ".." components or
+// absolute paths in name — traversal is silently neutralized, never escapes.
+func safeJoin(base, name string) string {
+	return filepath.Join(base, filepath.Clean("/"+name))
 }
 
 // writeFile creates or truncates target and copies content from r into it.
-func writeFile(target string, r io.Reader, mode os.FileMode) error {
+// It checks ctx cancellation between 32 KB chunks so large files honour
+// context deadlines instead of blocking until the copy completes.
+func writeFile(ctx context.Context, target string, r io.Reader, mode os.FileMode) error {
 	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("failed to create file %q: %w", target, err)
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, r); err != nil {
-		return fmt.Errorf("failed to write file %q: %w", target, err)
+	buf := make([]byte, 32*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("extraction cancelled: %w", err)
+		}
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			if _, writeErr := f.Write(buf[:n]); writeErr != nil {
+				return fmt.Errorf("failed to write file %q: %w", target, writeErr)
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return fmt.Errorf("failed to write file %q: %w", target, readErr)
+		}
 	}
-	return nil
 }
 
 // ReadMetadata reads and unmarshals metadata.json from the root of an
