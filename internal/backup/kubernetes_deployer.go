@@ -9,70 +9,116 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/yaml"
 )
 
-// pkiSecretNames lists all PKI/TLS Secrets required for backup.
-// These Secrets contain CA keys, TLS certificates, and private keys needed
-// for device mTLS reconnection after restore.
-var pkiSecretNames = []string{
+const (
+	// dbAppSecretName is the Kubernetes Secret containing the application DB credentials.
+	dbAppSecretName = "flightctl-db-app-secret"
+	dbUserKey       = "user"
+	dbPasswordKey   = "userPassword"
+	// dbDefaultName and dbDefaultPort are the well-known values used by the FlightCtl Helm chart.
+	dbDefaultName = "flightctl"
+	dbDefaultPort = 5432
+)
+
+// requiredPKISecretNames lists PKI/TLS Secrets that must exist in every deployment.
+// Missing any of these is a hard error.
+var requiredPKISecretNames = []string{
 	"flightctl-ca",
 	"flightctl-client-signer-ca",
+	"flightctl-ca-bundle",
 	"flightctl-api-server-tls",
 	"flightctl-telemetry-gateway-server-tls",
 	"flightctl-alertmanager-proxy-server-tls",
 	"flightctl-imagebuilder-api-server-tls",
-	"flightctl-ui-server-tls",
-	"flightctl-cli-artifacts-server-tls",
-	"flightctl-ca-bundle",
-	"flightctl-ui-certs",
-	"flightctl-alertmanager-proxy-certs",
+}
+
+// optionalPKISecretNames lists PKI/TLS Secrets for optional services.
+// Controlled by Helm values: ui.enabled, cliArtifacts.enabled, alertmanagerProxy.enabled.
+// Missing secrets are silently skipped.
+var optionalPKISecretNames = []string{
+	"flightctl-ui-server-tls",          // ui.enabled
+	"flightctl-ui-certs",               // ui.enabled
+	"flightctl-cli-artifacts-server-tls", // cliArtifacts.enabled
+	"flightctl-alertmanager-proxy-certs", // alertmanagerProxy.enabled
 }
 
 // KubernetesDeployer implements Deployer for Kubernetes/Helm deployments
 type KubernetesDeployer struct {
-	cfg               *config.Config
 	log               logrus.FieldLogger
 	namespace         string // For PKI Secrets (Release namespace, defaults to "flightctl")
 	internalNamespace string // For DB pod (internal namespace, defaults to namespace if empty)
-	helmReleaseName   string // Helm release name (defaults to "flightctl")
+	helmReleaseName   string // Helm release name (defaults to namespace if empty)
 	clientset         kubernetes.Interface
+	restCfg           *rest.Config
+}
+
+// KubernetesDeployerOption configures a KubernetesDeployer.
+type KubernetesDeployerOption func(*KubernetesDeployer)
+
+// WithNamespace sets the Kubernetes namespace for PKI Secrets (Release namespace).
+func WithNamespace(ns string) KubernetesDeployerOption {
+	return func(d *KubernetesDeployer) {
+		d.namespace = ns
+	}
+}
+
+// WithInternalNamespace sets the Kubernetes namespace for the DB pod.
+func WithInternalNamespace(ns string) KubernetesDeployerOption {
+	return func(d *KubernetesDeployer) {
+		d.internalNamespace = ns
+	}
+}
+
+// WithHelmReleaseName sets the Helm release name for values extraction.
+func WithHelmReleaseName(name string) KubernetesDeployerOption {
+	return func(d *KubernetesDeployer) {
+		d.helmReleaseName = name
+	}
+}
+
+// WithClientset injects a Kubernetes clientset (for testing).
+func WithClientset(cs kubernetes.Interface) KubernetesDeployerOption {
+	return func(d *KubernetesDeployer) {
+		d.clientset = cs
+	}
+}
+
+// WithRestConfig injects a REST config (for testing).
+func WithRestConfig(cfg *rest.Config) KubernetesDeployerOption {
+	return func(d *KubernetesDeployer) {
+		d.restCfg = cfg
+	}
 }
 
 // NewKubernetesDeployer creates a new Kubernetes deployer.
-// namespace: For PKI Secrets (Release namespace). Defaults to "flightctl" if empty.
-// internalNamespace: For DB pod (internal namespace). Defaults to namespace if empty (single-namespace deployment).
-// helmReleaseName: Helm release name for values extraction. Defaults to "flightctl" if empty.
-// clientset: If nil, creates in-cluster client automatically (use for production). Pass explicit clientset for testing.
-func NewKubernetesDeployer(cfg *config.Config, log logrus.FieldLogger, namespace string, internalNamespace string, helmReleaseName string, clientset kubernetes.Interface) *KubernetesDeployer {
-	// Set default namespace at construction time
-	if namespace == "" {
-		namespace = "flightctl"
+// Defaults: namespace "flightctl"; internalNamespace inherits namespace; helmReleaseName is
+// left empty for auto-discovery (see resolveHelmReleaseSecret).
+// clientset nil → in-cluster client is created on first use.
+func NewKubernetesDeployer(log logrus.FieldLogger, opts ...KubernetesDeployerOption) *KubernetesDeployer {
+	d := &KubernetesDeployer{
+		log: log,
 	}
-	// Default internal namespace to main namespace (single-namespace deployment)
-	if internalNamespace == "" {
-		internalNamespace = namespace
+	for _, opt := range opts {
+		opt(d)
 	}
-	// Default Helm release name
-	if helmReleaseName == "" {
-		helmReleaseName = "flightctl"
+	if d.namespace == "" {
+		d.namespace = "flightctl"
 	}
-	return &KubernetesDeployer{
-		cfg:               cfg,
-		log:               log,
-		namespace:         namespace,
-		internalNamespace: internalNamespace,
-		helmReleaseName:   helmReleaseName,
-		clientset:         clientset,
+	if d.internalNamespace == "" {
+		d.internalNamespace = d.namespace
 	}
+	return d
 }
 
 // Type returns the deployment type
@@ -80,13 +126,77 @@ func (k *KubernetesDeployer) Type() DeploymentType {
 	return DeploymentTypeKubernetes
 }
 
+func (k *KubernetesDeployer) resolveRestConfig() (*rest.Config, error) {
+	if k.restCfg != nil {
+		return k.restCfg, nil
+	}
+	cfg, err := rest.InClusterConfig()
+	if err == nil {
+		k.restCfg = cfg
+		return cfg, nil
+	}
+	// Fall back to kubeconfig for out-of-cluster use (e.g. admin machine).
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	cfg, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get REST config (tried in-cluster and kubeconfig): %w", err)
+	}
+	k.restCfg = cfg
+	return cfg, nil
+}
+
+func (k *KubernetesDeployer) resolveClientset() (kubernetes.Interface, error) {
+	if k.clientset != nil {
+		return k.clientset, nil
+	}
+	cfg, err := k.resolveRestConfig()
+	if err != nil {
+		return nil, err
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+	k.clientset = cs
+	return cs, nil
+}
+
+// getSecretStringValue reads a single key from a Kubernetes Secret and returns
+// the value as a plain string (Secret.Data values are already decoded from base64).
+func (k *KubernetesDeployer) getSecretStringValue(ctx context.Context, ns, name, key string) (string, error) {
+	cs, err := k.resolveClientset()
+	if err != nil {
+		return "", err
+	}
+	secret, err := cs.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get secret %s/%s: %w", ns, name, err)
+	}
+	data, ok := secret.Data[key]
+	if !ok {
+		return "", fmt.Errorf("key %q not found in secret %s/%s", key, ns, name)
+	}
+	return string(data), nil
+}
+
 // BackupDatabase backs up the PostgreSQL database using pg_dump via Kubernetes client-go.
-// For internal databases, executes pg_dump in the database pod and writes dump to <outputDir>/db/dump.sql.
-// For external databases, returns ErrExternalDatabase without creating a backup.
+// Credentials are read from the flightctl-db-app-secret Kubernetes Secret in internalNamespace.
+// If that Secret does not exist, the database is assumed to be external and ErrExternalDatabase
+// is returned without creating a backup.
 func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir string) error {
-	// Check if database is external
-	if !isInternalDB(k.cfg) {
-		return ErrExternalDatabase
+	// Extract DB credentials from the cluster Secret.  A missing Secret means
+	// the DB is externally managed; any other error is propagated.
+	dbUser, err := k.getSecretStringValue(ctx, k.internalNamespace, dbAppSecretName, dbUserKey)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ErrExternalDatabase
+		}
+		return fmt.Errorf("failed to get database credentials: %w", err)
+	}
+	dbPassword, err := k.getSecretStringValue(ctx, k.internalNamespace, dbAppSecretName, dbPasswordKey)
+	if err != nil {
+		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
 	// Create db directory
@@ -99,31 +209,11 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 	namespace := k.internalNamespace
 	k.log.Debugf("Using namespace for DB pod: %s", namespace)
 
-	labelSelector := "app=flightctl-db"
+	labelSelector := "flightctl.service=flightctl-db"
 
-	// Get or create Kubernetes clientset
-	clientset := k.clientset
-	var config *rest.Config
-	var err error
-
-	if clientset == nil {
-		// Create in-cluster client
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			return fmt.Errorf("failed to get in-cluster config: %w", err)
-		}
-
-		clientset, err = kubernetes.NewForConfig(config)
-		if err != nil {
-			return fmt.Errorf("failed to create Kubernetes client: %w", err)
-		}
-	} else {
-		// Clientset was injected; still need config for SPDY executor
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			// In testing scenarios, this may fail; executor creation will fail later if needed
-			k.log.Debugf("Could not get in-cluster config (clientset was injected): %v", err)
-		}
+	clientset, err := k.resolveClientset()
+	if err != nil {
+		return err
 	}
 
 	// List pods with label selector
@@ -139,20 +229,22 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 		return fmt.Errorf("database pod not found in namespace %s with label %s", namespace, labelSelector)
 	}
 
+	config, err := k.resolveRestConfig()
+	if err != nil {
+		return err
+	}
+
 	podName := pods.Items[0].Name
 	k.log.Infof("Starting database backup from pod %s...", podName)
-
-	// Build password from config
-	password := string(k.cfg.Database.Password)
 
 	// Execute pg_dump in pod with password from stdin and safely escaped parameters.
 	// Use shell escaping to prevent injection attacks from user/database names.
 	command := []string{
 		"sh", "-c",
-		fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump -h 127.0.0.1 -p %s -U %s -d %s",
-			shellEscape(strconv.Itoa(int(k.cfg.Database.Port))),
-			shellEscape(k.cfg.Database.User),
-			shellEscape(k.cfg.Database.Name)),
+		fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p %s -U %s -d %s",
+			ShellEscape(strconv.Itoa(dbDefaultPort)),
+			ShellEscape(dbUser),
+			ShellEscape(dbDefaultName)),
 	}
 
 	// Create exec request
@@ -178,17 +270,13 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 	}
 	defer outFile.Close()
 
-	// Create executor (requires in-cluster config)
-	if config == nil {
-		return fmt.Errorf("cannot create SPDY executor: in-cluster config not available")
-	}
 	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}
 
 	// Prepare stdin and stderr; stream stdout directly to file
-	stdin := strings.NewReader(password)
+	stdin := strings.NewReader(dbPassword)
 	var stderr bytes.Buffer
 
 	// Execute command, streaming SQL dump directly to file
@@ -215,35 +303,22 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 // Writes one YAML file per Secret to <outputDir>/pki/<secretName>.yaml.
 // All YAML files are created with pkiFileMode permissions (contain sensitive data).
 func (k *KubernetesDeployer) BackupPKI(ctx context.Context, outputDir string) error {
-	// Use namespace (set in constructor, defaults to "flightctl")
 	namespace := k.namespace
 	k.log.Infof("Starting PKI backup from namespace %s...", namespace)
 
-	// Get or create Kubernetes clientset
-	clientset := k.clientset
-	if clientset == nil {
-		// Create in-cluster client
-		config, err := rest.InClusterConfig()
-		if err != nil {
-			return fmt.Errorf("failed to get in-cluster config: %w", err)
-		}
-
-		var clientErr error
-		clientset, clientErr = kubernetes.NewForConfig(config)
-		if clientErr != nil {
-			return fmt.Errorf("failed to create Kubernetes client: %w", clientErr)
-		}
+	clientset, err := k.resolveClientset()
+	if err != nil {
+		return err
 	}
 
 	// Verify at least one required Secret exists before creating output directory
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, pkiSecretNames[0], metav1.GetOptions{})
+	_, err = clientset.CoreV1().Secrets(namespace).Get(ctx, requiredPKISecretNames[0], metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to verify PKI secrets exist (checked %s): %w", pkiSecretNames[0], err)
+		return fmt.Errorf("failed to verify PKI secrets exist (checked %s): %w", requiredPKISecretNames[0], err)
 	}
 
 	pkiDir := filepath.Join(outputDir, "pki")
 
-	// Create PKI output directory only after validation
 	if err := os.MkdirAll(pkiDir, pkiDirMode); err != nil {
 		return fmt.Errorf("failed to create PKI output directory: %w", err)
 	}
@@ -256,37 +331,48 @@ func (k *KubernetesDeployer) BackupPKI(ctx context.Context, outputDir string) er
 		}
 	}()
 
-	// Export each Secret to YAML
-	for _, secretName := range pkiSecretNames {
-		// Check for context cancellation
+	backedUp := 0
+	exportSecret := func(secretName string, required bool) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("PKI backup cancelled: %w", ctx.Err())
 		default:
 		}
 
-		k.log.Debugf("Exporting Secret: %s", secretName)
-
-		// Get Secret from Kubernetes API
 		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 		if err != nil {
+			if !required && apierrors.IsNotFound(err) {
+				k.log.Debugf("Optional Secret %s not found, skipping", secretName)
+				return nil
+			}
 			return fmt.Errorf("failed to get Secret %s: %w", secretName, err)
 		}
 
-		// Marshal to YAML
 		yamlBytes, err := yaml.Marshal(secret)
 		if err != nil {
 			return fmt.Errorf("failed to marshal Secret %s to YAML: %w", secretName, err)
 		}
 
-		// Write YAML file with restrictive permissions
 		yamlPath := filepath.Join(pkiDir, secretName+".yaml")
 		if err := os.WriteFile(yamlPath, yamlBytes, pkiFileMode); err != nil {
 			return fmt.Errorf("failed to write Secret YAML %s: %w", secretName, err)
 		}
+		backedUp++
+		return nil
 	}
 
-	k.log.Infof("PKI backup completed. Backed up %d Secrets to %s", len(pkiSecretNames), pkiDir)
+	for _, name := range requiredPKISecretNames {
+		if err := exportSecret(name, true); err != nil {
+			return err
+		}
+	}
+	for _, name := range optionalPKISecretNames {
+		if err := exportSecret(name, false); err != nil {
+			return err
+		}
+	}
+
+	k.log.Infof("PKI backup completed. Backed up %d Secrets to %s", backedUp, pkiDir)
 
 	success = true
 	return nil
@@ -310,73 +396,37 @@ func (k *KubernetesDeployer) BackupPKI(ctx context.Context, outputDir string) er
 //
 // 3. ConfigMaps backup is not needed - they are regenerated by Helm
 //
-// Returns error if no Helm release Secrets are found.
+// Returns error if no Helm release Secrets are found or if multiple are found without an explicit release name.
 func (k *KubernetesDeployer) BackupConfig(ctx context.Context, outputDir string) error {
-	// Create config directory
 	configDir := filepath.Join(outputDir, "config")
 	if err := os.MkdirAll(configDir, pkiDirMode); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// Use namespace (set in constructor, defaults to "flightctl")
 	namespace := k.namespace
-	releaseName := k.helmReleaseName
-
 	k.log.Infof("Starting Helm release backup from namespace %s...", namespace)
 
-	// Get or create Kubernetes clientset
-	clientset := k.clientset
-	if clientset == nil {
-		// Create in-cluster client
-		config, err := rest.InClusterConfig()
-		if err != nil {
-			return fmt.Errorf("failed to get in-cluster config: %w", err)
-		}
-
-		var clientErr error
-		clientset, clientErr = kubernetes.NewForConfig(config)
-		if clientErr != nil {
-			return fmt.Errorf("failed to create Kubernetes client: %w", clientErr)
-		}
-	}
-
-	// List Helm release Secrets
-	// Helm 3 stores releases as Secrets with labels: owner=helm, name=<release-name>, status=deployed|superseded
-	// First try to get the deployed release directly
-	deployedSelector := fmt.Sprintf("owner=helm,name=%s,status=deployed", releaseName)
-
-	secrets, err := clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: deployedSelector,
-	})
+	clientset, err := k.resolveClientset()
 	if err != nil {
-		return fmt.Errorf("failed to list Helm release Secrets with selector %s: %w", deployedSelector, err)
+		return err
 	}
 
-	if len(secrets.Items) == 0 {
-		return fmt.Errorf("no deployed Helm release Secret found for release %s in namespace %s (selector: %s)", releaseName, namespace, deployedSelector)
+	deployedSecret, releaseName, err := k.resolveHelmReleaseSecret(ctx, clientset, namespace)
+	if err != nil {
+		return err
 	}
 
-	// Use the deployed release Secret
-	deployedSecret := &secrets.Items[0]
-
-	k.log.Infof("Found deployed Helm release Secret: %s", deployedSecret.Name)
-
-	// Check for context cancellation
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("config backup cancelled: %w", ctx.Err())
 	default:
 	}
 
-	// Marshal Helm Secret to YAML
 	yamlBytes, err := yaml.Marshal(deployedSecret)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Helm Secret %s to YAML: %w", deployedSecret.Name, err)
 	}
 
-	// Write Helm Secret to file
-	// The Secret contains the entire release state: chart, config (values), and manifest.
-	// At restore: kubectl apply restores the Secret, then helm upgrade regenerates ConfigMaps.
 	helmSecretPath := filepath.Join(configDir, fmt.Sprintf("helm-release-%s.yaml", releaseName))
 	if err := os.WriteFile(helmSecretPath, yamlBytes, pkiFileMode); err != nil {
 		return fmt.Errorf("failed to write Helm Secret YAML %s: %w", helmSecretPath, err)
@@ -384,4 +434,45 @@ func (k *KubernetesDeployer) BackupConfig(ctx context.Context, outputDir string)
 
 	k.log.Infof("Helm release backup completed. Secret: %s (contains chart + config + manifest)", deployedSecret.Name)
 	return nil
+}
+
+// resolveHelmReleaseSecret returns the deployed Helm release Secret.
+// If helmReleaseName is set, it looks up that release directly.
+// Otherwise it discovers all deployed releases in the namespace; if exactly one is found it is used,
+// if multiple are found the caller must specify --helm-release-name to disambiguate.
+func (k *KubernetesDeployer) resolveHelmReleaseSecret(ctx context.Context, clientset kubernetes.Interface, namespace string) (*corev1.Secret, string, error) {
+	if k.helmReleaseName != "" {
+		selector := fmt.Sprintf("owner=helm,name=%s,status=deployed", k.helmReleaseName)
+		secrets, err := clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to list Helm release Secrets with selector %s: %w", selector, err)
+		}
+		if len(secrets.Items) == 0 {
+			return nil, "", fmt.Errorf("no deployed Helm release Secret found for release %q in namespace %s", k.helmReleaseName, namespace)
+		}
+		return &secrets.Items[0], k.helmReleaseName, nil
+	}
+
+	// Auto-discover: list all deployed Helm releases in the namespace.
+	secrets, err := clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "owner=helm,status=deployed",
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to list deployed Helm release Secrets in namespace %s: %w", namespace, err)
+	}
+	if len(secrets.Items) == 0 {
+		return nil, "", fmt.Errorf("no deployed Helm release found in namespace %s", namespace)
+	}
+	if len(secrets.Items) > 1 {
+		names := make([]string, len(secrets.Items))
+		for i, s := range secrets.Items {
+			names[i] = s.Labels["name"]
+		}
+		return nil, "", fmt.Errorf("multiple deployed Helm releases found in namespace %s (%v): use --helm-release-name to specify which one to back up", namespace, names)
+	}
+
+	secret := &secrets.Items[0]
+	releaseName := secret.Labels["name"]
+	k.log.Infof("Auto-discovered Helm release %q in namespace %s", releaseName, namespace)
+	return secret, releaseName, nil
 }

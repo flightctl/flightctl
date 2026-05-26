@@ -23,13 +23,11 @@ const (
 )
 
 // Service backup and restore tests (section 4 of the Recover and restore Test Plan, EDM-415).
-// Require in-cluster FlightCtl (kind: flightctl-external + flightctl-internal; OCP: single flightctl namespace) and kubectl.
-// Namespaces are detected at runtime. Run with: make in-cluster-e2e-test GO_E2E_DIRS=test/e2e/backup_restore
+// Runs on both K8s (kind/OCP) and Quadlet deployments; environment is auto-detected via the infra abstraction.
 //
-// Skipped when PostgreSQL is external: no built-in DB workload for pg_dump/psql exec (K8s: no flightctl-db pod;
-// Quadlet: db.type=external in /etc/flightctl/service-config.yaml, see deploy/podman/service-config.yaml).
-// Override: set E2E_EXTERNAL_DATABASE=true to force skip. Helm docs: deploy/helm/flightctl README (db.type),
-// docs/user/installing/configuring-external-database.md.
+// Skipped when PostgreSQL is external: the backup binary requires a built-in DB workload to run pg_dump via pod exec
+// (K8s: no flightctl-db pod; Quadlet: db.type=external in /etc/flightctl/service-config.yaml).
+// Override: set E2E_EXTERNAL_DATABASE=true to force skip. EDM-3213.
 
 func TestBackupRestore(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -37,9 +35,6 @@ func TestBackupRestore(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	if os.Getenv("FLIGHTCTL_NS") == "" {
-		Skip("Backup/restore e2e requires FLIGHTCTL_NS (e.g. flightctl-external); run with in-cluster e2e")
-	}
 	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	if reason := backupRestoreExternalDBSkipReason(); reason != "" {

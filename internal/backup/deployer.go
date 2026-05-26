@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/sirupsen/logrus"
 )
 
 // ErrExternalDatabase is returned when an external database is detected.
@@ -45,52 +46,80 @@ type Deployer interface {
 	BackupConfig(ctx context.Context, outputDir string) error
 }
 
-// detectionIndicators holds environment detection check results
-type detectionIndicators struct {
-	podmanPKIExists       bool
-	podmanConfigDirExists bool
-	kubernetesEnvSet      bool
+// Detector probes the local environment to determine the deployment type.
+// Both checker fields are optional: when nil the default implementations are used.
+// Inject custom functions in tests to control detection without requiring live services.
+//
+//	d := &Detector{PodmanChecker: func() bool { return true }}
+//	dt, err := d.Detect()
+type Detector struct {
+	// PodmanChecker reports whether the Podman FlightCtl service is active.
+	// Default: podmanServiceIsActive (systemctl is-active flightctl-api.service).
+	PodmanChecker func() bool
+	// KubeconfigChecker reports whether a kubeconfig file is reachable.
+	// Default: kubeconfigFileExists ($KUBECONFIG or ~/.kube/config).
+	KubeconfigChecker func() bool
 }
 
-// DetectDeployment determines deployment type and returns appropriate deployer.
-// basePath is the root directory for Podman deployment detection (default: /etc/flightctl).
-// Pass empty string to use the default, or specify a custom path for testing.
-func DetectDeployment(cfg *config.Config, log logrus.FieldLogger, basePath string) (Deployer, error) {
-	if basePath == "" {
-		basePath = "/etc/flightctl"
+// Detect probes the environment and returns the detected deployment type.
+// It does not create a deployer; call NewDeployerForType after detection.
+// Mirrors the logic used by the e2e infrastructure (test/e2e/infra/factory.go autoDetect):
+//   - Podman: flightctl-api.service is active via systemctl (with sudo fallback)
+//   - Kubernetes: a kubeconfig file is reachable via $KUBECONFIG or ~/.kube/config
+func (d *Detector) Detect() (DeploymentType, error) {
+	podmanChecker := d.PodmanChecker
+	if podmanChecker == nil {
+		podmanChecker = podmanServiceIsActive
 	}
-	indicators := checkEnvironment(basePath)
+	kubeconfigChecker := d.KubeconfigChecker
+	if kubeconfigChecker == nil {
+		kubeconfigChecker = kubeconfigFileExists
+	}
 
-	podmanDetected := indicators.podmanPKIExists || indicators.podmanConfigDirExists
-	k8sDetected := indicators.kubernetesEnvSet
+	podmanActive := podmanChecker()
+	kubeconfigPresent := kubeconfigChecker()
 
-	// Validate mutual exclusivity
-	if podmanDetected && k8sDetected {
-		return nil, fmt.Errorf(
+	if podmanActive && kubeconfigPresent {
+		return DeploymentTypeUnknown, fmt.Errorf(
 			"conflicting deployment indicators detected: "+
-				"Podman indicators (pki=%v, config=%v) and Kubernetes indicator (env=%v); "+
-				"unable to determine deployment type",
-			indicators.podmanPKIExists,
-			indicators.podmanConfigDirExists,
-			indicators.kubernetesEnvSet,
+				"Podman (flightctl-api.service is active) and Kubernetes (kubeconfig present); "+
+				"use --deployment-type to specify explicitly",
 		)
 	}
 
-	if podmanDetected {
-		log.Debug("Podman deployment detected")
-		return NewPodmanDeployer(cfg, log, "", ""), nil
+	if podmanActive {
+		return DeploymentTypePodman, nil
 	}
 
-	if k8sDetected {
-		log.Debug("Kubernetes deployment detected")
-		return NewKubernetesDeployer(cfg, log, "", "", "", nil), nil
+	if kubeconfigPresent {
+		return DeploymentTypeKubernetes, nil
 	}
 
-	return nil, fmt.Errorf(
-		"unable to detect deployment type: no Podman or Kubernetes indicators found " +
-			"(checked: /etc/flightctl/pki/ca.crt, /etc/flightctl/, KUBERNETES_SERVICE_HOST)",
+	return DeploymentTypeUnknown, fmt.Errorf(
+		"unable to detect deployment type: " +
+			"flightctl-api.service is not active and no kubeconfig found " +
+			"(~/.kube/config or $KUBECONFIG); " +
+			"use --deployment-type to specify explicitly",
 	)
 }
+
+// DetectDeployment probes the environment using default implementations.
+// It is a convenience wrapper around (&Detector{}).Detect().
+func DetectDeployment() (DeploymentType, error) {
+	return (&Detector{}).Detect()
+}
+
+// ValidateDeploymentType returns an error if s is not a recognised deployment type string.
+func ValidateDeploymentType(s string) error {
+	switch DeploymentType(s) {
+	case DeploymentTypeKubernetes, DeploymentTypePodman:
+		return nil
+	default:
+		return fmt.Errorf("invalid --deployment-type %q: must be %q or %q",
+			s, DeploymentTypeKubernetes, DeploymentTypePodman)
+	}
+}
+
 
 // isInternalDB returns true if the database is internal (managed by FlightCtl deployment).
 // Internal databases have hostnames: localhost, 127.0.0.1, flightctl-db, or flightctl-db.<namespace>
@@ -125,14 +154,30 @@ func isInternalDB(cfg *config.Config) bool {
 	}
 }
 
-// checkEnvironment examines the system to detect deployment indicators.
-// basePath is the root directory for Podman deployment detection (e.g., /etc/flightctl).
-func checkEnvironment(basePath string) detectionIndicators {
-	return detectionIndicators{
-		podmanPKIExists:       pathExists(basePath + "/pki/ca.crt"),
-		podmanConfigDirExists: pathExists(basePath),
-		kubernetesEnvSet:      os.Getenv("KUBERNETES_SERVICE_HOST") != "",
+// podmanServiceIsActive returns true if the FlightCtl Podman service is running.
+// Tries systemctl directly, then falls back to sudo systemctl — matching the
+// detection strategy used by the e2e infrastructure (test/e2e/infra/factory.go autoDetect).
+func podmanServiceIsActive() bool {
+	if exec.Command("systemctl", "is-active", "flightctl-api.service").Run() == nil {
+		return true
 	}
+	return exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service").Run() == nil
+}
+
+// kubeconfigFileExists returns true if a kubeconfig file is reachable via $KUBECONFIG
+// or the default ~/.kube/config location. This mirrors the detection logic used by the
+// e2e infrastructure (test/e2e/infra/factory.go autoDetect).
+func kubeconfigFileExists() bool {
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		_, err := os.Stat(kc)
+		return err == nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".kube", "config"))
+	return err == nil
 }
 
 // pathExists checks if a path exists
@@ -141,9 +186,9 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-// shellEscape escapes a string for safe use in a shell command by wrapping it in single quotes
+// ShellEscape escapes a string for safe use in a shell command by wrapping it in single quotes
 // and escaping any single quotes within the string.
-func shellEscape(s string) string {
+func ShellEscape(s string) string {
 	// Replace ' with '\'' (end quote, escaped quote, start quote)
 	escaped := strings.ReplaceAll(s, "'", "'\\''")
 	return "'" + escaped + "'"

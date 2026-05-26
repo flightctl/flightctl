@@ -15,30 +15,87 @@ import (
 
 // PodmanDeployer implements Deployer for Podman/quadlet deployments
 type PodmanDeployer struct {
-	cfg               *config.Config
 	log               logrus.FieldLogger
 	pkiPath           string // Optional: if empty, defaults to "/etc/flightctl/pki"
 	serviceConfigPath string // Optional: if empty, defaults to "/etc/flightctl/service-config.yaml"
+	dbContainerName   string
+	dbName            string
+	containerCLI      string
+	kvContainerName   string
+}
+
+// PodmanDeployerOption configures a PodmanDeployer.
+type PodmanDeployerOption func(*PodmanDeployer)
+
+// WithPKIPath sets the PKI source directory path.
+func WithPKIPath(path string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.pkiPath = path
+	}
+}
+
+// WithServiceConfigPath sets the service configuration file path.
+func WithServiceConfigPath(path string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.serviceConfigPath = path
+	}
+}
+
+// WithDBContainerName sets the database container name for pg_dump exec.
+func WithDBContainerName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbContainerName = name
+	}
+}
+
+// WithDBName overrides the database name used for pg_dump.
+// When empty, cfg.Database.Name from the service config is used.
+func WithDBName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbName = name
+	}
+}
+
+// WithContainerCLI sets the container CLI command (e.g. "podman" or "docker").
+func WithContainerCLI(cli string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.containerCLI = cli
+	}
+}
+
+// WithKVContainerName sets the KV container name (reserved for future use).
+func WithKVContainerName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.kvContainerName = name
+	}
 }
 
 // NewPodmanDeployer creates a new Podman deployer.
-// If pkiPath is empty, defaults to "/etc/flightctl/pki" (production path).
-// If serviceConfigPath is empty, defaults to "/etc/flightctl/service-config.yaml" (production path).
-// Pass explicit paths for testing with temporary directories.
-func NewPodmanDeployer(cfg *config.Config, log logrus.FieldLogger, pkiPath string, serviceConfigPath string) *PodmanDeployer {
-	// Set default paths at construction time
-	if pkiPath == "" {
-		pkiPath = "/etc/flightctl/pki"
+// Defaults: pkiPath "/etc/flightctl/pki", serviceConfigPath "/etc/flightctl/service-config.yaml",
+// dbContainerName "flightctl-db", containerCLI "podman", kvContainerName "flightctl-kv".
+func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *PodmanDeployer {
+	d := &PodmanDeployer{
+		log: log,
 	}
-	if serviceConfigPath == "" {
-		serviceConfigPath = "/etc/flightctl/service-config.yaml"
+	for _, opt := range opts {
+		opt(d)
 	}
-	return &PodmanDeployer{
-		cfg:               cfg,
-		log:               log,
-		pkiPath:           pkiPath,
-		serviceConfigPath: serviceConfigPath,
+	if d.pkiPath == "" {
+		d.pkiPath = "/etc/flightctl/pki"
 	}
+	if d.serviceConfigPath == "" {
+		d.serviceConfigPath = "/etc/flightctl/service-config.yaml"
+	}
+	if d.dbContainerName == "" {
+		d.dbContainerName = "flightctl-db"
+	}
+	if d.containerCLI == "" {
+		d.containerCLI = "podman"
+	}
+	if d.kvContainerName == "" {
+		d.kvContainerName = "flightctl-kv"
+	}
+	return d
 }
 
 // Type returns the deployment type
@@ -47,11 +104,17 @@ func (p *PodmanDeployer) Type() DeploymentType {
 }
 
 // BackupDatabase backs up the PostgreSQL database by executing pg_dump inside the database container.
+// Credentials are loaded from the service configuration file at serviceConfigPath.
 // For internal databases, executes pg_dump via podman exec and writes dump to <outputDir>/db/dump.sql.
 // For external databases, returns ErrExternalDatabase without creating a backup.
 func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) error {
+	cfg, err := config.Load(p.serviceConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to load service configuration from %s: %w", p.serviceConfigPath, err)
+	}
+
 	// Check if database is external
-	if !isInternalDB(p.cfg) {
+	if !isInternalDB(cfg) {
 		return ErrExternalDatabase
 	}
 
@@ -61,14 +124,15 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 		return fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	// Hardcoded container name for database.
-	// This matches the default Podman/quadlet deployment.
-	containerName := "flightctl-db"
-
-	p.log.Infof("Starting database backup from container %s...", containerName)
+	p.log.Infof("Starting database backup from container %s...", p.dbContainerName)
 
 	// Build password from config
-	password := string(p.cfg.Database.Password)
+	password := string(cfg.Database.Password)
+
+	dbName := cfg.Database.Name
+	if p.dbName != "" {
+		dbName = p.dbName
+	}
 
 	// Create dump file to stream output directly (avoids holding entire dump in memory)
 	dumpFile := filepath.Join(dbDir, "dump.sql")
@@ -81,12 +145,12 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 	// Execute pg_dump inside the container with password from stdin and safely escaped parameters.
 	// Output streams directly to dump file.
 	// Use shell escaping to prevent injection attacks from user/database names.
-	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump -h 127.0.0.1 -p %s -U %s -d %s",
-		shellEscape(strconv.Itoa(int(p.cfg.Database.Port))),
-		shellEscape(p.cfg.Database.User),
-		shellEscape(p.cfg.Database.Name))
+	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p %s -U %s -d %s",
+		ShellEscape(strconv.Itoa(int(cfg.Database.Port))),
+		ShellEscape(cfg.Database.User),
+		ShellEscape(dbName))
 
-	cmd := exec.CommandContext(ctx, "podman", "exec", "-i", containerName, "sh", "-c", pgDumpCmd)
+	cmd := exec.CommandContext(ctx, p.containerCLI, "exec", "-i", p.dbContainerName, "sh", "-c", pgDumpCmd)
 
 	// Pass password via stdin to avoid exposing it in process argv
 	cmd.Stdin = bytes.NewReader([]byte(password))

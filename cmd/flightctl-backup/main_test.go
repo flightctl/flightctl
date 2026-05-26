@@ -6,23 +6,23 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-// createTestConfig creates a minimal valid config file for testing
-func createTestConfig(t *testing.T, path string) {
+// isolateDeploymentDetection prevents accidental Kubernetes detection from the
+// developer's kubeconfig during CLI tests.
+func isolateDeploymentDetection(t *testing.T) {
 	t.Helper()
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "missing-kubeconfig"))
+}
 
-	// Ensure directory exists
-	dir := filepath.Dir(path)
-	err := os.MkdirAll(dir, 0755)
-	require.NoError(t, err)
-
-	// Use config.NewDefault() and Save() to create a valid config file
-	cfg := config.NewDefault()
-	err = config.Save(cfg, path)
-	require.NoError(t, err)
+// backupCommandArgs returns CLI args that pin deployment type to Podman so tests
+// do not depend on the host environment.
+func backupCommandArgs(t *testing.T, extra ...string) []string {
+	t.Helper()
+	isolateDeploymentDetection(t)
+	args := []string{"--deployment-type", "podman"}
+	return append(args, extra...)
 }
 
 // executeCommand executes a Cobra command with args and captures output
@@ -42,14 +42,37 @@ func executeCommand(t *testing.T, args ...string) (string, error) {
 func TestFlagDefaults(t *testing.T) {
 	cmd := NewFlightCtlBackupCommand()
 
-	// Get flag defaults
 	outputFlag := cmd.Flags().Lookup("output")
 	require.NotNil(t, outputFlag)
 	require.Equal(t, ".", outputFlag.DefValue)
 
+	// --config flag should no longer exist
 	configFlag := cmd.Flags().Lookup("config")
-	require.NotNil(t, configFlag)
-	require.Equal(t, config.ConfigFile(), configFlag.DefValue)
+	require.Nil(t, configFlag, "config flag should not exist after refactor")
+
+	namespaceFlag := cmd.Flags().Lookup("namespace")
+	require.NotNil(t, namespaceFlag)
+	require.Equal(t, "", namespaceFlag.DefValue)
+
+	internalNamespaceFlag := cmd.Flags().Lookup("internal-namespace")
+	require.NotNil(t, internalNamespaceFlag)
+	require.Equal(t, "", internalNamespaceFlag.DefValue)
+
+	helmReleaseNameFlag := cmd.Flags().Lookup("helm-release-name")
+	require.NotNil(t, helmReleaseNameFlag)
+	require.Equal(t, "", helmReleaseNameFlag.DefValue)
+
+	dbContainerNameFlag := cmd.Flags().Lookup("db-container-name")
+	require.NotNil(t, dbContainerNameFlag)
+	require.Equal(t, "", dbContainerNameFlag.DefValue)
+
+	dbNameFlag := cmd.Flags().Lookup("db-name")
+	require.NotNil(t, dbNameFlag)
+	require.Equal(t, "", dbNameFlag.DefValue)
+
+	kvContainerNameFlag := cmd.Flags().Lookup("kv-container-name")
+	require.NotNil(t, kvContainerNameFlag)
+	require.Equal(t, "", kvContainerNameFlag.DefValue)
 }
 
 func TestFlagParsing(t *testing.T) {
@@ -57,31 +80,22 @@ func TestFlagParsing(t *testing.T) {
 		name       string
 		args       []string
 		wantOutput string
-		wantConfig string
+		wantErr    bool
 	}{
 		{
-			name:       "custom output and config",
-			args:       []string{"--output", "/tmp/backup", "--config", "/etc/flightctl.yaml"},
+			name:       "custom output",
+			args:       []string{"--output", "/tmp/backup"},
 			wantOutput: "/tmp/backup",
-			wantConfig: "/etc/flightctl.yaml",
 		},
 		{
-			name:       "only custom output",
-			args:       []string{"--output", "/var/backups"},
-			wantOutput: "/var/backups",
-			wantConfig: config.ConfigFile(),
-		},
-		{
-			name:       "only custom config",
-			args:       []string{"--config", "/custom/config.yaml"},
+			name:       "default output",
+			args:       []string{},
 			wantOutput: ".",
-			wantConfig: "/custom/config.yaml",
 		},
 		{
-			name:       "short flag for output",
-			args:       []string{"-o", "/tmp/test"},
-			wantOutput: "",
-			wantConfig: config.ConfigFile(),
+			name:    "short flag for output should not be supported",
+			args:    []string{"-o", "/tmp/test"},
+			wantErr: true,
 		},
 	}
 
@@ -89,23 +103,17 @@ func TestFlagParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := NewFlightCtlBackupCommand()
 
-			// Parse flags without executing
 			err := cmd.ParseFlags(tt.args)
 
-			if tt.wantOutput == "" {
-				// Short flag -o should not be supported
+			if tt.wantErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-
-				outputFlag, err := cmd.Flags().GetString("output")
-				require.NoError(t, err)
-				require.Equal(t, tt.wantOutput, outputFlag)
-
-				configFlag, err := cmd.Flags().GetString("config")
-				require.NoError(t, err)
-				require.Equal(t, tt.wantConfig, configFlag)
+				return
 			}
+			require.NoError(t, err)
+
+			outputFlag, err := cmd.Flags().GetString("output")
+			require.NoError(t, err)
+			require.Equal(t, tt.wantOutput, outputFlag)
 		})
 	}
 }
@@ -120,10 +128,10 @@ func TestOutputPathValidation(t *testing.T) {
 		{
 			name: "valid directory",
 			setupOutput: func(t *testing.T) string {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				return t.TempDir()
 			},
-			wantErr: false,
+			wantErr:     true,
+			errContains: "backup failed",
 		},
 		{
 			name: "non-existent directory",
@@ -131,7 +139,7 @@ func TestOutputPathValidation(t *testing.T) {
 				return filepath.Join(t.TempDir(), "nonexistent")
 			},
 			wantErr:     true,
-			errContains: "output directory does not exist",
+			errContains: "backup failed",
 		},
 		{
 			name: "file instead of directory",
@@ -142,15 +150,15 @@ func TestOutputPathValidation(t *testing.T) {
 				return file
 			},
 			wantErr:     true,
-			errContains: "output path is not a directory",
+			errContains: "failed to create output directory",
 		},
 		{
 			name: "current directory",
 			setupOutput: func(t *testing.T) string {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 				return "."
 			},
-			wantErr: false,
+			wantErr:     true,
+			errContains: "backup failed",
 		},
 	}
 
@@ -158,76 +166,7 @@ func TestOutputPathValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			outputPath := tt.setupOutput(t)
 
-			// Create temp config file
-			configDir := t.TempDir()
-			configPath := filepath.Join(configDir, "config.yaml")
-			createTestConfig(t, configPath)
-
-			// Execute command
-			args := []string{"--output", outputPath, "--config", configPath}
-			_, err := executeCommand(t, args...)
-
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.errContains)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestConfigPathValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupConfig func(t *testing.T) string
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name: "valid config file",
-			setupConfig: func(t *testing.T) string {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-				dir := t.TempDir()
-				configPath := filepath.Join(dir, "config.yaml")
-				createTestConfig(t, configPath)
-				return configPath
-			},
-			wantErr: false,
-		},
-		{
-			name: "non-existent config file - LoadOrGenerate should create it",
-			setupConfig: func(t *testing.T) string {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-				dir := t.TempDir()
-				return filepath.Join(dir, "new-config.yaml")
-			},
-			wantErr: false, // LoadOrGenerate creates the file
-		},
-		{
-			name: "invalid config file - malformed YAML",
-			setupConfig: func(t *testing.T) string {
-				dir := t.TempDir()
-				configPath := filepath.Join(dir, "bad-config.yaml")
-				// Write invalid YAML
-				err := os.WriteFile(configPath, []byte("invalid: yaml: content: [unclosed"), 0600)
-				require.NoError(t, err)
-				return configPath
-			},
-			wantErr:     true,
-			errContains: "reading configuration",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			configPath := tt.setupConfig(t)
-
-			// Use current directory as output (always valid)
-			outputPath := "."
-
-			// Execute command
-			args := []string{"--output", outputPath, "--config", configPath}
+			args := backupCommandArgs(t, "--output", outputPath)
 			_, err := executeCommand(t, args...)
 
 			if tt.wantErr {
@@ -250,21 +189,14 @@ func TestVersionCommand(t *testing.T) {
 func TestCommandStructure(t *testing.T) {
 	cmd := NewFlightCtlBackupCommand()
 
-	// Verify command use string
 	require.Equal(t, "flightctl-backup [flags]", cmd.Use)
 
-	// Verify short/long descriptions are non-empty
 	require.NotEmpty(t, cmd.Short)
 	require.NotEmpty(t, cmd.Long)
 
-	// Verify flags are registered
 	outputFlag := cmd.Flags().Lookup("output")
 	require.NotNil(t, outputFlag, "output flag should be registered")
 
-	configFlag := cmd.Flags().Lookup("config")
-	require.NotNil(t, configFlag, "config flag should be registered")
-
-	// Verify version subcommand exists
 	versionCmd, _, err := cmd.Find([]string{"version"})
 	require.NoError(t, err)
 	require.NotNil(t, versionCmd)
@@ -277,31 +209,26 @@ func TestHelpOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, output, "flightctl-backup [flags]")
 	require.Contains(t, output, "--output")
-	require.Contains(t, output, "--config")
+	require.Contains(t, output, "--namespace")
+	require.Contains(t, output, "--internal-namespace")
+	require.Contains(t, output, "--helm-release-name")
+	require.Contains(t, output, "--db-container-name")
+	require.Contains(t, output, "--db-name")
+	require.Contains(t, output, "--kv-container-name")
 	require.Contains(t, output, "Directory path where backup files will be written")
-	require.Contains(t, output, "Path to the service configuration file")
+	// --config flag should no longer appear in help
+	require.NotContains(t, output, "--config")
 }
 
 func TestRunBackupPlaceholder(t *testing.T) {
-	// Set up Kubernetes environment for deployment detection
-	t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-
-	// Create temp directory for output
 	outputDir := t.TempDir()
 
-	// Create temp config file
-	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	createTestConfig(t, configPath)
-
-	// Execute command
-	args := []string{"--output", outputDir, "--config", configPath}
+	args := backupCommandArgs(t, "--output", outputDir)
 	output, err := executeCommand(t, args...)
 
-	// Command should succeed (placeholder implementation)
-	require.NoError(t, err)
-
-	// Verify logs contain placeholder messages (output is captured)
-	// Note: log output goes to configured logger, not to cmd.SetOut
-	// This test primarily verifies the command executes without error
+	// Full backup requires Podman/Kubernetes infrastructure; verify the command
+	// reaches the backup workflow rather than failing during flag handling.
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "backup failed")
 	_ = output
 }
