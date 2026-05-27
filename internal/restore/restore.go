@@ -23,12 +23,11 @@ const startServicesTimeout = 2 * time.Minute
 //  5. Stops FlightCtl services (deployer.StopServices)
 //  6. Imports the database (deployer.RestoreDatabase)
 //  7. Restores PKI materials (deployer.RestorePKI)
-//  8. Retrieves service credentials via deployer.GetConfig
-//  9. Exposes DB and KV via deployer.ExposeService (no-op for Podman, port-forward for Kubernetes)
-//
-// 10. Runs post-restoration device preparation (PrepareDevices)
-//
-// 11. Starts FlightCtl services (deployer.StartServices) — deferred, always runs even on failure
+//  8. Restores service configuration (deployer.RestoreConfig)
+//  9. Retrieves service credentials via deployer.GetConfig
+//  10. Exposes DB and KV via deployer.ExposeService (no-op for Podman, port-forward for Kubernetes)
+//  11. Runs post-restoration device preparation (PrepareDevices)
+//  12. Starts FlightCtl services (deployer.StartServices) — deferred, always runs even on failure
 //
 // The deployer encapsulates all deployment-specific operations and credential extraction.
 // The temporary extraction directory is always cleaned up before Restore returns.
@@ -108,6 +107,12 @@ func Restore(
 		return fmt.Errorf("PKI restore failed: %w", err)
 	}
 	log.Info("PKI restore completed")
+
+	log.Info("Restoring service configuration")
+	if err := deployer.RestoreConfig(ctx, extractDir); err != nil {
+		return fmt.Errorf("service configuration restore failed: %w", err)
+	}
+	log.Info("Service configuration restore completed")
 
 	log.Info("Retrieving service credentials from infrastructure")
 	cfg, err := deployer.GetConfig(ctx)
