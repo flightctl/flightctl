@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -15,7 +16,8 @@ import (
 const (
 	fileServerImage         = "docker.io/python:3-alpine"
 	fileServerContainerName = "e2e-fileserver"
-	fileServerPort          = "8080/tcp"
+	fileServerPort          = "8088/tcp"
+	fileServerPortNum       = "8088"
 )
 
 // FileServer holds connection info and the container for the aux HTTP file server.
@@ -42,7 +44,7 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 		Image:        fileServerImage,
 		Name:         fileServerContainerName,
 		ExposedPorts: []string{fileServerPort},
-		Cmd:          []string{"python", "-m", "http.server", "8080", "--directory", "/data"},
+		Cmd:          []string{"python", "-m", "http.server", fileServerPortNum, "--directory", "/data"},
 		Mounts: testcontainers.ContainerMounts{
 			{
 				Source:   testcontainers.GenericBindMountSource{HostPath: dataDir},
@@ -50,7 +52,7 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 				ReadOnly: false,
 			},
 		},
-		WaitingFor: wait.ForHTTP("/").WithPort("8080").WithStatusCodeMatcher(
+		WaitingFor: wait.ForHTTP("/").WithPort(fileServerPortNum).WithStatusCodeMatcher(
 			func(status int) bool { return status == 200 || status == 404 },
 		),
 		SkipReaper: reuse,
@@ -61,8 +63,20 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 		return fmt.Errorf("failed to start file server container: %w", err)
 	}
 	f.container = container
+
+	inspect, inspectErr := container.Inspect(ctx)
+	if inspectErr == nil {
+		for _, m := range inspect.Mounts {
+			if m.Destination == "/data" && m.Source != "" && m.Source != dataDir {
+				_ = os.RemoveAll(dataDir)
+				f.DataDir = m.Source
+				break
+			}
+		}
+	}
+
 	f.Host = GetHostIP()
-	port, err := container.MappedPort(ctx, "8080")
+	port, err := container.MappedPort(ctx, fileServerPortNum)
 	if err != nil {
 		return fmt.Errorf("failed to get file server port: %w", err)
 	}
@@ -75,7 +89,11 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 
 // PushFile writes content to a file relative to the data directory, creating parent dirs as needed.
 func (f *FileServer) PushFile(relativePath, content string) error {
-	fullPath := filepath.Join(f.DataDir, relativePath)
+	clean := filepath.Clean(relativePath)
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid relative path %q", relativePath)
+	}
+	fullPath := filepath.Join(f.DataDir, clean)
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", relativePath, err)
 	}
