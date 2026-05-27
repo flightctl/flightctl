@@ -101,6 +101,52 @@ systemctl reset-failed flightctl-agent || true
 	return nil
 }
 
+// GetVMHostname returns the current hostname of the agent VM as seen by the kernel.
+// Uses the hostname command via SSH, which returns the same value the agent reads
+// via os.Hostname() when running on the VM.
+func (h *Harness) GetVMHostname() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return "", fmt.Errorf("harness VM is nil")
+	}
+	stdout, err := h.VM.RunSSH([]string{"hostname"}, nil)
+	if err != nil {
+		return "", fmt.Errorf("reading VM hostname: %w", err)
+	}
+	hostname := strings.TrimSpace(stdout.String())
+	if hostname == "" {
+		return "", fmt.Errorf("VM hostname is empty")
+	}
+	return hostname, nil
+}
+
+// SetVMHostname sets the hostname on the agent VM and verifies it was applied.
+func (h *Harness) SetVMHostname(hostname string) error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return fmt.Errorf("harness VM is nil")
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return fmt.Errorf("hostname is empty")
+	}
+	if _, err := h.VM.RunSSH([]string{"sudo", "hostnamectl", "set-hostname", hostname}, nil); err != nil {
+		return fmt.Errorf("setting VM hostname: %w", err)
+	}
+	got, err := h.GetVMHostname()
+	if err != nil {
+		return err
+	}
+	if got != hostname {
+		return fmt.Errorf("VM hostname = %q after set-hostname, want %q", got, hostname)
+	}
+	return nil
+}
+
 // DeleteCurrentEnrollmentRequestFromAgentLogs deletes the latest pending EnrollmentRequest
 // identified in flightctl-agent logs. If no enrollment ID is present, it is a no-op.
 func (h *Harness) DeleteCurrentEnrollmentRequestFromAgentLogs() error {
