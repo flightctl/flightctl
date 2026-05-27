@@ -610,7 +610,7 @@ fi
 # CA Bundle
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
 
-if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
+if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]] || [[ ${#GATEWAY_SANS[@]} -gt 0 ]]; then
     cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" > "$CA_BUNDLE"
 else
     cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
