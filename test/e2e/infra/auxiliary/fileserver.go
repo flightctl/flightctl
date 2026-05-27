@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -45,12 +46,8 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 		Name:         fileServerContainerName,
 		ExposedPorts: []string{fileServerPort},
 		Cmd:          []string{"python", "-m", "http.server", fileServerPortNum, "--directory", "/data"},
-		Mounts: testcontainers.ContainerMounts{
-			{
-				Source:   testcontainers.GenericBindMountSource{HostPath: dataDir},
-				Target:   "/data",
-				ReadOnly: false,
-			},
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.Binds = append(hc.Binds, dataDir+":/data:rw")
 		},
 		WaitingFor: wait.ForHTTP("/").WithPort(fileServerPortNum).WithStatusCodeMatcher(
 			func(status int) bool { return status == 200 || status == 404 },
@@ -64,14 +61,15 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 	}
 	f.container = container
 
-	inspect, inspectErr := container.Inspect(ctx)
-	if inspectErr == nil {
-		for _, m := range inspect.Mounts {
-			if m.Destination == "/data" && m.Source != "" && m.Source != dataDir {
-				_ = os.RemoveAll(dataDir)
-				f.DataDir = m.Source
-				break
-			}
+	inspect, err := container.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to inspect file server container: %w", err)
+	}
+	for _, m := range inspect.Mounts {
+		if m.Destination == "/data" && m.Source != "" && m.Source != dataDir {
+			_ = os.RemoveAll(dataDir)
+			f.DataDir = m.Source
+			break
 		}
 	}
 
@@ -97,5 +95,5 @@ func (f *FileServer) PushFile(relativePath, content string) error {
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", relativePath, err)
 	}
-	return os.WriteFile(fullPath, []byte(content), 0644)
+	return os.WriteFile(fullPath, []byte(content), 0600)
 }
