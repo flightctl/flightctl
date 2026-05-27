@@ -48,8 +48,8 @@ const (
 )
 
 // AllServices is the default set of shared aux services (started by Get(ctx)).
-// Does not include ServiceTracing; use infra.TracingProvider for opt-in tracing.
-var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus, ServiceFileServer}
+// Does not include ServiceTracing, ServiceFileServer, ServiceKeycloak, ServiceTrustify; start on-demand.
+var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
 
 // Get returns the aux services, starting all of them if needed (singleton).
 func Get(ctx context.Context) *Services {
