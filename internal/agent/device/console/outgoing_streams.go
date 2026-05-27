@@ -172,8 +172,8 @@ func (o *outgoingErrorStream) emit(err error) {
 			o.log.Debugf("console command wait ended after disconnect: %v", err)
 			exitCode = 0
 		} else if errors.Is(err, context.DeadlineExceeded) {
-			o.log.Debugf("console command wait with exceeded context deadline: %v", err)
-			exitCode = 0
+			o.log.Errorf("console command wait exceeded context deadline: %v", err)
+			exitCode = 124
 		} else {
 			o.log.Errorf("unexpected error type %T: %v", err, err)
 			exitCode = 255
