@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
@@ -249,6 +251,250 @@ func TestKubernetesRestoreDeployer_GetConfig_MissingSecret(t *testing.T) {
 	_, err := d.GetConfig(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "flightctl-db-app-secret")
+}
+
+// buildExtractDirWithPKI creates an extract directory containing a pki/ subdirectory
+// with the given files (filename → mode). Returns the extract directory path.
+func buildExtractDirWithPKI(t *testing.T, files map[string]os.FileMode) string {
+	t.Helper()
+	dir := t.TempDir()
+	pkiDir := filepath.Join(dir, "pki")
+	require.NoError(t, os.MkdirAll(pkiDir, 0700))
+	for name, mode := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(pkiDir, name), []byte("mock-pki-content"), mode))
+	}
+	return dir
+}
+
+// TestPodmanRestoreDeployer_RestorePKI validates the behavioral contracts
+// of PodmanRestoreDeployer.RestorePKI.
+func TestPodmanRestoreDeployer_RestorePKI(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupDir    func(t *testing.T) string
+		wantErr     bool
+		errContains string
+		verify      func(t *testing.T, destDir string)
+	}{
+		{
+			name: "When pki dir is absent from archive it should return error",
+			setupDir: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			wantErr:     true,
+			errContains: "pki",
+		},
+		{
+			name: "When pki dir exists it should copy all files to destination",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithPKI(t, map[string]os.FileMode{
+					"ca.crt":    0600,
+					"server.key": 0600,
+				})
+			},
+			verify: func(t *testing.T, destDir string) {
+				require.FileExists(t, filepath.Join(destDir, "ca.crt"))
+				require.FileExists(t, filepath.Join(destDir, "server.key"))
+				data, err := os.ReadFile(filepath.Join(destDir, "ca.crt"))
+				require.NoError(t, err)
+				require.Equal(t, "mock-pki-content", string(data))
+			},
+		},
+		{
+			name: "When pki dir exists it should preserve file permissions",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithPKI(t, map[string]os.FileMode{
+					"ca.crt": 0600,
+				})
+			},
+			verify: func(t *testing.T, destDir string) {
+				info, err := os.Stat(filepath.Join(destDir, "ca.crt"))
+				require.NoError(t, err)
+				require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+			},
+		},
+		{
+			name: "When pki dir contains subdirectories it should create them and copy nested files",
+			setupDir: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				subDir := filepath.Join(dir, "pki", "sub")
+				require.NoError(t, os.MkdirAll(subDir, 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.crt"), []byte("nested-content"), 0600))
+				return dir
+			},
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "sub", "nested.crt"))
+				require.NoError(t, err)
+				require.Equal(t, "nested-content", string(data))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log, _ := test.NewNullLogger()
+			destDir := t.TempDir()
+			d := NewPodmanRestoreDeployer(log, WithPKIDestPath(destDir))
+			err := d.RestorePKI(context.Background(), tt.setupDir(t))
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					require.ErrorContains(t, err, tt.errContains)
+				}
+				return
+			}
+			require.NoError(t, err)
+			if tt.verify != nil {
+				tt.verify(t, destDir)
+			}
+		})
+	}
+}
+
+// buildExtractDirWithPKISecrets creates an extract directory with a pki/
+// subdirectory containing one YAML file per Secret (serialised as JSON,
+// which is valid YAML). Returns the extract directory and the fake clientset
+// that can be used to verify post-restore cluster state.
+func buildExtractDirWithPKISecrets(t *testing.T, secrets []*corev1.Secret) (string, kubernetes.Interface) {
+	t.Helper()
+	dir := t.TempDir()
+	pkiDir := filepath.Join(dir, "pki")
+	require.NoError(t, os.MkdirAll(pkiDir, 0700))
+	for _, s := range secrets {
+		data, err := json.Marshal(s)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(pkiDir, s.Name+".yaml"), data, 0600))
+	}
+	return dir, fake.NewSimpleClientset()
+}
+
+// TestKubernetesRestoreDeployer_RestorePKI validates the behavioral contracts
+// of KubernetesRestoreDeployer.RestorePKI.
+func TestKubernetesRestoreDeployer_RestorePKI(t *testing.T) {
+	const ns = "flightctl"
+
+	t.Run("When pki dir is absent from archive it should return error", func(t *testing.T) {
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err := d.RestorePKI(context.Background(), t.TempDir())
+		require.Error(t, err)
+		require.ErrorContains(t, err, "pki")
+	})
+
+	t.Run("When pki dir exists with no yaml files it should return error", func(t *testing.T) {
+		log, _ := test.NewNullLogger()
+		extractDir := buildExtractDirWithPKI(t, map[string]os.FileMode{})
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err := d.RestorePKI(context.Background(), extractDir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "no Secret YAML files")
+	})
+
+	t.Run("When pki dir exists with yaml files it should create each Secret in the cluster", func(t *testing.T) {
+		secrets := []*corev1.Secret{
+			{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+				ObjectMeta: metav1.ObjectMeta{Name: "flightctl-ca", Namespace: ns},
+				Data:       map[string][]byte{"ca.crt": []byte("mock-cert")},
+			},
+			{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+				ObjectMeta: metav1.ObjectMeta{Name: "flightctl-api-server-tls", Namespace: ns},
+				Data:       map[string][]byte{"tls.crt": []byte("mock-tls")},
+			},
+		}
+		extractDir, cs := buildExtractDirWithPKISecrets(t, secrets)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestorePKI(context.Background(), extractDir))
+
+		for _, s := range secrets {
+			got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), s.Name, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, s.Name, got.Name)
+		}
+	})
+
+	t.Run("When yaml file contains invalid content it should return an error", func(t *testing.T) {
+		dir := t.TempDir()
+		pkiDir := filepath.Join(dir, "pki")
+		require.NoError(t, os.MkdirAll(pkiDir, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(pkiDir, "bad.yaml"), []byte("{not: valid: yaml: ["), 0600))
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err := d.RestorePKI(context.Background(), dir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to apply PKI Secret")
+	})
+
+	t.Run("When secret yaml has no namespace it should use the deployer namespace", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-ca"},
+			Data:       map[string][]byte{"ca.crt": []byte("cert")},
+		}
+		extractDir, cs := buildExtractDirWithPKISecrets(t, []*corev1.Secret{secret})
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestorePKI(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-ca", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, "flightctl-ca", got.Name)
+	})
+
+	t.Run("When yaml file contains an existing secret it should update the cluster secret", func(t *testing.T) {
+		existing := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-ca", Namespace: ns},
+			Data:       map[string][]byte{"ca.crt": []byte("old-cert")},
+		}
+		updated := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-ca", Namespace: ns},
+			Data:       map[string][]byte{"ca.crt": []byte("new-cert")},
+		}
+		extractDir, cs := buildExtractDirWithPKISecrets(t, []*corev1.Secret{updated})
+		_, err := cs.CoreV1().Secrets(ns).Create(context.Background(), existing, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestorePKI(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-ca", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("new-cert"), got.Data["ca.crt"])
+	})
 }
 
 // TestKubernetesRestoreDeployer_GetConfig_Success validates credential extraction
