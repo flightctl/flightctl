@@ -828,9 +828,15 @@ func validateHttpConfig(config *HttpConfig) []error {
 
 func validateBaseImages(baseImages []BaseImageEntry) []error {
 	var errs []error
+	seenImageNames := make(map[string]int, len(baseImages))
 	for i, entry := range baseImages {
 		path := fmt.Sprintf("spec.baseImages[%d]", i)
 		errs = append(errs, validation.ValidateString(&entry.ImageName, path+".imageName", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
+		if firstIdx, exists := seenImageNames[entry.ImageName]; exists {
+			errs = append(errs, fmt.Errorf("%s.imageName: duplicate imageName %q (already defined at spec.baseImages[%d].imageName)", path, entry.ImageName, firstIdx))
+		} else {
+			seenImageNames[entry.ImageName] = i
+		}
 		seen := make(map[string]struct{}, len(entry.Tags))
 		for j, tag := range entry.Tags {
 			tagCopy := tag
