@@ -2,7 +2,10 @@ package restore
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -105,12 +108,12 @@ type deploymentInfo struct {
 //   - External namespace (Internal=false): api, imagebuilder-api, alertmanager-proxy
 //   - Internal namespace (Internal=true):  worker, periodic, imagebuilder-worker, alert-exporter
 var defaultDeploymentRegistry = []deploymentInfo{
-	{Name: "flightctl-api",                Internal: false},
-	{Name: "flightctl-worker",             Internal: true},
-	{Name: "flightctl-periodic",           Internal: true},
-	{Name: "flightctl-imagebuilder-api",   Internal: false},
+	{Name: "flightctl-api", Internal: false},
+	{Name: "flightctl-worker", Internal: true},
+	{Name: "flightctl-periodic", Internal: true},
+	{Name: "flightctl-imagebuilder-api", Internal: false},
 	{Name: "flightctl-imagebuilder-worker", Internal: true},
-	{Name: "flightctl-alert-exporter",     Internal: true},
+	{Name: "flightctl-alert-exporter", Internal: true},
 	{Name: "flightctl-alertmanager-proxy", Internal: false},
 }
 
@@ -149,20 +152,29 @@ type Deployer interface {
 	// Returns an error if the pki/ subdirectory is absent from the archive.
 	// StopServices must be called before RestorePKI.
 	RestorePKI(ctx context.Context, extractDir string) error
+	// RestoreConfig restores service configuration from the extracted archive directory.
+	// For Podman: copies <extractDir>/config/service-config.yaml to the configured service
+	// config path and imports the PAM Issuer volume from <extractDir>/volumes/pam-issuer-etc.tar
+	// (optional — logs a warning if absent or if the import fails).
+	// For Kubernetes: decodes the backed-up Helm release Secret, applies it to the cluster,
+	// reconstructs the chart and user values from the release data, and runs helm upgrade.
+	// StopServices must be called before RestoreConfig.
+	RestoreConfig(ctx context.Context, extractDir string) error
 }
 
 // PodmanRestoreDeployer implements Deployer for Podman/quadlet deployments.
 type PodmanRestoreDeployer struct {
-	log               logrus.FieldLogger
-	containerName     string
-	containerCLI      string
-	serviceHandler    ServiceHandler
-	serviceConfigPath string
-	dbName            string
-	kvContainerName   string
-	pkiDestPath       string
-	keepOldDB         bool
-	cachedCfg         *config.Config
+	log                 logrus.FieldLogger
+	containerName       string
+	containerCLI        string
+	serviceHandler      ServiceHandler
+	serviceConfigPath   string
+	dbName              string
+	kvContainerName     string
+	pkiDestPath         string
+	pamIssuerVolumeName string
+	keepOldDB           bool
+	cachedCfg           *config.Config
 }
 
 // PodmanRestoreOption configures a PodmanRestoreDeployer.
@@ -235,6 +247,14 @@ func WithPodmanKeepOldDB(keep bool) PodmanRestoreOption {
 	}
 }
 
+// WithPAMIssuerVolumeName sets the Podman volume name for PAM Issuer volume restore.
+// Defaults to "flightctl-pam-issuer-etc".
+func WithPAMIssuerVolumeName(name string) PodmanRestoreOption {
+	return func(d *PodmanRestoreDeployer) {
+		d.pamIssuerVolumeName = name
+	}
+}
+
 // NewPodmanRestoreDeployer creates a PodmanRestoreDeployer.
 // Defaults: containerName "flightctl-db", containerCLI "podman",
 // kvContainerName "flightctl-kv",
@@ -267,6 +287,9 @@ func NewPodmanRestoreDeployer(
 	}
 	if d.pkiDestPath == "" {
 		d.pkiDestPath = "/etc/flightctl/pki"
+	}
+	if d.pamIssuerVolumeName == "" {
+		d.pamIssuerVolumeName = "flightctl-pam-issuer-etc"
 	}
 	return d
 }
@@ -525,6 +548,10 @@ func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir strin
 			return os.MkdirAll(dstPath, info.Mode())
 		}
 
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing non-regular PKI entry %s (mode %s)", relPath, info.Mode())
+		}
+
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to read PKI file %s: %w", relPath, err)
@@ -544,6 +571,60 @@ func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir strin
 	return nil
 }
 
+// RestoreConfig copies service-config.yaml from the archive to the configured service
+// config path and imports the PAM Issuer volume (optional). Returns an error only if
+// service-config.yaml is absent from the archive; PAM Issuer volume failures are logged
+// as warnings since the component is optional.
+func (p *PodmanRestoreDeployer) RestoreConfig(ctx context.Context, extractDir string) error {
+	srcConfig := filepath.Join(extractDir, "config", "service-config.yaml")
+	info, err := os.Stat(srcConfig)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("service configuration not found in archive: %s", srcConfig)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to access service configuration in archive: %w", err)
+	}
+
+	data, err := os.ReadFile(srcConfig)
+	if err != nil {
+		return fmt.Errorf("failed to read service configuration from archive: %w", err)
+	}
+	if err := os.WriteFile(p.serviceConfigPath, data, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("failed to write service configuration to %s: %w", p.serviceConfigPath, err)
+	}
+	p.log.Infof("Service configuration restored: %s", p.serviceConfigPath)
+	p.cachedCfg = nil
+
+	volumeArchive := filepath.Join(extractDir, "volumes", "pam-issuer-etc.tar")
+	if _, err := os.Stat(volumeArchive); os.IsNotExist(err) {
+		p.log.Warn("PAM Issuer volume archive not found in backup — skipping PAM Issuer volume restore")
+		return nil
+	} else if err != nil {
+		p.log.Warnf("Failed to access PAM Issuer volume archive: %v — skipping", err)
+		return nil
+	}
+
+	// Remove the volume first so that import gives exact backup state rather than
+	// overlaying new content onto stale files. Ignore the remove error — it is
+	// expected when the volume does not yet exist.
+	exec.CommandContext(ctx, p.containerCLI, "volume", "rm", p.pamIssuerVolumeName).Run() //nolint:errcheck
+
+	if out, err := exec.CommandContext(ctx, p.containerCLI, "volume", "create", p.pamIssuerVolumeName).CombinedOutput(); err != nil {
+		p.log.Warnf("Failed to create PAM Issuer volume %q: %v (output: %s) — service may need manual configuration",
+			p.pamIssuerVolumeName, err, out)
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, p.containerCLI, "volume", "import", p.pamIssuerVolumeName, volumeArchive)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		p.log.Warnf("Failed to import PAM Issuer volume %q: %v (output: %s) — service may need manual configuration",
+			p.pamIssuerVolumeName, err, out)
+		return nil
+	}
+	p.log.Infof("PAM Issuer volume restored: %s", p.pamIssuerVolumeName)
+	return nil
+}
+
 // KubernetesRestoreDeployer implements Deployer for Kubernetes/Helm deployments.
 type KubernetesRestoreDeployer struct {
 	log               logrus.FieldLogger
@@ -552,9 +633,44 @@ type KubernetesRestoreDeployer struct {
 	clientset         kubernetes.Interface
 	restCfg           *rest.Config
 	keepOldDB         bool
+	helmUpgradeFunc   func(ctx context.Context, releaseName, chartDir, namespace, valuesFile string) error
 	// originalReplicas holds pre-stop replica counts so StartServices can restore them.
 	originalReplicas map[string]int32
 	cachedCfg        *config.Config
+}
+
+// defaultHelmUpgrade runs helm upgrade using the system helm CLI.
+func defaultHelmUpgrade(ctx context.Context, releaseName, chartDir, namespace, valuesFile string) error {
+	cmd := exec.CommandContext(ctx, "helm", "upgrade", releaseName, chartDir,
+		"--namespace", namespace, "--values", valuesFile)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("helm upgrade failed: %w (output: %s)", err, out)
+	}
+	return nil
+}
+
+// helmReleaseJSON is a minimal representation of the Helm 3 release JSON used
+// to extract chart and user-values for helm upgrade during restore.
+type helmReleaseJSON struct {
+	Name      string                 `json:"name"`
+	Chart     *helmChartJSON         `json:"chart"`
+	Config    map[string]interface{} `json:"config"`
+	Namespace string                 `json:"namespace"`
+}
+
+type helmChartJSON struct {
+	Metadata  map[string]interface{} `json:"metadata"`
+	Templates []*helmFileJSON        `json:"templates"`
+	Values    map[string]interface{} `json:"values"`
+	Files     []*helmFileJSON        `json:"files"`
+}
+
+// helmFileJSON represents a file in a Helm chart. Data is a raw byte slice;
+// encoding/json automatically decodes the base64 string from JSON into []byte.
+type helmFileJSON struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
 }
 
 // KubernetesRestoreOption configures a KubernetesRestoreDeployer.
@@ -597,6 +713,14 @@ func WithKeepOldDB(keep bool) KubernetesRestoreOption {
 	}
 }
 
+// WithHelmUpgradeFunc injects a custom helm upgrade function (for testing).
+// The default runs the system helm CLI.
+func WithHelmUpgradeFunc(fn func(ctx context.Context, releaseName, chartDir, namespace, valuesFile string) error) KubernetesRestoreOption {
+	return func(d *KubernetesRestoreDeployer) {
+		d.helmUpgradeFunc = fn
+	}
+}
+
 // NewKubernetesRestoreDeployer creates a KubernetesRestoreDeployer.
 // Defaults: namespace "flightctl"; internalNamespace inherits namespace;
 // clientset nil → in-cluster client is created on first use;
@@ -617,6 +741,9 @@ func NewKubernetesRestoreDeployer(
 	}
 	if d.internalNamespace == "" {
 		d.internalNamespace = d.namespace
+	}
+	if d.helmUpgradeFunc == nil {
+		d.helmUpgradeFunc = defaultHelmUpgrade
 	}
 	return d
 }
@@ -954,8 +1081,8 @@ func (k *KubernetesRestoreDeployer) execRestoreDump(ctx context.Context, dbName,
 const (
 	// portForwardReadyTimeout is the maximum time to wait for a kubectl port-forward
 	// tunnel to become reachable before returning an error.
-	portForwardReadyTimeout  = 30 * time.Second
-	portForwardPollInterval  = 200 * time.Millisecond
+	portForwardReadyTimeout = 30 * time.Second
+	portForwardPollInterval = 200 * time.Millisecond
 )
 
 // ExposeService starts a kubectl port-forward to the named service and returns
@@ -1102,6 +1229,190 @@ func (k *KubernetesRestoreDeployer) applySecretFromFile(ctx context.Context, cli
 }
 
 // getFreePort asks the OS for a free local TCP port by binding to :0.
+// RestoreConfig applies the backed-up Helm release Secret to the cluster, then
+// reconstructs the chart and user values from the release data and runs helm upgrade.
+func (k *KubernetesRestoreDeployer) RestoreConfig(ctx context.Context, extractDir string) error {
+	configDir := filepath.Join(extractDir, "config")
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to list config directory in archive: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		secretFile := filepath.Join(configDir, entry.Name())
+		if applyErr := k.applySecretFromFile(ctx, k.clientset, secretFile); applyErr != nil {
+			return fmt.Errorf("failed to apply config Secret %s: %w", entry.Name(), applyErr)
+		}
+		k.log.Infof("Applied Helm release Secret from %s", entry.Name())
+	}
+
+	return k.restoreHelmRelease(ctx, extractDir)
+}
+
+// restoreHelmRelease decodes the backed-up Helm release Secret, reconstructs the
+// chart directory and values file, and runs helm upgrade to bring the cluster state
+// in line with the backed-up configuration.
+func (k *KubernetesRestoreDeployer) restoreHelmRelease(ctx context.Context, extractDir string) error {
+	configDir := filepath.Join(extractDir, "config")
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to list config directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		secretFile := filepath.Join(configDir, entry.Name())
+		data, err := os.ReadFile(secretFile)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", secretFile, err)
+		}
+
+		var secret corev1.Secret
+		if err := yaml.Unmarshal(data, &secret); err != nil {
+			k.log.Debugf("Skipping %s: not a valid Secret YAML: %v", entry.Name(), err)
+			continue
+		}
+		releaseBytes, ok := secret.Data["release"]
+		if !ok {
+			k.log.Debugf("Skipping %s: no 'release' key in Secret data", entry.Name())
+			continue
+		}
+
+		// Helm encodes release data as base64(gzip(json(release))).
+		gzipBytes, err := base64.StdEncoding.DecodeString(string(releaseBytes))
+		if err != nil {
+			return fmt.Errorf("failed to base64-decode Helm release from %s: %w", entry.Name(), err)
+		}
+		gr, err := gzip.NewReader(bytes.NewReader(gzipBytes))
+		if err != nil {
+			return fmt.Errorf("failed to gunzip Helm release from %s: %w", entry.Name(), err)
+		}
+		defer gr.Close()
+
+		var release helmReleaseJSON
+		if err := json.NewDecoder(gr).Decode(&release); err != nil {
+			return fmt.Errorf("failed to decode Helm release JSON from %s: %w", entry.Name(), err)
+		}
+
+		chartDir, err := os.MkdirTemp("", "flightctl-helm-chart-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp chart directory: %w", err)
+		}
+		defer os.RemoveAll(chartDir)
+
+		if err := k.writeHelmChart(chartDir, &release); err != nil {
+			return fmt.Errorf("failed to reconstruct Helm chart: %w", err)
+		}
+
+		valuesFile, err := os.CreateTemp("", "flightctl-helm-values-*.yaml")
+		if err != nil {
+			return fmt.Errorf("failed to create temp values file: %w", err)
+		}
+		valuesFile.Close()
+		defer os.Remove(valuesFile.Name())
+
+		userValues, err := yaml.Marshal(release.Config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal user values: %w", err)
+		}
+		if err := os.WriteFile(valuesFile.Name(), userValues, 0600); err != nil {
+			return fmt.Errorf("failed to write user values file: %w", err)
+		}
+
+		ns := release.Namespace
+		if ns == "" {
+			ns = k.namespace
+		}
+		if err := k.helmUpgradeFunc(ctx, release.Name, chartDir, ns, valuesFile.Name()); err != nil {
+			return fmt.Errorf("helm upgrade for release %q failed: %w", release.Name, err)
+		}
+		k.log.Infof("Helm release %q upgraded successfully", release.Name)
+		return nil
+	}
+
+	k.log.Warn("No Helm release Secret found in archive config — skipping helm upgrade")
+	return nil
+}
+
+// writeHelmChart reconstructs a chart directory structure from decoded Helm release data.
+func (k *KubernetesRestoreDeployer) writeHelmChart(chartDir string, release *helmReleaseJSON) error {
+	if release.Chart == nil {
+		return fmt.Errorf("Helm release contains no chart data")
+	}
+
+	if release.Chart.Metadata != nil {
+		chartYAML, err := yaml.Marshal(release.Chart.Metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Chart.yaml: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), chartYAML, 0600); err != nil {
+			return fmt.Errorf("failed to write Chart.yaml: %w", err)
+		}
+	}
+
+	if release.Chart.Values != nil {
+		defaultValues, err := yaml.Marshal(release.Chart.Values)
+		if err != nil {
+			return fmt.Errorf("failed to marshal chart default values: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(chartDir, "values.yaml"), defaultValues, 0600); err != nil {
+			return fmt.Errorf("failed to write chart values.yaml: %w", err)
+		}
+	}
+
+	for _, tpl := range release.Chart.Templates {
+		dstPath, err := safeChartPath(chartDir, tpl.Name)
+		if err != nil {
+			return fmt.Errorf("unsafe template path %q: %w", tpl.Name, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0700); err != nil {
+			return fmt.Errorf("failed to create template directory for %s: %w", tpl.Name, err)
+		}
+		if err := os.WriteFile(dstPath, tpl.Data, 0600); err != nil {
+			return fmt.Errorf("failed to write template %s: %w", tpl.Name, err)
+		}
+	}
+
+	for _, f := range release.Chart.Files {
+		dstPath, err := safeChartPath(chartDir, f.Name)
+		if err != nil {
+			return fmt.Errorf("unsafe chart file path %q: %w", f.Name, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0700); err != nil {
+			return fmt.Errorf("failed to create chart file directory for %s: %w", f.Name, err)
+		}
+		if err := os.WriteFile(dstPath, f.Data, 0600); err != nil {
+			return fmt.Errorf("failed to write chart file %s: %w", f.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// safeChartPath resolves name relative to baseDir and rejects paths that would
+// escape the directory (absolute paths, leading "..", or paths with ".." components
+// that leave baseDir after filepath.Clean).
+func safeChartPath(baseDir, name string) (string, error) {
+	clean := filepath.Clean(name)
+	if filepath.IsAbs(clean) {
+		return "", fmt.Errorf("path must be relative")
+	}
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes base directory")
+	}
+	resolved := filepath.Join(baseDir, clean)
+	rel, err := filepath.Rel(baseDir, resolved)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path escapes base directory")
+	}
+	return resolved, nil
+}
+
 func getFreePort() (int, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
