@@ -16,11 +16,13 @@ import (
 	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
 const dbDumpRelPath = "db/dump.sql"
@@ -140,6 +142,13 @@ type Deployer interface {
 	// running infrastructure. For Kubernetes, reads from cluster Secrets; for
 	// Podman, reads the service config file on the host.
 	GetConfig(ctx context.Context) (*config.Config, error)
+	// RestorePKI restores PKI materials from the extracted archive directory.
+	// For Podman, it copies <extractDir>/pki/ to the configured PKI destination
+	// (default: /etc/flightctl/pki/), preserving file permissions.
+	// For Kubernetes, it applies each <extractDir>/pki/*.yaml file as a Secret via the Go client (create or update).
+	// Returns an error if the pki/ subdirectory is absent from the archive.
+	// StopServices must be called before RestorePKI.
+	RestorePKI(ctx context.Context, extractDir string) error
 }
 
 // PodmanRestoreDeployer implements Deployer for Podman/quadlet deployments.
@@ -151,6 +160,7 @@ type PodmanRestoreDeployer struct {
 	serviceConfigPath string
 	dbName            string
 	kvContainerName   string
+	pkiDestPath       string
 	keepOldDB         bool
 	cachedCfg         *config.Config
 }
@@ -209,6 +219,14 @@ func WithKVContainerName(name string) PodmanRestoreOption {
 	}
 }
 
+// WithPKIDestPath sets the destination directory for PKI file restoration.
+// Defaults to /etc/flightctl/pki.
+func WithPKIDestPath(path string) PodmanRestoreOption {
+	return func(d *PodmanRestoreDeployer) {
+		d.pkiDestPath = path
+	}
+}
+
 // WithPodmanKeepOldDB controls whether the pre-restore database is dropped after
 // a successful swap (false, default) or preserved under <dbname>_old_<timestamp> (true).
 func WithPodmanKeepOldDB(keep bool) PodmanRestoreOption {
@@ -246,6 +264,9 @@ func NewPodmanRestoreDeployer(
 	}
 	if d.serviceConfigPath == "" {
 		d.serviceConfigPath = "/etc/flightctl/service-config.yaml"
+	}
+	if d.pkiDestPath == "" {
+		d.pkiDestPath = "/etc/flightctl/pki"
 	}
 	return d
 }
@@ -466,6 +487,61 @@ func parseContainerHostPort(output string) (host string, port int, ok bool) {
 		hostRaw = "127.0.0.1"
 	}
 	return hostRaw, int(p64), true
+}
+
+// RestorePKI copies the pki/ directory from the extracted archive into the configured
+// PKI destination, preserving each file's mode. Returns an error if pki/ is absent.
+func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir string) error {
+	pkiSrcDir := filepath.Join(extractDir, "pki")
+	if _, err := os.Stat(pkiSrcDir); os.IsNotExist(err) {
+		return fmt.Errorf("PKI materials missing from archive: pki/ directory not found in %s", extractDir)
+	} else if err != nil {
+		return fmt.Errorf("failed to access PKI directory in archive: %w", err)
+	}
+
+	if err := os.MkdirAll(p.pkiDestPath, 0700); err != nil {
+		return fmt.Errorf("failed to create PKI destination directory %s: %w", p.pkiDestPath, err)
+	}
+
+	count := 0
+	err := filepath.Walk(pkiSrcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("error walking PKI source directory: %w", walkErr)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		relPath, err := filepath.Rel(pkiSrcDir, srcPath)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
+		}
+		dstPath := filepath.Join(p.pkiDestPath, relPath)
+
+		if info.IsDir() {
+			if relPath == "." {
+				return nil
+			}
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to read PKI file %s: %w", relPath, err)
+		}
+		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
+			return fmt.Errorf("failed to write PKI file %s: %w", relPath, err)
+		}
+		p.log.Debugf("Restored PKI file: %s", relPath)
+		count++
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("PKI restore failed: %w", err)
+	}
+
+	p.log.Infof("PKI restore completed. Restored %d files to %s", count, p.pkiDestPath)
+	return nil
 }
 
 // KubernetesRestoreDeployer implements Deployer for Kubernetes/Helm deployments.
@@ -937,6 +1013,92 @@ func (k *KubernetesRestoreDeployer) ExposeService(ctx context.Context, serviceNa
 
 	k.log.Infof("Port-forwarding %s to localhost:%d", serviceName, localPort)
 	return "127.0.0.1", localPort, cleanup, nil
+}
+
+// RestorePKI reads each *.yaml file from the pki/ subdirectory of the extracted
+// archive and creates or updates the corresponding Kubernetes Secret via the Go
+// client. Returns an error if pki/ is absent or contains no YAML files.
+func (k *KubernetesRestoreDeployer) RestorePKI(ctx context.Context, extractDir string) error {
+	pkiSrcDir := filepath.Join(extractDir, "pki")
+	if _, err := os.Stat(pkiSrcDir); os.IsNotExist(err) {
+		return fmt.Errorf("PKI materials missing from archive: pki/ directory not found in %s", extractDir)
+	} else if err != nil {
+		return fmt.Errorf("failed to access PKI directory in archive: %w", err)
+	}
+
+	yamlFiles, err := filepath.Glob(filepath.Join(pkiSrcDir, "*.yaml"))
+	if err != nil {
+		return fmt.Errorf("failed to list PKI YAML files: %w", err)
+	}
+	if len(yamlFiles) == 0 {
+		return fmt.Errorf("PKI materials missing from archive: no Secret YAML files found in pki/ directory")
+	}
+
+	clientset, err := k.resolveClientset()
+	if err != nil {
+		return fmt.Errorf("failed to resolve Kubernetes clientset for PKI restore: %w", err)
+	}
+
+	for _, yamlPath := range yamlFiles {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("PKI restore cancelled: %w", err)
+		}
+		if err := k.applySecretFromFile(ctx, clientset, yamlPath); err != nil {
+			return fmt.Errorf("failed to apply PKI Secret %s: %w", filepath.Base(yamlPath), err)
+		}
+		k.log.Infof("Restored PKI Secret from %s", filepath.Base(yamlPath))
+	}
+
+	k.log.Infof("PKI restore completed. Applied %d Secrets", len(yamlFiles))
+	return nil
+}
+
+// applySecretFromFile reads a Secret YAML file, unmarshals it, and creates or
+// updates the Secret in the cluster. The namespace is taken from the YAML
+// metadata; if absent it falls back to k.namespace.
+// Server-assigned fields (ResourceVersion, UID, ManagedFields) are cleared so
+// that create and update both work regardless of prior cluster state.
+func (k *KubernetesRestoreDeployer) applySecretFromFile(ctx context.Context, clientset kubernetes.Interface, yamlPath string) error {
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var secret corev1.Secret
+	if err := yaml.Unmarshal(data, &secret); err != nil {
+		return fmt.Errorf("failed to unmarshal Secret YAML: %w", err)
+	}
+
+	ns := secret.Namespace
+	if ns == "" {
+		ns = k.namespace
+	}
+
+	// Clear server-assigned fields so the object can be created or updated
+	// without conflicts from stale metadata recorded at backup time.
+	secret.ResourceVersion = ""
+	secret.UID = ""
+	secret.Generation = 0
+	secret.ManagedFields = nil
+
+	_, err = clientset.CoreV1().Secrets(ns).Create(ctx, &secret, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create Secret %s/%s: %w", ns, secret.Name, err)
+	}
+
+	// Secret already exists — fetch its current ResourceVersion for the update.
+	existing, err := clientset.CoreV1().Secrets(ns).Get(ctx, secret.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get existing Secret %s/%s: %w", ns, secret.Name, err)
+	}
+	secret.ResourceVersion = existing.ResourceVersion
+	if _, err := clientset.CoreV1().Secrets(ns).Update(ctx, &secret, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update Secret %s/%s: %w", ns, secret.Name, err)
+	}
+	return nil
 }
 
 // getFreePort asks the OS for a free local TCP port by binding to :0.
