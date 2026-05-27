@@ -429,7 +429,8 @@ reviews:
       - name: "ai-attribution"
         instructions: |
           If AI tools were used (mentioned in PR or commits), verify
-          Red Hat attribution: Assisted-by or Generated-by trailers.
+          attribution trailers: Assisted-by, Generated-by, or
+          Made-with (e.g., Made-with: Cursor) are acceptable.
           Flag use of Co-Authored-By for AI tools.
         mode: "warning"
 
