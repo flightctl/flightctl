@@ -267,7 +267,7 @@ Examples:
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS verification for the destination registry (required for HTTP registries)")
-	cmd.Flags().StringVar(&tagOverride, "tag-override", "", "Override the tag used for images without an explicit tag (e.g. v1.1.2). Use when the installed RPM version differs from Chart.yaml appVersion.")
+	cmd.Flags().StringVar(&tagOverride, "tag-override", "", "Tag to use for flightctl service images (e.g. v1.1.2, latest). Overrides appVersion from Chart.yaml. Use to select a release version when running from a dev branch, or pass 'latest' to force latest on a release-tagged checkout.")
 
 	return cmd
 }

@@ -52,7 +52,7 @@ mirror-images --variant <variant> --dest-registry <host:port> [OPTIONS]
 |------|-------------|
 | `--execute` | Execute `skopeo copy` commands immediately in addition to printing them. Requires `skopeo` and a reachable destination registry. Without this flag the tool is always a safe dry-run. |
 | `--insecure` | Add `--dest-tls-verify=false` to every `skopeo copy` command. Required when the destination registry serves plain HTTP instead of HTTPS. |
-| `--tag-override <tag>` | Override the tag used for images that have no explicit tag in the YAML sources (e.g. `v1.1.2`). Use this when running from a dev branch whose `Chart.yaml` carries `appVersion: latest` but the installed RPMs are a specific release version. |
+| `--tag-override <tag>` | Tag to use for flightctl service images (e.g. `v1.1.2`, `latest`). Overrides `appVersion` from `Chart.yaml`. Use to select a release version when running from a dev branch, or pass `latest` to force latest images on a release-tagged checkout. Third-party images with pinned versions (grafana, prometheus, etc.) are unaffected. |
 | `--help`, `-h` | Print usage and exit. |
 
 ### Output
@@ -105,16 +105,23 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     --execute
 ```
 
-### 4 — Match tags to the installed RPM version (dev branch)
+### 4 — Select a specific release version (any branch)
 
 ```bash
+# Pin to v1.1.2 regardless of which git branch is checked out
 ./bin/mirror-images \
     --variant community-el9 \
     --dest-registry local-registry.example.com:5000 \
     --tag-override v1.1.2
+
+# Force latest builds even when on a release-tagged checkout
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry local-registry.example.com:5000 \
+    --tag-override latest
 ```
 
-This ensures `pam-issuer`, `userinfo-proxy`, and all untagged flightctl service images are mirrored as `:v1.1.2` to match the quadlet files shipped with the `v1.1.2` RPMs.
+`--tag-override` controls all flightctl service images (`api`, `worker`, `pam-issuer`, `userinfo-proxy`, etc.). Third-party images with compatibility-pinned tags (`grafana`, `prometheus`, `postgresql`, `redis`) are always left at their declared versions.
 
 ### 5 — Execute mirroring to an HTTP (non-TLS) registry
 
@@ -177,9 +184,15 @@ Core FlightControl service images (`api`, `worker`, `periodic`, `pam-issuer`, `u
 
 Third-party images with pinned versions (`grafana`, `prometheus`, `postgresql`, `redis`, etc.) always carry an explicit tag in their YAML and are **never** affected by `--tag-override`.
 
-**Tag mismatch warning:** On a dev branch `appVersion` is `"latest"`, but installed RPMs are typically versioned (e.g. `v1.1.2`). The RPM quadlet files reference images by the RPM version, so a `:latest` mirror will not match. Either:
-- Run from the matching release tag: `git checkout v1.1.2`
-- Or pass the RPM version explicitly: `--tag-override v1.1.2`
+**Selecting the release version:**
+
+| Goal | How |
+|------|-----|
+| Mirror a specific release | `--tag-override v1.1.2` (any branch) |
+| Mirror latest builds | Omit the flag on a dev branch, or `--tag-override latest` on a release branch |
+| Match installed RPM version | `git checkout v1.1.2` (uses Chart.yaml) or `--tag-override v1.1.2` |
+
+**Tag mismatch warning:** On a dev branch `appVersion` is `"latest"`, but installed RPMs are typically versioned (e.g. `v1.1.2`). The RPM quadlet files reference images by the RPM version, so a `:latest` mirror will not match. The tool prints a prominent `[WARN]` block in this case explaining the fix.
 
 ---
 
