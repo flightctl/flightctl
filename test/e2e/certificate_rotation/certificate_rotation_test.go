@@ -61,7 +61,7 @@ const (
 	certExpiryGraceWindow               = 5 * time.Second
 	outageLeadTime                      = 15 * time.Second
 	minimumObservationDuration          = 5 * time.Second
-	remainingBeforeUnblockSafetySeconds = 60 * time.Second
+	remainingBeforeUnblockSafetySeconds = 90 * time.Second
 )
 
 var errImmutableBitUnsupported = errors.New("immutable bit unsupported")
@@ -399,7 +399,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Consistently(deviceCertSerialOrFallbackFunc(harness, deviceId, initialSerial), observeDuration.String(), e2e.POLLINGLONG).
 				Should(Equal(initialSerial), "certificate serial should remain unchanged while the network is unavailable")
 
-			// Keep traffic blocked until 60s before cert expiry. This ensures
+			// Keep traffic blocked until 90s before cert expiry. This ensures
 			// the agent still has a valid cert to authenticate the renewal CSR
 			// after connectivity is restored.
 			safeBlockEnd := notAfterTime.Add(-remainingBeforeUnblockSafetySeconds)
