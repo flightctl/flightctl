@@ -11,6 +11,7 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 const fleetControllerErrorAnnotation = v1beta1.DeviceAnnotationLastRolloutError
@@ -503,7 +504,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 					}{
 						FilePath:   fmt.Sprintf("/var/home/user/{{ .metadata.labels.%s }}", configLabelKey),
 						Repository: httpRepoName,
-						Suffix:     strPtr(fmt.Sprintf("/configs/{{ .metadata.labels.%s }}", configLabelKey)),
+						Suffix:     lo.ToPtr(fmt.Sprintf("/configs/{{ .metadata.labels.%s }}", configLabelKey)),
 					},
 					Name: httpConfigName,
 				}
@@ -947,8 +948,4 @@ func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, testutil.
 	GinkgoWriter.Printf("getGitEnv: host=%s internalHost=%s internalPort=%d\n",
 		config.Host, svc.GitServer.InternalHost, svc.GitServer.InternalPort)
 	return config, svc.GitServer.InternalHost, svc.GitServer.InternalPort, keyPath, keyContent, nil
-}
-
-func strPtr(s string) *string {
-	return &s
 }
