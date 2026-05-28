@@ -167,13 +167,33 @@ The tool reads image references from two sources per run:
 
 | Source | Path | Content |
 |--------|------|---------|
-| Helm chart options | `deploy/helm/helm-chart-opts.yaml` | All FlightControl Helm component images, keyed by variant |
-| RPM-only images (community-el9) | `packaging/images/el9/images.yaml` | Images installed by flightctl RPMs that are **not** in the Helm chart (pam-issuer, userinfo-proxy, grafana, prometheus) — community registry sources |
+| Helm chart options | `deploy/helm/helm-chart-opts.yaml` | All FlightControl Helm component images keyed by variant, including the UBI minimal base image used by init containers (`ubiMinimal`) |
+| RPM-only images (community-el9) | `packaging/images/el9/images.yaml` | Images installed by flightctl RPMs that are **not** in the Helm chart (pam-issuer, userinfo-proxy, grafana, prometheus, redis) — community registry sources |
 | RPM-only images (community-el10) | `packaging/images/el10/images.yaml` | Same set of RPM-only images for the el10 community variant |
 | RPM-only images (redhat-el9) | `packaging/images/rhel9/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el9 variant |
 | RPM-only images (redhat-el10) | `packaging/images/rhel10/images.yaml` | Downstream `registry.redhat.io` equivalents of the RPM-only images for the redhat-el10 variant |
 
 The tool selects exactly one RPM images file per run based on the variant. Images that appear in both sources with the same `image:tag` are deduplicated — each unique source reference appears exactly once in the output.
+
+### UBI minimal base image
+
+Several Helm-managed pods (the alertmanager-proxy init container and the `helm test` pod) use a UBI minimal base image that is not a FlightControl service image. This image is tracked in the `ubiMinimal` entry of each variant in `helm-chart-opts.yaml` so the mirror tool includes it automatically:
+
+| Variant | Source |
+|---------|--------|
+| `community-el9` | `registry.access.redhat.com/ubi9/ubi-minimal` |
+| `community-el10` | `registry.access.redhat.com/ubi10/ubi-minimal` |
+| `redhat-el9` | `registry.redhat.io/ubi9/ubi-minimal` |
+| `redhat-el10` | `registry.redhat.io/ubi10/ubi-minimal` |
+
+When deploying air-gapped, override the image location in Helm so pods pull from your mirror instead:
+
+```bash
+helm install flightctl deploy/helm/flightctl \
+    --set ubiMinimal.image=local-registry.example.com:5000/ubi9/ubi-minimal \
+    --set ubiMinimal.tag=9.7-1763362218 \
+    ...
+```
 
 ### Tag fallback
 
@@ -200,10 +220,10 @@ Third-party images with pinned versions (`grafana`, `prometheus`, `postgresql`, 
 
 | Variant | Source registries |
 |---------|------------------|
-| `community-el9` / `community-el10` | `quay.io`, `docker.io` |
+| `community-el9` / `community-el10` | `quay.io`, `docker.io`, `registry.access.redhat.com` (UBI, no auth) |
 | `redhat-el9` / `redhat-el10` | `registry.redhat.io` (requires pull secret) |
 
-For Red Hat variants, the connected preparation system needs valid credentials for `registry.redhat.io` before running `skopeo copy`.
+For Red Hat variants, the connected preparation system needs valid credentials for `registry.redhat.io` before running `skopeo copy`. The UBI minimal image for community variants is sourced from `registry.access.redhat.com`, which is publicly accessible and does not require authentication.
 
 ---
 
@@ -291,12 +311,18 @@ type ImagePair struct {
 }
 ```
 
+**`normalizeDockerImage(image)`**
+Expands Docker Hub official image names to their canonical form by inserting the implicit `library/` namespace.  Docker Hub stores official images (`redis`, `nginx`, `postgres`, etc.) under the `library` organization — podman resolves `docker.io/redis` as `docker.io/library/redis` at pull time.  Without normalization, a mirror written to `registry/redis:tag` would not be found because podman looks for `registry/library/redis:tag`.  Only single-component `docker.io` paths are affected; multi-component paths (`docker.io/grafana/grafana`) and all other registries are returned unchanged.
+
 **`ImageToDest(image, tag)`**
 Strips the source registry hostname (everything up to the first `/`) and prepends `destRegistry`:
 
 ```
 "quay.io/flightctl/flightctl-api-el9" + "latest"
     → "localhost:5000/flightctl/flightctl-api-el9:latest"
+
+"docker.io/library/redis" + "7.4.1"   (after normalizeDockerImage)
+    → "localhost:5000/library/redis:7.4.1"
 ```
 
 **`Dedup(pairs)`**
@@ -389,15 +415,27 @@ for v in redhat-el9 redhat-el10; do
         | grep -E "pam-issuer|userinfo|grafana|prometheus"
 done
 
-# 6. Stdout is clean — no [INFO]/[WARN] lines mixed in
+# 6. All variants must include a ubi-minimal image
+for v in community-el9 community-el10 redhat-el9 redhat-el10; do
+    hits=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
+           | grep -c "ubi-minimal" || true)
+    echo "$v: $hits ubi-minimal image (expect 1)"
+done
+
+# 7. Docker Hub official images must use the library/ namespace
+hits=$(./bin/mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
+       | grep -c "library/redis" || true)
+echo "library/redis entries: $hits (expect 1)"
+
+# 9. Stdout is clean — no [INFO]/[WARN] lines mixed in
 dirty=$(./bin/mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
         | grep -cE "^\[INFO\]|^\[WARN\]|^\[ERROR\]" || true)
 echo "Dirty stdout lines: $dirty (expect 0)"
 
-# 7. Invalid variant exits 1
+# 10. Invalid variant exits 1
 ./bin/mirror-images --variant bad --dest-registry localhost:5000 2>&1; echo "exit: $?"
 
-# 8. URL scheme rejected
+# 11. URL scheme rejected
 ./bin/mirror-images --variant community-el9 --dest-registry https://localhost:5000 2>&1; echo "exit: $?"
 ```
 
@@ -435,3 +473,23 @@ The repo is not on a release tag. Mirror commands will use `:latest` for untagge
 
 **`N image(s) failed to copy` error**
 One or more `skopeo copy` commands exited non-zero. The tool attempts all images before reporting — check the `[ERROR]` lines on stderr to identify which images failed and why.
+
+**Init containers fail to start after air-gapped install (`ImagePullBackOff` on `init-certs` or similar)**
+The alertmanager-proxy init container and the `helm test` pod use a UBI minimal base image that must be mirrored separately. Verify the image appears in the mirror output:
+
+```bash
+./bin/mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000 2>/dev/null \
+    | grep ubi-minimal
+```
+
+Then tell Helm to use the mirrored location at install time:
+
+```bash
+helm install flightctl deploy/helm/flightctl \
+    --set ubiMinimal.image=local-registry.example.com:5000/ubi9/ubi-minimal \
+    --set ubiMinimal.tag=9.7-1763362218 \
+    ...
+```
+
+**`docker.io/redis` mirrored to wrong path**
+Podman resolves Docker Hub official images as `docker.io/library/<name>` at pull time.  The tool automatically normalizes single-component `docker.io` paths (e.g. `docker.io/redis` → `docker.io/library/redis`) so the mirrored destination path matches what podman looks for.  If you see `registry/redis:tag` instead of `registry/library/redis:tag` in your mirror, you are running an older binary — rebuild with `make build-mirror-images`.
