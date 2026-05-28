@@ -268,6 +268,148 @@ yq e '.rpms[]' artifact-manifest-community-el9.yaml
 
 ---
 
+## Full air-gap preparation workflow
+
+This section covers the end-to-end process of mirroring images on a connected prep machine and transferring them to an air-gapped environment.
+
+### Step 0 — Start a local registry on the prep machine
+
+A registry must be running at your destination address before you run `--execute`. The following uses the standard Docker registry image on port 5000.
+
+```bash
+sudo mkdir -p /opt/registry/data
+```
+
+**Option A — Port mapping (standard)**
+
+```bash
+podman run -d --name local-registry \
+    -p 5000:5000 \
+    -v /opt/registry/data:/var/lib/registry:z \
+    --restart=always \
+    docker.io/library/registry:2
+```
+
+> **Note — RHEL 9 / rootless podman:** If `curl http://localhost:5000/v2/` returns `connection refused` after starting with port mapping, firewalld or the rootless podman network stack may be blocking the forwarded port. Use Option B instead.
+
+**Option B — Host network (RHEL 9 workaround)**
+
+```bash
+podman run -d --name local-registry \
+    --network=host \
+    -v /opt/registry/data:/var/lib/registry \
+    --restart=always \
+    docker.io/library/registry:2
+```
+
+`--network=host` bypasses podman's network stack entirely and binds directly to the host's port 5000, avoiding firewalld and rootless networking issues. The trade-off is that the container shares the host's full network namespace.
+
+Verify the registry is ready before proceeding:
+
+```bash
+curl http://localhost:5000/v2/
+# Expected: {}
+```
+
+### Step 1 — Mirror images into the registry
+
+```bash
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry localhost:5000 \
+    --execute \
+    --insecure
+```
+
+`--insecure` is required because `localhost:5000` serves plain HTTP. Verify all images landed:
+
+```bash
+curl http://localhost:5000/v2/_catalog
+```
+
+### Step 2 — Export the registry content for transfer
+
+Use `skopeo sync` to write all images from the registry into a portable directory:
+
+```bash
+sudo mkdir -p /opt/registry/export
+
+skopeo sync \
+    --src docker \
+    --dest dir \
+    --src-tls-verify=false \
+    localhost:5000 \
+    /opt/registry/export
+```
+
+Then package it for transfer:
+
+```bash
+tar -czf mirror-images-community-el9.tar.gz -C /opt/registry export/
+```
+
+### Step 3 — Transfer to the air-gapped environment
+
+Copy the archive to the air-gapped machine using whatever transfer method is available (SCP, USB drive, shared storage):
+
+```bash
+scp mirror-images-community-el9.tar.gz user@air-gapped-vm:/opt/
+```
+
+### Step 4 — On the air-gapped VM: import images into a local registry
+
+Start a registry on the air-gapped machine (same Option A / Option B choice as Step 0), then import:
+
+```bash
+cd /opt
+tar -xzf mirror-images-community-el9.tar.gz
+
+skopeo sync \
+    --src dir \
+    --dest docker \
+    --dest-tls-verify=false \
+    /opt/export/ \
+    localhost:5000
+```
+
+Verify:
+
+```bash
+curl http://localhost:5000/v2/_catalog
+```
+
+### Step 5 — Configure the system to use the local registry
+
+Edit `/etc/containers/registries.conf` to redirect pulls from the original registries to your local mirror:
+
+```toml
+[[registry]]
+prefix = "quay.io"
+location = "localhost:5000"
+insecure = true
+
+[[registry]]
+prefix = "docker.io"
+location = "localhost:5000"
+insecure = true
+
+[[registry]]
+prefix = "registry.access.redhat.com"
+location = "localhost:5000"
+insecure = true
+```
+
+### Step 6 — Install flightctl pointing at the local registry
+
+```bash
+helm install flightctl deploy/helm/flightctl \
+    --set ubiMinimal.image=localhost:5000/ubi9/ubi-minimal \
+    --set ubiMinimal.tag=9.7-1763362218 \
+    ...
+```
+
+---
+
 ## Image sources
 
 The tool reads image references from two sources per run:
