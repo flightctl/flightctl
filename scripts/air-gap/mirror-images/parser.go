@@ -108,9 +108,10 @@ func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
 			// No explicit tag: use the chart appVersion as the fallback.
 			tag = appVersion
 		}
+		image := normalizeDockerImage(spec.Image)
 		pairs = append(pairs, ImagePair{
-			Source: spec.Image + ":" + tag,
-			Dest:   ImageToDest(spec.Image, tag),
+			Source: image + ":" + tag,
+			Dest:   ImageToDest(image, tag),
 		})
 	}
 
@@ -193,9 +194,10 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant, tagFallba
 			logWarn("  Ensure the connected system has credentials for registry.redhat.io")
 		}
 
+		image := normalizeDockerImage(spec.Image)
 		pairs = append(pairs, ImagePair{
-			Source: spec.Image + ":" + tag,
-			Dest:   ImageToDest(spec.Image, tag),
+			Source: image + ":" + tag,
+			Dest:   ImageToDest(image, tag),
 		})
 	}
 
