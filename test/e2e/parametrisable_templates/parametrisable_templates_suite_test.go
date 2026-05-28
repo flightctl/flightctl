@@ -36,7 +36,8 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	// In CI, cleanup containers; in local dev, leave running for speed
+	_ = auxiliary.StopServices([]auxiliary.Service{auxiliary.ServiceFileServer})
+
 	if auxSvcs != nil {
 		auxSvcs.Cleanup(context.Background())
 	}
