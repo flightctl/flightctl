@@ -64,10 +64,13 @@ func Dedup(pairs []ImagePair) []ImagePair {
 // stdout carries only the skopeo commands (pipe-safe); all progress logs go to
 // stderr via logInfo/logWarn/logError so they do not pollute captured output.
 //
+// When insecure is true, --dest-tls-verify=false is added to every command so
+// skopeo can push to HTTP (non-TLS) destination registries.
+//
 // All images are attempted even when one fails so the operator gets a complete
 // picture of what succeeded and what did not.  If any copy fails, an error is
 // returned after the loop so callers (and CI) receive a non-zero exit code.
-func GenerateCommands(ctx context.Context, pairs []ImagePair, execute bool, exec executer.Executer) error {
+func GenerateCommands(ctx context.Context, pairs []ImagePair, execute, insecure bool, exec executer.Executer) error {
 	logInfo("Generating skopeo copy commands...")
 	logInfo("Total unique images to mirror: %d", len(pairs))
 
@@ -76,7 +79,12 @@ func GenerateCommands(ctx context.Context, pairs []ImagePair, execute bool, exec
 	for _, p := range pairs {
 		// Always print the command — this is the dry-run output and lets users
 		// capture, review, or pipe it to bash without re-running the tool.
-		cmd := fmt.Sprintf("skopeo copy --all docker://%s docker://%s", p.Source, p.Dest)
+		var cmd string
+		if insecure {
+			cmd = fmt.Sprintf("skopeo copy --all --dest-tls-verify=false docker://%s docker://%s", p.Source, p.Dest)
+		} else {
+			cmd = fmt.Sprintf("skopeo copy --all docker://%s docker://%s", p.Source, p.Dest)
+		}
 		fmt.Println(cmd)
 
 		if !execute {
@@ -86,12 +94,12 @@ func GenerateCommands(ctx context.Context, pairs []ImagePair, execute bool, exec
 		// Execute the copy.  We pass individual arguments rather than running
 		// through a shell so there is no injection risk from registry URLs.
 		logInfo("Executing: %s", cmd)
-		_, stderr, exitCode := exec.ExecuteWithContext(
-			ctx, "skopeo",
-			"copy", "--all",
-			"docker://"+p.Source,
-			"docker://"+p.Dest,
-		)
+		args := []string{"copy", "--all"}
+		if insecure {
+			args = append(args, "--dest-tls-verify=false")
+		}
+		args = append(args, "docker://"+p.Source, "docker://"+p.Dest)
+		_, stderr, exitCode := exec.ExecuteWithContext(ctx, "skopeo", args...)
 		if exitCode != 0 {
 			logError("skopeo copy failed for %s (exit %d): %s — continuing", p.Source, exitCode, strings.TrimSpace(stderr))
 			failed = append(failed, p.Source)

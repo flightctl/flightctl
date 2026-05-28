@@ -51,6 +51,7 @@ mirror-images --variant <variant> --dest-registry <host:port> [OPTIONS]
 | Flag | Description |
 |------|-------------|
 | `--execute` | Execute `skopeo copy` commands immediately in addition to printing them. Requires `skopeo` and a reachable destination registry. Without this flag the tool is always a safe dry-run. |
+| `--insecure` | Add `--dest-tls-verify=false` to every `skopeo copy` command. Required when the destination registry serves plain HTTP instead of HTTPS. |
 | `--help`, `-h` | Print usage and exit. |
 
 ### Output
@@ -103,7 +104,17 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     --execute
 ```
 
-### 4 — Pipe stdout directly to bash (equivalent to `--execute`)
+### 4 — Execute mirroring to an HTTP (non-TLS) registry
+
+```bash
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry localhost:5000 \
+    --execute \
+    --insecure
+```
+
+### 5 — Pipe stdout directly to bash (equivalent to `--execute`)
 
 ```bash
 ./bin/mirror-images \
@@ -112,7 +123,7 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     | bash
 ```
 
-### 5 — Inspect the generated artifact manifest
+### 6 — Inspect the generated artifact manifest
 
 ```bash
 ./bin/mirror-images \
@@ -257,8 +268,8 @@ Strips the source registry hostname (everything up to the first `/`) and prepend
 **`Dedup(pairs)`**
 Removes `ImagePair` entries with duplicate `Source` values, preserving first-occurrence order.
 
-**`GenerateCommands(ctx, pairs, execute, exec)`**
-Prints one `skopeo copy --all docker://src docker://dst` line per pair to **stdout** (pipe-safe). All progress logs go to **stderr**. When `execute` is true, runs each command via `exec.ExecuteWithContext`. All images are attempted even when one fails so the operator gets a complete list of failures; if any copy fails, a summary error is returned after the loop so the process exits non-zero.
+**`GenerateCommands(ctx, pairs, execute, insecure, exec)`**
+Prints one `skopeo copy --all docker://src docker://dst` line per pair to **stdout** (pipe-safe). All progress logs go to **stderr**. When `insecure` is true, `--dest-tls-verify=false` is appended to every printed command and to the exec args, enabling pushes to HTTP registries. When `execute` is true, runs each command via `exec.ExecuteWithContext`. All images are attempted even when one fails so the operator gets a complete list of failures; if any copy fails, a summary error is returned after the loop so the process exits non-zero.
 
 ### manifest.go — artifact manifest output
 

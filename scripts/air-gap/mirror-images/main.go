@@ -87,12 +87,13 @@ func main() {
 // NewRootCommand builds and returns the cobra root command for mirror-images.
 func NewRootCommand() *cobra.Command {
 	var (
-		variant string
-		execute bool
+		variant  string
+		execute  bool
+		insecure bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "mirror-images --variant <variant> --dest-registry <host:port> [--execute]",
+		Use:   "mirror-images --variant <variant> --dest-registry <host:port> [--execute] [--insecure]",
 		Short: "Enumerate RHEM artifacts and generate skopeo mirror commands for air-gapped installation.",
 		Long: `mirror-images reads the flightctl Helm chart options and observability image files,
 generates skopeo copy commands for all referenced container images, and writes a
@@ -110,7 +111,10 @@ Examples:
   mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000
 
   # Execute: mirror images to a running local registry
-  mirror-images --variant redhat-el9 --dest-registry local-registry.example.com:5000 --execute`,
+  mirror-images --variant redhat-el9 --dest-registry local-registry.example.com:5000 --execute
+
+  # Execute: mirror to an HTTP (non-TLS) local registry
+  mirror-images --variant community-el9 --dest-registry localhost:5000 --execute --insecure`,
 
 		// SilenceUsage prevents cobra from printing the full usage block on every
 		// RunE error — our logError calls provide targeted messages instead.
@@ -184,6 +188,7 @@ Examples:
 			logInfo("  Variant:          %s", variant)
 			logInfo("  Dest registry:    %s", destRegistry)
 			logInfo("  Execute commands: %v", execute)
+			logInfo("  Insecure (HTTP):  %v", insecure)
 
 			// Step 1: Read the chart appVersion (used as tag fallback for tagless images)
 			appVersion, err := ReadAppVersion(chartYAMLPath)
@@ -210,7 +215,7 @@ Examples:
 			// Step 4: Print (and optionally execute) skopeo copy commands
 			ctx := context.Background()
 			exec := executer.NewCommonExecuter()
-			if err := GenerateCommands(ctx, unique, execute, exec); err != nil {
+			if err := GenerateCommands(ctx, unique, execute, insecure, exec); err != nil {
 				return fmt.Errorf("generate commands: %w", err)
 			}
 
@@ -243,6 +248,7 @@ Examples:
 	cmd.Flags().StringVar(&variant, "variant", "", "Chart variant (community-el9 | community-el10 | redhat-el9 | redhat-el10)")
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS verification for the destination registry (required for HTTP registries)")
 
 	return cmd
 }
