@@ -588,6 +588,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-gateway
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
