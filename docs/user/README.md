@@ -84,6 +84,9 @@ Welcome to the Flight Control user documentation.
   * [Catalog items](using/managing-catalogs.md#catalog-items)
   * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
+  * [ImageBuild resource](using/managing-image-builds.md#imagebuild-resource)
+  * [ImageExport resource](using/managing-image-builds.md#imageexport-resource)
+  * [ImagePromotion resource](using/managing-image-builds.md#imagepromotion-resource)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
   * [Diagnosing Agent Issues](using/diagnosing-agent-issues.md)
