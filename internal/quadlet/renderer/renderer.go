@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -315,7 +315,6 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.ImagebuilderWorker.Tag = tag
 	config.TelemetryGateway.Tag = tag
 	config.UserinfoProxy.Tag = tag
-	config.Gateway.Tag = tag
 
 	if config.FlightctlUiTagOverride {
 		// For release builds, UI tag must be overridden
