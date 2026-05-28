@@ -348,6 +348,9 @@ CatalogItem
 URI
 CatalogItems
 multicluster
+ImagePromotion
+semver
+dropdown
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
@@ -688,3 +691,4 @@ parameterized
 SharedInformer
 sha256
 runbook
+sha256
