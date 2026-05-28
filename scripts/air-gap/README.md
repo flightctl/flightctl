@@ -26,10 +26,83 @@ make build-mirror-images
 
 ## Prerequisites
 
-| Tool | When required |
-|------|--------------|
-| Go 1.24+ (or `podman`) | Build time only |
-| `skopeo` | Only when using `--execute` |
+### Build-time (one of the following)
+
+You need either Go or Podman to compile the binary. Podman is the no-toolchain option — it pulls the official Go image and builds inside a container.
+
+**Option A — Go 1.24+**
+
+```bash
+# RHEL 9 / CentOS Stream 9
+sudo dnf install -y golang
+
+# RHEL 10 / CentOS Stream 10 / Fedora
+sudo dnf install -y golang
+
+# Verify version (must be 1.24 or later)
+go version
+```
+
+If the version in your distribution's repos is older than 1.24, install directly from upstream:
+
+```bash
+# Download and install Go 1.24 manually (adjust version/arch as needed)
+curl -fsSL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+export PATH=$PATH:/usr/local/go/bin   # add to ~/.bashrc to persist
+go version
+```
+
+**Option B — Podman (no local Go toolchain needed)**
+
+```bash
+# RHEL 9 / CentOS Stream 9 / RHEL 10 / Fedora
+sudo dnf install -y podman
+
+# Verify
+podman --version
+```
+
+### Runtime (required for `--execute`)
+
+`skopeo` is only needed when you pass `--execute` to run the copy commands immediately. Without `--execute` the tool prints commands to stdout and skopeo is not called.
+
+```bash
+# RHEL 9 / CentOS Stream 9
+sudo dnf install -y skopeo
+
+# RHEL 10 / CentOS Stream 10 / Fedora
+sudo dnf install -y skopeo
+
+# Verify
+skopeo --version
+```
+
+### Source checkout
+
+```bash
+# git is required to clone the repository
+sudo dnf install -y git
+
+# Clone the branch containing the tool
+git clone --branch feat/EDM-3953-mirror-images-script \
+    git@github.com:aekubacki/flightctl.git
+cd flightctl
+```
+
+### Optional
+
+`yq` is used in the examples to inspect the generated artifact manifest. It is not required to run the tool.
+
+```bash
+# Install yq via the upstream binary (recommended — distro packages lag behind)
+sudo curl -fsSL \
+    https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+    -o /usr/local/bin/yq
+sudo chmod +x /usr/local/bin/yq
+
+# Verify
+yq --version
+```
 
 ---
 
