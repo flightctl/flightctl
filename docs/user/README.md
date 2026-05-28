@@ -32,9 +32,8 @@ Welcome to the Flight Control user documentation.
     * [Deploying the Observability Stack on Linux](installing/deploying-observability-linux.md)
     * [Configuring Service Tracing](installing/configuring-service-tracing.md) (advanced)
 
-  * Backing-up and Restoring the Flight Control Service
-    * [Backing up the PostgreSQL Database](installing/performing-database-backup.md)
-    * [Restoring from Backup](installing/performing-database-restore.md)
+  * Backing up and Restoring the Flight Control Service
+    * [Backup and Restore](installing/backup-restore.md)
 
   * Offline and Air-Gapped Installation
     * [Setting up a local RPM repository](installing/offline-rpm-repository.md)
