@@ -319,6 +319,8 @@ subcommand
 statefulsets
 daemonsets
 cronjobs
+CronJob
+Helm
 imagebuilds
 imagebuild
 imageexport
@@ -680,3 +682,4 @@ ETags
 parameterized
 SharedInformer
 sha256
+runbook

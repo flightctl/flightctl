@@ -178,6 +178,10 @@ Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
 bin/devicesimulator --count=100
 ```
 
+## Backup and restore
+
+For backup and restore procedures applicable to development deployments, see [Backup and Restore](../user/installing/backup-restore.md). Development deployments using kind or quadlets can use the same `flightctl-backup` and `flightctl-restore` commands documented for production environments.
+
 ## Metrics
 
 The observability stack (Prometheus) is managed by **testcontainers** in [test/e2e/infra/](../../test/e2e/infra/) and starts automatically when you run E2E tests.
