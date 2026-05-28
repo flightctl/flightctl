@@ -105,23 +105,57 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     --execute
 ```
 
-### 4 — Select a specific release version (any branch)
+### 4 — Match the installed RPM version (dev branch → versioned RPMs)
+
+The most common `--tag-override` scenario: you are running `mirror-images` from a development branch (where `appVersion` in `Chart.yaml` is `"latest"`), but the RPMs installed on your edge nodes are a pinned release such as `v1.1.2`. The quadlet unit files shipped by those RPMs reference images tagged `:v1.1.2`, so a mirror built with `:latest` tags will not be found at runtime.
 
 ```bash
-# Pin to v1.1.2 regardless of which git branch is checked out
+# Wrong — on a dev branch this mirrors everything as :latest,
+# which won't match the v1.1.2 quadlet files on your edge nodes.
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry local-registry.example.com:5000
+
+# Correct — override the tag to match the installed RPM version.
 ./bin/mirror-images \
     --variant community-el9 \
     --dest-registry local-registry.example.com:5000 \
     --tag-override v1.1.2
+```
 
-# Force latest builds even when on a release-tagged checkout
+The tool will emit a `[WARN]` block on stderr when it detects this mismatch (dev branch + no `--tag-override`) so you know to re-run with the flag.
+
+### 4b — Mirror a specific release from a release-tagged checkout
+
+When you have the correct release tag checked out, `appVersion` in `Chart.yaml` already contains the version (e.g. `v1.1.2`) and `--tag-override` is not needed. Use it only when you want to target a *different* version than what the checkout declares — for example, pre-staging the next release while on a feature branch:
+
+```bash
+git checkout v1.1.2   # appVersion = v1.1.2 — no flag needed
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry local-registry.example.com:5000
+
+# Or, target a different version without switching branches:
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry local-registry.example.com:5000 \
+    --tag-override v1.2.0
+```
+
+### 4c — Force `:latest` images on a release-tagged checkout
+
+Occasionally you want the most recently built images even while standing on a release tag — for example, when testing a hotfix image pushed to `:latest` before a new tag is cut:
+
+```bash
 ./bin/mirror-images \
     --variant community-el9 \
     --dest-registry local-registry.example.com:5000 \
     --tag-override latest
 ```
 
-`--tag-override` controls all flightctl service images (`api`, `worker`, `pam-issuer`, `userinfo-proxy`, etc.). Third-party images with compatibility-pinned tags (`grafana`, `prometheus`, `postgresql`, `redis`) are always left at their declared versions.
+**What `--tag-override` affects:**
+
+The flag applies only to flightctl service images that have *no explicit tag* in their YAML source (`api`, `worker`, `periodic`, `pam-issuer`, `userinfo-proxy`, `db-setup`, etc.). Third-party images with a pinned version in their YAML (`postgresql`, `redis`/`valkey`, `alertmanager`, `grafana`, `prometheus`) are **never** affected — they always use their declared version regardless of `--tag-override`.
 
 ### 5 — Execute mirroring to an HTTP (non-TLS) registry
 
