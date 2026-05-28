@@ -329,10 +329,13 @@ curl http://localhost:5000/v2/_catalog
 
 ### Step 2 — Export the registry content for transfer
 
-Use `skopeo sync` to write all images from the registry into a portable directory:
+Use `skopeo sync` to write all images from the registry into a portable directory.
+
+`/opt` is root-owned, so the export directory must be created with `sudo`. Fix ownership immediately so the normal user can write into it — skopeo runs without elevated privileges:
 
 ```bash
 sudo mkdir -p /opt/registry/export
+sudo chown $USER /opt/registry/export
 
 skopeo sync \
     --src docker \
@@ -345,30 +348,36 @@ skopeo sync \
 Then package it for transfer:
 
 ```bash
-tar -czf mirror-images-community-el9.tar.gz -C /opt/registry export/
+tar -czf ~/mirror-images-community-el9.tar.gz -C /opt/registry export/
 ```
+
+The archive is written to your home directory (`~/`) to avoid permission issues writing into `/opt`.
 
 ### Step 3 — Transfer to the air-gapped environment
 
 Copy the archive to the air-gapped machine using whatever transfer method is available (SCP, USB drive, shared storage):
 
 ```bash
-scp mirror-images-community-el9.tar.gz user@air-gapped-vm:/opt/
+scp ~/mirror-images-community-el9.tar.gz user@air-gapped-vm:~/
 ```
 
 ### Step 4 — On the air-gapped VM: import images into a local registry
 
-Start a registry on the air-gapped machine (same Option A / Option B choice as Step 0), then import:
+Start a registry on the air-gapped machine (same Option A / Option B choice as Step 0), then extract and import.
+
+Create the target directory and fix ownership before extracting, for the same reason as Step 2 — `tar` and `skopeo` run as the normal user:
 
 ```bash
-cd /opt
-tar -xzf mirror-images-community-el9.tar.gz
+sudo mkdir -p /opt/registry
+sudo chown $USER /opt/registry
+
+tar -xzf ~/mirror-images-community-el9.tar.gz -C /opt/registry
 
 skopeo sync \
     --src dir \
     --dest docker \
     --dest-tls-verify=false \
-    /opt/export/ \
+    /opt/registry/export/ \
     localhost:5000
 ```
 
