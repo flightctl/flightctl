@@ -141,6 +141,55 @@ flightctl apply -f repository-oci-private.yaml
 > [!WARNING]
 > Store repository credentials securely. Consider using secrets management systems or environment variables when providing credentials via the API.
 
+### Curating base images
+
+OCI repositories can include a curated list of trusted base images available in the registry. When base images are configured, the Flight Control UI presents them as selectable options when creating image builds, instead of requiring users to type image names and tags manually. Users can still enter custom values that are not in the curated list.
+
+A base image entry specifies:
+
+* An image name (the image path within the registry)
+* One or more selectable tags for that image
+* An optional human-readable display name shown in the UI
+
+To configure base images, add the `baseImages` field to the OCI repository spec:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: quay-io
+spec:
+  type: oci
+  registry: quay.io
+  scheme: https
+  accessMode: Read
+  baseImages:
+    - displayName: CentOS Stream
+      imageName: centos-bootc/centos-bootc
+      tags:
+        - stream9
+        - stream10
+```
+
+The `baseImages` field accepts a list of entries with the following fields:
+
+| Field | Required | Description |
+| ------------- | -------- | -------------------------------------------------------------------- |
+| `imageName` | Yes | Image path within the registry (for example, `centos-bootc/centos-bootc`). Must be 1–255 characters. Image names must be unique within the repository. |
+| `tags` | Yes | One or more tags for this image. Each tag must be unique within the entry. |
+| `displayName` | No | Human-readable label shown in the UI when selecting a base image. |
+
+> [!NOTE]
+> Image names and tags must conform to OCI naming rules. Duplicate image names within the same repository are rejected by the API.
+
+Apply the updated repository definition:
+
+```console
+flightctl apply -f repository-oci-base-images.yaml
+```
+
+Once saved, any image build wizard that uses this repository as the source shows the configured base images in a dropdown. Selecting an image name filters the available tags to those listed for that entry.
+
 ### Using OCI Repositories with ImageBuild and ImageExport
 
 OCI repositories are used by [ImageBuild](managing-image-builds.md#imagebuild-resource) and [ImageExport](managing-image-builds.md#imageexport-resource) resources to reference container image registries. They are referenced by name in the `repository` field of these resources.

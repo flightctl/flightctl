@@ -336,6 +336,167 @@ spec:
 > [!NOTE]
 > The destination is automatically taken from the referenced ImageBuild resource. You do not need to specify a destination in the ImageExport spec.
 
+## ImagePromotion Resource
+
+> [!NOTE]
+> The ImagePromotion API uses version `v1alpha1`. While no breaking changes are currently anticipated, the alpha designation indicates this API may evolve as the feature matures.
+
+The `ImagePromotion` resource publishes a completed image build to the Flight Control [software catalog](managing-catalogs.md). Creating an `ImagePromotion` links the container image produced by an `ImageBuild` (and any requested disk image export formats) to a catalog item version, making it available for devices to consume.
+
+When an `ImagePromotion` is created, Flight Control:
+
+1. Waits for the source `ImageBuild` to complete, along with any requested `ImageExport` artifacts.
+2. Publishes the artifacts to the target catalog item.
+
+A promotion can either create a new catalog item or add a version to an existing one. When adding a version, you can provide upgrade metadata such as the version this release replaces and any intermediate versions that can be skipped.
+
+### ImagePromotion specification
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: ImagePromotion
+metadata:
+  name: my-image-promotion
+spec:
+  source:
+    imageBuildRef: my-image-build      # Name of the ImageBuild resource to promote
+    exportFormats:                     # Optional: disk image formats to include
+      - qcow2
+      - iso
+  target:
+    type: ExistingCatalogItem          # NewCatalogItem or ExistingCatalogItem
+    catalogName: platform-images       # Name of the Catalog resource
+    catalogItemName: centos-bootc      # Name of the catalog item
+    version: 1.2.1                     # Semantic version string
+    replaces: 1.2.0                    # Optional: version this release supersedes
+    skips:                             # Optional: individual versions to skip
+      - 1.1.5
+    skipRange: ">=1.0.0 <1.2.0"       # Optional: semver range of skippable versions
+    readme: |                          # Optional: markdown documentation
+      This release updates the base image to the latest packages.
+```
+
+**Source fields:**
+
+| Field | Required | Description |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `imageBuildRef` | Yes | Name of the `ImageBuild` resource whose container image is promoted. The container artifact is always included. |
+| `exportFormats` | No | List of disk image formats to include (for example, `qcow2`, `iso`, `vmdk`). The promotion waits for a successful `ImageExport` resource for each requested format before publishing. |
+
+**Target fields:**
+
+| Field | Required | Description |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `type` | Yes | `NewCatalogItem` to create a new catalog item, or `ExistingCatalogItem` to add a version to an existing item. |
+| `catalogName` | Yes | Name of the `Catalog` resource to publish to. |
+| `catalogItemName`| Yes | Name of the catalog item to create or update. Must be a valid DNS subdomain. |
+| `version` | Yes | Semantic version string for this release (for example, `1.2.1`). |
+| `replaces` | No | The version this release supersedes, defining the primary upgrade edge. Applies only to `ExistingCatalogItem`. |
+| `skips` | No | List of specific versions that can upgrade directly to this one without passing through intermediate versions. Applies only to `ExistingCatalogItem`. |
+| `skipRange` | No | Semver range expression of versions that can upgrade directly to this version (for example, `">=1.0.0 <1.2.0"`). Applies only to `ExistingCatalogItem`. |
+| `readme` | No | Markdown-formatted release notes or documentation shown in the catalog UI. |
+
+### Creating an ImagePromotion
+
+Create an `ImagePromotion` resource using the Flight Control CLI:
+
+```console
+flightctl apply -f imagepromotion.yaml
+```
+
+If the source `ImageBuild` has not yet completed, the promotion waits automatically. You do not need to create the promotion after the build finishes.
+
+### Monitoring ImagePromotion status
+
+Query the status of a promotion:
+
+```console
+flightctl get imagepromotion my-image-promotion
+```
+
+The `status.conditions` field reports the current state:
+
+| Status | Description |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `WaitingForArtifacts` | Waiting for the image build or requested export artifacts to complete. |
+| `Publishing` | Artifacts are being published to the catalog. |
+| `Completed` | The promotion completed successfully. The catalog item version is available. |
+| `Failed` | The promotion failed. Check the status message for details. |
+| `BuildFailed` | The source image build failed; the promotion cannot proceed. |
+| `BuildCanceled` | The source image build was canceled. |
+| `AmendmentFailed` | Adding export formats to an already-published promotion failed. |
+
+When the promotion reaches `Completed`, `status.publishedAt` records the time the catalog item version was first published. If export formats are added later, `status.lastAmendedAt` records the time of the most recent amendment.
+
+### Adding export formats to a published promotion
+
+After a promotion is published, you can add more disk image export formats without creating a new promotion. Export formats are append-only—existing formats cannot be removed.
+
+To add formats, update the `spec.source.exportFormats` field in your resource definition to include the complete updated list, then apply it:
+
+```console
+flightctl apply -f imagepromotion.yaml
+```
+
+The promotion transitions back through `WaitingForArtifacts` and `Publishing` until the new export artifacts are available, then returns to `Completed`.
+
+> [!NOTE]
+> Adding export formats is only allowed when the promotion is in `Completed` status. Promotions in `Failed`, `Publishing`, or other non-completed states cannot be amended.
+
+### Deleting an ImagePromotion
+
+Delete an `ImagePromotion` using the `delete` command:
+
+```console
+flightctl delete imagepromotion my-image-promotion
+```
+
+Deleting an `ImagePromotion` removes the promotion record only. If the promotion has already been published, the catalog item version that was published is not affected.
+
+### Example: Create a new catalog item
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: ImagePromotion
+metadata:
+  name: centos-stream9-v1-0-0
+spec:
+  source:
+    imageBuildRef: centos-stream9-build
+    exportFormats:
+      - qcow2
+  target:
+    type: NewCatalogItem
+    catalogName: platform-images
+    catalogItemName: centos-stream9
+    version: 1.0.0
+    readme: |
+      Initial release of the CentOS Stream 9 edge image.
+```
+
+### Example: Add a version to an existing catalog item
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: ImagePromotion
+metadata:
+  name: centos-stream9-v1-1-0
+spec:
+  source:
+    imageBuildRef: centos-stream9-build-v1-1
+    exportFormats:
+      - qcow2
+      - iso
+  target:
+    type: ExistingCatalogItem
+    catalogName: platform-images
+    catalogItemName: centos-stream9
+    version: 1.1.0
+    replaces: 1.0.0
+    readme: |
+      Updates the base image to the latest CentOS Stream 9 packages.
+```
+
 ## Workflow: Building and Exporting Images
 
 A typical workflow using ImageBuild and ImageExport resources:
