@@ -52,8 +52,6 @@ type ChartMeta struct {
 // -----------------------------------------------------------------------------
 
 // ReadAppVersion reads appVersion from the Helm Chart.yaml at the given path.
-// If appVersion is "latest" it emits a warning — this means the repo is not
-// on a release tag and mirrored images will track :latest (non-reproducible).
 func ReadAppVersion(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,11 +61,6 @@ func ReadAppVersion(path string) (string, error) {
 	var meta ChartMeta
 	if err := yaml.Unmarshal(data, &meta); err != nil {
 		return "", fmt.Errorf("parse Chart.yaml: %w", err)
-	}
-
-	if meta.AppVersion == "latest" {
-		logWarn("Chart.yaml appVersion is 'latest' — tagless images will be mirrored as :latest.")
-		logWarn("For reproducible air-gapped installs, use a release-tagged checkout.")
 	}
 
 	return meta.AppVersion, nil
@@ -142,7 +135,7 @@ func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
 //
 // A missing file is treated as a non-fatal warning so the tool can still emit
 // helm-chart-opts images even when the RPM images file is absent.
-func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant string) ([]ImagePair, error) {
+func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant, tagFallback string) ([]ImagePair, error) {
 	isRedhat := strings.Contains(variant, "redhat")
 	isEl10 := strings.Contains(variant, "el10")
 
@@ -191,7 +184,7 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant string) ([
 
 		tag := spec.Tag
 		if tag == "" {
-			tag = "latest"
+			tag = tagFallback
 		}
 
 		if warnOnRedhatRegistry && strings.HasPrefix(spec.Image, "registry.redhat.io/") {

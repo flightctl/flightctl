@@ -52,6 +52,7 @@ mirror-images --variant <variant> --dest-registry <host:port> [OPTIONS]
 |------|-------------|
 | `--execute` | Execute `skopeo copy` commands immediately in addition to printing them. Requires `skopeo` and a reachable destination registry. Without this flag the tool is always a safe dry-run. |
 | `--insecure` | Add `--dest-tls-verify=false` to every `skopeo copy` command. Required when the destination registry serves plain HTTP instead of HTTPS. |
+| `--tag-override <tag>` | Override the tag used for images that have no explicit tag in the YAML sources (e.g. `v1.1.2`). Use this when running from a dev branch whose `Chart.yaml` carries `appVersion: latest` but the installed RPMs are a specific release version. |
 | `--help`, `-h` | Print usage and exit. |
 
 ### Output
@@ -104,7 +105,18 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     --execute
 ```
 
-### 4 — Execute mirroring to an HTTP (non-TLS) registry
+### 4 — Match tags to the installed RPM version (dev branch)
+
+```bash
+./bin/mirror-images \
+    --variant community-el9 \
+    --dest-registry local-registry.example.com:5000 \
+    --tag-override v1.1.2
+```
+
+This ensures `pam-issuer`, `userinfo-proxy`, and all untagged flightctl service images are mirrored as `:v1.1.2` to match the quadlet files shipped with the `v1.1.2` RPMs.
+
+### 5 — Execute mirroring to an HTTP (non-TLS) registry
 
 ```bash
 ./bin/mirror-images \
@@ -114,7 +126,7 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     --insecure
 ```
 
-### 5 — Pipe stdout directly to bash (equivalent to `--execute`)
+### 6 — Pipe stdout directly to bash (equivalent to `--execute`)
 
 ```bash
 ./bin/mirror-images \
@@ -123,7 +135,7 @@ Transfer `mirror-commands-redhat-el9.sh` to the connected preparation system, th
     | bash
 ```
 
-### 6 — Inspect the generated artifact manifest
+### 7 — Inspect the generated artifact manifest
 
 ```bash
 ./bin/mirror-images \
@@ -158,7 +170,16 @@ The tool selects exactly one RPM images file per run based on the variant. Image
 
 ### Tag fallback
 
-Core FlightControl service images (`api`, `worker`, `periodic`, etc.) have no explicit `tag:` field in `helm-chart-opts.yaml`. The tool reads `appVersion` from `deploy/helm/flightctl/Chart.yaml` and uses that as the fallback tag. On a release-tagged checkout this will be the release version; on a development branch it is typically `latest`.
+Core FlightControl service images (`api`, `worker`, `periodic`, `pam-issuer`, `userinfo-proxy`, etc.) have no explicit `tag:` field in their source YAML files. The tool resolves an *effective tag* in this order:
+
+1. `--tag-override <tag>` if supplied — always wins.
+2. `appVersion` from `deploy/helm/flightctl/Chart.yaml` — the release version on a tagged checkout, `"latest"` on a dev branch.
+
+Third-party images with pinned versions (`grafana`, `prometheus`, `postgresql`, `redis`, etc.) always carry an explicit tag in their YAML and are **never** affected by `--tag-override`.
+
+**Tag mismatch warning:** On a dev branch `appVersion` is `"latest"`, but installed RPMs are typically versioned (e.g. `v1.1.2`). The RPM quadlet files reference images by the RPM version, so a `:latest` mirror will not match. Either:
+- Run from the matching release tag: `git checkout v1.1.2`
+- Or pass the RPM version explicitly: `--tag-override v1.1.2`
 
 ---
 

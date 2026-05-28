@@ -87,13 +87,14 @@ func main() {
 // NewRootCommand builds and returns the cobra root command for mirror-images.
 func NewRootCommand() *cobra.Command {
 	var (
-		variant  string
-		execute  bool
-		insecure bool
+		variant     string
+		execute     bool
+		insecure    bool
+		tagOverride string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "mirror-images --variant <variant> --dest-registry <host:port> [--execute] [--insecure]",
+		Use:   "mirror-images --variant <variant> --dest-registry <host:port> [--tag-override <tag>] [--execute] [--insecure]",
 		Short: "Enumerate RHEM artifacts and generate skopeo mirror commands for air-gapped installation.",
 		Long: `mirror-images reads the flightctl Helm chart options and observability image files,
 generates skopeo copy commands for all referenced container images, and writes a
@@ -112,6 +113,9 @@ Examples:
 
   # Execute: mirror images to a running local registry
   mirror-images --variant redhat-el9 --dest-registry local-registry.example.com:5000 --execute
+
+  # Tag override: match the installed RPM version when running from a dev branch
+  mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000 --tag-override v1.1.2
 
   # Execute: mirror to an HTTP (non-TLS) local registry
   mirror-images --variant community-el9 --dest-registry localhost:5000 --execute --insecure`,
@@ -190,20 +194,34 @@ Examples:
 			logInfo("  Execute commands: %v", execute)
 			logInfo("  Insecure (HTTP):  %v", insecure)
 
-			// Step 1: Read the chart appVersion (used as tag fallback for tagless images)
+			// Step 1: Read the chart appVersion, then determine the effective tag
+			// fallback for images without an explicit tag in the YAML sources.
 			appVersion, err := ReadAppVersion(chartYAMLPath)
 			if err != nil {
 				return fmt.Errorf("read chart version: %w", err)
 			}
-			logInfo("  Chart appVersion: %s (used as tag fallback)", appVersion)
+			logInfo("  Chart appVersion: %s", appVersion)
+
+			effectiveTag := appVersion
+			if tagOverride != "" {
+				effectiveTag = tagOverride
+				logInfo("  Tag override:     %s (overrides appVersion for untagged images)", effectiveTag)
+			} else if appVersion == "latest" {
+				logWarn("appVersion is 'latest' — images without explicit tags will be mirrored as :latest.")
+				logWarn("This will NOT match quadlet files from versioned RPMs (e.g. v1.1.2).")
+				logWarn("Fix: re-run with --tag-override <rpm-version>, or from a release-tagged checkout:")
+				logWarn("  git checkout v1.1.2 && ./bin/mirror-images --variant %s --dest-registry %s", variant, destRegistry)
+			} else {
+				logInfo("  Effective tag:    %s (for untagged images)", effectiveTag)
+			}
 
 			// Step 2: Parse image references from both YAML sources
-			helmPairs, err := ParseHelmChartOpts(helmChartOptsPath, variant, appVersion)
+			helmPairs, err := ParseHelmChartOpts(helmChartOptsPath, variant, effectiveTag)
 			if err != nil {
 				return fmt.Errorf("parse helm-chart-opts: %w", err)
 			}
 
-			obsPairs, err := ParseObsImages(obsEl9Path, obsEl10Path, obsRhel9Path, obsRhel10Path, variant)
+			obsPairs, err := ParseObsImages(obsEl9Path, obsEl10Path, obsRhel9Path, obsRhel10Path, variant, effectiveTag)
 			if err != nil {
 				return fmt.Errorf("parse observability images: %w", err)
 			}
@@ -249,6 +267,7 @@ Examples:
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS verification for the destination registry (required for HTTP registries)")
+	cmd.Flags().StringVar(&tagOverride, "tag-override", "", "Override the tag used for images without an explicit tag (e.g. v1.1.2). Use when the installed RPM version differs from Chart.yaml appVersion.")
 
 	return cmd
 }
