@@ -387,14 +387,43 @@ scp ~/mirror-images-community-el9.tar.gz user@air-gapped-vm:~/
 
 ### Step 4 — On the air-gapped VM: import images into a local registry
 
-Start a registry on the air-gapped machine (same Option A / Option B choice as Step 0), then extract and import.
-
-Create the target directory and fix ownership before extracting — `tar` and `skopeo` run as the normal user:
+Create the required directories and fix ownership before starting the registry or extracting — the registry container and skopeo both run as the normal user:
 
 ```bash
-sudo mkdir -p /opt/registry
-sudo chown $USER /opt/registry
+sudo mkdir -p /opt/registry/data
+sudo mkdir -p /opt/registry/export
+sudo chown -R $USER /opt/registry
+```
 
+Start the registry (same Option A / Option B choice as Step 0):
+
+**Option A — Port mapping (standard)**
+```bash
+podman run -d --name local-registry \
+    -p 5000:5000 \
+    -v /opt/registry/data:/var/lib/registry:z \
+    --restart=always \
+    docker.io/library/registry:2
+```
+
+**Option B — Host network (RHEL 9 workaround)**
+```bash
+podman run -d --name local-registry \
+    --network=host \
+    -v /opt/registry/data:/var/lib/registry \
+    --restart=always \
+    docker.io/library/registry:2
+```
+
+Verify it is ready before importing:
+```bash
+curl http://localhost:5000/v2/
+# Expected: {}
+```
+
+Then extract the archive:
+
+```bash
 tar -xzf ~/mirror-images-community-el9.tar.gz -C /opt/registry
 ```
 
