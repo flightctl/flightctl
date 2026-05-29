@@ -334,7 +334,7 @@ curl http://localhost:5000/v2/_catalog
 First, generate the sync config dynamically from the live registry catalog:
 
 ```bash
-python3 -c "
+cat << 'EOF' > /tmp/generate-sync.py
 import json, urllib.request
 
 catalog = json.loads(urllib.request.urlopen('http://localhost:5000/v2/_catalog').read())
@@ -348,8 +348,10 @@ for repo in catalog['repositories']:
     if tags:
         print(f'    {repo}:')
         for tag in tags:
-            print(f'      - \"{tag}\"')
-" > /tmp/registry-sync.yaml
+            print(f'      - "{tag}"')
+EOF
+
+python3 /tmp/generate-sync.py > /tmp/registry-sync.yaml
 ```
 
 Then create the export directory (fixing ownership so skopeo can write as the normal user) and run the sync:
