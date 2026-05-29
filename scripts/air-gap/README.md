@@ -388,21 +388,21 @@ scp ~/mirror-images-community-el9.tar.gz user@air-gapped-vm:~/
 
 ### Step 4 — On the air-gapped VM: import images into a local registry
 
-Create the required directories and fix ownership before starting the registry or extracting — the registry container and skopeo both run as the normal user:
+Create the extraction directory and the registry data directory. Use your home directory for registry data — rootless podman containers can always write to home directory paths without UID mapping or SELinux complications:
 
 ```bash
-sudo mkdir -p /opt/registry/data
 sudo mkdir -p /opt/registry/export
-sudo chown -R $USER /opt/registry
+sudo chown $USER /opt/registry/export
+mkdir -p ~/registry-data
 ```
 
-Start the registry (same Option A / Option B choice as Step 0):
+Start the registry:
 
 **Option A — Port mapping (standard)**
 ```bash
 podman run -d --name local-registry \
     -p 5000:5000 \
-    -v /opt/registry/data:/var/lib/registry:z \
+    -v ~/registry-data:/var/lib/registry:z \
     --restart=always \
     docker.io/library/registry:2
 ```
@@ -412,7 +412,7 @@ podman run -d --name local-registry \
 podman run -d --name local-registry \
     --network=host \
     --security-opt label=disable \
-    -v /opt/registry/data:/var/lib/registry \
+    -v ~/registry-data:/var/lib/registry \
     --restart=always \
     docker.io/library/registry:2
 ```
