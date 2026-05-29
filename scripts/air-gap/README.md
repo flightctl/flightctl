@@ -89,6 +89,32 @@ git clone --branch feat/EDM-3953-mirror-images-script \
 cd flightctl
 ```
 
+### Helm (required on the air-gapped VM for installation)
+
+`helm` is needed to install the flightctl chart on the target machine. Because the air-gapped VM has no internet access, the binary must be transferred alongside the image archive (Step 3).
+
+On the **prep machine** (with internet access), download the helm binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# or download a specific release tarball and extract the binary:
+curl -fsSL https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz | tar -xz
+# Binary is at linux-amd64/helm
+```
+
+Copy it to the air-gapped VM along with the image archive (Step 3):
+
+```bash
+scp ~/mirror-images-community-el9.tar.gz linux-amd64/helm user@air-gapped-vm:~/
+```
+
+On the **air-gapped VM**, install it:
+
+```bash
+sudo install -o root -g root -m 0755 ~/helm /usr/local/bin/helm
+helm version
+```
+
 ### Optional
 
 `yq` is used in the examples to inspect the generated artifact manifest. It is not required to run the tool.
