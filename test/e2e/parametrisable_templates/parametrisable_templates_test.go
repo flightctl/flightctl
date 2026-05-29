@@ -468,7 +468,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				Expect(fileServer).ToNot(BeNil(), "file server auxiliary service must be started")
 				httpConfigContent := "# HTTP Config Content\nhttp_key: http_value\n"
 				err = fileServer.PushFile(
-					fmt.Sprintf("configs/%s/var/home/user/http-config.yaml", configLabelValue),
+					fmt.Sprintf("configs/%s", configLabelValue),
 					httpConfigContent,
 				)
 				Expect(err).ToNot(HaveOccurred())

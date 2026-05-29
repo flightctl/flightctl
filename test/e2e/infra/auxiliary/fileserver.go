@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	fileServerImage         = "docker.io/python:3-alpine"
+	fileServerImage         = "docker.io/busybox:latest"
 	fileServerContainerName = "e2e-fileserver"
 	fileServerPort          = "8088/tcp"
 	fileServerPortNum       = "8088"
@@ -41,11 +41,15 @@ func (f *FileServer) Start(ctx context.Context, network string, reuse bool) erro
 	}
 	f.DataDir = dataDir
 
+	if err := os.WriteFile(filepath.Join(dataDir, "index.html"), []byte("ok"), 0600); err != nil {
+		return fmt.Errorf("failed to create index file: %w", err)
+	}
+
 	req := testcontainers.ContainerRequest{
 		Image:        fileServerImage,
 		Name:         fileServerContainerName,
 		ExposedPorts: []string{fileServerPort},
-		Cmd:          []string{"python", "-m", "http.server", fileServerPortNum, "--directory", "/data"},
+		Cmd:          []string{"httpd", "-f", "-p", fileServerPortNum, "-h", "/data"},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.Binds = append(hc.Binds, dataDir+":/data:rw")
 		},
