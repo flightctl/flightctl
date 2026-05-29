@@ -297,7 +297,7 @@ podman run -d --name local-registry \
 ```bash
 podman run -d --name local-registry \
     --network=host \
-    -v /opt/registry/data:/var/lib/registry \
+    -v /opt/registry/data:/var/lib/registry:z \
     --restart=always \
     docker.io/library/registry:2
 ```
@@ -410,7 +410,7 @@ podman run -d --name local-registry \
 ```bash
 podman run -d --name local-registry \
     --network=host \
-    -v /opt/registry/data:/var/lib/registry \
+    -v /opt/registry/data:/var/lib/registry:z \
     --restart=always \
     docker.io/library/registry:2
 ```
