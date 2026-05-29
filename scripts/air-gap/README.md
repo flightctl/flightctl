@@ -838,3 +838,20 @@ helm install flightctl deploy/helm/flightctl \
 
 **`docker.io/redis` mirrored to wrong path**
 Podman resolves Docker Hub official images as `docker.io/library/<name>` at pull time.  The tool automatically normalizes single-component `docker.io` paths (e.g. `docker.io/redis` → `docker.io/library/redis`) so the mirrored destination path matches what podman looks for.  If you see `registry/redis:tag` instead of `registry/library/redis:tag` in your mirror, you are running an older binary — rebuild with `make build-mirror-images`.
+
+---
+
+## Open questions / future improvements
+
+**Bundle prerequisite binaries with the air-gap archive**
+
+Currently the air-gap preparation workflow (Steps 0–6) assumes that tooling such as `helm`, `skopeo`, and `podman` is already installed on the air-gapped target machine. In practice these tools are not available in default RHEL repos without internet access, requiring a manual binary transfer before the install can proceed.
+
+Open question: should `mirror-images` (or a companion script) automatically include the prerequisite binaries as part of the archive produced in Step 2, so that a single tar file transferred in Step 3 contains everything needed to bootstrap the air-gapped machine — images AND tooling?
+
+Possible approaches:
+- Download the upstream static binaries for `helm`, `skopeo`, etc. on the prep machine and bundle them into the archive alongside the image export.
+- Generate a companion RPM repo snapshot (using `dnf download`) for any packages not available in the default repos, and include it in the archive so `dnf install` works offline.
+- Add a `--bundle-tools` flag to `mirror-images` that performs the binary download and bundling step automatically.
+
+Tracked under: **EDM-3953** (open question — not yet assigned to a sub-story).
