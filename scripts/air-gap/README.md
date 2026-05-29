@@ -329,23 +329,45 @@ curl http://localhost:5000/v2/_catalog
 
 ### Step 2 — Export the registry content for transfer
 
-Use `skopeo sync` to write all images from the registry into a portable directory.
+`skopeo sync --src docker` expects a repository path (`registry/image`), not a bare registry hostname. Passing `localhost:5000` alone causes skopeo to misparse it as image name `localhost` with tag `5000` from Docker Hub. The fix is to use `--src yaml`, which takes an explicit registry config file and avoids the ambiguity entirely.
 
-`/opt` is root-owned, so the export directory must be created with `sudo`. Fix ownership immediately so the normal user can write into it — skopeo runs without elevated privileges:
+First, generate the sync config dynamically from the live registry catalog:
+
+```bash
+python3 -c "
+import json, urllib.request
+
+catalog = json.loads(urllib.request.urlopen('http://localhost:5000/v2/_catalog').read())
+print('localhost:5000:')
+print('  tls-verify: false')
+print('  images:')
+for repo in catalog['repositories']:
+    tags = json.loads(urllib.request.urlopen(
+        f'http://localhost:5000/v2/{repo}/tags/list'
+    ).read()).get('tags', [])
+    if tags:
+        print(f'    {repo}:')
+        for tag in tags:
+            print(f'      - \"{tag}\"')
+" > /tmp/registry-sync.yaml
+```
+
+Then create the export directory (fixing ownership so skopeo can write as the normal user) and run the sync:
 
 ```bash
 sudo mkdir -p /opt/registry/export
 sudo chown $USER /opt/registry/export
 
 skopeo sync \
-    --src docker \
+    --src yaml \
     --dest dir \
-    --src-tls-verify=false \
-    localhost:5000 \
+    /tmp/registry-sync.yaml \
     /opt/registry/export
 ```
 
-Then package it for transfer:
+`skopeo sync --src yaml` reads the registry and image list from the YAML file rather than parsing the source as an image reference, so the `localhost:5000` hostname is resolved correctly.
+
+Then package for transfer:
 
 ```bash
 tar -czf ~/mirror-images-community-el9.tar.gz -C /opt/registry export/
@@ -365,21 +387,27 @@ scp ~/mirror-images-community-el9.tar.gz user@air-gapped-vm:~/
 
 Start a registry on the air-gapped machine (same Option A / Option B choice as Step 0), then extract and import.
 
-Create the target directory and fix ownership before extracting, for the same reason as Step 2 — `tar` and `skopeo` run as the normal user:
+Create the target directory and fix ownership before extracting — `tar` and `skopeo` run as the normal user:
 
 ```bash
 sudo mkdir -p /opt/registry
 sudo chown $USER /opt/registry
 
 tar -xzf ~/mirror-images-community-el9.tar.gz -C /opt/registry
+```
 
+`skopeo sync --src yaml` writes images into a subdirectory named after the source registry (`localhost:5000/`). Import from that path:
+
+```bash
 skopeo sync \
     --src dir \
     --dest docker \
     --dest-tls-verify=false \
-    /opt/registry/export/ \
+    /opt/registry/export/localhost:5000 \
     localhost:5000
 ```
+
+With `--src dir` the source is an explicit filesystem path so there is no hostname parsing ambiguity, and `localhost:5000` on the destination side is treated as a plain registry address by `--dest docker`.
 
 Verify:
 
