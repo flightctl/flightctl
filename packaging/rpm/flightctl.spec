@@ -313,7 +313,9 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
     install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
+    install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
     install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
+    install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -475,7 +477,9 @@ fi
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     /usr/libexec/flightctl/configure-greenboot.sh
+    /usr/libexec/flightctl/mask-bootc-timer.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
+    /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
     /usr/share/sosreport/flightctl.py
     %{_sysusersdir}/flightctl.conf
     /etc/sudoers.d/*
@@ -491,6 +495,8 @@ systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Mask bootc auto-update timer on first boot (bootc/composefs); also run from %post below.
+systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
 
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
@@ -523,21 +529,14 @@ mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 # Disable bootc automatic updates on bootc systems (flightctl manages updates).
-# Detect via unit file path: systemctl list-unit-files is unreliable in RPM/chroot
-# and container image builds (no running systemd). Always create the mask symlink
-# for offline installs; systemctl mask applies when systemd is available.
-_bootc_timer_unit=/usr/lib/systemd/system/bootc-fetch-apply-updates.timer
-if [ -f "${_bootc_timer_unit}" ] || \
-   systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | \
-     grep -q '^bootc-fetch-apply-updates.timer'; then
-    mkdir -p /etc/systemd/system
-    ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
-    systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
-fi
+# mask-bootc-timer.sh applies the mask; flightctl-mask-bootc-timer.service re-runs on
+# boot when image-build %post changes do not persist on bootc/composefs disks.
+/usr/libexec/flightctl/mask-bootc-timer.sh 2>/dev/null || true
 
 %postun agent
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
+    systemctl disable flightctl-mask-bootc-timer.service 2>/dev/null || true
     systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
     systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
     loginctl disable-linger flightctl || :
@@ -554,6 +553,7 @@ fi
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
@@ -562,8 +562,8 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/tpm-cas
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
+    %dir %{_sysconfdir}/flightctl/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
@@ -586,6 +586,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-gateway
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
@@ -608,11 +609,10 @@ fi
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
     %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
-    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %{_datadir}/flightctl/flightctl-gateway/nginx.conf.template
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
@@ -634,11 +634,11 @@ fi
     %{_datadir}/containers/systemd/flightctl-kv.volume
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
     %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
+    %{_datadir}/containers/systemd/flightctl-gateway.container
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
-    %{_datadir}/containers/systemd/flightctl-cli-artifacts-certs.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
 
@@ -746,6 +746,13 @@ EOF
 fi
 
 if [ "$1" -eq 2 ]; then # it's an upgrade
+  # Migrate trustXForwardedHeaders: false -> true now that the nginx gateway
+  # terminates TLS and the UI must trust X-Forwarded-Proto/Host headers.
+  svcconfig="%{_sysconfdir}/flightctl/service-config.yaml"
+  if [ -f "$svcconfig" ]; then
+    %{__sed} -E -i 's/^([[:space:]]*trustXForwardedHeaders:[[:space:]]*)("false"|'"'"'false'"'"'|false)([[:space:]]*(#.*)?)$/\1true\3/' "$svcconfig" || :
+  fi
+
   %{__cat} <<'EOF'
 [flightctl] Upgraded.
 

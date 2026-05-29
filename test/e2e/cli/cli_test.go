@@ -3,7 +3,6 @@ package cli_test
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +53,8 @@ var _ = Describe("cli operation", func() {
 			By("should error when creating incomplete fleet")
 			out, err := harness.CLIWithStdin(incompleteFleetYaml, applyOperation, "-f", "-")
 			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("fleet: failed to apply"))
+			Expect(out).To(ContainSubstring("applying fleet"))
+			Expect(out).To(ContainSubstring("failed"))
 
 			By("should work for a complete fleet")
 			// make sure it doesn't exist
@@ -154,8 +154,7 @@ var _ = Describe("cli operation", func() {
 			By("Attempting to reapply the same enrollment request")
 			out, err = harness.ApplyResource(erYAMLPath)
 			Expect(err).To(HaveOccurred())
-			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
-			Expect(out).To(ContainSubstring(badRequestMessage))
+			Expect(out).To(ContainSubstring("response status: 400"))
 			Expect(out).To(ContainSubstring("a resource with this name already exists"))
 		})
 	})

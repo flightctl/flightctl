@@ -743,14 +743,31 @@ func (h *Harness) BlockTrafficOnVM(ip, port string) {
 	Expect(err).ToNot(HaveOccurred(), "failed to add %s rule on VM", iptablesCmd)
 }
 
-// UnblockTrafficOnVM removes the iptables/ip6tables rule on the VM that blocks TCP
-// traffic to the specified IP and port. Silently ignores errors.
-func (h *Harness) UnblockTrafficOnVM(ip, port string) {
+// UnblockTrafficOnVM removes all iptables/ip6tables rules on the VM that block TCP
+// traffic to the specified IP and port. Loops until no matching rules remain.
+func (h *Harness) UnblockTrafficOnVM(ip, port string) error {
 	iptablesCmd := getIPTablesCommand(ip)
 
-	_, _ = h.VM.RunSSH([]string{
-		"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+	for h.IsTrafficBlockedOnVM(ip, port) {
+		_, err := h.VM.RunSSH([]string{
+			"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+		}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IsTrafficBlockedOnVM checks whether an iptables/ip6tables REJECT rule exists
+// for the given IP and port in the OUTPUT chain on the VM.
+func (h *Harness) IsTrafficBlockedOnVM(ip, port string) bool {
+	iptablesCmd := getIPTablesCommand(ip)
+
+	_, err := h.VM.RunSSH([]string{
+		"sudo", iptablesCmd, "-C", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
 	}, nil)
+	return err == nil
 }
 
 func (h *Harness) IsAgentServiceRunning() bool {

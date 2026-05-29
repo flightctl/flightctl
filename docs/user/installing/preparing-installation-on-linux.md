@@ -140,7 +140,7 @@ graph TB
 
 ### Flight Control API Server
 
-- **Port 3443** (TCP) - **HTTPS** - Main API endpoint for users, CLI, and web UI
+- **Port 443** (TCP) - **HTTPS** - At `/_/flightctl/`, main API endpoint for users, CLI, and web UI
 - **Port 7443** (TCP) - **HTTPS with mTLS** - Agent-facing API endpoint for device communication
 - **Port 15690** (TCP) - **HTTP** - Prometheus metrics endpoint (internal)
 - **Port 15691** (TCP) - **HTTP** - Database metrics endpoint (internal)
@@ -152,12 +152,7 @@ graph TB
 
 ### Web User Interface
 
-- **Port 8080** (TCP) - **HTTP/HTTPS** - Web UI (exposed via reverse proxy)
-- **Port 9001** (TCP) - **HTTP** - Web UI (development/nodePort deployments)
-
-### Authentication Services
-
-- **Port 8444** (TCP) - **HTTPS** - Internal OIDC authentication server (when using built-in auth)
+- **Port 443** (TCP) - **HTTP/HTTPS** - Web UI (exposed via reverse proxy)
 
 ### Observability and Monitoring
 
@@ -172,7 +167,6 @@ graph TB
 
 ### Additional Services
 
-- **Port 8090** (TCP) - **HTTP/HTTPS** - CLI artifacts server
 - **Port 16686** (TCP) - **HTTP** - Jaeger tracing UI (development)
 
 ## Network Communication Patterns
@@ -235,15 +229,7 @@ ACCEPT tcp port 7443 from any (agents can be on any network)
 #### Required for User Access
 
 ```text
-ACCEPT tcp port 3443 from trusted networks/users
-ACCEPT tcp port 9001 from trusted networks/users (UI - nodePort deployments)
-ACCEPT tcp port 8090 from trusted networks/users (CLI artifacts)
-```
-
-#### Required for Authentication (if using built-in OIDC)
-
-```text
-ACCEPT tcp port 8444 from trusted networks/users
+ACCEPT tcp port 443 from trusted networks/users
 ```
 
 #### Required for Observability (if externally accessible)

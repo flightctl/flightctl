@@ -124,6 +124,20 @@ func (mr *MockDeployerMockRecorder) GetConfig(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockDeployer)(nil).GetConfig), ctx)
 }
 
+// RestoreConfig mocks base method.
+func (m *MockDeployer) RestoreConfig(ctx context.Context, extractDir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestoreConfig", ctx, extractDir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RestoreConfig indicates an expected call of RestoreConfig.
+func (mr *MockDeployerMockRecorder) RestoreConfig(ctx, extractDir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreConfig", reflect.TypeOf((*MockDeployer)(nil).RestoreConfig), ctx, extractDir)
+}
+
 // RestoreDatabase mocks base method.
 func (m *MockDeployer) RestoreDatabase(ctx context.Context, extractDir string) error {
 	m.ctrl.T.Helper()
@@ -136,6 +150,20 @@ func (m *MockDeployer) RestoreDatabase(ctx context.Context, extractDir string) e
 func (mr *MockDeployerMockRecorder) RestoreDatabase(ctx, extractDir any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreDatabase", reflect.TypeOf((*MockDeployer)(nil).RestoreDatabase), ctx, extractDir)
+}
+
+// RestorePKI mocks base method.
+func (m *MockDeployer) RestorePKI(ctx context.Context, extractDir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestorePKI", ctx, extractDir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RestorePKI indicates an expected call of RestorePKI.
+func (mr *MockDeployerMockRecorder) RestorePKI(ctx, extractDir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestorePKI", reflect.TypeOf((*MockDeployer)(nil).RestorePKI), ctx, extractDir)
 }
 
 // StartServices mocks base method.

@@ -28,6 +28,9 @@ db-setup:
 db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
+gateway:
+  image: quay.io/sclorg/nginx-124-c9s
+  tag: "20260422"
 kv:
   image: docker.io/redis
   tag: "7.4.1"

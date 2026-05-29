@@ -98,7 +98,7 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		global["ui"] = ui
 	}
 	if _, exists := ui["trustXForwardedHeaders"]; !exists {
-		ui["trustXForwardedHeaders"] = false
+		ui["trustXForwardedHeaders"] = true
 	}
 	if _, exists := ui["trustedProxyCidrs"]; !exists {
 		ui["trustedProxyCidrs"] = ""

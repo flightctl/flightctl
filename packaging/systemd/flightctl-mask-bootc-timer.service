@@ -1,0 +1,14 @@
+[Unit]
+Description=Mask bootc automatic update timer for flightctl-managed devices
+Documentation=https://github.com/flightctl/flightctl
+Before=bootc-fetch-apply-updates.timer
+After=local-fs.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/flightctl/mask-bootc-timer.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

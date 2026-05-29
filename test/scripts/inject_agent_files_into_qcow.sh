@@ -209,7 +209,11 @@ inject_registry_ca() {
   sudo install -m 0644 "$E2E_CA" "$anchors_dir/flightctl-e2e-registry.crt"
 
   local systemd_dir="$base/systemd/system"
-  sudo install -d "$systemd_dir" "$systemd_dir/multi-user.target.wants"
+  # Use mkdir -p rather than install -d to avoid setting the overlayfs opaque xattr,
+  # which would hide symlinks (e.g. the bootc timer mask) already present in lower layers.
+  sudo mkdir -p "$systemd_dir" "$systemd_dir/multi-user.target.wants"
+  sudo chown root:root "$systemd_dir" "$systemd_dir/multi-user.target.wants"
+  sudo chmod 755 "$systemd_dir" "$systemd_dir/multi-user.target.wants"
   sudo tee "$systemd_dir/flightctl-update-ca-trust.service" >/dev/null <<'UNIT'
 [Unit]
 Description=Update CA trust for flightctl registry
