@@ -427,14 +427,14 @@ Then extract the archive:
 tar -xzf ~/mirror-images-community-el9.tar.gz -C /opt/registry
 ```
 
-`skopeo sync --src yaml` writes images into a subdirectory named after the source registry (`localhost:5000/`). Import from that path:
+`skopeo sync --src yaml` writes images into a subdirectory named after the source registry (`localhost:5000/`) inside the destination directory. When importing with `--src dir`, pass the **parent** directory — skopeo automatically descends into the `localhost:5000/` subdirectory:
 
 ```bash
 skopeo sync \
     --src dir \
     --dest docker \
     --dest-tls-verify=false \
-    /opt/registry/export/localhost:5000 \
+    /opt/registry/export \
     localhost:5000
 ```
 
