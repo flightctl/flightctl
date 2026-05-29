@@ -495,13 +495,70 @@ location = "localhost:5000"
 insecure = true
 ```
 
-### Step 6 — Install flightctl pointing at the local registry
+### Step 6 — Install flightctl on the air-gapped machine
+
+There are two deployment paths. Choose the one that matches your environment:
+
+---
+
+#### Option A — RPM + Podman quadlets (bare RHEL 9, no Kubernetes required)
+
+This is the recommended path for a standalone RHEL 9 machine. The `flightctl-services` RPM installs Podman quadlet systemd units that pull images from the container registry. The `registries.conf` redirect configured in Step 5 ensures those pulls come from `localhost:5000`.
+
+The RPMs are normally installed from `rpm.flightctl.io`, which is unreachable on an air-gapped machine. You must download them on the prep machine and include them in the transfer (see Step 3).
+
+**On the prep machine** (with internet), download the RPMs:
 
 ```bash
-helm install flightctl deploy/helm/flightctl \
+# Add the flightctl repo and download RPMs without installing
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+dnf download --resolve --destdir ~/flightctl-rpms flightctl-services
+```
+
+**Transfer the RPMs** alongside the image archive (Step 3):
+
+```bash
+tar -czf ~/flightctl-rpms.tar.gz -C ~ flightctl-rpms/
+scp ~/flightctl-rpms.tar.gz demo@air-gapped-vm:~/
+```
+
+**On the air-gapped VM**, install from the local RPM files:
+
+```bash
+tar -xzf ~/flightctl-rpms.tar.gz -C ~/
+sudo dnf install -y ~/flightctl-rpms/*.rpm
+```
+
+Start the services:
+
+```bash
+sudo systemctl enable --now flightctl.target
+sudo systemctl status flightctl.target
+```
+
+---
+
+#### Option B — Helm on Kubernetes / OpenShift
+
+Use this path if the target machine is running Kubernetes (MicroShift, OpenShift, or a standard cluster). If using MicroShift on RHEL, install it first via the [MicroShift documentation](https://docs.redhat.com/en/documentation/red_hat_build_of_microshift) — the MicroShift binary and its dependencies also need to be transferred to the air-gapped machine.
+
+Package the Helm chart on the **prep machine** and transfer it:
+
+```bash
+helm package deploy/helm/flightctl
+scp flightctl-*.tgz demo@air-gapped-vm:~/
+```
+
+Install on the **air-gapped VM**:
+
+```bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml   # adjust for your cluster
+helm install flightctl ~/flightctl-*.tgz \
+    --namespace flightctl \
+    --create-namespace \
+    --set global.baseDomain=<hostname-or-ip> \
     --set ubiMinimal.image=localhost:5000/ubi9/ubi-minimal \
-    --set ubiMinimal.tag=9.7-1763362218 \
-    ...
+    --set ubiMinimal.tag=9.7-1763362218
 ```
 
 ---
