@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
-
 // testLogger creates a test logger with hook for capturing logs
 func testLogger() (logrus.FieldLogger, *test.Hook) {
 	logger, hook := test.NewNullLogger()
@@ -21,82 +20,31 @@ func testLogger() (logrus.FieldLogger, *test.Hook) {
 func TestDetectDeployment(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupEnv    func(t *testing.T) (basePath string, cleanup func())
+		detector    *Detector
 		wantType    DeploymentType
 		wantErr     bool
 		errContains string
 	}{
 		{
-			name: "Podman deployment - PKI exists",
-			setupEnv: func(t *testing.T) (string, func()) {
-				// Capture and unset K8s env var to ensure clean state
-				origK8sHost := os.Getenv("KUBERNETES_SERVICE_HOST")
-				os.Unsetenv("KUBERNETES_SERVICE_HOST")
-
-				// Create test-local directory structure
-				tmpDir := t.TempDir()
-				testFlightctlDir := filepath.Join(tmpDir, "flightctl")
-				pkiDir := filepath.Join(testFlightctlDir, "pki")
-				require.NoError(t, os.MkdirAll(pkiDir, 0755))
-				caCrt := filepath.Join(pkiDir, "ca.crt")
-				require.NoError(t, os.WriteFile(caCrt, []byte("test"), 0644))
-
-				return testFlightctlDir, func() {
-					if origK8sHost != "" {
-						os.Setenv("KUBERNETES_SERVICE_HOST", origK8sHost)
-					}
-				}
-			},
+			name:     "Podman deployment - service active",
+			detector: &Detector{PodmanChecker: func() bool { return true }, KubeconfigChecker: func() bool { return false }},
 			wantType: DeploymentTypePodman,
-			wantErr:  false,
 		},
 		{
-			name: "Kubernetes deployment - env var set",
-			setupEnv: func(t *testing.T) (string, func()) {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-				// Return empty basePath to use default
-				return "", func() {}
-			},
+			name:     "Kubernetes deployment - kubeconfig present",
+			detector: &Detector{PodmanChecker: func() bool { return false }, KubeconfigChecker: func() bool { return true }},
 			wantType: DeploymentTypeKubernetes,
-			wantErr:  false,
 		},
 		{
-			name: "No deployment detected",
-			setupEnv: func(t *testing.T) (string, func()) {
-				// Capture and unset K8s env var to ensure clean state
-				origK8sHost := os.Getenv("KUBERNETES_SERVICE_HOST")
-				os.Unsetenv("KUBERNETES_SERVICE_HOST")
-
-				// Use temp directory without flightctl indicators
-				// This prevents test failure if developer has /etc/flightctl on their system
-				tmpDir := t.TempDir()
-				testFlightctlDir := filepath.Join(tmpDir, "flightctl-nonexistent")
-
-				return testFlightctlDir, func() {
-					if origK8sHost != "" {
-						os.Setenv("KUBERNETES_SERVICE_HOST", origK8sHost)
-					}
-				}
-			},
+			name:        "No deployment detected",
+			detector:    &Detector{PodmanChecker: func() bool { return false }, KubeconfigChecker: func() bool { return false }},
 			wantType:    DeploymentTypeUnknown,
 			wantErr:     true,
 			errContains: "unable to detect deployment type",
 		},
 		{
-			name: "Conflicting indicators",
-			setupEnv: func(t *testing.T) (string, func()) {
-				// Create test-local directory structure
-				tmpDir := t.TempDir()
-				testFlightctlDir := filepath.Join(tmpDir, "flightctl")
-				pkiDir := filepath.Join(testFlightctlDir, "pki")
-				require.NoError(t, os.MkdirAll(pkiDir, 0755))
-				caCrt := filepath.Join(pkiDir, "ca.crt")
-				require.NoError(t, os.WriteFile(caCrt, []byte("test"), 0644))
-
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-
-				return testFlightctlDir, func() {}
-			},
+			name:        "Conflicting indicators",
+			detector:    &Detector{PodmanChecker: func() bool { return true }, KubeconfigChecker: func() bool { return true }},
 			wantType:    DeploymentTypeUnknown,
 			wantErr:     true,
 			errContains: "conflicting deployment indicators",
@@ -105,51 +53,32 @@ func TestDetectDeployment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			basePath, cleanup := tt.setupEnv(t)
-			defer cleanup()
-
-			cfg := config.NewDefault()
-			log, _ := testLogger()
-
-			deployer, err := DetectDeployment(cfg, log, basePath)
+			dt, err := tt.detector.Detect()
 
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errContains)
-				require.Nil(t, deployer)
+				require.Equal(t, DeploymentTypeUnknown, dt)
 			} else {
 				require.NoError(t, err)
-				require.NotNil(t, deployer)
-				require.Equal(t, tt.wantType, deployer.Type())
+				require.Equal(t, tt.wantType, dt)
 			}
 		})
 	}
 }
 
 func TestPodmanDeployer(t *testing.T) {
-	cfg := config.NewDefault()
-	cfg.Database.Hostname = "localhost"
 	log, _ := testLogger()
-	deployer := NewPodmanDeployer(cfg, log, "")
+	deployer := NewPodmanDeployer(log)
 
 	require.Equal(t, DeploymentTypePodman, deployer.Type())
-
-	// Verify config is set
-	require.NotNil(t, deployer.cfg)
-	require.Equal(t, cfg, deployer.cfg)
 }
 
 func TestKubernetesDeployer(t *testing.T) {
-	cfg := config.NewDefault()
-	cfg.Database.Hostname = "flightctl-db"
 	log, _ := testLogger()
-	deployer := NewKubernetesDeployer(cfg, log, "", "", nil)
+	deployer := NewKubernetesDeployer(log)
 
 	require.Equal(t, DeploymentTypeKubernetes, deployer.Type())
-
-	// Verify config is set
-	require.NotNil(t, deployer.cfg)
-	require.Equal(t, cfg, deployer.cfg)
 }
 
 func TestDeploymentTypeString(t *testing.T) {
@@ -287,49 +216,3 @@ func TestIsInternalDB(t *testing.T) {
 	}
 }
 
-func TestCheckEnvironment(t *testing.T) {
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T) string
-		wantK8s    bool
-		wantPodman bool
-	}{
-		{
-			name: "Kubernetes indicator set",
-			setup: func(t *testing.T) string {
-				t.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-				// Use non-existent path for clean test
-				return filepath.Join(t.TempDir(), "nonexistent")
-			},
-			wantK8s:    true,
-			wantPodman: false,
-		},
-		{
-			name: "No indicators",
-			setup: func(t *testing.T) string {
-				// Capture and unset K8s env var to ensure clean state
-				origK8sHost := os.Getenv("KUBERNETES_SERVICE_HOST")
-				os.Unsetenv("KUBERNETES_SERVICE_HOST")
-				t.Cleanup(func() {
-					if origK8sHost != "" {
-						os.Setenv("KUBERNETES_SERVICE_HOST", origK8sHost)
-					}
-				})
-				// Use non-existent path for clean test
-				return filepath.Join(t.TempDir(), "nonexistent")
-			},
-			wantK8s:    false,
-			wantPodman: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			basePath := tt.setup(t)
-			indicators := checkEnvironment(basePath)
-			require.Equal(t, tt.wantK8s, indicators.kubernetesEnvSet)
-			require.Equal(t, tt.wantPodman, indicators.podmanPKIExists)
-			require.Equal(t, tt.wantPodman, indicators.podmanConfigDirExists)
-		})
-	}
-}

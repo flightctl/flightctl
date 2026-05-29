@@ -15,24 +15,87 @@ import (
 
 // PodmanDeployer implements Deployer for Podman/quadlet deployments
 type PodmanDeployer struct {
-	cfg     *config.Config
-	log     logrus.FieldLogger
-	pkiPath string // Optional: if empty, defaults to "/etc/flightctl/pki"
+	log               logrus.FieldLogger
+	pkiPath           string // Optional: if empty, defaults to "/etc/flightctl/pki"
+	serviceConfigPath string // Optional: if empty, defaults to "/etc/flightctl/service-config.yaml"
+	dbContainerName   string
+	dbName            string
+	containerCLI      string
+	kvContainerName   string
+}
+
+// PodmanDeployerOption configures a PodmanDeployer.
+type PodmanDeployerOption func(*PodmanDeployer)
+
+// WithPKIPath sets the PKI source directory path.
+func WithPKIPath(path string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.pkiPath = path
+	}
+}
+
+// WithServiceConfigPath sets the service configuration file path.
+func WithServiceConfigPath(path string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.serviceConfigPath = path
+	}
+}
+
+// WithDBContainerName sets the database container name for pg_dump exec.
+func WithDBContainerName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbContainerName = name
+	}
+}
+
+// WithDBName overrides the database name used for pg_dump.
+// When empty, cfg.Database.Name from the service config is used.
+func WithDBName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbName = name
+	}
+}
+
+// WithContainerCLI sets the container CLI command (e.g. "podman" or "docker").
+func WithContainerCLI(cli string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.containerCLI = cli
+	}
+}
+
+// WithKVContainerName sets the KV container name (reserved for future use).
+func WithKVContainerName(name string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.kvContainerName = name
+	}
 }
 
 // NewPodmanDeployer creates a new Podman deployer.
-// If pkiPath is empty, defaults to "/etc/flightctl/pki" (production path).
-// Pass explicit pkiPath for testing with temporary directories.
-func NewPodmanDeployer(cfg *config.Config, log logrus.FieldLogger, pkiPath string) *PodmanDeployer {
-	// Set default PKI path at construction time
-	if pkiPath == "" {
-		pkiPath = "/etc/flightctl/pki"
+// Defaults: pkiPath "/etc/flightctl/pki", serviceConfigPath "/etc/flightctl/service-config.yaml",
+// dbContainerName "flightctl-db", containerCLI "podman", kvContainerName "flightctl-kv".
+func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *PodmanDeployer {
+	d := &PodmanDeployer{
+		log: log,
 	}
-	return &PodmanDeployer{
-		cfg:     cfg,
-		log:     log,
-		pkiPath: pkiPath,
+	for _, opt := range opts {
+		opt(d)
 	}
+	if d.pkiPath == "" {
+		d.pkiPath = "/etc/flightctl/pki"
+	}
+	if d.serviceConfigPath == "" {
+		d.serviceConfigPath = "/etc/flightctl/service-config.yaml"
+	}
+	if d.dbContainerName == "" {
+		d.dbContainerName = "flightctl-db"
+	}
+	if d.containerCLI == "" {
+		d.containerCLI = "podman"
+	}
+	if d.kvContainerName == "" {
+		d.kvContainerName = "flightctl-kv"
+	}
+	return d
 }
 
 // Type returns the deployment type
@@ -41,11 +104,17 @@ func (p *PodmanDeployer) Type() DeploymentType {
 }
 
 // BackupDatabase backs up the PostgreSQL database by executing pg_dump inside the database container.
+// Credentials are loaded from the service configuration file at serviceConfigPath.
 // For internal databases, executes pg_dump via podman exec and writes dump to <outputDir>/db/dump.sql.
 // For external databases, returns ErrExternalDatabase without creating a backup.
 func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) error {
+	cfg, err := config.Load(p.serviceConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to load service configuration from %s: %w", p.serviceConfigPath, err)
+	}
+
 	// Check if database is external
-	if !isInternalDB(p.cfg) {
+	if !isInternalDB(cfg) {
 		return ErrExternalDatabase
 	}
 
@@ -55,14 +124,15 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 		return fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	// Hardcoded container name for database.
-	// This matches the default Podman/quadlet deployment.
-	containerName := "flightctl-db"
-
-	p.log.Infof("Starting database backup from container %s...", containerName)
+	p.log.Infof("Starting database backup from container %s...", p.dbContainerName)
 
 	// Build password from config
-	password := string(p.cfg.Database.Password)
+	password := string(cfg.Database.Password)
+
+	dbName := cfg.Database.Name
+	if p.dbName != "" {
+		dbName = p.dbName
+	}
 
 	// Create dump file to stream output directly (avoids holding entire dump in memory)
 	dumpFile := filepath.Join(dbDir, "dump.sql")
@@ -75,12 +145,12 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 	// Execute pg_dump inside the container with password from stdin and safely escaped parameters.
 	// Output streams directly to dump file.
 	// Use shell escaping to prevent injection attacks from user/database names.
-	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump -h 127.0.0.1 -p %s -U %s -d %s",
-		shellEscape(strconv.Itoa(int(p.cfg.Database.Port))),
-		shellEscape(p.cfg.Database.User),
-		shellEscape(p.cfg.Database.Name))
+	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p %s -U %s -d %s",
+		ShellEscape(strconv.Itoa(int(cfg.Database.Port))),
+		ShellEscape(cfg.Database.User),
+		ShellEscape(dbName))
 
-	cmd := exec.CommandContext(ctx, "podman", "exec", "-i", containerName, "sh", "-c", pgDumpCmd)
+	cmd := exec.CommandContext(ctx, p.containerCLI, "exec", "-i", p.dbContainerName, "sh", "-c", pgDumpCmd)
 
 	// Pass password via stdin to avoid exposing it in process argv
 	cmd.Stdin = bytes.NewReader([]byte(password))
@@ -216,8 +286,74 @@ func (p *PodmanDeployer) BackupPKI(ctx context.Context, outputDir string) error 
 	return nil
 }
 
-// BackupConfig is a stub (implemented in EDM-3892)
+// BackupConfig backs up service configuration files for Podman deployments.
+// Copies /etc/flightctl/service-config.yaml to <outputDir>/config/service-config.yaml.
+// Exports PAM Issuer volume to <outputDir>/volumes/pam-issuer-etc.tar.
+// Returns error if service-config.yaml is missing (required file).
+// Logs warning if PAM Issuer volume export fails (optional component).
 func (p *PodmanDeployer) BackupConfig(ctx context.Context, outputDir string) error {
-	p.log.Debug("BackupConfig called (stub implementation)")
+	// Create config directory
+	configDir := filepath.Join(outputDir, "config")
+	if err := os.MkdirAll(configDir, pkiDirMode); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Copy service-config.yaml (required file)
+	serviceConfigSrc := p.serviceConfigPath
+	serviceConfigDst := filepath.Join(configDir, "service-config.yaml")
+
+	// Check if source file exists
+	srcInfo, err := os.Stat(serviceConfigSrc)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("required service configuration file does not exist: %s", serviceConfigSrc)
+		}
+		return fmt.Errorf("failed to access service configuration file %s: %w", serviceConfigSrc, err)
+	}
+
+	// Copy file preserving permissions
+	if err := copyFilePreserveMode(serviceConfigSrc, serviceConfigDst, srcInfo.Mode().Perm(), p.log); err != nil {
+		return fmt.Errorf("failed to copy service configuration: %w", err)
+	}
+
+	p.log.Info("Service configuration backed up")
+
+	// Backup PAM Issuer volume (optional component)
+	volumesDir := filepath.Join(outputDir, "volumes")
+	if err := os.MkdirAll(volumesDir, pkiDirMode); err != nil {
+		return fmt.Errorf("failed to create volumes directory: %w", err)
+	}
+
+	// Check for context cancellation before volume export
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("config backup cancelled: %w", ctx.Err())
+	default:
+	}
+
+	// PAM Issuer volume name (must match Podman/quadlet deployment)
+	// Defined in: packaging/systemd/flightctl-pam-issuer.quadlet
+	volumeName := "flightctl-pam-issuer-etc"
+	volumeArchive := filepath.Join(volumesDir, "pam-issuer-etc.tar")
+
+	// Execute podman volume export
+	cmd := exec.CommandContext(ctx, "podman", "volume", "export", volumeName, "-o", volumeArchive)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Clean up any partial archive before returning
+		if removeErr := os.Remove(volumeArchive); removeErr != nil && !os.IsNotExist(removeErr) {
+			p.log.Warnf("Failed to remove partial PAM Issuer archive %s: %v - manual cleanup may be required", volumeArchive, removeErr)
+		}
+		// Check if failure was due to context cancellation
+		if ctx.Err() != nil {
+			return fmt.Errorf("config backup cancelled during PAM volume export: %w", ctx.Err())
+		}
+		// Log warning but don't fail - PAM Issuer volume is optional
+		p.log.Warnf("PAM Issuer volume export failed (volume may not exist or podman unavailable): %v (output: %s)", err, string(output))
+		p.log.Warn("Continuing backup without PAM Issuer volume")
+		return nil
+	}
+
+	p.log.Info("PAM Issuer volume backed up")
 	return nil
 }

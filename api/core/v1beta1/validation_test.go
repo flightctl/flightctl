@@ -2327,6 +2327,99 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 	}
 }
 
+func TestRepository_Validate_BaseImages(t *testing.T) {
+	makeBaseImage := func(imageName string, tags ...string) BaseImageEntry {
+		return BaseImageEntry{ImageName: imageName, Tags: tags}
+	}
+
+	tests := []struct {
+		name    string
+		images  []BaseImageEntry
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid - single base image",
+			images:  []BaseImageEntry{makeBaseImage("centos-bootc/centos-bootc", "stream9")},
+			wantErr: false,
+		},
+		{
+			name: "valid - multiple base images with unique image names",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9"),
+				makeBaseImage("rhel/rhel-bootc", "9.4"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid - duplicate imageName across entries",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9"),
+				makeBaseImage("centos-bootc/centos-bootc", "stream10"),
+			},
+			wantErr: true,
+			errMsg:  "spec.baseImages[1].imageName: duplicate imageName",
+		},
+		{
+			name: "invalid - triplicate imageName: second and third are both flagged",
+			images: []BaseImageEntry{
+				makeBaseImage("my-org/my-image", "v1"),
+				makeBaseImage("my-org/my-image", "v2"),
+				makeBaseImage("my-org/my-image", "v3"),
+			},
+			wantErr: true,
+			errMsg:  "spec.baseImages[1].imageName: duplicate imageName",
+		},
+		{
+			name: "invalid - duplicate tags within an entry",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9", "stream9"),
+			},
+			wantErr: true,
+			errMsg:  `spec.baseImages[0].tags[1]: duplicate tag "stream9"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoSpec := RepositorySpec{}
+			err := repoSpec.FromOciRepoSpec(OciRepoSpec{
+				Registry:   "quay.io",
+				Type:       "oci",
+				BaseImages: &tt.images,
+			})
+			require.NoError(t, err)
+
+			repo := Repository{
+				ApiVersion: "v1beta1",
+				Kind:       "Repository",
+				Metadata: ObjectMeta{
+					Name: lo.ToPtr("test-oci-repo"),
+				},
+				Spec: repoSpec,
+			}
+
+			errs := repo.Validate()
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected validation error")
+				if tt.errMsg != "" {
+					found := false
+					for _, e := range errs {
+						if strings.Contains(e.Error(), tt.errMsg) {
+							found = true
+							break
+						}
+					}
+					require.True(t, found, "expected error containing %q, got %v", tt.errMsg, errs)
+				}
+			} else {
+				require.Empty(t, errs, "unexpected validation errors: %v", errs)
+			}
+		})
+	}
+}
+
 func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 	// Ensure existing git repository specs still work
 	t.Run("GitRepoSpec without auth works", func(t *testing.T) {

@@ -12,9 +12,6 @@ ContainerName=flightctl-telemetry-gateway
 
 Volume=/etc/flightctl/flightctl-telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
 
-PublishPort=4317:4317/tcp
-PublishPort=9464:9464/tcp
-
 Network=flightctl.network
 AddHost=%H:host-gateway
 

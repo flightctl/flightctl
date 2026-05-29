@@ -1,0 +1,33 @@
+[Unit]
+Description=Flight Control Gateway service
+After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service
+Wants=flightctl-certs-init.service
+PartOf=flightctl.target
+
+[Container]
+ContainerName=flightctl-gateway
+Image={{ .Gateway.Image }}:{{ .Gateway.Tag }}
+Pull=missing
+Network=flightctl.network
+AddHost=%H:host-gateway
+Volume=/etc/flightctl/pki:/etc/flightctl/pki:ro,z
+Volume=/etc/flightctl/flightctl-gateway/nginx.conf:/etc/nginx/nginx.conf:ro,z
+Volume=/etc/flightctl/pki/flightctl-gateway/server.crt:/etc/flightctl/pki/flightctl-gateway/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-gateway/server.key:/etc/flightctl/pki/flightctl-gateway/server.key:ro,z
+User=1001
+Group=0
+Exec=nginx -g "daemon off;"
+
+PublishPort=443:8443
+# Backwards-compat: pre-gateway installations used port 3443 for the API and 8445 for imagebuilder.
+# These are published unconditionally; nginx controls whether they are served based on suppressOldPorts.
+PublishPort=3443:3443
+PublishPort=7443:7443
+PublishPort=8445:8445
+PublishPort=4317:4317
+
+[Service]
+Restart=always
+RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-gateway/nginx.conf.template --output-file /etc/flightctl/flightctl-gateway/nginx.conf
