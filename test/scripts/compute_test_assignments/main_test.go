@@ -53,31 +53,31 @@ func TestMedianFloat(t *testing.T) {
 func TestDefaultDuration(t *testing.T) {
 	tests := []struct {
 		name    string
-		timings map[string]float64
+		timings map[string]specTiming
 		floor   float64
 		expect  float64
 	}{
 		{
 			name:    "When timings are empty it should return the floor",
-			timings: map[string]float64{},
+			timings: map[string]specTiming{},
 			floor:   60.0,
 			expect:  60.0,
 		},
 		{
 			name:    "When median is below the floor it should return the floor",
-			timings: map[string]float64{"a": 10.0, "b": 20.0, "c": 30.0},
+			timings: map[string]specTiming{"a": {Avg: 10.0}, "b": {Avg: 20.0}, "c": {Avg: 30.0}},
 			floor:   60.0,
 			expect:  60.0,
 		},
 		{
 			name:    "When median exceeds the floor it should return the median",
-			timings: map[string]float64{"a": 100.0, "b": 200.0, "c": 300.0},
+			timings: map[string]specTiming{"a": {Avg: 100.0}, "b": {Avg: 200.0}, "c": {Avg: 300.0}},
 			floor:   60.0,
 			expect:  200.0,
 		},
 		{
 			name:    "When median equals the floor it should return the floor",
-			timings: map[string]float64{"a": 60.0},
+			timings: map[string]specTiming{"a": {Avg: 60.0}},
 			floor:   60.0,
 			expect:  60.0,
 		},
@@ -92,33 +92,33 @@ func TestDefaultDuration(t *testing.T) {
 
 func TestSeparateTimings(t *testing.T) {
 	tests := []struct {
-		name              string
-		all               map[string]float64
-		expectSpec        map[string]float64
-		expectSuite       map[string]float64
+		name        string
+		all         map[string]specTiming
+		expectSpec  map[string]specTiming
+		expectSuite map[string]specTiming
 	}{
 		{
 			name: "When map has both spec and suite keys it should split them correctly",
-			all: map[string]float64{
-				"Suite Spec A":             10.0,
-				"Suite Spec B":             20.0,
-				"__suite__:My Suite":       120.0,
-				"__suite__:Other Suite":    30.0,
+			all: map[string]specTiming{
+				"Suite Spec A":          {Avg: 10.0},
+				"Suite Spec B":          {Avg: 20.0},
+				"__suite__:My Suite":    {Avg: 120.0},
+				"__suite__:Other Suite": {Avg: 30.0},
 			},
-			expectSpec:  map[string]float64{"Suite Spec A": 10.0, "Suite Spec B": 20.0},
-			expectSuite: map[string]float64{"My Suite": 120.0, "Other Suite": 30.0},
+			expectSpec:  map[string]specTiming{"Suite Spec A": {Avg: 10.0}, "Suite Spec B": {Avg: 20.0}},
+			expectSuite: map[string]specTiming{"My Suite": {Avg: 120.0}, "Other Suite": {Avg: 30.0}},
 		},
 		{
 			name:        "When map has only spec keys it should return empty suite map",
-			all:         map[string]float64{"Spec A": 10.0},
-			expectSpec:  map[string]float64{"Spec A": 10.0},
-			expectSuite: map[string]float64{},
+			all:         map[string]specTiming{"Spec A": {Avg: 10.0}},
+			expectSpec:  map[string]specTiming{"Spec A": {Avg: 10.0}},
+			expectSuite: map[string]specTiming{},
 		},
 		{
 			name:        "When map is empty it should return two empty maps",
-			all:         map[string]float64{},
-			expectSpec:  map[string]float64{},
-			expectSuite: map[string]float64{},
+			all:         map[string]specTiming{},
+			expectSpec:  map[string]specTiming{},
+			expectSuite: map[string]specTiming{},
 		},
 	}
 
@@ -167,18 +167,22 @@ func allSpecs(assignments map[string][]string) []string {
 
 // totalDuration returns the estimated total duration for a node's spec list,
 // including any suite BeforeSuite overhead for suites first seen on this node.
-func totalDuration(specs []string, suiteLookup map[string]string, specTimings map[string]float64, suiteTimings map[string]float64, def float64) float64 {
+// sigma matches the value passed to lptAssign so the estimated totals are
+// consistent with the weights used during scheduling.
+func totalDuration(specs []string, suiteLookup map[string]string, specTimings map[string]specTiming, suiteTimings map[string]specTiming, def float64, sigma float64) float64 {
 	var sum float64
 	suitesSeen := map[string]struct{}{}
 	for _, s := range specs {
 		if suite, ok := suiteLookup[s]; ok && suite != "" {
 			if _, seen := suitesSeen[suite]; !seen {
-				sum += suiteTimings[suite]
+				if t, ok := suiteTimings[suite]; ok {
+					sum += effectiveWeight(t, sigma)
+				}
 				suitesSeen[suite] = struct{}{}
 			}
 		}
-		if d, ok := specTimings[s]; ok {
-			sum += d
+		if t, ok := specTimings[s]; ok {
+			sum += effectiveWeight(t, sigma)
 		} else {
 			sum += def
 		}
@@ -187,13 +191,13 @@ func totalDuration(specs []string, suiteLookup map[string]string, specTimings ma
 }
 
 func TestLptAssign(t *testing.T) {
-	noSuiteTimings := map[string]float64{}
+	noSuiteTimings := map[string]specTiming{}
 
 	tests := []struct {
 		name         string
 		specs        []specInfo
-		specTimings  map[string]float64
-		suiteTimings map[string]float64
+		specTimings  map[string]specTiming
+		suiteTimings map[string]specTiming
 		nNodes       int
 		defDuration  float64
 		checkFn      func(t *testing.T, assignments map[string][]string)
@@ -205,7 +209,7 @@ func TestLptAssign(t *testing.T) {
 				{name: "Suite Spec B", suite: "Suite"},
 				{name: "Suite Spec C", suite: "Suite"},
 			},
-			specTimings:  map[string]float64{"Suite Spec A": 10.0, "Suite Spec B": 20.0, "Suite Spec C": 30.0},
+			specTimings:  map[string]specTiming{"Suite Spec A": {Avg: 10.0}, "Suite Spec B": {Avg: 20.0}, "Suite Spec C": {Avg: 30.0}},
 			suiteTimings: noSuiteTimings,
 			nNodes:       1,
 			defDuration:  60.0,
@@ -220,8 +224,8 @@ func TestLptAssign(t *testing.T) {
 				{name: "Suite Spec B", suite: "Suite"},
 				{name: "Suite Spec C", suite: "Suite"},
 			},
-			specTimings: map[string]float64{
-				"Suite Spec A": 90.0, "Suite Spec B": 60.0, "Suite Spec C": 30.0,
+			specTimings: map[string]specTiming{
+				"Suite Spec A": {Avg: 90.0}, "Suite Spec B": {Avg: 60.0}, "Suite Spec C": {Avg: 30.0},
 			},
 			suiteTimings: noSuiteTimings,
 			// LPT: assign A(90)→node1, then B(60)→node2, then C(30)→node2
@@ -229,10 +233,10 @@ func TestLptAssign(t *testing.T) {
 			nNodes:      2,
 			defDuration: 60.0,
 			checkFn: func(t *testing.T, a map[string][]string) {
-				specT := map[string]float64{"Suite Spec A": 90.0, "Suite Spec B": 60.0, "Suite Spec C": 30.0}
+				specT := map[string]specTiming{"Suite Spec A": {Avg: 90.0}, "Suite Spec B": {Avg: 60.0}, "Suite Spec C": {Avg: 30.0}}
 				suiteLookup := map[string]string{"Suite Spec A": "Suite", "Suite Spec B": "Suite", "Suite Spec C": "Suite"}
-				d1 := totalDuration(a["1"], suiteLookup, specT, noSuiteTimings, 60.0)
-				d2 := totalDuration(a["2"], suiteLookup, specT, noSuiteTimings, 60.0)
+				d1 := totalDuration(a["1"], suiteLookup, specT, noSuiteTimings, 60.0, 0)
+				d2 := totalDuration(a["2"], suiteLookup, specT, noSuiteTimings, 60.0, 0)
 				require.InDelta(t, 0.0, d1-d2, 1e-9, "expected zero spread")
 			},
 		},
@@ -242,22 +246,22 @@ func TestLptAssign(t *testing.T) {
 				{name: "Suite Known Spec", suite: "Suite"},
 				{name: "Suite Unknown Spec", suite: "Suite"},
 			},
-			specTimings:  map[string]float64{"Suite Known Spec": 100.0},
+			specTimings:  map[string]specTiming{"Suite Known Spec": {Avg: 100.0}},
 			suiteTimings: noSuiteTimings,
 			nNodes:       2,
 			defDuration:  60.0,
 			checkFn: func(t *testing.T, a map[string][]string) {
-				specT := map[string]float64{"Suite Known Spec": 100.0}
+				specT := map[string]specTiming{"Suite Known Spec": {Avg: 100.0}}
 				suiteLookup := map[string]string{"Suite Known Spec": "Suite", "Suite Unknown Spec": "Suite"}
-				d1 := totalDuration(a["1"], suiteLookup, specT, noSuiteTimings, 60.0)
-				d2 := totalDuration(a["2"], suiteLookup, specT, noSuiteTimings, 60.0)
+				d1 := totalDuration(a["1"], suiteLookup, specT, noSuiteTimings, 60.0, 0)
+				d2 := totalDuration(a["2"], suiteLookup, specT, noSuiteTimings, 60.0, 0)
 				require.InDelta(t, 160.0, d1+d2, 1e-9, "total duration must be preserved")
 			},
 		},
 		{
 			name:         "When there is only one spec and many nodes it should assign it to exactly one node",
 			specs:        []specInfo{{name: "Suite Lone Spec", suite: "Suite"}},
-			specTimings:  map[string]float64{"Suite Lone Spec": 45.0},
+			specTimings:  map[string]specTiming{"Suite Lone Spec": {Avg: 45.0}},
 			suiteTimings: noSuiteTimings,
 			nNodes:       4,
 			defDuration:  60.0,
@@ -271,7 +275,7 @@ func TestLptAssign(t *testing.T) {
 				{name: "Suite Spec A", suite: "Suite"},
 				{name: "Suite Spec B", suite: "Suite"},
 			},
-			specTimings:  map[string]float64{"Suite Spec A": 10.0, "Suite Spec B": 20.0},
+			specTimings:  map[string]specTiming{"Suite Spec A": {Avg: 10.0}, "Suite Spec B": {Avg: 20.0}},
 			suiteTimings: noSuiteTimings,
 			nNodes:       5,
 			defDuration:  60.0,
@@ -287,13 +291,13 @@ func TestLptAssign(t *testing.T) {
 				{name: "Agent Suite spec 2", suite: "Agent Suite"},
 				{name: "CLI Suite spec 1", suite: "CLI Suite"},
 			},
-			specTimings: map[string]float64{
-				"Agent Suite spec 1": 100.0,
-				"Agent Suite spec 2": 100.0,
-				"CLI Suite spec 1":   10.0,
+			specTimings: map[string]specTiming{
+				"Agent Suite spec 1": {Avg: 100.0},
+				"Agent Suite spec 2": {Avg: 100.0},
+				"CLI Suite spec 1":   {Avg: 10.0},
 			},
 			// Agent Suite has 200s BeforeSuite overhead, CLI Suite has 10s.
-			suiteTimings: map[string]float64{"Agent Suite": 200.0, "CLI Suite": 10.0},
+			suiteTimings: map[string]specTiming{"Agent Suite": {Avg: 200.0}, "CLI Suite": {Avg: 10.0}},
 			nNodes:       2,
 			defDuration:  60.0,
 			checkFn: func(t *testing.T, a map[string][]string) {
@@ -303,19 +307,19 @@ func TestLptAssign(t *testing.T) {
 				// Node1: 200(BeforeSuite) + 100 = 300
 				// Node2: 200(BeforeSuite) + 100 + 10(CLI BeforeSuite) + 10 = 320
 				// We only verify the BeforeSuite is counted exactly once per suite per node.
-				specT := map[string]float64{
-					"Agent Suite spec 1": 100.0,
-					"Agent Suite spec 2": 100.0,
-					"CLI Suite spec 1":   10.0,
+				specT := map[string]specTiming{
+					"Agent Suite spec 1": {Avg: 100.0},
+					"Agent Suite spec 2": {Avg: 100.0},
+					"CLI Suite spec 1":   {Avg: 10.0},
 				}
-				suiteT := map[string]float64{"Agent Suite": 200.0, "CLI Suite": 10.0}
+				suiteT := map[string]specTiming{"Agent Suite": {Avg: 200.0}, "CLI Suite": {Avg: 10.0}}
 				suiteLookup := map[string]string{
 					"Agent Suite spec 1": "Agent Suite",
 					"Agent Suite spec 2": "Agent Suite",
 					"CLI Suite spec 1":   "CLI Suite",
 				}
-				d1 := totalDuration(a["1"], suiteLookup, specT, suiteT, 60.0)
-				d2 := totalDuration(a["2"], suiteLookup, specT, suiteT, 60.0)
+				d1 := totalDuration(a["1"], suiteLookup, specT, suiteT, 60.0, 0)
+				d2 := totalDuration(a["2"], suiteLookup, specT, suiteT, 60.0, 0)
 				// Total must account for both suite overheads + all spec times.
 				// Agent Suite overhead paid at most twice (once per node that has ≥1 agent spec).
 				// CLI Suite overhead paid once (only one CLI spec, goes to one node).
@@ -327,7 +331,7 @@ func TestLptAssign(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assignments := lptAssign(tt.specs, tt.specTimings, tt.suiteTimings, tt.nNodes, tt.defDuration)
+			assignments := lptAssign(tt.specs, tt.specTimings, tt.suiteTimings, tt.nNodes, tt.defDuration, 0)
 
 			// Common invariants for every case.
 			require.Len(t, assignments, tt.nNodes, "number of nodes in result must equal nNodes")
@@ -477,19 +481,19 @@ func TestLoadTimings(t *testing.T) {
 		name      string
 		content   string
 		writeFile bool
-		expectMap map[string]float64
+		expectMap map[string]specTiming
 		expectErr bool
 	}{
 		{
 			name:      "When timings file is valid JSON it should return the correct map",
 			writeFile: true,
-			content:   `{"Spec A": 45.3, "Spec B": 120.0}`,
-			expectMap: map[string]float64{"Spec A": 45.3, "Spec B": 120.0},
+			content:   `{"Spec A": {"avg": 45.3, "stddev": 2.1}, "Spec B": {"avg": 120.0, "stddev": 0}}`,
+			expectMap: map[string]specTiming{"Spec A": {Avg: 45.3, StdDev: 2.1}, "Spec B": {Avg: 120.0, StdDev: 0}},
 		},
 		{
 			name:      "When timings file does not exist it should return empty map with no error",
 			writeFile: false,
-			expectMap: map[string]float64{},
+			expectMap: map[string]specTiming{},
 		},
 		{
 			name:      "When timings file contains invalid JSON it should return an error",

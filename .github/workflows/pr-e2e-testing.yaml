@@ -176,7 +176,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: test/scripts/test-timings.json
-          key: e2e-test-timings
+          key: e2e-test-timings-${{ github.run_id }}
+          restore-keys: e2e-test-timings-
 
       - name: Compute test assignments
         working-directory: test/scripts
