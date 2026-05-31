@@ -279,24 +279,24 @@ func TestLoadExistingCache(t *testing.T) {
 		name      string
 		content   string
 		writeFile bool
-		expectMap map[string]float64
+		expectMap map[string]specTiming
 	}{
 		{
 			name:      "When cache file does not exist it should return empty map with no error",
 			writeFile: false,
-			expectMap: map[string]float64{},
+			expectMap: map[string]specTiming{},
 		},
 		{
 			name:      "When cache file is valid JSON it should return the correct map",
 			writeFile: true,
-			content:   `{"Spec A": 45.3, "Spec B": 120.0}`,
-			expectMap: map[string]float64{"Spec A": 45.3, "Spec B": 120.0},
+			content:   `{"Spec A": {"avg": 45.3, "stddev": 2.1}, "Spec B": {"avg": 120.0, "stddev": 0}}`,
+			expectMap: map[string]specTiming{"Spec A": {Avg: 45.3, StdDev: 2.1}, "Spec B": {Avg: 120.0, StdDev: 0}},
 		},
 		{
 			name:      "When cache file contains invalid JSON it should return empty map gracefully",
 			writeFile: true,
 			content:   "not json",
-			expectMap: map[string]float64{},
+			expectMap: map[string]specTiming{},
 		},
 	}
 
@@ -319,14 +319,17 @@ func TestWriteCache(t *testing.T) {
 	t.Run("When writing a cache it should produce valid parseable JSON", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "timings.json")
-		input := map[string]float64{"Spec A": 45.3, "Spec B": 120.0}
+		input := map[string]specTiming{
+			"Spec A": {Avg: 45.3, StdDev: 2.1},
+			"Spec B": {Avg: 120.0, StdDev: 0},
+		}
 
 		require.NoError(t, writeCache(path, input))
 
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
 
-		var got map[string]float64
+		var got map[string]specTiming
 		require.NoError(t, json.Unmarshal(data, &got))
 		require.Equal(t, len(input), len(got))
 	})
@@ -334,7 +337,11 @@ func TestWriteCache(t *testing.T) {
 	t.Run("When writing a cache it should sort keys alphabetically", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "timings.json")
-		input := map[string]float64{"Zebra": 1.0, "Alpha": 2.0, "Middle": 3.0}
+		input := map[string]specTiming{
+			"Zebra":  {Avg: 1.0},
+			"Alpha":  {Avg: 2.0},
+			"Middle": {Avg: 3.0},
+		}
 
 		require.NoError(t, writeCache(path, input))
 
@@ -350,25 +357,26 @@ func TestWriteCache(t *testing.T) {
 		require.Less(t, middleIdx, zebraIdx, "Middle should appear before Zebra")
 	})
 
-	t.Run("When writing a cache it should round values to millisecond precision", func(t *testing.T) {
+	t.Run("When writing a cache it should round avg and stddev to millisecond precision", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "timings.json")
-		// Value with many sub-millisecond decimal places.
-		input := map[string]float64{"Precise Spec": 45.123456789}
+		input := map[string]specTiming{
+			"Precise Spec": {Avg: 45.123456789, StdDev: 12.987654321},
+		}
 
 		require.NoError(t, writeCache(path, input))
 
-		var got map[string]float64
+		var got map[string]specTiming
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(data, &got))
 
-		expected := math.Round(45.123456789*1000) / 1000
-		require.InDelta(t, expected, got["Precise Spec"], 1e-9)
+		require.InDelta(t, math.Round(45.123456789*1000)/1000, got["Precise Spec"].Avg, 1e-9)
+		require.InDelta(t, math.Round(12.987654321*1000)/1000, got["Precise Spec"].StdDev, 1e-9)
 	})
 
 	t.Run("When the output directory does not exist it should return an error", func(t *testing.T) {
-		err := writeCache(filepath.Join(t.TempDir(), "nonexistent", "out.json"), map[string]float64{})
+		err := writeCache(filepath.Join(t.TempDir(), "nonexistent", "out.json"), map[string]specTiming{})
 		require.Error(t, err)
 	})
 }

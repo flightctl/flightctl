@@ -29,7 +29,13 @@ on:
     branches: [main]
 
 permissions:
-  actions: read
+  # contents:read required for checkout; actions:write required for cache save and artifact reads.
+  contents: read
+  actions: write
+
+concurrency:
+  group: update-test-timings-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   update-timings:
@@ -46,9 +52,10 @@ jobs:
         working-directory: test/scripts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNS: ${{ inputs.runs || '10' }}
         run: |
           go run ./update_test_timings \
-            --runs "${{ inputs.runs || '10' }}" \
+            --runs "${RUNS}" \
             --workflow pr-e2e-testing.yaml \
             --output test-timings.json
 
@@ -56,4 +63,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: test/scripts/test-timings.json
-          key: e2e-test-timings
+          key: e2e-test-timings-${{ github.run_id }}
