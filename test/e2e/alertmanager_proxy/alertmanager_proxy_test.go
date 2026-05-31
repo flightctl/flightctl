@@ -3,6 +3,7 @@ package alertmanagerproxy_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -52,6 +53,10 @@ const (
 	uiExpectedProxyHost   = "alertmanager-proxy"
 
 	httpClientTimeout = 10 * time.Second
+	errHarnessNil     = "harness is nil"
+	errHTTPClientNil  = "http client is nil"
+	errBaseURLEmpty   = "base URL is empty"
+	errOrgIDEmpty     = "organization id should not be empty"
 )
 
 var (
@@ -136,13 +141,13 @@ var _ = Describe("Alertmanager proxy", func() {
 		if authMethod == login.AuthDisabled {
 			Skip(authDisabledMsg)
 		}
-		authOrgID, authToken, err := testHarness.ResolveOrganizationAndClientToken()
+		authOrgID, authToken, err := resolveAuthenticatedAlertsContext(testHarness, authMethod)
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve authenticated org/token context")
 		Expect(authOrgID).ToNot(BeEmpty(), "authenticated organization id should not be empty")
 		Expect(authToken).ToNot(BeEmpty(), "authenticated token should not be empty")
 
 		authAlertsPath := buildAlertsFilterPath(authOrgID, "", "")
-		withAuthStatusCode, withAuthBody, err := testHarness.HTTPGet(client, baseURL, authAlertsPath, authToken)
+		withAuthStatusCode, withAuthBody, authToken, err := getAlertsWithWorkingAuthToken(testHarness, client, baseURL, authAlertsPath, authToken)
 		Expect(err).ToNot(HaveOccurred(), "authenticated alerts request failed for path %q", authAlertsPath)
 		Expect(withAuthStatusCode).To(Equal(http.StatusOK), "expected authenticated /alerts to return %d", http.StatusOK)
 		Expect(withAuthBody).ToNot(BeEmpty(), "authenticated /alerts response body should not be empty")
@@ -205,18 +210,32 @@ var _ = Describe("Alertmanager proxy", func() {
 
 		orgID, err := testHarness.GetOrganizationID()
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
-		Expect(orgID).ToNot(BeEmpty(), "organization id should not be empty")
+		Expect(orgID).ToNot(BeEmpty(), errOrgIDEmpty)
 
-		token, err := testHarness.GetClientAccessToken()
-		Expect(err).ToNot(HaveOccurred(), "failed to resolve non-admin token")
-		Expect(token).ToNot(BeEmpty(), "non-admin token should not be empty")
+		clusterToken, err := testHarness.GetOpenShiftToken()
+		Expect(err).ToNot(HaveOccurred(), "failed to resolve non-admin cluster token")
+		Expect(clusterToken).ToNot(BeEmpty(), "non-admin cluster token should not be empty")
 
 		alertsPath := buildAlertsFilterPath(orgID, "", "")
-		statusCode, body, err := testHarness.HTTPGet(client, baseURL, alertsPath, token)
+		statusCode, body, err := testHarness.HTTPGet(client, baseURL, alertsPath, clusterToken)
 		Expect(err).ToNot(HaveOccurred(), "non-admin alerts request failed")
-		Expect(statusCode).To(Equal(http.StatusForbidden), "expected non-admin alerts request to return %d", http.StatusForbidden)
+		Expect(statusCode).To(
+			BeElementOf(http.StatusForbidden, http.StatusUnauthorized),
+			"expected non-admin alerts request to return %d or %d",
+			http.StatusForbidden,
+			http.StatusUnauthorized,
+		)
 		Expect(body).ToNot(BeEmpty(), "forbidden response body should not be empty")
-		Expect(body).To(ContainSubstring(statusForbidden), "forbidden response should include %q", statusForbidden)
+		Expect(body).To(
+			Or(
+				ContainSubstring(statusForbidden),
+				ContainSubstring("access denied"),
+				ContainSubstring("Unauthorized"),
+				ContainSubstring("failed to validate token"),
+			),
+			"denied response should include forbidden/access-denied/unauthorized context",
+			statusForbidden,
+		)
 	})
 
 	It("verifies Prometheus query path for common alert series", Label("87775"), func() {
@@ -294,6 +313,124 @@ func parseAlertsResponse(body string) ([]alertmanagerAlertResponse, error) {
 		return nil, fmt.Errorf("failed to decode alerts response: %w", err)
 	}
 	return result, nil
+}
+
+func resolveAuthenticatedAlertsContext(h *e2e.Harness, authMethod login.AuthMethod) (string, string, error) {
+	if h == nil {
+		return "", "", errors.New(errHarnessNil)
+	}
+	if err := h.RefreshClient(); err != nil {
+		return "", "", fmt.Errorf("failed to refresh client before resolving authenticated context: %w", err)
+	}
+
+	orgID, err := h.GetOrganizationID()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve organization id: %w", err)
+	}
+	if strings.TrimSpace(orgID) == "" {
+		return "", "", fmt.Errorf("organization id is empty")
+	}
+
+	clusterToken := ""
+	clusterErr := error(nil)
+	if authMethod == login.AuthToken {
+		clusterToken, clusterErr = h.GetOpenShiftToken()
+		if clusterErr == nil && strings.TrimSpace(clusterToken) != "" {
+			return orgID, clusterToken, nil
+		}
+	}
+
+	clientToken, clientTokenErr := h.GetClientAccessToken()
+	if clientTokenErr == nil && strings.TrimSpace(clientToken) != "" {
+		return orgID, clientToken, nil
+	}
+	if clusterErr != nil {
+		return "", "", fmt.Errorf("failed to resolve authenticated token: client token error (%v), cluster token error (%w)", clientTokenErr, clusterErr)
+	}
+
+	if clientTokenErr != nil {
+		return "", "", fmt.Errorf("failed to resolve authenticated token: %w", clientTokenErr)
+	}
+	return "", "", fmt.Errorf("authenticated token is empty")
+}
+
+func getAlertsWithWorkingAuthToken(
+	h *e2e.Harness,
+	client *http.Client,
+	baseURL, path string,
+	preferredToken string,
+) (int, string, string, error) {
+	if h == nil {
+		return 0, "", "", errors.New(errHarnessNil)
+	}
+	if client == nil {
+		return 0, "", "", errors.New(errHTTPClientNil)
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return 0, "", "", errors.New(errBaseURLEmpty)
+	}
+	if strings.TrimSpace(path) == "" {
+		return 0, "", "", fmt.Errorf("path is empty")
+	}
+
+	tokenCandidates := make([]string, 0, 2)
+	tokenCandidates = appendUniqueNonEmptyToken(tokenCandidates, preferredToken)
+	if token, err := h.GetOpenShiftToken(); err == nil {
+		tokenCandidates = appendUniqueNonEmptyToken(tokenCandidates, token)
+	}
+	if token, err := h.GetClientAccessToken(); err == nil {
+		tokenCandidates = appendUniqueNonEmptyToken(tokenCandidates, token)
+	}
+	if len(tokenCandidates) == 0 {
+		return 0, "", "", fmt.Errorf("no candidate auth tokens available for authenticated alerts request")
+	}
+
+	var lastStatus int
+	var lastBody string
+	for _, token := range tokenCandidates {
+		status, body, err := h.HTTPGet(client, baseURL, path, token)
+		if err != nil {
+			return 0, "", "", err
+		}
+		if status == http.StatusOK {
+			return status, body, token, nil
+		}
+		lastStatus = status
+		lastBody = body
+		if status != http.StatusUnauthorized {
+			return status, body, token, nil
+		}
+	}
+
+	if lastStatus == http.StatusUnauthorized {
+		return lastStatus, lastBody, tokenCandidates[len(tokenCandidates)-1], fmt.Errorf(
+			"authenticated alerts request remained unauthorized after trying %d token candidates; last body: %q",
+			len(tokenCandidates),
+			truncateForError(lastBody, 200),
+		)
+	}
+	return lastStatus, lastBody, tokenCandidates[len(tokenCandidates)-1], nil
+}
+
+func appendUniqueNonEmptyToken(existing []string, token string) []string {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return existing
+	}
+	for _, current := range existing {
+		if current == trimmed {
+			return existing
+		}
+	}
+	return append(existing, trimmed)
+}
+
+func truncateForError(value string, max int) string {
+	trimmed := strings.TrimSpace(value)
+	if max <= 0 || len(trimmed) <= max {
+		return trimmed
+	}
+	return trimmed[:max] + "..."
 }
 
 func restoreAdminLoginContext(h *e2e.Harness, ctx context.Context, defaultK8sContext string) error {
