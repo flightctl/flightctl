@@ -47,6 +47,7 @@ var resourcePermissions = map[string]map[string][]string{
 	},
 	v1beta1.RoleViewer: {
 		"*":                     {"get", "list"}, // Default read access to all resources
+		"devices/console":       {},              // Explicitly denied - console access requires operator or admin role
 		"imageexports/download": {},              // Explicitly denied - empty list overrides wildcard
 	},
 	v1beta1.RoleInstaller: {
