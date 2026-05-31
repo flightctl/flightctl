@@ -82,9 +82,12 @@ func makeJUnitReport(t *testing.T, dir string, cases []junitTestCase) string {
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	sb.WriteString("<testsuites>\n<testsuite>\n")
 	for _, tc := range cases {
-		if tc.Name == "" {
+		switch {
+		case tc.Name == "":
 			sb.WriteString(fmt.Sprintf(`  <testcase time="%.6f">`, tc.Time))
-		} else {
+		case tc.ClassName != "":
+			sb.WriteString(fmt.Sprintf(`  <testcase name=%q classname=%q time="%.6f">`, tc.Name, tc.ClassName, tc.Time))
+		default:
 			sb.WriteString(fmt.Sprintf(`  <testcase name=%q time="%.6f">`, tc.Name, tc.Time))
 		}
 		if len(tc.Skipped) > 0 {
@@ -166,11 +169,19 @@ func TestParseTimingsFromFile(t *testing.T) {
 			expectAbsent: []string{"Suite Skipped Spec"},
 		},
 		{
-			name: "When testcase is a BeforeSuite entry it should exclude it",
+			name: "When testcase is BeforeSuite with classname it should store it as suite overhead",
+			cases: []junitTestCase{
+				{Name: "[BeforeSuite]", ClassName: "Agent E2E Suite", Time: 225.0},
+			},
+			expectKeys:   []string{"__suite__:Agent E2E Suite"},
+			expectAbsent: []string{"[BeforeSuite]", ""},
+		},
+		{
+			name: "When testcase is BeforeSuite without classname it should be excluded",
 			cases: []junitTestCase{
 				{Name: "[BeforeSuite]", Time: 10.0},
 			},
-			expectAbsent: []string{"[BeforeSuite]", ""},
+			expectAbsent: []string{"[BeforeSuite]", "", "__suite__:"},
 		},
 		{
 			name: "When testcase time is zero it should exclude the spec",
@@ -194,14 +205,14 @@ func TestParseTimingsFromFile(t *testing.T) {
 			expectAbsent: []string{""},
 		},
 		{
-			name: "When multiple specs appear it should include only non-skipped It specs",
+			name: "When multiple specs appear it should include It specs and suite overhead, exclude skipped",
 			cases: []junitTestCase{
 				{Name: "[It] Suite Good A [sanity]", Time: 10.0},
 				{Name: "[It] Suite Good B [sanity]", Time: 20.0},
 				{Name: "[It] Suite Bad Skip [sanity]", Time: 5.0, Skipped: []struct{}{{}}},
-				{Name: "[BeforeSuite]", Time: 3.0},
+				{Name: "[BeforeSuite]", ClassName: "My Suite", Time: 3.0},
 			},
-			expectKeys:   []string{"Suite Good A", "Suite Good B"},
+			expectKeys:   []string{"Suite Good A", "Suite Good B", "__suite__:My Suite"},
 			expectAbsent: []string{"Suite Bad Skip", "[BeforeSuite]"},
 		},
 		{
