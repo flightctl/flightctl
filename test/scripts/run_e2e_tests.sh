@@ -19,7 +19,7 @@ GINKGO_OUTPUT_INTERCEPTOR_MODE=${GINKGO_OUTPUT_INTERCEPTOR_MODE:-"dup"}
 # Manual test splitting variables
 GINKGO_TOTAL_NODES=${GINKGO_TOTAL_NODES:-1}
 GINKGO_NODE=${GINKGO_NODE:-1}
-# Pre-computed LPT shard assignment file produced by compute_test_assignments.py.
+# Pre-computed LPT shard assignment file produced by go run ./compute_test_assignments.
 # When set and the file exists, used instead of round-robin splitting.
 ASSIGNMENTS_PATH=${ASSIGNMENTS_PATH:-""}
 # Discovery control variables
@@ -202,7 +202,7 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     echo "Node ${GINKGO_NODE} will run the following tests:"
     cat "${NODE_TESTS}"
 
-    FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | paste -sd '|')
+    FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | sed 's/.*/^&$/' | paste -sd '|')
     echo "Focus pattern for node ${GINKGO_NODE}: ${FOCUS_PATTERN}"
     GINKGO_FOCUS="${FOCUS_PATTERN}"
 

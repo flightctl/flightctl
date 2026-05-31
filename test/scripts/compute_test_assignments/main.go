@@ -119,15 +119,22 @@ func loadDiscovery(path string) ([]specInfo, error) {
 	return specs, nil
 }
 
-func loadTimings(path string) (map[string]float64, error) {
+// specTiming mirrors the cache entry written by update_test_timings.
+// Only Avg is used for LPT scheduling; StdDev is stored for observability.
+type specTiming struct {
+	Avg    float64 `json:"avg"`
+	StdDev float64 `json:"stddev"`
+}
+
+func loadTimings(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]float64{}, nil
+			return map[string]specTiming{}, nil
 		}
 		return nil, fmt.Errorf("read timings file: %w", err)
 	}
-	var timings map[string]float64
+	var timings map[string]specTiming
 	if err := json.Unmarshal(data, &timings); err != nil {
 		return nil, fmt.Errorf("parse timings file: %w", err)
 	}
@@ -136,9 +143,9 @@ func loadTimings(path string) (map[string]float64, error) {
 
 // separateTimings splits the combined timings map into spec timings and
 // per-suite BeforeSuite overhead timings (keys prefixed with suiteOverheadPrefix).
-func separateTimings(all map[string]float64) (specTimings, suiteTimings map[string]float64) {
-	specTimings = make(map[string]float64, len(all))
-	suiteTimings = make(map[string]float64)
+func separateTimings(all map[string]specTiming) (specTimings, suiteTimings map[string]specTiming) {
+	specTimings = make(map[string]specTiming, len(all))
+	suiteTimings = make(map[string]specTiming)
 	for k, v := range all {
 		if strings.HasPrefix(k, suiteOverheadPrefix) {
 			suiteTimings[strings.TrimPrefix(k, suiteOverheadPrefix)] = v
@@ -163,15 +170,24 @@ func medianFloat(values []float64) float64 {
 	return (sorted[n/2-1] + sorted[n/2]) / 2
 }
 
-func defaultDuration(specTimings map[string]float64, floor float64) float64 {
+// defaultDuration returns max(floor, median(avg)) across all known spec timings.
+// The default is intentionally based on avg-only so that the floor remains
+// meaningful regardless of the sigma setting.
+func defaultDuration(specTimings map[string]specTiming, floor float64) float64 {
 	if len(specTimings) == 0 {
 		return floor
 	}
 	vals := make([]float64, 0, len(specTimings))
 	for _, v := range specTimings {
-		vals = append(vals, v)
+		vals = append(vals, v.Avg)
 	}
 	return math.Max(floor, medianFloat(vals))
+}
+
+// effectiveWeight returns the pessimistic weight used for LPT scheduling:
+// avg + sigma*stddev.  sigma=0 reduces to a plain average.
+func effectiveWeight(t specTiming, sigma float64) float64 {
+	return t.Avg + sigma*t.StdDev
 }
 
 // weighted pairs a spec with its estimated duration.
@@ -180,12 +196,18 @@ type weighted struct {
 	duration float64
 }
 
-func lptAssign(specs []specInfo, specTimings map[string]float64, suiteTimings map[string]float64, nNodes int, defDuration float64) map[string][]string {
-	// Pair each spec with its duration; sort descending (LPT property).
+// lptAssign assigns specs to nodes using the Longest Processing Time greedy
+// algorithm.  The weight of each spec is avg + sigma*stddev; sigma=0 uses
+// plain averages, sigma=1 inflates by one standard deviation as a pessimistic
+// buffer for high-jitter specs.
+func lptAssign(specs []specInfo, specTimings map[string]specTiming, suiteTimings map[string]specTiming, nNodes int, defDuration float64, sigma float64) map[string][]string {
+	// Pair each spec with its effective duration; sort descending (LPT property).
 	ws := make([]weighted, len(specs))
 	for i, s := range specs {
-		dur, ok := specTimings[s.name]
-		if !ok {
+		var dur float64
+		if t, ok := specTimings[s.name]; ok {
+			dur = effectiveWeight(t, sigma)
+		} else {
 			dur = defDuration
 		}
 		ws[i] = weighted{s, dur}
@@ -206,7 +228,7 @@ func lptAssign(specs []specInfo, specTimings map[string]float64, suiteTimings ma
 		if w.spec.suite != "" {
 			if _, started := n.suites[w.spec.suite]; !started {
 				if overhead, ok := suiteTimings[w.spec.suite]; ok {
-					n.total += overhead
+					n.total += effectiveWeight(overhead, sigma)
 				}
 				n.suites[w.spec.suite] = struct{}{}
 			}
@@ -224,15 +246,19 @@ func lptAssign(specs []specInfo, specTimings map[string]float64, suiteTimings ma
 	return result
 }
 
-func printSummary(assignments map[string][]string, specTimings map[string]float64, suiteTimings map[string]float64, defDuration float64, unknowns []string, specs []specInfo) {
+func printSummary(assignments map[string][]string, specTimings map[string]specTiming, suiteTimings map[string]specTiming, defDuration float64, unknowns []string, specs []specInfo, sigma float64) {
 	// Build a lookup from spec name to suite name.
 	suiteLookup := make(map[string]string, len(specs))
 	for _, s := range specs {
 		suiteLookup[s.name] = s.suite
 	}
 
+	label := "Est. Duration"
+	if sigma > 0 {
+		label = fmt.Sprintf("Est. (σ×%.1f)", sigma)
+	}
 	fmt.Println()
-	fmt.Printf("%-6s %15s %8s\n", "Node", "Est. Duration", "Specs")
+	fmt.Printf("%-6s %15s %8s\n", "Node", label, "Specs")
 	fmt.Println("-----  ---------------  ------")
 
 	totals := make([]float64, 0, len(assignments))
@@ -245,13 +271,13 @@ func printSummary(assignments map[string][]string, specTimings map[string]float6
 			if suite != "" {
 				if _, seen := suitesSeen[suite]; !seen {
 					if overhead, ok := suiteTimings[suite]; ok {
-						total += overhead
+						total += effectiveWeight(overhead, sigma)
 					}
 					suitesSeen[suite] = struct{}{}
 				}
 			}
-			if d, ok := specTimings[s]; ok {
-				total += d
+			if t, ok := specTimings[s]; ok {
+				total += effectiveWeight(t, sigma)
 			} else {
 				total += defDuration
 			}
@@ -298,6 +324,7 @@ func newRootCmd() *cobra.Command {
 		nodes       int
 		output      string
 		defSecs     float64
+		sigma       float64
 	)
 
 	cmd := &cobra.Command{
@@ -317,6 +344,9 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 			if nodes < 1 {
 				return fmt.Errorf("--nodes must be >= 1")
 			}
+			if sigma < 0 {
+				return fmt.Errorf("--jitter-sigma must be >= 0")
+			}
 
 			specs, err := loadDiscovery(discovery)
 			if err != nil {
@@ -335,6 +365,9 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 			}
 			fmt.Printf("Default duration for unknown specs: %.1fs\n", def)
 
+			if sigma > 0 {
+				fmt.Printf("Jitter inflation: avg + %.1f×stddev\n", sigma)
+			}
 			if len(suiteTimings) > 0 {
 				fmt.Printf("Suite BeforeSuite overhead: %d suite(s) tracked\n", len(suiteTimings))
 			}
@@ -357,12 +390,12 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				return writeJSON(output, empty)
 			}
 
-			assignments := lptAssign(specs, specTimings, suiteTimings, nodes, def)
+			assignments := lptAssign(specs, specTimings, suiteTimings, nodes, def, sigma)
 			if err := writeJSON(output, assignments); err != nil {
 				return err
 			}
 			fmt.Printf("Assignments written to: %s\n", output)
-			printSummary(assignments, specTimings, suiteTimings, def, unknowns, specs)
+			printSummary(assignments, specTimings, suiteTimings, def, unknowns, specs, sigma)
 			return nil
 		},
 	}
@@ -372,6 +405,7 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 	cmd.Flags().IntVar(&nodes, "nodes", 0, "Number of shards to assign to (required)")
 	cmd.Flags().StringVar(&output, "output", "assignments.json", "Output file")
 	cmd.Flags().Float64Var(&defSecs, "default-secs", -1, "Fallback duration for unknown specs in seconds (default: max(60, median))")
+	cmd.Flags().Float64Var(&sigma, "jitter-sigma", 1.0, "Std deviations added to each spec's avg when estimating weight (0 = avg only, 1 = avg+1σ pessimistic buffer)")
 	_ = cmd.MarkFlagRequired("nodes")
 
 	return cmd
