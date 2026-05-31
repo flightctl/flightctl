@@ -3,8 +3,10 @@
 // the last N successful e2e CI runs.
 //
 // The cache maps each spec's full name (as it appears in the JUnit <testcase>
-// name attribute) to its average wall-clock duration in seconds.  Skipped
-// specs and specs with zero or negative durations are excluded.
+// name attribute) to a specTiming entry containing the average wall-clock
+// duration in seconds and the population standard deviation across all
+// observations (useful for identifying high-jitter specs).  Skipped specs and
+// specs with zero or negative durations are excluded.
 //
 // Run automatically by .github/workflows/update-test-timings.yaml.
 // Requires GITHUB_TOKEN (or GH_TOKEN) in the environment.
@@ -37,6 +39,13 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/spf13/cobra"
 )
+
+// specTiming holds the aggregate timing data for a single spec across all
+// observed CI runs.
+type specTiming struct {
+	Avg    float64 `json:"avg"`
+	StdDev float64 `json:"stddev"`
+}
 
 // junitTestSuites is the root element of Ginkgo's JUnit XML output.
 type junitTestSuites struct {
@@ -234,32 +243,36 @@ func parseTimingsFromFile(path string) (map[string][]float64, error) {
 	return result, nil
 }
 
-func loadExistingCache(path string) (map[string]float64, error) {
+func loadExistingCache(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]float64{}, nil
+			return map[string]specTiming{}, nil
 		}
 		return nil, fmt.Errorf("read existing cache: %w", err)
 	}
-	var cache map[string]float64
+	var cache map[string]specTiming
 	if err := json.Unmarshal(data, &cache); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not parse existing cache %s; starting fresh: %v\n", path, err)
-		return map[string]float64{}, nil
+		return map[string]specTiming{}, nil
 	}
 	return cache, nil
 }
 
-func writeCache(path string, timings map[string]float64) error {
+func writeCache(path string, timings map[string]specTiming) error {
 	keys := make([]string, 0, len(timings))
 	for k := range timings {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	ordered := make(map[string]float64, len(timings))
+	ordered := make(map[string]specTiming, len(timings))
 	for _, k := range keys {
-		ordered[k] = math.Round(timings[k]*1000) / 1000
+		t := timings[k]
+		ordered[k] = specTiming{
+			Avg:    math.Round(t.Avg*1000) / 1000,
+			StdDev: math.Round(t.StdDev*1000) / 1000,
+		}
 	}
 
 	data, err := json.MarshalIndent(ordered, "", "  ")
@@ -269,18 +282,32 @@ func writeCache(path string, timings map[string]float64) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
-func printSummary(timings map[string]float64, prevCount int) {
+// populationStdDev computes the population standard deviation of values around
+// the given mean.  Returns 0 when fewer than 2 values are present.
+func populationStdDev(values []float64, mean float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+	var variance float64
+	for _, v := range values {
+		diff := v - mean
+		variance += diff * diff
+	}
+	return math.Sqrt(variance / float64(len(values)))
+}
+
+func printSummary(timings map[string]specTiming, prevCount int) {
 	if len(timings) == 0 {
 		fmt.Println("No timing data collected.")
 		return
 	}
-	vals := make([]float64, 0, len(timings))
-	for _, v := range timings {
-		vals = append(vals, v)
+	avgs := make([]float64, 0, len(timings))
+	for _, t := range timings {
+		avgs = append(avgs, t.Avg)
 	}
-	sort.Float64s(vals)
+	sort.Float64s(avgs)
 	var sum float64
-	for _, v := range vals {
+	for _, v := range avgs {
 		sum += v
 	}
 	newCount := len(timings) - prevCount
@@ -292,9 +319,32 @@ func printSummary(timings map[string]float64, prevCount int) {
 	if newCount > 0 {
 		fmt.Printf("  New specs added     : %d\n", newCount)
 	}
-	fmt.Printf("  Min duration        : %.1fs\n", vals[0])
-	fmt.Printf("  Max duration        : %.1fs\n", vals[len(vals)-1])
-	fmt.Printf("  Mean duration       : %.1fs\n", sum/float64(len(vals)))
+	fmt.Printf("  Min duration        : %.1fs\n", avgs[0])
+	fmt.Printf("  Max duration        : %.1fs\n", avgs[len(avgs)-1])
+	fmt.Printf("  Mean duration       : %.1fs\n", sum/float64(len(avgs)))
+
+	// Report the top high-jitter specs by coefficient of variation (CV = stddev/avg).
+	type jitterEntry struct {
+		name string
+		cv   float64
+	}
+	var jittery []jitterEntry
+	for name, t := range timings {
+		if t.Avg > 0 && t.StdDev > 0 {
+			jittery = append(jittery, jitterEntry{name: name, cv: t.StdDev / t.Avg})
+		}
+	}
+	if len(jittery) > 0 {
+		sort.Slice(jittery, func(i, j int) bool { return jittery[i].cv > jittery[j].cv })
+		limit := 5
+		if len(jittery) < limit {
+			limit = len(jittery)
+		}
+		fmt.Printf("\n  Top %d highest-jitter specs (CV = stddev/avg):\n", limit)
+		for _, e := range jittery[:limit] {
+			fmt.Printf("    %.0f%%  %s\n", e.cv*100, e.name)
+		}
+	}
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println()
 }
@@ -311,8 +361,9 @@ func newRootCmd() *cobra.Command {
 		Use:   "update_test_timings",
 		Short: "Refresh the e2e test-timings.json cache from GitHub Actions artifacts",
 		Long: `Fetches JUnit XML report artifacts (junit-results-*) from the last N
-successful runs of the e2e CI workflow, computes per-spec average durations,
-and writes the result to the committed test-timings.json cache.
+successful runs of the e2e CI workflow, computes per-spec average durations
+and standard deviations, and writes the result to the committed
+test-timings.json cache.
 
 Requires GITHUB_TOKEN (or GH_TOKEN) in the environment.
 GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.`,
@@ -363,15 +414,15 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 			for _, runID := range runIDs {
 				fmt.Printf("  Processing run %d...\n", runID)
 
-			artifacts, err := listMatchingArtifacts(ctx, client, owner, repo, runID, "junit-results-")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "    Warning: %v\n", err)
-				continue
-			}
-			if len(artifacts) == 0 {
-				fmt.Printf("    No junit-results artifacts found\n")
-				continue
-			}
+				artifacts, err := listMatchingArtifacts(ctx, client, owner, repo, runID, "junit-results-")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "    Warning: %v\n", err)
+					continue
+				}
+				if len(artifacts) == 0 {
+					fmt.Printf("    No junit-results artifacts found\n")
+					continue
+				}
 
 				tmpDir, err := os.MkdirTemp("", fmt.Sprintf("e2e-timings-%d-*", runID))
 				if err != nil {
@@ -385,11 +436,11 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 					}
 				}
 
-			entries, _ := os.ReadDir(tmpDir)
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".xml") {
-					continue
-				}
+				entries, _ := os.ReadDir(tmpDir)
+				for _, e := range entries {
+					if e.IsDir() || !strings.HasSuffix(e.Name(), ".xml") {
+						continue
+					}
 					obs, err := parseTimingsFromFile(filepath.Join(tmpDir, e.Name()))
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "    Warning: parse %s: %v\n", e.Name(), err)
@@ -407,20 +458,35 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 				return nil
 			}
 
-			newTimings := make(map[string]float64, len(allObs))
+			newTimings := make(map[string]specTiming, len(allObs))
 			for name, durations := range allObs {
 				var sum float64
 				for _, d := range durations {
 					sum += d
 				}
-				newTimings[name] = sum / float64(len(durations))
+				avg := sum / float64(len(durations))
+				newTimings[name] = specTiming{
+					Avg:    avg,
+					StdDev: populationStdDev(durations, avg),
+				}
 			}
 			fmt.Printf("Computed averages for %d spec(s).\n", len(newTimings))
 
-			if err := writeCache(output, newTimings); err != nil {
+			// Merge: preserve existing entries absent from recent runs so specs
+			// that didn't appear in the last N runs keep their cached timing.
+			// Newly-computed values overwrite stale entries for the same spec.
+			merged := make(map[string]specTiming, len(existingCache)+len(newTimings))
+			for k, v := range existingCache {
+				merged[k] = v
+			}
+			for k, v := range newTimings {
+				merged[k] = v
+			}
+
+			if err := writeCache(output, merged); err != nil {
 				return err
 			}
-			printSummary(newTimings, prevCount)
+			printSummary(merged, prevCount)
 			return nil
 		},
 	}
