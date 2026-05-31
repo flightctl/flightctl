@@ -125,10 +125,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - label_filter: 'sanity && !agent && !slow'
-          - label_filter: 'sanity && !agent && slow'
-          - label_filter: 'sanity && agent && !slow'
-          - label_filter: 'sanity && agent && slow'
+          - label_filter: 'sanity'
+            ginkgo_total_nodes: 10
+          - label_filter: 'sanity && agent'
+            ginkgo_total_nodes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -172,11 +172,29 @@ jobs:
             exit 1
           fi
 
+      - name: Restore test timings cache
+        uses: actions/cache/restore@v4
+        with:
+          path: test/scripts/test-timings.json
+          key: e2e-test-timings-${{ github.run_id }}
+          restore-keys: e2e-test-timings-
+
+      - name: Compute test assignments
+        working-directory: test/scripts
+        run: |
+          go run ./compute_test_assignments \
+            --discovery ../../discovery.json \
+            --timings test-timings.json \
+            --nodes ${{ matrix.ginkgo_total_nodes }} \
+            --output ../../assignments.json
+
       - name: Upload discovery artifact
         uses: actions/upload-artifact@v4
         with:
           name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ needs.compute-tag.outputs.tag }}
-          path: discovery.json
+          path: |
+            discovery.json
+            assignments.json
           retention-days: 1
 
   e2e-tests:
@@ -193,35 +211,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Non-Agent metrics (split slow specs so Ginkgo shards stay time-balanced)
-          ## CS9
+          ## CS9: all sanity tests (LPT balances agent + non-agent + slow together)
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && !agent && !slow'
-            ginkgo_total_nodes: 3
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && !agent && slow'
-            ginkgo_total_nodes: 2
-          # Agent metrics
-          ## CS9 Agent metrics
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 3
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && slow'
-            ginkgo_total_nodes: 2
-          ## CS10 Agent metrics
+            label_filter: 'sanity'
+            ginkgo_total_nodes: 10
+          ## CS10: agent tests only (non-agent tests are OS-independent, covered by CS9)
           - os_id: cs10-bootc
             backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 3
-          - os_id: cs10-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && slow'
-            ginkgo_total_nodes: 2
+            label_filter: 'sanity && agent'
+            ginkgo_total_nodes: 5
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
