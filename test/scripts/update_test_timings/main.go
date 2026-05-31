@@ -51,10 +51,15 @@ type junitTestSuite struct {
 // junitTestCase holds the fields we need from each <testcase> element.
 // Skipped is non-nil when a <skipped/> child element is present.
 type junitTestCase struct {
-	Name    string    `xml:"name,attr"`
-	Time    float64   `xml:"time,attr"`
-	Skipped []struct{} `xml:"skipped"`
+	Name      string     `xml:"name,attr"`
+	ClassName string     `xml:"classname,attr"`
+	Time      float64    `xml:"time,attr"`
+	Skipped   []struct{} `xml:"skipped"`
 }
+
+// suiteOverheadPrefix is the key prefix used to store per-suite BeforeSuite
+// average durations in the timings cache, e.g. "__suite__:Agent E2E Suite".
+const suiteOverheadPrefix = "__suite__:"
 
 func githubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
@@ -212,6 +217,11 @@ func parseTimingsFromFile(path string) (map[string][]float64, error) {
 	for _, suite := range suites.TestSuites {
 		for _, tc := range suite.TestCases {
 			if len(tc.Skipped) > 0 || tc.Time <= 0 {
+				continue
+			}
+			if tc.Name == "[BeforeSuite]" && tc.ClassName != "" {
+				key := suiteOverheadPrefix + tc.ClassName
+				result[key] = append(result[key], tc.Time)
 				continue
 			}
 			key := junitSpecName(tc.Name)
