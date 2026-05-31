@@ -333,3 +333,61 @@ To use a custom CA for the registry that serves the Podman or bootc-image-builde
 - Expired entitlement certificates
 - Incorrect secret format (certificates must be PEM encoded)
 - Missing certificate key file
+
+### Build Fails with "setting RLIMIT\_NOFILE limit … operation not permitted"
+
+**Problem**: Image build fails with an error similar to:
+
+```text
+Error: building at STEP "RUN … dnf install -y … flightctl-agent …":
+setting "RLIMIT_NOFILE" limit to soft=1048576,hard=1048576
+(was soft=524288,hard=524288): operation not permitted
+```
+
+**Cause**: The build container (buildah) tries to raise the open-file-descriptor limit to
+1048576. This fails when the host's hard limit is lower (for example, 524288, which is the
+OpenShift default) and the container runtime does not grant `CAP_SYS_RESOURCE` to raise it.
+
+**Solution**: The ImageBuilder Worker sets `--ulimit nofile=1048576:1048576` on the nested
+podman worker container, relying on the privileged pod's `CAP_SYS_RESOURCE` capability.
+If you still encounter this error, the host itself must be configured to allow the higher limit.
+
+On OpenShift, apply the following `MachineConfig` to the worker nodes:
+
+```yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: worker
+  name: 99-worker-raise-nofile
+spec:
+  config:
+    ignition:
+      version: 3.5.0
+    storage:
+      files:
+        - contents:
+            source: data:,%5BManager%5D%0ADefaultLimitNOFILE%3D1048576%3A1048576%0A
+          mode: 420
+          overwrite: true
+          path: /etc/systemd/system.conf.d/60-nofile.conf
+```
+
+This sets `DefaultLimitNOFILE=1048576:1048576` in systemd, which raises the limit for all
+processes on the node, including container runtimes.
+
+On a Podman Quadlet (Linux host), add the following file instead:
+
+```ini
+# /etc/systemd/system.conf.d/60-nofile.conf
+[Manager]
+DefaultLimitNOFILE=1048576:1048576
+```
+
+Then reload and restart the relevant services:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-imagebuilder-worker.service
+```

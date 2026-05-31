@@ -329,6 +329,11 @@ URI
 CatalogItems
 multicluster
  - docs/user/installing/configuring-imagebuilder.md
+ RLIMIT
+ NOFILE
+ buildah
+ runtimes
+ open-file
  entitlement
  uncomment
  volume
