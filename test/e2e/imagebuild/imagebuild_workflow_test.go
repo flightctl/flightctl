@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -37,17 +39,80 @@ const (
 )
 
 const (
-	// Source image (centos-bootc from quay.io)
-	sourceRegistry  = "quay.io"
-	sourceImageName = "centos-bootc/centos-bootc"
-	sourceImageTag  = "stream9"
+	defaultSourceRegistry = "quay.io"
+	sourceImageName       = "centos-bootc/centos-bootc"
+	sourceImageTag        = "stream9"
 
-	// Destination image
 	destImageName = "centos-bootc-custom"
 
-	// VM SSH port base for this test (use high port to avoid conflicts)
 	vmSSHPortBase = 22800
 )
+
+var sourceRegistry = defaultSourceRegistry
+var sourceRegistryOnce sync.Once
+
+func resolveSourceRegistry(h *e2e.Harness) {
+	sourceRegistryOnce.Do(func() {
+		if reg := os.Getenv("E2E_SOURCE_REGISTRY"); reg != "" {
+			sourceRegistry = reg
+			GinkgoWriter.Printf("Using E2E_SOURCE_REGISTRY override: %s\n", sourceRegistry)
+			return
+		}
+
+		probeName := fmt.Sprintf("source-registry-probe-%d", GinkgoParallelProcess())
+		_, err := resources.CreateOCIRepository(h, probeName, defaultSourceRegistry,
+			lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+		if err != nil {
+			GinkgoWriter.Printf("Failed to create probe repository: %v, keeping default source registry\n", err)
+			return
+		}
+		defer func() { _, _ = resources.Delete(h, resources.Repositories, probeName) }()
+
+		accessible := false
+		Eventually(func(g Gomega) {
+			repo, err := h.GetRepository(probeName)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(repo.Status).NotTo(BeNil())
+			cond := api.FindStatusCondition(repo.Status.Conditions, api.ConditionTypeRepositoryAccessible)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Status).To(Or(
+				Equal(api.ConditionStatusTrue),
+				Equal(api.ConditionStatusFalse),
+			))
+			accessible = cond.Status == api.ConditionStatusTrue
+		}, processingTimeout, processingPollPeriod).Should(Succeed())
+
+		if !accessible {
+			mirror := findQuayMirrorRegistry()
+			if mirror != "" {
+				sourceRegistry = mirror
+				GinkgoWriter.Printf("quay.io not accessible, using OCP mirror: %s\n", sourceRegistry)
+			} else {
+				sourceRegistry = auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
+				GinkgoWriter.Printf("quay.io not accessible, no OCP mirror found, using e2e-registry: %s\n", sourceRegistry)
+			}
+		}
+	})
+}
+
+func findQuayMirrorRegistry() string {
+	out, err := exec.Command("oc", "get", "imagetagmirrorset", "-o",
+		`jsonpath={range .items[*].spec.imageTagMirrors[*]}{.source}{" "}{.mirrors[0]}{"\n"}{end}`).Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 2 && parts[0] == defaultSourceRegistry {
+			return parts[1]
+		}
+	}
+	return ""
+}
+
+func isLocalSourceRegistry() bool {
+	return sourceRegistry != defaultSourceRegistry
+}
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild end-to-end workflow", func() {
@@ -73,8 +138,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 1: Creating repositories")
 
+			resolveSourceRegistry(workerHarness)
 			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
-				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+				lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
