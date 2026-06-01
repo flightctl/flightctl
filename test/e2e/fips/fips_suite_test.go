@@ -30,26 +30,32 @@ var _ = BeforeSuite(func() {
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
 
-	// FIPS tests require OpenShift with FIPS enabled (see OpenShift FIPS readiness doc section 4.1).
-	if env := infra.DetectEnvironment(); env != infra.EnvironmentOCP {
-		Skip("FIPS suite requires OpenShift (OCP) deployment with FIPS enabled; current environment: " + env)
-	}
-	if !testutil.BinaryExistsOnPath("oc") {
-		Skip("FIPS suite requires 'oc' on PATH for OpenShift cluster checks")
-	}
-
-	installConfig, err := getClusterInstallConfig()
-	if err != nil {
-		Skip("could not read cluster-config-v1: " + err.Error())
-	}
-	if !strings.Contains(strings.ToLower(installConfig), "fips: true") {
-		Skip("FIPS suite requires a cluster installed with FIPS enabled (fips: true in install-config)")
+	// Validate that the environment has FIPS enabled.
+	switch env := infra.DetectEnvironment(); env {
+	case infra.EnvironmentOCP:
+		if !testutil.BinaryExistsOnPath("oc") {
+			Skip("FIPS suite requires 'oc' on PATH for OpenShift cluster checks")
+		}
+		installConfig, err := getClusterInstallConfig()
+		if err != nil {
+			Skip("could not read cluster-config-v1: " + err.Error())
+		}
+		if !strings.Contains(strings.ToLower(installConfig), "fips: true") {
+			Skip("FIPS suite requires a cluster installed with FIPS enabled (fips: true in install-config)")
+		}
+	case infra.EnvironmentQuadlet:
+		data, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
+		if err != nil || len(data) == 0 || data[0] != '1' {
+			Skip("FIPS suite requires a host with FIPS enabled (/proc/sys/crypto/fips_enabled must be 1)")
+		}
+	default:
+		Skip("FIPS suite requires OCP or Quadlet deployment with FIPS enabled; current environment: " + env)
 	}
 })
 
 var _ = BeforeEach(func() {
-	if os.Getenv("FLIGHTCTL_NS") == "" {
-		Skip("FLIGHTCTL_NS environment variable must be set for FIPS tests")
+	if infra.IsK8sEnvironment() && os.Getenv("FLIGHTCTL_NS") == "" {
+		Skip("FLIGHTCTL_NS environment variable must be set for FIPS tests on K8s")
 	}
 
 	harness := e2e.GetWorkerHarness()

@@ -1,5 +1,5 @@
 // FIPS verification e2e tests based on OpenShift FIPS readiness document section 4.1
-// (Functional Tests - FIPS verification). Requires OpenShift deployment with FIPS enabled.
+// (Functional Tests - FIPS verification). Requires OpenShift or Quadlet deployment with FIPS enabled.
 
 package fips_test
 
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,23 +24,28 @@ const (
 var _ = Describe("FIPS verification", Label("fips"), func() {
 
 	// 88250 - FIPS enablement checks
-	// Step: Check on OpenShift deployment that fips is enabled with
-	//   oc get cm cluster-config-v1 -n kube-system -o jsonpath='{.data.install-config}' | grep -i fips
-	// Expected: fips=true
-	It("cluster has FIPS enabled in install-config", Label("88250"), func() {
+	// OCP: check install-config ConfigMap for fips: true.
+	// Quadlet: check /proc/sys/crypto/fips_enabled on the host.
+	It("deployment has FIPS enabled", Label("88250"), func() {
 		harness := e2e.GetWorkerHarness()
 
-		By("getting cluster install-config from cluster-config-v1")
-		out, err := harness.SH("oc", "get", "cm", "cluster-config-v1", "-n", "kube-system", "-o", "jsonpath={.data.install-config}")
-		if err != nil {
-			// ConfigMap may not exist on non-OCP or older clusters
-			GinkgoWriter.Printf("oc get cluster-config-v1 failed (cluster may not be OCP or FIPS-capable): %v\n", err)
-			Skip("cluster-config-v1 not available or oc failed: " + err.Error())
-		}
+		if infra.DetectEnvironment() == infra.EnvironmentQuadlet {
+			By("checking host-level FIPS via /proc/sys/crypto/fips_enabled")
+			out, err := harness.SH("cat", "/proc/sys/crypto/fips_enabled")
+			Expect(err).ToNot(HaveOccurred(), "/proc/sys/crypto/fips_enabled should be readable")
+			Expect(strings.TrimSpace(out)).To(Equal("1"), "host must have FIPS enabled (fips_enabled=1)")
+		} else {
+			By("getting cluster install-config from cluster-config-v1")
+			out, err := harness.SH("oc", "get", "cm", "cluster-config-v1", "-n", "kube-system", "-o", "jsonpath={.data.install-config}")
+			if err != nil {
+				GinkgoWriter.Printf("oc get cluster-config-v1 failed (cluster may not be OCP or FIPS-capable): %v\n", err)
+				Skip("cluster-config-v1 not available or oc failed: " + err.Error())
+			}
 
-		By("verifying install-config contains \"fips: true\"")
-		Expect(out).To(ContainSubstring("fips"), "install-config should mention fips")
-		Expect(strings.ToLower(out)).To(MatchRegexp("fips: *true"), "FIPS must be enabled (fips: true) for FIPS readiness")
+			By("verifying install-config contains \"fips: true\"")
+			Expect(out).To(ContainSubstring("fips"), "install-config should mention fips")
+			Expect(strings.ToLower(out)).To(MatchRegexp("fips: *true"), "FIPS must be enabled (fips: true) for FIPS readiness")
+		}
 	})
 
 	// 88252 - FIPS private repo creation
