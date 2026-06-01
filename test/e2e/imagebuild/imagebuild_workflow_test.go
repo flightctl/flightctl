@@ -83,46 +83,31 @@ func resolveSourceRegistry(h *e2e.Harness) {
 		}, processingTimeout, processingPollPeriod).Should(Succeed())
 
 		if !accessible {
-			sourceRegistry = auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
-			GinkgoWriter.Printf("quay.io not accessible, using local e2e-registry: %s\n", sourceRegistry)
-			mirrorBaseImageToE2ERegistry(sourceRegistry)
+			mirror := findQuayMirrorRegistry()
+			if mirror != "" {
+				sourceRegistry = mirror
+				GinkgoWriter.Printf("quay.io not accessible, using OCP mirror: %s\n", sourceRegistry)
+			} else {
+				sourceRegistry = auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
+				GinkgoWriter.Printf("quay.io not accessible, no OCP mirror found, using e2e-registry: %s\n", sourceRegistry)
+			}
 		}
 	})
 }
 
-func mirrorBaseImageToE2ERegistry(e2eRegistry string) {
-	srcImage := fmt.Sprintf("%s/%s:%s", defaultSourceRegistry, sourceImageName, sourceImageTag)
-	dstImage := fmt.Sprintf("docker://%s/%s:%s", e2eRegistry, sourceImageName, sourceImageTag)
-
-	// Find the OCP mirror for quay.io via ImageTagMirrorSet
+func findQuayMirrorRegistry() string {
 	out, err := exec.Command("oc", "get", "imagetagmirrorset", "-o",
 		`jsonpath={range .items[*].spec.imageTagMirrors[*]}{.source}{" "}{.mirrors[0]}{"\n"}{end}`).Output()
 	if err != nil {
-		GinkgoWriter.Printf("Failed to query ImageTagMirrorSet: %v, skipping base image mirror\n", err)
-		return
+		return ""
 	}
-	mirrorRegistry := ""
 	for _, line := range strings.Split(string(out), "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 2 && parts[0] == defaultSourceRegistry {
-			mirrorRegistry = parts[1]
-			break
+			return parts[1]
 		}
 	}
-
-	if mirrorRegistry != "" {
-		srcImage = fmt.Sprintf("docker://%s/%s:%s", mirrorRegistry, sourceImageName, sourceImageTag)
-	} else {
-		srcImage = "docker://" + srcImage
-	}
-
-	GinkgoWriter.Printf("Mirroring base image: %s → %s\n", srcImage, dstImage)
-	cmd := exec.Command("skopeo", "copy", "--src-tls-verify=false", "--dest-tls-verify=false", srcImage, dstImage)
-	cmd.Stdout = GinkgoWriter
-	cmd.Stderr = GinkgoWriter
-	if err := cmd.Run(); err != nil {
-		GinkgoWriter.Printf("WARNING: Failed to mirror base image: %v\n", err)
-	}
+	return ""
 }
 
 func isLocalSourceRegistry() bool {
