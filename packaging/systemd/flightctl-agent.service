@@ -10,6 +10,8 @@ StartLimitBurst=1000
 
 
 [Service]
+# Mask bootc auto-update timer before agent runs (bootc/composefs may not persist %post/oneshot enable).
+ExecStartPre=/usr/libexec/flightctl/mask-bootc-timer.sh
 ExecStart=/usr/bin/flightctl-agent
 Restart=always
 Type=notify

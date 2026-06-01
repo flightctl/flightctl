@@ -273,6 +273,63 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 	return nil
 }
 
+// FormatStatusError formats an api.Status for user-facing display.
+// Returns a formatted string with status code and message.
+func FormatStatusError(status *api.Status) string {
+	if status == nil || status.Message == "" {
+		return "unknown error"
+	}
+	if status.Code != 0 {
+		return fmt.Sprintf("response status: %d, message: %s", status.Code, status.Message)
+	}
+	return status.Message
+}
+
+// ParseStatusFromBody attempts to parse the response body as an api.Status.
+// Returns a Status with diagnostic text if parsing fails, body is empty, or Message is missing.
+func ParseStatusFromBody(body []byte) *api.Status {
+	if len(body) == 0 {
+		return &api.Status{Message: "empty response body"}
+	}
+	var status api.Status
+	if err := json.Unmarshal(body, &status); err != nil {
+		return &api.Status{Message: fmt.Sprintf("malformed response: %s", string(body))}
+	}
+	if status.Message == "" {
+		status.Message = fmt.Sprintf("no message in response: %s", string(body))
+	}
+	return &status
+}
+
+// APIError represents an error from an API operation with structured details.
+type APIError struct {
+	Status *api.Status // parsed API response, may be nil
+}
+
+// Error implements the error interface.
+func (e *APIError) Error() string {
+	return FormatStatusError(e.Status)
+}
+
+// CLIError represents a CLI operation error that can wrap other errors.
+type CLIError struct {
+	Context string // e.g., "applying examples/imagebuild.yaml/foo: failed"
+	Err     error  // nested error (could be APIError or other)
+}
+
+// Error implements the error interface with user-friendly formatting.
+func (e *CLIError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s\n%s", e.Context, e.Err.Error())
+	}
+	return e.Context
+}
+
+// Unwrap returns the underlying error for errors.As/Is support.
+func (e *CLIError) Unwrap() error {
+	return e.Err
+}
+
 func validateOrganizationID(orgID string) error {
 	if _, err := org.Parse(orgID); err != nil {
 		return err
