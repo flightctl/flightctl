@@ -17,6 +17,8 @@ http {
   ssl_ecdh_curve auto;
   ssl_prefer_server_ciphers off;
 
+  server_tokens off;
+
   server {
     server_name {{.global.baseDomain}};
     listen 8443 ssl;
