@@ -12,8 +12,6 @@ Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
-PublishPort=443:8080
-
 Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]

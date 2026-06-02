@@ -1,19 +1,451 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for flightctl
+# Edge device fleet management service (Go, Helm, Containerfiles, OpenAPI).
+#
+# Schema: https://coderabbit.ai/integrations/schema.v2.json
+# Validate: comment "@coderabbitai configuration" on any PR
+#
+language: "en-US"
 inheritance: true
-reviews:
-  auto_review:
-    # Draft PRs are excluded from automatic reviews.
-    drafts: false
+early_access: true
+tone_instructions: >-
+  Direct and constructive. Lead with the most impactful finding.
+  For security issues, state severity and blast radius.
 
-    # Ensure this list does NOT contain your bot's username.
-    # If you have an existing list, remove the bot's name from it.
-    # Username matching is exact and case-sensitive.
-    # For GitHub bots, the username usually includes the '[bot]' suffix.
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_instructions: >-
+    Summarize changes in terms of which areas are affected (api/, internal/agent/,
+    internal/store/, internal/auth/, internal/cli/, internal/rollout/,
+    internal/service/, deploy/helm/, packaging/, .github/workflows/), whether the
+    change affects the API surface (OpenAPI, types, gRPC), the device agent,
+    the server-side control plane (store, service, worker, periodic), deployment
+    (Helm, quadlets, RPM), or test infrastructure, and flag any backward-
+    compatibility implications.
+  collapse_walkthrough: false
+  sequence_diagrams: true
+
+  path_filters:
+    # Generated code — review the source, not the output
+    - "!**/*.gen.go"
+    - "!**/*.pb.go"
+    - "!**/zz_generated.deepcopy.go"
+    - "!**/mock_*.go"
+    - "!**/*_mock.go"
+    # Build artifacts
+    - "!bin/**"
+    # Dependency lock — go.mod changes trigger the supply-chain block
+    - "!go.sum"
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - "main"
     ignore_usernames:
       - packit-as-a-service
+    ignore_title_keywords:
+      - "[skip-review]"
+      - "WIP"
 
-    # If your bot uses specific keywords in the title (like "WIP" or "Experimental"),
-    # ensure they are not listed here, as this will cause CodeRabbit to skip the review.
-    ignore_title_keywords: []
+  path_instructions:
 
-    # Ensure automatic reviews are globally enabled for the repository.
+    # ── Go: design, correctness & security ───────────────────────
+    - path: "**/*.go"
+      instructions: |
+        Go review priorities:
+
+        **Design & correctness:**
+        - Does the change fit the existing architecture and patterns in this area?
+        - Flag unnecessary abstractions, premature generalization, or god-functions
+        - Concurrency: check for data races, missing locks, unbounded goroutine
+          spawning, and proper context.Context propagation
+        - Resource leaks: unclosed io.Closer, deferred Close in loops, leaked
+          goroutines without shutdown signaling
+        - API contracts: exported types/functions must remain backward-compatible;
+          breaking changes need clear justification
+        - Error handling: never ignore error returns; wrap errors with
+          fmt.Errorf("context: %w", err) for debuggability
+        - Avoid package-level mutable state; prefer dependency injection
+        - Avoid naked returns in functions longer than a few lines
+        - strings.Builder or fmt.Sprintf over repeated string concatenation
+        - Flag unbounded slices, maps, or channels fed by external input
+
+        **Security (prodsec-skills):**
+        - SQL: parameterized queries only; no fmt.Sprintf in queries
+        - Command injection: no exec.Command with unsanitized user input
+        - Path traversal: canonicalize paths, reject ../
+        - Deserialization: no yaml.Unmarshal on untrusted data without schema
+          validation
+        - Integer overflow: bounds-check user-supplied sizes
+        - Use stdlib crypto/* and golang.org/x/crypto; avoid third-party
+          crypto libraries
+        - context.Context for cancellation and timeouts on all I/O
+
+    # ── OpenAPI specifications ───────────────────────────────────
+    - path: "api/**/*.yaml"
+      instructions: |
+        OpenAPI spec review:
+        - Backward compatibility: no removing or renaming fields, paths, or
+          required parameters without a deprecation period
+        - All new endpoints must have operationId, description, and error
+          responses (400, 401, 403, 404, 500)
+        - Consistent naming: camelCase for JSON fields, kebab-case for URL paths
+        - Validate that enum values match Go type constants in types.go
+        - New enums must include x-enum-varnames for each value (required by
+          the TypeScript client generator used in flightctl-ui)
+        - Security schemes defined on all non-public endpoints
+
+    # ── API types (hand-maintained source of truth) ──────────────
+    - path: "api/**/types.go"
+      instructions: |
+        API type review:
+        - These are hand-maintained types that drive codegen (make generate);
+          changes here affect all generated clients and servers
+        - json tags must match OpenAPI field names exactly
+        - New fields must be optional (pointer type or omitempty) for backward
+          compatibility unless explicitly breaking
+        - Validate that validation tags and enum constraints match the OpenAPI spec
+
+    # ── gRPC & protobuf ──────────────────────────────────────────
+    - path: "api/grpc/**/*.proto"
+      instructions: |
+        Protobuf review:
+        - Field numbers must never be reused or changed (wire compatibility)
+        - New fields must be optional for backward compatibility
+        - Use well-known types (google.protobuf.Timestamp, etc.) where applicable
+        - Service methods should document expected error codes
+
+    # ── Device agent ─────────────────────────────────────────────
+    - path: "internal/agent/**/*.go"
+      instructions: |
+        Device agent review:
+        - The agent runs on constrained edge devices — minimize memory
+          allocations and CPU usage
+        - Reconciliation loops must be idempotent and crash-safe
+        - Never panic; handle all errors gracefully (agent runs unattended
+          on remote hardware)
+        - File I/O must use the fileio abstraction, not direct os calls,
+          for testability
+        - Network operations need timeout and retry with exponential backoff
+        - TPM operations: verify error handling; TPM hardware may be absent
+          or misconfigured
+        - Changes to device state must be atomic or journaled to survive
+          unexpected power loss
+
+    # ── Store (database layer) ───────────────────────────────────
+    - path: "internal/store/**/*.go"
+      instructions: |
+        Database store review:
+
+        **Design:**
+        - Pagination: all list queries must support limit/offset or
+          cursor-based pagination
+        - Indexes: new queries should have supporting indexes; flag potential
+          full table scans
+
+        **Security:**
+        - SQL: parameterized queries only; no string interpolation
+        - Transactions: ensure proper commit/rollback; use defer for rollback
+          on error paths
+        - Connection pool: no long-held connections; release promptly
+
+    # ── Database migrations ──────────────────────────────────────
+    - path: "internal/migration/**/*.go"
+      instructions: |
+        Migration review:
+        - Migrations must be backward-compatible with the previous binary
+          version (support rolling upgrades)
+        - No data-destructive operations without explicit justification
+        - New columns must be nullable or have defaults
+        - Avoid full-table rewrites on large tables
+        - Each migration must be idempotent (safe to re-run)
+
+    # ── Auth & identity ──────────────────────────────────────────
+    - path: "internal/auth/**/*.go"
+      instructions: |
+        Authentication & authorization review:
+        - RBAC: enforce least privilege; no default-allow
+        - Token validation: verify signature, issuer, audience, and expiry
+        - Never log tokens, credentials, or PII
+        - Certificate handling: validate chains; check revocation where
+          applicable
+        - mTLS: verify both client and server certificates
+
+    # ── Cryptography ─────────────────────────────────────────────
+    - path: "{internal/crypto,pkg/crypto,pkg/certmanager}/**/*.go"
+      instructions: |
+        Cryptographic review (prodsec-skills):
+        - Banned: MD5, SHA1, DES, RC4, 3DES, Blowfish, ECB mode
+        - Symmetric: AES-256-GCM or ChaCha20-Poly1305
+        - Signing: Ed25519 or ECDSA P-256+
+        - Key exchange: X25519 or ECDH P-256+
+        - Constant-time comparison for all secret/token/certificate data
+        - Use stdlib crypto/*; no third-party crypto libraries
+        - Certificate generation: proper key usage extensions, reasonable
+          validity periods
+        - Zeroize key material after use; no hardcoded keys, IVs, or salts
+
+    # ── CLI ──────────────────────────────────────────────────────
+    - path: "internal/cli/**/*.go"
+      instructions: |
+        CLI review:
+        - User-facing output must be consistent and parseable (support
+          --output json/yaml where applicable)
+        - Error messages should be actionable: what went wrong and how to
+          fix it
+        - Never print secrets or tokens in output or debug logs
+        - Flag names should follow kubectl conventions (kebab-case, --long-flag)
+        - Validate all user input before making API calls
+
+    # ── Rollout & fleet management ───────────────────────────────
+    - path: "internal/rollout/**/*.go"
+      instructions: |
+        Rollout review:
+        - Rollout logic must be idempotent and safe under concurrent execution
+        - Verify rollout policies are enforced (disruption budgets, update
+          strategies)
+        - Edge cases: empty fleets, single-device fleets, devices mid-update
+        - Fleet selector changes must not cause unintended mass-rollouts
+        - All state transitions should be auditable
+
+    # ── Container & image hardening ──────────────────────────────
+    - path: "**/{Containerfile,Dockerfile}*"
+      instructions: |
+        Container security (prodsec-skills):
+        - Base image: UBI minimal from registry.redhat.io
+        - Multi-stage builds; no build tools in final image
+        - USER non-root; never run as root
+        - COPY specific files, not entire context
+        - No secrets in ENV, ARG, or COPY
+        - Read-only rootfs where possible
+        - No package manager cache in final layer
+
+    # ── Helm charts & K8s manifests ──────────────────────────────
+    - path: "deploy/helm/**/*.{yaml,yml,tpl}"
+      instructions: |
+        Helm / Kubernetes review:
+
+        **Design:**
+        - Values.yaml: new values must have sensible defaults and be documented
+        - Templates: use helper templates (_helpers.tpl) for repeated patterns
+        - Chart.yaml: version bump required for any template change
+
+        **Security (prodsec-skills):**
+        - securityContext: runAsNonRoot, readOnlyRootFilesystem,
+          allowPrivilegeEscalation: false
+        - Drop ALL capabilities, add only what is required
+        - Resource limits (cpu, memory) on every container
+        - No hostPID, hostNetwork, hostIPC, privileged: true
+        - automountServiceAccountToken: false unless needed
+        - RBAC: least privilege; no cluster-admin for workloads
+        - Liveness + readiness probes defined
+        - No .Values interpolation in shell commands (injection risk)
+
+    # ── Quadlet / systemd deployment ─────────────────────────────
+    - path: "deploy/podman/**/*"
+      instructions: |
+        Quadlet / systemd review:
+        - Container units: verify security options (--security-opt, --cap-drop)
+        - Service dependencies: correct ordering (After=, Requires=)
+        - No hardcoded secrets in unit files; use environment files or secrets
+        - Volume mounts: minimal and read-only where possible
+        - Network isolation: verify container network configuration
+
+    # ── Packaging (RPM, Debian, systemd, SELinux) ────────────────
+    - path: "packaging/**/*"
+      instructions: |
+        Packaging review:
+        - RPM spec: verify changelog, version, and dependency accuracy
+        - systemd units: proper Type=, Restart=, and security hardening
+          (ProtectSystem, NoNewPrivileges, etc.)
+        - SELinux policy: verify type enforcement rules are minimal and correct
+        - No world-writable file permissions
+        - Scripts (%post, %pre): idempotent and safe for upgrades
+
+    # ── Shell scripts ────────────────────────────────────────────
+    - path: "**/*.sh"
+      instructions: |
+        Shell script review:
+        - Use set -euo pipefail
+        - Quote all variable expansions ("$var", not $var)
+        - No eval with user-controlled input
+        - Validate inputs before use
+        - Use mktemp for temporary files; clean up on exit (trap)
+        - No embedded secrets or credentials
+
+    # ── CI/CD (GitHub Actions) ───────────────────────────────────
+    - path: ".github/{workflows,actions}/**/*"
+      instructions: |
+        CI/CD review (prodsec-skills):
+        - Pin actions by full SHA, not tag
+        - No secrets in logs; mask sensitive outputs
+        - Least privilege: minimize GITHUB_TOKEN permissions
+        - No pull_request_target with checkout of PR head
+        - Expression injection: verify ${{ inputs.* }}, ${{ github.event.* }},
+          and other untrusted context expressions are not interpolated
+          unsanitized in run: blocks or shell commands
+        - Verify that new workflow triggers are appropriate
+        - Check for proper caching of build dependencies
+
+    # ── Supply chain & dependencies ──────────────────────────────
+    - path: "go.mod"
+      instructions: |
+        Dependency review (prodsec-skills):
+        - New deps: justify need, check license compatibility (Red Hat approved)
+        - Flag known CVEs (cross-ref osv.dev)
+        - No pre-release versions in production code
+        - Verify minimum Go version is appropriate
+        - replace directives need justification
+
+    # ── Test code ────────────────────────────────────────────────
+    - path: "**/*_test.go"
+      instructions: |
+        Test review:
+        - Test the contract, not the implementation
+        - Table-driven tests preferred; name cases
+          "When <condition> it should <expected>"
+        - Use t.Helper() in test helper functions
+        - Use t.TempDir() for file-based tests, not manual os.MkdirTemp
+        - Use t.Fatal/t.Fatalf for setup failures that should abort;
+          use t.Error/t.Errorf for assertion failures within subtests
+        - No hardcoded sleeps; use polling, channels, or sync.WaitGroup
+          with deadline for async assertions
+        - Mock external dependencies via interfaces, not internal logic
+        - Verify error paths, not just happy paths
+        - Test data should be minimal and self-contained
+        - Race-detector safe: no shared mutable state across parallel
+          subtests without synchronization
+
+    # ── Integration tests ────────────────────────────────────────
+    - path: "test/integration/**/*.go"
+      instructions: |
+        Integration test review:
+        - Tests use testcontainers (Postgres, Redis, Alertmanager) — verify
+          container lifecycle and cleanup
+        - Ensure proper isolation between test cases (no shared mutable state)
+        - Ginkgo: use Describe/Context/It structure consistently
+        - Clean up all test data; don't rely on test ordering
+
+    # ── E2E tests ────────────────────────────────────────────────
+    - path: "test/e2e/**/*.go"
+      instructions: |
+        E2E test review:
+        - Tests run against a real cluster — verify they are idempotent
+        - Use meaningful timeouts with polling, not arbitrary waits
+        - Clean up all created resources (devices, fleets, repos)
+        - Failure messages should include enough context to diagnose without
+          re-running
+
+  # ── Security scanners ────────────────────────────────────────
+  tools:
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    checkov:
+      enabled: true
+    hadolint:
+      enabled: true
+    trivy:
+      enabled: true
+    osvScanner:
+      enabled: true
+    actionlint:
+      enabled: true
+    ast-grep:
+      essential_rules: true
+
+  # ── Pre-merge checks (hard gates) ───────────────────────────
+  pre_merge_checks:
+    description:
+      mode: "warning"
+    custom_checks:
+      - name: "no-hardcoded-secrets"
+        instructions: |
+          Flag hardcoded secrets: API keys, tokens, passwords, private
+          keys, credentials, certificates. Also flag base64 strings >32
+          chars in config, URLs with embedded credentials, variables named
+          api_key/secret/token/password assigned string literals.
+        mode: "error"
+
+      - name: "no-weak-crypto"
+        instructions: |
+          Flag MD5, SHA1, DES, RC4, 3DES, Blowfish, ECB mode usage.
+          Flag custom crypto implementations. Flag non-constant-time
+          comparison of secrets or tokens.
+        mode: "error"
+
+      - name: "no-injection-vectors"
+        instructions: |
+          Flag SQL string concatenation (fmt.Sprintf in queries),
+          exec.Command with unsanitized user input, path traversal
+          vectors (unchecked ../ in file paths), template injection in
+          Helm .Values used in shell commands, yaml.Unmarshal on
+          untrusted data without schema validation.
+        mode: "error"
+
+      - name: "container-privileges"
+        instructions: |
+          Flag privileged: true, hostPID, hostNetwork, hostIPC,
+          SYS_ADMIN capability, running as root without justification,
+          allowPrivilegeEscalation: true in container/K8s manifests.
+        mode: "error"
+
+      - name: "no-sensitive-data-in-logs"
+        instructions: |
+          Flag logging that may expose passwords, tokens, API keys,
+          certificates, private keys, session IDs, device credentials,
+          or enrollment secrets.
+        mode: "error"
+
+      - name: "resource-leaks"
+        instructions: |
+          Flag opened files, HTTP response bodies, database connections,
+          or network connections that are not closed via defer. Flag
+          goroutines launched without a shutdown mechanism (context
+          cancellation, done channel, or WaitGroup).
+        mode: "warning"
+
+      - name: "unchecked-errors"
+        instructions: |
+          Flag error returns assigned to _ (blank identifier) without
+          a comment justifying why the error is safe to ignore. Flag
+          error returns that are silently swallowed (checked but not
+          returned, logged, or handled).
+        mode: "warning"
+
+      - name: "api-backward-compatibility"
+        instructions: |
+          Flag removal or renaming of exported Go types, API fields,
+          REST endpoints, or required parameters without a deprecation
+          period. Flag changes to field types that would break existing
+          clients. Flag reused or changed protobuf field numbers.
+        mode: "error"
+
+      - name: "ai-attribution"
+        instructions: |
+          If AI tools were used (mentioned in PR or commits), verify
+          attribution trailers: Assisted-by, Generated-by, or
+          Made-with (e.g., Made-with: Cursor) are acceptable.
+          Flag use of Co-Authored-By for AI tools.
+        mode: "warning"
+
+# ── Knowledge base ───────────────────────────────────────────
+knowledge_base:
+  code_guidelines:
     enabled: true
+    filePatterns:
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/CONTRIBUTING.md"
+
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+  learnings:
+    scope: "auto"

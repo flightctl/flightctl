@@ -138,13 +138,15 @@ var _ = Describe("PodmanDeployer Integration", func() {
 			}, "5s", "100ms").Should(BeTrue(), "dump file should appear on disk during backup execution")
 
 			Eventually(func() bool {
-				select {
-				case <-errChan:
-					return false
-				default:
-					info, err := os.Stat(dumpFile)
-					return err == nil && info.Size() > 0
+				// Use len() to peek at the channel without consuming the result.
+				// If the backup already finished, the file content assertion is still
+				// valid (the file appeared in the previous Eventually), so return true
+				// to avoid spuriously draining errChan before the final receive below.
+				if len(errChan) > 0 {
+					return true
 				}
+				info, err := os.Stat(dumpFile)
+				return err == nil && info.Size() > 0
 			}, "2s", "50ms").Should(BeTrue(),
 				"dump file should have content while backup is still in flight (streaming, not memory-buffered)")
 

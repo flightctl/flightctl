@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -33,6 +34,8 @@ const (
 	labelFromSystemInfoFieldProductName       = "productName"
 	labelFromSystemInfoFieldHostname          = "hostname"
 	labelFromSystemInfoMissingFieldName       = "doesNotExist"
+	// Valid OS hostname (64 chars); raw value is not a valid Kubernetes label — default alias must be sanitized.
+	labelFromSystemInfoLongHostnameForDefaultAlias = "device-testing-long-hostname-for-label-length-validation-edge-01"
 )
 
 var (
@@ -110,6 +113,18 @@ var (
 			labelFromSystemInfoMissingBuiltInLabel,
 			labelFromSystemInfoMissingCustomLabel,
 		},
+	}
+
+	labelFromSystemInfoSanitizedDefaultAliasScenario = labelFromSystemInfoScenario{
+		name: "default alias sanitizes hostname that is not a valid label value",
+		labelFromSystemInfo: map[string]string{
+			labelFromSystemInfoBuiltInLabelArch: labelFromSystemInfoFieldArchitecture,
+		},
+		wantLabelsFromSystemInfo: map[string]string{
+			labelFromSystemInfoBuiltInLabelArch: labelFromSystemInfoFieldArchitecture,
+		},
+		preEnrollHostname:            labelFromSystemInfoLongHostnameForDefaultAlias,
+		wantDefaultAliasFromHostname: true,
 	}
 
 	labelFromSystemInfoCustomCollectionDisabledScenario = labelFromSystemInfoScenario{
@@ -198,6 +213,21 @@ var _ = Describe("SystemInfo label mapping", func() {
 		Expect(validateLabelFromSystemInfoLabels(result, scenario)).To(Succeed())
 	})
 
+	It("When hostname is not a valid label value it should sanitize default alias and enroll successfully", Label("89229", "agent"), func() {
+		scenario := labelFromSystemInfoSanitizedDefaultAliasScenario
+
+		By("Setting a hostname whose raw value is not a valid label and completing enrollment without explicit alias mapping")
+		result, err := runLabelFromSystemInfoEnrollmentScenario(harness, scenario)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Verifying enrollment succeeds with a sanitized alias label derived from hostname")
+		reportedHostname := systemInfoValue(result.enrollmentSystemInfo, labelFromSystemInfoFieldHostname)
+		Expect(reportedHostname).To(Equal(scenario.preEnrollHostname), "systemInfo.hostname must match the hostname set before enrollment")
+		Expect(validateLabelFromSystemInfoEnrollment(result)).To(Succeed())
+		Expect(validateLabelFromSystemInfoSystemInfo(result)).To(Succeed())
+		Expect(validateLabelFromSystemInfoLabels(result, scenario)).To(Succeed())
+	})
+
 	It("When mapped fields are missing it should skip labels for those fields", Label("88951", "agent"), func() {
 		scenario := labelFromSystemInfoMissingFieldsScenario
 
@@ -233,6 +263,7 @@ type labelFromSystemInfoScenario struct {
 	wantLabels                   map[string]string
 	wantLabelsFromSystemInfo     map[string]string
 	wantAbsentLabels             []string
+	preEnrollHostname            string
 	wantDefaultAliasFromHostname bool
 	wantCustomInfo               map[string]string
 	wantAbsentCustomInfo         []string
@@ -250,7 +281,7 @@ type labelFromSystemInfoScenarioResult struct {
 
 // runLabelFromSystemInfoEnrollmentScenario applies an agent configuration, starts a fresh enrollment,
 // approves it, and returns both the EnrollmentRequest and Device state for assertions.
-func runLabelFromSystemInfoEnrollmentScenario(harness *e2e.Harness, scenario labelFromSystemInfoScenario) (*labelFromSystemInfoScenarioResult, error) {
+func runLabelFromSystemInfoEnrollmentScenario(harness *e2e.Harness, scenario labelFromSystemInfoScenario) (result *labelFromSystemInfoScenarioResult, retErr error) {
 	if harness == nil {
 		return nil, fmt.Errorf("harness is nil")
 	}
@@ -264,6 +295,21 @@ func runLabelFromSystemInfoEnrollmentScenario(harness *e2e.Harness, scenario lab
 
 	if err := harness.ResetAgentEnrollmentState(); err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(scenario.preEnrollHostname) != "" {
+		previousHostname, err := harness.GetVMHostname()
+		if err != nil {
+			return nil, fmt.Errorf("reading VM hostname before %q: %w", scenario.name, err)
+		}
+		defer func() {
+			if restoreErr := harness.SetVMHostname(previousHostname); restoreErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("restoring VM hostname after %q: %w", scenario.name, restoreErr))
+			}
+		}()
+		if err := harness.SetVMHostname(scenario.preEnrollHostname); err != nil {
+			return nil, fmt.Errorf("setting VM hostname for %q: %w", scenario.name, err)
+		}
 	}
 
 	if err := configureAgentForLabelFromSystemInfoScenario(harness, scenario); err != nil {
@@ -305,7 +351,7 @@ func runLabelFromSystemInfoEnrollmentScenario(harness *e2e.Harness, scenario lab
 		return nil, fmt.Errorf("device %s has nil status", enrollmentID)
 	}
 
-	result := &labelFromSystemInfoScenarioResult{
+	result = &labelFromSystemInfoScenarioResult{
 		enrollmentRequest:    enrollmentRequest,
 		device:               device,
 		enrollmentLabels:     dereferenceLabels(enrollmentRequest.Spec.Labels),
@@ -455,24 +501,32 @@ func validateDefaultAliasFromHostname(result *labelFromSystemInfoScenarioResult)
 	enrollmentHostname := systemInfoValue(result.enrollmentSystemInfo, labelFromSystemInfoFieldHostname)
 	deviceHostname := systemInfoValue(result.deviceSystemInfo, labelFromSystemInfoFieldHostname)
 	if isUsefulLabelFromSystemInfoHostname(enrollmentHostname) {
+		expectedSanitizedAlias, err := sanitizedLabelFromSystemInfoValue(enrollmentHostname, labelFromSystemInfoFieldHostname, labelFromSystemInfoDefaultAliasLabel)
+		if err != nil {
+			return err
+		}
 		got, ok := result.enrollmentLabels[labelFromSystemInfoDefaultAliasLabel]
 		if !ok {
-			return fmt.Errorf("enrollment request alias is absent, want hostname %q", enrollmentHostname)
+			return fmt.Errorf("enrollment request alias is absent, want sanitized hostname %q from raw hostname %q", expectedSanitizedAlias, enrollmentHostname)
 		}
-		if got != enrollmentHostname {
-			return fmt.Errorf("enrollment request alias = %q, want hostname %q", got, enrollmentHostname)
+		if got != expectedSanitizedAlias {
+			return fmt.Errorf("enrollment request alias = %q, want sanitized hostname %q from raw hostname %q", got, expectedSanitizedAlias, enrollmentHostname)
 		}
 	} else if got, ok := result.enrollmentLabels[labelFromSystemInfoDefaultAliasLabel]; ok {
 		return fmt.Errorf("enrollment request alias should be absent for hostname %q, got %q", enrollmentHostname, got)
 	}
 
 	if isUsefulLabelFromSystemInfoHostname(deviceHostname) {
+		expectedSanitizedAlias, err := sanitizedLabelFromSystemInfoValue(deviceHostname, labelFromSystemInfoFieldHostname, labelFromSystemInfoDefaultAliasLabel)
+		if err != nil {
+			return err
+		}
 		got, ok := result.deviceLabels[labelFromSystemInfoDefaultAliasLabel]
 		if !ok {
-			return fmt.Errorf("device alias is absent, want hostname %q", deviceHostname)
+			return fmt.Errorf("device alias is absent, want sanitized hostname %q from raw hostname %q", expectedSanitizedAlias, deviceHostname)
 		}
-		if got != deviceHostname {
-			return fmt.Errorf("device alias = %q, want hostname %q", got, deviceHostname)
+		if got != expectedSanitizedAlias {
+			return fmt.Errorf("device alias = %q, want sanitized hostname %q from raw hostname %q", got, expectedSanitizedAlias, deviceHostname)
 		}
 	} else if got, ok := result.deviceLabels[labelFromSystemInfoDefaultAliasLabel]; ok {
 		return fmt.Errorf("device alias should be absent for hostname %q, got %q", deviceHostname, got)

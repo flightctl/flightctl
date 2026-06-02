@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -45,20 +46,30 @@ func main() {
 	}
 	caClient := crypto.NewCAClient(cfg.CA, ca)
 
-	serverCerts, err := config.LoadServerCertificates(cfg, log)
-	if err != nil {
-		log.Fatalf("loading server certificates: %v", err)
-	}
-
 	// Use separate configuration for PAM issuer service
 	pamIssuerAddress := cfg.Auth.PAMOIDCIssuer.Address
-	if pamIssuerAddress == "" {
-		pamIssuerAddress = ":8444" // Default port for PAM issuer
-	}
 
-	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
-	if err != nil {
-		log.Fatalf("failed creating TLS config: %v", err)
+	var listener net.Listener
+	if cfg.Auth.PAMOIDCIssuer.DisableTLS {
+		listener, err = net.Listen("tcp", pamIssuerAddress)
+		if err != nil {
+			log.Fatalf("creating listener: %s", err)
+		}
+	} else {
+		serverCerts, err := config.LoadServerCertificates(cfg, log)
+		if err != nil {
+			log.Fatalf("loading server certificates: %v", err)
+		}
+
+		tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+		if err != nil {
+			log.Fatalf("failed creating TLS config: %v", err)
+		}
+
+		listener, err = middleware.NewTLSListener(pamIssuerAddress, tlsConfig)
+		if err != nil {
+			log.Fatalf("creating listener: %s", err)
+		}
 	}
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-pam-issuer")
@@ -79,17 +90,12 @@ func main() {
 	if etcDir == "" {
 		etcDir = defaultEtcDir
 	}
-	userdbEvents, err := pam_issuer_server.RunUserDBSync(ctx, log, userdbDir, etcDir)
+	_, err = pam_issuer_server.RunUserDBSync(ctx, log, userdbDir, etcDir)
 	if err != nil {
 		log.Warnf("userdb sync disabled: %v", err)
 	}
-	_ = userdbEvents
 
 	go func() {
-		listener, err := middleware.NewTLSListener(pamIssuerAddress, tlsConfig)
-		if err != nil {
-			log.Fatalf("creating listener: %s", err)
-		}
 		server := pam_issuer_server.New(log, cfg, caClient, listener)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)

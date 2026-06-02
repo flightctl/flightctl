@@ -19,7 +19,7 @@ Flight Control follows semantic versioning. When upgrading Flight Control, you m
 
 Before attempting an upgrade:
 
-1. **Back up your database** - Follow the [database backup procedure](../installing/performing-database-backup.md) before any upgrade
+1. **Back up your database** - Follow the [backup procedure](../installing/backup-restore.md) before any upgrade
 2. **Review release notes** - Check the release notes for any breaking changes or migration steps
 3. **Test in a non-production environment** - Validate the upgrade in a staging environment first
 

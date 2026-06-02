@@ -101,6 +101,52 @@ systemctl reset-failed flightctl-agent || true
 	return nil
 }
 
+// GetVMHostname returns the current hostname of the agent VM as seen by the kernel.
+// Uses the hostname command via SSH, which returns the same value the agent reads
+// via os.Hostname() when running on the VM.
+func (h *Harness) GetVMHostname() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return "", fmt.Errorf("harness VM is nil")
+	}
+	stdout, err := h.VM.RunSSH([]string{"hostname"}, nil)
+	if err != nil {
+		return "", fmt.Errorf("reading VM hostname: %w", err)
+	}
+	hostname := strings.TrimSpace(stdout.String())
+	if hostname == "" {
+		return "", fmt.Errorf("VM hostname is empty")
+	}
+	return hostname, nil
+}
+
+// SetVMHostname sets the hostname on the agent VM and verifies it was applied.
+func (h *Harness) SetVMHostname(hostname string) error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return fmt.Errorf("harness VM is nil")
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return fmt.Errorf("hostname is empty")
+	}
+	if _, err := h.VM.RunSSH([]string{"sudo", "hostnamectl", "set-hostname", hostname}, nil); err != nil {
+		return fmt.Errorf("setting VM hostname: %w", err)
+	}
+	got, err := h.GetVMHostname()
+	if err != nil {
+		return err
+	}
+	if got != hostname {
+		return fmt.Errorf("VM hostname = %q after set-hostname, want %q", got, hostname)
+	}
+	return nil
+}
+
 // DeleteCurrentEnrollmentRequestFromAgentLogs deletes the latest pending EnrollmentRequest
 // identified in flightctl-agent logs. If no enrollment ID is present, it is a no-op.
 func (h *Harness) DeleteCurrentEnrollmentRequestFromAgentLogs() error {
@@ -743,14 +789,31 @@ func (h *Harness) BlockTrafficOnVM(ip, port string) {
 	Expect(err).ToNot(HaveOccurred(), "failed to add %s rule on VM", iptablesCmd)
 }
 
-// UnblockTrafficOnVM removes the iptables/ip6tables rule on the VM that blocks TCP
-// traffic to the specified IP and port. Silently ignores errors.
-func (h *Harness) UnblockTrafficOnVM(ip, port string) {
+// UnblockTrafficOnVM removes all iptables/ip6tables rules on the VM that block TCP
+// traffic to the specified IP and port. Loops until no matching rules remain.
+func (h *Harness) UnblockTrafficOnVM(ip, port string) error {
 	iptablesCmd := getIPTablesCommand(ip)
 
-	_, _ = h.VM.RunSSH([]string{
-		"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+	for h.IsTrafficBlockedOnVM(ip, port) {
+		_, err := h.VM.RunSSH([]string{
+			"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+		}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IsTrafficBlockedOnVM checks whether an iptables/ip6tables REJECT rule exists
+// for the given IP and port in the OUTPUT chain on the VM.
+func (h *Harness) IsTrafficBlockedOnVM(ip, port string) bool {
+	iptablesCmd := getIPTablesCommand(ip)
+
+	_, err := h.VM.RunSSH([]string{
+		"sudo", iptablesCmd, "-C", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
 	}, nil)
+	return err == nil
 }
 
 func (h *Harness) IsAgentServiceRunning() bool {
