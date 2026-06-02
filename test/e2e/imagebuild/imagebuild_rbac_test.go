@@ -93,6 +93,7 @@ var _ = Describe("ImageBuild", Label("imagebuild", "slow"), func() {
 			p := setup.GetDefaultProviders()
 			if p == nil {
 				Skip("ImageBuild RBAC role tests: default providers not set (non-admin sessions unavailable)")
+				return
 			}
 			infra.SkipIfRBACNotSupported(p.RBAC)
 
