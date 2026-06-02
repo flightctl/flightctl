@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
@@ -118,6 +119,17 @@ func runRestore(ctx context.Context, archivePath, deploymentType, namespace, int
 		}
 	}
 	logger.Printf("Deployment type: %s", dt)
+
+	// EDM-4052: Validate required dependencies before attempting restore operations
+	if dt == backup.DeploymentTypeKubernetes {
+		if _, err := exec.LookPath("kubectl"); err != nil {
+			return fmt.Errorf("kubectl is required for Kubernetes restore but was not found in PATH. " +
+				"Please install kubectl and ensure it is configured and authenticated to your cluster. " +
+				"See the backup and restore documentation for prerequisites: " +
+				"https://github.com/flightctl/flightctl/blob/main/docs/user/installing/backup-restore.md#prerequisites")
+		}
+		logger.Println("Dependency check passed: kubectl is available")
+	}
 
 	var restoreDeployer restore.Deployer
 	switch dt {
