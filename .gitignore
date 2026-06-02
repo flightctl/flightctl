@@ -28,4 +28,5 @@ __pycache__/
 
 # Implementation artifacts (AI workflow)
 /.artifacts/
+.mcp.json
 test/scripts/test-timings.json
