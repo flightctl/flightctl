@@ -19,7 +19,7 @@ const (
 )
 
 var _ = Describe("Bootc timer masking", func() {
-	It("should automatically mask bootc timer on installation", Label("bootc-timer", "sanity", "agent"), func() {
+	It("should automatically mask bootc timer on installation", Label("89237", "bootc-timer", "sanity", "agent"), func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("Checking if bootc timer unit exists on the e2e device image")
