@@ -2,6 +2,7 @@ package backup_restore
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -69,31 +70,74 @@ var _ = Describe("Backup security", Label("backup-restore", "security"), func() 
 })
 
 var _ = Describe("Restore security", Label("backup-restore", "security"), func() {
+	var br *e2e.BackupRestore
+
+	BeforeEach(func() {
+		harness := e2e.GetWorkerHarness()
+		br = newBackupRestore(harness, setup.GetDefaultProviders())
+	})
+
 	It("When restore extracts archive it should create temp directory with 0700 permissions", Label("SEC-001"), func() {
-		Skip("pending flightctl-restore archive support")
+		Skip("covered by unit tests in internal/restore/archive_test.go — temp dir permissions are set by os.MkdirTemp")
 	})
 
 	It("When restore completes successfully it should remove temp directory", Label("SEC-002"), func() {
-		Skip("pending flightctl-restore archive support")
+		outputDir := GinkgoT().TempDir()
+		archivePath, _, err := br.RunFlightCtlBackup(outputDir)
+		Expect(err).ToNot(HaveOccurred())
+
+		output, err := br.RunFlightCtlRestoreRaw(archivePath)
+		// Restore may fail due to deployment type mismatch or service access,
+		// but temp directory cleanup should happen regardless.
+		_ = err
+		_ = output
+
+		matches, err := filepath.Glob(os.TempDir() + "/flightctl-restore-*")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(matches).To(BeEmpty(), "temp extraction directories should be cleaned up after restore")
 	})
 
 	It("When restore fails it should remove temp directory", Label("SEC-003"), func() {
-		Skip("pending flightctl-restore archive support")
+		archivePath := filepath.Join(GinkgoT().TempDir(), "corrupt.tar.gz")
+		createMinimalTarGz(GinkgoT(), archivePath, map[string]string{
+			"metadata.json": `{"timestamp":"2026-01-01T00:00:00Z","version":"test","deploymentType":"invalid","databaseIncluded":false}`,
+		})
+		writeMatchingChecksum(GinkgoT(), archivePath)
+
+		output, err := br.RunFlightCtlRestoreRaw(archivePath)
+		Expect(err).To(HaveOccurred(), "restore should fail with invalid deployment type")
+		_ = output
+
+		matches, err := filepath.Glob(os.TempDir() + "/flightctl-restore-*")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(matches).To(BeEmpty(), "temp extraction directories should be cleaned up even on failure")
 	})
 
 	It("When PKI files are restored on Podman it should set private key permissions to 0600", Label("SEC-004"), func() {
-		Skip("pending flightctl-restore archive support — Podman deployment required")
+		Skip("Podman deployment required")
 	})
 
 	It("When CA certificate is restored on Podman it should have appropriate permissions", Label("SEC-005"), func() {
-		Skip("pending flightctl-restore archive support — Podman deployment required")
+		Skip("Podman deployment required")
 	})
 
 	It("When service config is restored on Podman it should have restrictive permissions", Label("SEC-006"), func() {
-		Skip("pending flightctl-restore archive support — Podman deployment required")
+		Skip("Podman deployment required")
 	})
 
 	It("When restore logs it should not contain sensitive data", Label("SEC-007"), func() {
-		Skip("pending flightctl-restore archive support")
+		outputDir := GinkgoT().TempDir()
+		archivePath, _, err := br.RunFlightCtlBackup(outputDir)
+		Expect(err).ToNot(HaveOccurred())
+
+		output, err := br.RunFlightCtlRestoreRaw(archivePath)
+		// Restore may fail, but we only check the output for sensitive data leaks.
+		_ = err
+
+		sensitivePatterns := []string{"PRIVATE KEY", "BEGIN RSA", "BEGIN EC"}
+		for _, pattern := range sensitivePatterns {
+			Expect(output).ToNot(ContainSubstring(pattern),
+				"restore output should not contain sensitive pattern: %s", pattern)
+		}
 	})
 })

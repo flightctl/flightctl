@@ -22,6 +22,17 @@ import (
 )
 
 const (
+	// #nosec G101
+	dbSecretName  = "flightctl-db-app-secret"
+	dbUserKey     = "user"
+	dbPasswordKey = "userPassword"
+	// #nosec G101
+	adminSecretName = "flightctl-db-admin-secret"
+	adminSecretKey  = "masterPassword"
+	// #nosec G101
+	kvSecretName = "flightctl-kv-secret"
+	kvSecretKey  = "password"
+
 	// 84934: fleet and device labels
 	backupRestoreFleetName = "backup-restore-fleet"
 	devYesLabel            = "dev"
@@ -42,6 +53,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
 		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("84934", "sanity", "slow"), func() {
+			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
+				Skip(reason)
+			}
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
 			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
@@ -105,9 +119,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			// --- Step 2: Create backup archive (service has rvAtBackup) ---
 			By("Step 2: Creating backup archive (service RV=rvAtBackup)")
-			archivePath, cleanup, err := br.RunFlightCtlBackup()
-			Expect(err).ToNot(HaveOccurred(), "backup must succeed (build with: make flightctl-backup)")
-			defer cleanup()
+			backupDir := GinkgoT().TempDir()
+			archivePath, _, err := br.RunFlightCtlBackup(backupDir)
+			Expect(err).ToNot(HaveOccurred(), "backup must succeed")
 
 			// --- Step 3: Update fleet to OS v3 + inline config (new RV) ---
 			var rvAfterUpdate int
@@ -138,13 +152,12 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			}, testutil.LONGTIMEOUT)
 			Expect(rvAfterUpdate).To(BeNumerically(">", rvAtBackup), "step 4: new RV must be greater than previous")
 
-			// --- Step 5: Restore from backup; flightctl-restore handles service stop/start ---
-			By("Step 5: Restoring from backup (flightctl-restore stops services, restores DB, starts services)")
+			// --- Step 5: Restore from backup archive (do not restart device); service back to RV=N ---
+			By("Step 5: Restoring from backup archive (flightctl-restore handles service stop/start)")
 			defer func() {
-				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
 				_ = br.ScaleUpFlightCtlServices()
 			}()
-			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
+			Expect(br.RunFlightCtlRestoreFromArchive(archivePath)).To(Succeed(), "flightctl-restore must succeed")
 
 			By("Waiting for API server to be responsive after scale up")
 			Eventually(func() error {
@@ -273,6 +286,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
 		It("backup during update in progress, restore then devices reach Online", Label("84938", "slow"), func() {
+			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
+				Skip(reason)
+			}
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
@@ -308,17 +324,15 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV3)).To(Succeed())
 			// Verify device is still on v2 (update not yet applied) so backup truly occurs while update is in progress.
-			archivePath, cleanup, err := br.RunFlightCtlBackup()
-			Expect(err).ToNot(HaveOccurred(), "backup must succeed (build with: make flightctl-backup)")
-			defer cleanup()
+			backupDir := GinkgoT().TempDir()
+			archivePath, _, err := br.RunFlightCtlBackup(backupDir)
+			Expect(err).ToNot(HaveOccurred(), "backup must succeed")
 
 			By("Restore process: flightctl-restore (handles service stop/start internally)")
 			defer func() {
-				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
 				_ = br.ScaleUpFlightCtlServices()
 			}()
-			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
-			Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
+			Expect(br.RunFlightCtlRestoreFromArchive(archivePath)).To(Succeed(), "flightctl-restore must succeed")
 
 			By("Waiting for API server to be responsive after scale up")
 			Eventually(func() error {
@@ -371,7 +385,11 @@ func motdInlineConfigProviderSpec() v1beta1.ConfigProviderSpec {
 	return spec
 }
 
-// newBackupRestore returns a BackupRestore for running the backup/restore binaries.
+// newBackupRestore returns a BackupRestore by calling harness.NewBackupRestore with this package's secret constants and the given providers.
 func newBackupRestore(harness *e2e.Harness, p *infra.Providers) *e2e.BackupRestore {
-	return harness.NewBackupRestore(p)
+	return harness.NewBackupRestore(
+		p,
+		dbSecretName, dbUserKey, dbPasswordKey,
+		adminSecretName, adminSecretKey, kvSecretName, kvSecretKey,
+	)
 }

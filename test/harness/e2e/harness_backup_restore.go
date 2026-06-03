@@ -183,87 +183,6 @@ func (br *BackupRestore) RestoreDBFromBackup(backupPath string) error {
 	return nil
 }
 
-// RunFlightCtlRestore runs the flightctl-restore binary with ExposeService for DB and KV.
-func (br *BackupRestore) RunFlightCtlRestore() error {
-	restoreBinary := br.GetFlightctlRestorePath()
-	if _, err := os.Stat(restoreBinary); os.IsNotExist(err) {
-		return fmt.Errorf("binary not found: %s (build with: make build-restore)", restoreBinary)
-	}
-
-	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
-	defer cancel()
-
-	dbURL, dbCleanup, err := br.providers.Infra.ExposeService(infra.ServiceDB, "tcp")
-	if err != nil {
-		return fmt.Errorf("expose DB: %w", err)
-	}
-	defer dbCleanup()
-
-	kvURL, kvCleanup, err := br.providers.Infra.ExposeService(infra.ServiceRedis, "tcp")
-	if err != nil {
-		return fmt.Errorf("expose KV: %w", err)
-	}
-	defer kvCleanup()
-
-	dbHost, dbPort, err := parseHostPort(dbURL)
-	if err != nil {
-		return fmt.Errorf("parse DB URL %q: %w", dbURL, err)
-	}
-	kvHost, kvPort, err := parseHostPort(kvURL)
-	if err != nil {
-		return fmt.Errorf("parse KV URL %q: %w", kvURL, err)
-	}
-
-	if err := waitForLocalPort(ctx, dbPort); err != nil {
-		return err
-	}
-	if err := waitForLocalPort(ctx, kvPort); err != nil {
-		return err
-	}
-
-	dbPassword, err := br.providers.Infra.GetSecretValue(br.dbSecretName, br.dbPasswordKey)
-	if err != nil {
-		return err
-	}
-	kvPassword, err := br.providers.Infra.GetSecretValue(br.kvSecretName, br.kvSecretKey)
-	if err != nil {
-		return err
-	}
-
-	configDir, err := os.MkdirTemp("", "flightctl-restore-config-")
-	if err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	defer os.RemoveAll(configDir)
-	configPath := filepath.Join(configDir, ".flightctl", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("create .flightctl dir: %w", err)
-	}
-	configYAML := fmt.Sprintf(`database:
-  type: pgsql
-  hostname: %s
-  port: %d
-  name: flightctl
-  user: flightctl_app
-  password: %q
-kv:
-  hostname: %s
-  port: %d
-  password: %q
-`, dbHost, dbPort, dbPassword, kvHost, kvPort, kvPassword)
-	if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-	homeDir := configDir
-
-	restoreCmd := exec.CommandContext(ctx, restoreBinary)
-	restoreCmd.Env = append(os.Environ(), "HOME="+homeDir)
-	if out, err := restoreCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("flightctl-restore: %w: %s", err, string(out))
-	}
-	return nil
-}
-
 // RunFlightCtlBackup runs the flightctl-backup binary. The binary auto-detects the deployment
 // type via kubeconfig and connects to the database via the Kubernetes API (exec into DB pod).
 // It writes backup artifacts to outputDir and returns the archive and checksum paths.
@@ -316,6 +235,22 @@ func (br *BackupRestore) RunFlightCtlBackupRaw(args ...string) (output string, e
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, backupBinary, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// RunFlightCtlRestoreRaw runs the flightctl-restore binary with the given arguments without
+// setting up services or writing config. Useful for negative tests (bad args, corrupted archives, etc.).
+func (br *BackupRestore) RunFlightCtlRestoreRaw(args ...string) (output string, err error) {
+	restoreBinary := br.GetFlightctlRestorePath()
+	if _, statErr := os.Stat(restoreBinary); os.IsNotExist(statErr) {
+		return "", fmt.Errorf("binary not found: %s (build with: make flightctl-restore)", restoreBinary)
+	}
+
+	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, restoreBinary, args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

@@ -55,19 +55,26 @@ var _ = Describe("Backup command", Label("backup-restore", "backup"), func() {
 		By("Verifying archive contains expected directory structure")
 		entries := extractTarGzEntries(GinkgoT(), archivePath)
 		Expect(entries).To(ContainElement("metadata.json"), "archive should contain metadata.json")
-		Expect(hasEntryWithPrefix(entries, "db/")).To(BeTrue(), "archive should contain db/ directory")
 		Expect(hasEntryWithPrefix(entries, "pki/")).To(BeTrue(), "archive should contain pki/ directory")
 
-		By("Verifying db/dump.sql exists with valid PostgreSQL content")
 		extractDir := GinkgoT().TempDir()
 		extractTarGzToDir(GinkgoT(), archivePath, extractDir)
-		dumpPath := filepath.Join(extractDir, "db", "dump.sql")
-		Expect(dumpPath).To(BeAnExistingFile())
-		dumpContent, err := os.ReadFile(dumpPath)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(len(dumpContent)).To(BeNumerically(">", 0), "dump.sql should have content")
-		dumpStr := string(dumpContent)
-		Expect(dumpStr).To(ContainSubstring("PostgreSQL database dump"), "dump should have PostgreSQL header")
+
+		p := setup.GetDefaultProviders()
+		if p != nil && p.Infra != nil && p.Infra.BuiltinDatabaseWorkloadAvailable() {
+			By("Verifying db/dump.sql exists with valid PostgreSQL content (internal DB)")
+			Expect(hasEntryWithPrefix(entries, "db/")).To(BeTrue(), "archive should contain db/ directory")
+			dumpPath := filepath.Join(extractDir, "db", "dump.sql")
+			Expect(dumpPath).To(BeAnExistingFile())
+			dumpContent, err := os.ReadFile(dumpPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(dumpContent)).To(BeNumerically(">", 0), "dump.sql should have content")
+			dumpStr := string(dumpContent)
+			Expect(dumpStr).To(ContainSubstring("PostgreSQL database dump"), "dump should have PostgreSQL header")
+		} else {
+			By("Verifying db/ directory is absent (external DB)")
+			Expect(hasEntryWithPrefix(entries, "db/")).To(BeFalse(), "archive should not contain db/ directory with external DB")
+		}
 
 		By("Verifying pki/ directory contains files with content")
 		pkiDir := filepath.Join(extractDir, "pki")
@@ -105,7 +112,12 @@ var _ = Describe("Backup command", Label("backup-restore", "backup"), func() {
 
 		Expect(metadata.Version).ToNot(BeEmpty(), "version should be non-empty")
 		Expect(string(metadata.DeploymentType)).To(BeElementOf("kubernetes", "podman"), "deployment type should be kubernetes or podman")
-		Expect(metadata.DatabaseIncluded).To(BeTrue(), "database should be included for internal DB")
+		p := setup.GetDefaultProviders()
+		if p != nil && p.Infra != nil && p.Infra.BuiltinDatabaseWorkloadAvailable() {
+			Expect(metadata.DatabaseIncluded).To(BeTrue(), "database should be included for internal DB")
+		} else {
+			Expect(metadata.DatabaseIncluded).To(BeFalse(), "database should not be included for external DB")
+		}
 		Expect(metadata.Timestamp.IsZero()).To(BeFalse(), "timestamp should be set")
 	})
 
@@ -141,6 +153,32 @@ var _ = Describe("Backup command", Label("backup-restore", "backup"), func() {
 		info, err := os.Stat(binaryPath)
 		Expect(err).ToNot(HaveOccurred(), "flightctl-backup binary should exist at %s", binaryPath)
 		Expect(info.Mode().Perm()&0o111).ToNot(BeZero(), "binary should have execute permission")
+	})
+
+	It("When external DB is configured backup should produce archive without db/dump.sql", Label("external-db"), func() {
+		p := setup.GetDefaultProviders()
+		if p != nil && p.Infra != nil && p.Infra.BuiltinDatabaseWorkloadAvailable() {
+			Skip("test only runs with external DB (db.type=external)")
+		}
+
+		outputDir := GinkgoT().TempDir()
+		archivePath, checksumPath, err := br.RunFlightCtlBackup(outputDir)
+		Expect(err).ToNot(HaveOccurred(), "backup should succeed with external DB")
+		Expect(archivePath).To(BeAnExistingFile())
+		Expect(checksumPath).To(BeAnExistingFile())
+
+		entries := extractTarGzEntries(GinkgoT(), archivePath)
+		Expect(entries).To(ContainElement("metadata.json"))
+		Expect(hasEntryWithPrefix(entries, "pki/")).To(BeTrue(), "PKI should be backed up even with external DB")
+		Expect(hasEntryWithPrefix(entries, "db/")).To(BeFalse(), "db/ should not be present with external DB")
+
+		extractDir := GinkgoT().TempDir()
+		extractTarGzToDir(GinkgoT(), archivePath, extractDir)
+		metadataBytes, err := os.ReadFile(filepath.Join(extractDir, "metadata.json"))
+		Expect(err).ToNot(HaveOccurred())
+		var metadata backup.BackupMetadata
+		Expect(json.Unmarshal(metadataBytes, &metadata)).To(Succeed())
+		Expect(metadata.DatabaseIncluded).To(BeFalse(), "metadata should indicate database not included")
 	})
 })
 
