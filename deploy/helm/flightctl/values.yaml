@@ -345,7 +345,17 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
+# -- UBI Minimal base image used by init containers (cert setup, etc.)
+# Override this when deploying in an air-gapped environment where
+# registry.access.redhat.com is unreachable — set image and tag to the
+# mirrored location produced by the mirror-images tool.
+ubiMinimal:
+  # -- UBI minimal image repository
+  image: registry.access.redhat.com/ubi9/ubi-minimal
+  # -- UBI minimal image tag (pinned to avoid unexpected updates)
+  tag: "9.7-1763362218"
+
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service

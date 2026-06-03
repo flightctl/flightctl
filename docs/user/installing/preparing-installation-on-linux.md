@@ -448,9 +448,27 @@ telnet api.flightctl.example.com 3443
 
 ### Air-Gapped Environment
 
-- Requires local container registry
-- May need proxy configuration
-- Ensure all required images are mirrored locally
+Air-gapped installations require all artifacts to be transferred to the target machine
+before installation begins. The specific steps depend on what you are installing:
+
+- **Agent and CLI on RHEL** — Download `flightctl-agent` and `flightctl-cli` RPMs on a
+  connected prep machine using `dnf download` or `dnf reposync`, transfer them via
+  portable media, and install locally with `dnf`. See
+  [Installing the Flight Control agent offline on RHEL](installing-agent-offline.md).
+
+- **Local RPM repository** — To create a full offline repository that the target machine
+  can use as a `dnf` source (with full dependency resolution), mirror the FlightCtl
+  repo using `dnf reposync`. See
+  [Setting up a local RPM repository](offline-rpm-repository.md).
+
+- **Container images for server or workloads** — Use the `mirror-images --bundle`
+  command to create a portable archive of all required images. The archive includes
+  an `import.sh` script that pushes images into a local container registry on the
+  target. See the [air-gap mirroring guide](../../../scripts/air-gap/README.md).
+
+- **Portable media formats** — Artifacts can be transferred via tar archive, USB drive
+  (ext4 or exFAT), ISO image, or local network share. See
+  [Packaging artifacts for portable media](offline-portable-media.md).
 
 ## Port Reference Table
 
