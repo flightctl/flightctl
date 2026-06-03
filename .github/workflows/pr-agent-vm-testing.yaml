@@ -168,13 +168,16 @@ jobs:
 
           while [ "${elapsed}" -lt "${MAX_AGENT_WAIT_SECONDS}" ]; do
             echo "Checking agent device status after ${elapsed}s"
-            devices_output=$(./bin/flightctl get devices 2>&1 || true)
-            echo "${devices_output}"
+            device_output=$(./bin/flightctl get "devices/${enrollment_request}" -o json 2>/tmp/flightctl-device-get.err || true)
+            echo "${device_output}"
+            cat /tmp/flightctl-device-get.err
 
-            online_device=$(echo "${devices_output}" | awk 'NR > 1 && $4 == "Online" && $5 == "UpToDate" {print $1; exit}')
-            if [ -n "${online_device}" ]; then
-              echo "Agent device ${online_device} is Online and UpToDate"
-              ./bin/flightctl get "devices/${online_device}" -o yaml
+            if echo "${device_output}" | jq -e '
+              .status.summary.status == "Online" and
+              .status.updated.status == "UpToDate"
+            ' >/dev/null 2>&1; then
+              echo "Agent device ${enrollment_request} is Online and UpToDate"
+              ./bin/flightctl get "devices/${enrollment_request}" -o yaml
               exit 0
             fi
 
