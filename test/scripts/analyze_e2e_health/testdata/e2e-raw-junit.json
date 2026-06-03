@@ -1,0 +1,58 @@
+[
+  {
+    "run_id": 1001,
+    "run_url": "https://github.com/flightctl/flightctl/actions/runs/1001",
+    "date": "2026-01-06",
+    "specs": {
+      "__suite__:Agent Suite":       {"passed": true, "duration_sec": 45},
+      "__suite__:Backup Suite":      {"passed": true, "duration_sec": 30},
+      "Agent Suite Device should enroll and become online":    {"passed": true,  "duration_sec": 120, "suite": "Agent Suite"},
+      "Agent Suite Device should apply config":                {"passed": true,  "duration_sec": 90,  "suite": "Agent Suite"},
+      "Agent Suite Device should handle reconnect":            {"passed": false, "duration_sec": 95,  "suite": "Agent Suite", "failure_msg": "timeout waiting for condition"},
+      "Backup Suite All resources can be restored":            {"passed": true,  "duration_sec": 820, "suite": "Backup Suite"},
+      "Backup Suite Restore survives network interruption":    {"passed": true,  "duration_sec": 640, "suite": "Backup Suite"},
+      "Hook Suite Lifecycle hooks fire on device events":      {"passed": true,  "duration_sec": 390, "suite": "Hook Suite"},
+      "Hook Suite Hooks retry on transient failure":           {"passed": true,  "duration_sec": 300, "suite": "Hook Suite"}
+    }
+  },
+  {
+    "run_id": 1001,
+    "run_url": "https://github.com/flightctl/flightctl/actions/runs/1001",
+    "date": "2026-01-06",
+    "specs": {
+      "__suite__:Hook Suite":        {"passed": true, "duration_sec": 25},
+      "Helm Suite App can be deployed to a device":            {"passed": true,  "duration_sec": 490, "suite": "Helm Suite"},
+      "Helm Suite App reports degraded status when pods fail": {"passed": true,  "duration_sec": 410, "suite": "Helm Suite"},
+      "Rollout Suite Fleet rolls out to all devices":          {"passed": true,  "duration_sec": 270, "suite": "Rollout Suite"},
+      "Rollout Suite Rollback triggers on broken image":       {"passed": false, "duration_sec": 230, "suite": "Rollout Suite", "failure_msg": "agent did not roll back in time"}
+    }
+  },
+  {
+    "run_id": 1002,
+    "run_url": "https://github.com/flightctl/flightctl/actions/runs/1002",
+    "date": "2026-01-05",
+    "specs": {
+      "__suite__:Agent Suite":       {"passed": true, "duration_sec": 44},
+      "__suite__:Backup Suite":      {"passed": true, "duration_sec": 31},
+      "Agent Suite Device should enroll and become online":    {"passed": true,  "duration_sec": 118, "suite": "Agent Suite"},
+      "Agent Suite Device should apply config":                {"passed": true,  "duration_sec": 88,  "suite": "Agent Suite"},
+      "Agent Suite Device should handle reconnect":            {"passed": true,  "duration_sec": 100, "suite": "Agent Suite"},
+      "Backup Suite All resources can be restored":            {"passed": true,  "duration_sec": 810, "suite": "Backup Suite"},
+      "Backup Suite Restore survives network interruption":    {"passed": true,  "duration_sec": 650, "suite": "Backup Suite"},
+      "Hook Suite Lifecycle hooks fire on device events":      {"passed": true,  "duration_sec": 400, "suite": "Hook Suite"},
+      "Hook Suite Hooks retry on transient failure":           {"passed": true,  "duration_sec": 310, "suite": "Hook Suite"}
+    }
+  },
+  {
+    "run_id": 1002,
+    "run_url": "https://github.com/flightctl/flightctl/actions/runs/1002",
+    "date": "2026-01-05",
+    "specs": {
+      "__suite__:Hook Suite":        {"passed": true, "duration_sec": 24},
+      "Helm Suite App can be deployed to a device":            {"passed": true,  "duration_sec": 495, "suite": "Helm Suite"},
+      "Helm Suite App reports degraded status when pods fail": {"passed": true,  "duration_sec": 405, "suite": "Helm Suite"},
+      "Rollout Suite Fleet rolls out to all devices":          {"passed": true,  "duration_sec": 265, "suite": "Rollout Suite"},
+      "Rollout Suite Rollback triggers on broken image":       {"passed": false, "duration_sec": 240, "suite": "Rollout Suite", "failure_msg": "agent did not roll back in time"}
+    }
+  }
+]

@@ -7,8 +7,20 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/scripts/pkg/e2etestutils"
 	"github.com/stretchr/testify/require"
 )
+
+// Convenience aliases so test code stays readable.
+var (
+	medianFloat     = e2etestutils.MedianFloat
+	defaultDuration = e2etestutils.DefaultDuration
+	separateTimings = e2etestutils.SeparateTimings
+	effectiveWeight = e2etestutils.EffectiveWeight
+)
+
+type suiteReport = e2etestutils.SuiteReport
+type specReport = e2etestutils.SpecReport
 
 func TestMedianFloat(t *testing.T) {
 	tests := []struct {
@@ -135,7 +147,7 @@ func TestSeparateTimings(t *testing.T) {
 func specNames(specs []specInfo) []string {
 	names := make([]string, len(specs))
 	for i, s := range specs {
-		names[i] = s.name
+		names[i] = s.Name
 	}
 	return names
 }
@@ -205,9 +217,9 @@ func TestLptAssign(t *testing.T) {
 		{
 			name: "When there is one node it should assign all specs to node 1",
 			specs: []specInfo{
-				{name: "Suite Spec A", suite: "Suite"},
-				{name: "Suite Spec B", suite: "Suite"},
-				{name: "Suite Spec C", suite: "Suite"},
+				{Name: "Suite Spec A", Suite: "Suite"},
+				{Name: "Suite Spec B", Suite: "Suite"},
+				{Name: "Suite Spec C", Suite: "Suite"},
 			},
 			specTimings:  map[string]specTiming{"Suite Spec A": {Avg: 10.0}, "Suite Spec B": {Avg: 20.0}, "Suite Spec C": {Avg: 30.0}},
 			suiteTimings: noSuiteTimings,
@@ -220,9 +232,9 @@ func TestLptAssign(t *testing.T) {
 		{
 			name: "When two nodes and specs can be split evenly it should produce zero spread",
 			specs: []specInfo{
-				{name: "Suite Spec A", suite: "Suite"},
-				{name: "Suite Spec B", suite: "Suite"},
-				{name: "Suite Spec C", suite: "Suite"},
+				{Name: "Suite Spec A", Suite: "Suite"},
+				{Name: "Suite Spec B", Suite: "Suite"},
+				{Name: "Suite Spec C", Suite: "Suite"},
 			},
 			specTimings: map[string]specTiming{
 				"Suite Spec A": {Avg: 90.0}, "Suite Spec B": {Avg: 60.0}, "Suite Spec C": {Avg: 30.0},
@@ -243,8 +255,8 @@ func TestLptAssign(t *testing.T) {
 		{
 			name: "When a spec has no timing entry it should use the default duration",
 			specs: []specInfo{
-				{name: "Suite Known Spec", suite: "Suite"},
-				{name: "Suite Unknown Spec", suite: "Suite"},
+				{Name: "Suite Known Spec", Suite: "Suite"},
+				{Name: "Suite Unknown Spec", Suite: "Suite"},
 			},
 			specTimings:  map[string]specTiming{"Suite Known Spec": {Avg: 100.0}},
 			suiteTimings: noSuiteTimings,
@@ -260,7 +272,7 @@ func TestLptAssign(t *testing.T) {
 		},
 		{
 			name:         "When there is only one spec and many nodes it should assign it to exactly one node",
-			specs:        []specInfo{{name: "Suite Lone Spec", suite: "Suite"}},
+			specs:        []specInfo{{Name: "Suite Lone Spec", Suite: "Suite"}},
 			specTimings:  map[string]specTiming{"Suite Lone Spec": {Avg: 45.0}},
 			suiteTimings: noSuiteTimings,
 			nNodes:       4,
@@ -272,8 +284,8 @@ func TestLptAssign(t *testing.T) {
 		{
 			name: "When there are more nodes than specs some nodes should be empty",
 			specs: []specInfo{
-				{name: "Suite Spec A", suite: "Suite"},
-				{name: "Suite Spec B", suite: "Suite"},
+				{Name: "Suite Spec A", Suite: "Suite"},
+				{Name: "Suite Spec B", Suite: "Suite"},
 			},
 			specTimings:  map[string]specTiming{"Suite Spec A": {Avg: 10.0}, "Suite Spec B": {Avg: 20.0}},
 			suiteTimings: noSuiteTimings,
@@ -287,9 +299,9 @@ func TestLptAssign(t *testing.T) {
 		{
 			name: "When suite BeforeSuite overhead is set it should be added once per suite per node",
 			specs: []specInfo{
-				{name: "Agent Suite spec 1", suite: "Agent Suite"},
-				{name: "Agent Suite spec 2", suite: "Agent Suite"},
-				{name: "CLI Suite spec 1", suite: "CLI Suite"},
+				{Name: "Agent Suite spec 1", Suite: "Agent Suite"},
+				{Name: "Agent Suite spec 2", Suite: "Agent Suite"},
+				{Name: "CLI Suite spec 1", Suite: "CLI Suite"},
 			},
 			specTimings: map[string]specTiming{
 				"Agent Suite spec 1": {Avg: 100.0},
@@ -331,7 +343,7 @@ func TestLptAssign(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assignments := lptAssign(tt.specs, tt.specTimings, tt.suiteTimings, tt.nNodes, tt.defDuration, 0)
+			assignments, _ := e2etestutils.LPTAssign(tt.specs, tt.specTimings, tt.suiteTimings, tt.nNodes, tt.defDuration, 0)
 
 			// Common invariants for every case.
 			require.Len(t, assignments, tt.nNodes, "number of nodes in result must equal nNodes")
@@ -469,10 +481,10 @@ func TestLoadDiscovery(t *testing.T) {
 		require.Len(t, specs, 2)
 		byName := map[string]specInfo{}
 		for _, s := range specs {
-			byName[s.name] = s
+			byName[s.Name] = s
 		}
-		require.Equal(t, "Agent Suite", byName["Agent should boot"].suite)
-		require.Equal(t, "CLI Suite", byName["should login"].suite)
+		require.Equal(t, "Agent Suite", byName["Agent should boot"].Suite)
+		require.Equal(t, "CLI Suite", byName["should login"].Suite)
 	})
 }
 

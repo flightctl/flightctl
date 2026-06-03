@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "branch": "main",
+    "workflow": "pr-e2e-testing.yaml",
+    "repo_url": "https://github.com/flightctl/flightctl",
+    "generated_at": "2026-01-07T09:00:00Z",
+    "analyzed_runs": 3
+  },
+  "runs": [
+    {
+      "run_id": 1001,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/1001",
+      "date": "2026-01-06",
+      "started_at": "2026-01-06T08:00:00Z",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "build",
+          "started_at":   "2026-01-06T08:00:10Z",
+          "completed_at": "2026-01-06T08:10:10Z",
+          "steps": [
+            {"name": "Compile", "duration_sec": 480},
+            {"name": "Build image", "duration_sec": 120}
+          ]
+        },
+        {
+          "name": "deploy",
+          "started_at":   "2026-01-06T08:10:15Z",
+          "completed_at": "2026-01-06T08:20:15Z",
+          "steps": [
+            {"name": "Deploy cluster", "duration_sec": 480},
+            {"name": "Wait ready", "duration_sec": 120}
+          ]
+        },
+        {
+          "name": "e2e-test (cs10, 1)",
+          "started_at":   "2026-01-06T08:20:20Z",
+          "completed_at": "2026-01-06T08:50:20Z",
+          "steps": [
+            {"name": "run e2e test slice", "duration_sec": 1800}
+          ]
+        },
+        {
+          "name": "e2e-test (cs10, 2)",
+          "started_at":   "2026-01-06T08:20:20Z",
+          "completed_at": "2026-01-06T08:48:00Z",
+          "steps": [
+            {"name": "run e2e test slice", "duration_sec": 1660}
+          ]
+        }
+      ]
+    },
+    {
+      "run_id": 1002,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/1002",
+      "date": "2026-01-05",
+      "started_at": "2026-01-05T08:00:00Z",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "build",
+          "started_at":   "2026-01-05T08:00:05Z",
+          "completed_at": "2026-01-05T08:09:05Z",
+          "steps": [
+            {"name": "Compile", "duration_sec": 420},
+            {"name": "Build image", "duration_sec": 120}
+          ]
+        },
+        {
+          "name": "deploy",
+          "started_at":   "2026-01-05T08:09:10Z",
+          "completed_at": "2026-01-05T08:19:10Z",
+          "steps": [
+            {"name": "Deploy cluster", "duration_sec": 480},
+            {"name": "Wait ready", "duration_sec": 120}
+          ]
+        },
+        {
+          "name": "e2e-test (cs10, 1)",
+          "started_at":   "2026-01-05T08:19:15Z",
+          "completed_at": "2026-01-05T08:49:15Z",
+          "steps": [
+            {"name": "run e2e test slice", "duration_sec": 1800}
+          ]
+        },
+        {
+          "name": "e2e-test (cs10, 2)",
+          "started_at":   "2026-01-05T08:19:15Z",
+          "completed_at": "2026-01-05T08:47:00Z",
+          "steps": [
+            {"name": "run e2e test slice", "duration_sec": 1665}
+          ]
+        }
+      ]
+    },
+    {
+      "run_id": 1003,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/1003",
+      "date": "2026-01-04",
+      "started_at": "2026-01-04T08:00:00Z",
+      "conclusion": "failure",
+      "jobs": []
+    }
+  ]
+}

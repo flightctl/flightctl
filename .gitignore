@@ -30,3 +30,4 @@ __pycache__/
 /.artifacts/
 .mcp.json
 test/scripts/test-timings.json
+test/scripts/e2e-health/
