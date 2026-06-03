@@ -785,8 +785,8 @@ fi
 # On full removal: delete temporary build/export storage that may contain
 # leftover subdirectories from interrupted jobs (non-empty dirs RPM won't remove).
 if [ "$1" -eq 0 ]; then
-    rm -rf %{_var}/tmp/flightctl-builds
-    rm -rf %{_var}/tmp/flightctl-exports
+    rm -rf %{_var}/tmp/flightctl-builds || true
+    rm -rf %{_var}/tmp/flightctl-exports || true
 fi
 
 # If contexts were managed via policy, no cleanup is needed here.
