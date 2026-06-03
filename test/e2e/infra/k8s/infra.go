@@ -531,6 +531,19 @@ func (p *InfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
 	return len(list.Items) > 0
 }
 
+// RunOnHost runs a command locally (for K8s, the test host has kubeconfig access to the cluster).
+func (p *InfraProvider) RunOnHost(command []string) (string, error) {
+	if len(command) == 0 {
+		return "", fmt.Errorf("RunOnHost: empty command")
+	}
+	cmd := exec.Command(command[0], command[1:]...) //nolint:gosec // G204: command from internal test harness
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("command failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
 // namespaceForResource determines the namespace for a resource based on naming conventions (internal vs external).
 // Internal: kv, redis, worker, db, alertmanager, periodic, imagebuilder-worker.
 func (p *InfraProvider) namespaceForResource(resourceName string) string {
