@@ -771,6 +771,13 @@ fi
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_target}
 
+# On full removal: delete temporary build/export storage that may contain
+# leftover subdirectories from interrupted jobs (non-empty dirs RPM won't remove).
+if [ "$1" -eq 0 ]; then
+    rm -rf %{_var}/tmp/flightctl-builds
+    rm -rf %{_var}/tmp/flightctl-exports
+fi
+
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
