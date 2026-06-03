@@ -33,6 +33,11 @@ import (
 const (
 	// agentConfigPath is the destination path for the agent config in the image
 	agentConfigPath = "/etc/flightctl/config.yaml"
+
+	// buildStorageBaseDir is the base directory for temporary container storage used
+	// during image builds. A unique subdirectory is created per job and removed when
+	// the job completes. Any leftovers from a crash are swept on worker startup.
+	buildStorageBaseDir = "/var/tmp/flightctl-builds"
 )
 
 // containerfileTemplate is embedded from the templates directory for easier editing
@@ -739,11 +744,9 @@ func (c *Consumer) startPodmanWorker(
 		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
 	}
 
-	baseStorageDir := "/var/tmp/flightctl-builds"
-
 	// This creates a unique, throw-away directory for THIS specific build.
 	// It ensures no caching between jobs.
-	tmpContainerStorage, err := os.MkdirTemp(baseStorageDir, "storage-*")
+	tmpContainerStorage, err := os.MkdirTemp(buildStorageBaseDir, "storage-*")
 	if err != nil {
 		return nil, err
 	}
@@ -834,9 +837,15 @@ ignore_chown_errors = "true"
 		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
 			log.WithError(err).Warn("Failed to kill worker container during cleanup")
 		}
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(tmpOutDir)
-		os.RemoveAll(tmpContainerStorage)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
+		}
+		if err := os.RemoveAll(tmpOutDir); err != nil {
+			log.WithError(err).WithField("path", tmpOutDir).Warn("Failed to remove temporary output directory")
+		}
+		if err := os.RemoveAll(tmpContainerStorage); err != nil {
+			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
+		}
 	}
 
 	return &podmanWorker{

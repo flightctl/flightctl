@@ -35,6 +35,13 @@ import (
 //go:embed templates/Containerfile.containerdisk.tmpl
 var containerdiskTemplate string
 
+const (
+	// exportStorageBaseDir is the base directory for temporary container storage used
+	// during image export. A unique subdirectory is created per job and removed when
+	// the job completes. Any leftovers from a crash are swept on worker startup.
+	exportStorageBaseDir = "/var/tmp/flightctl-exports"
+)
+
 var (
 	// errImageBuildNotReady is returned when ImageBuild is not ready yet (pending state)
 	errImageBuildNotReady = fmt.Errorf("imageBuild not ready")
@@ -477,8 +484,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
 	}
 
-	baseStorageDir := "/var/tmp/flightctl-exports"
-	tmpContainerStorage, err := os.MkdirTemp(baseStorageDir, "storage-*")
+	tmpContainerStorage, err := os.MkdirTemp(exportStorageBaseDir, "storage-*")
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		os.RemoveAll(tmpOutDir)
@@ -528,9 +534,13 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
 			log.WithError(err).Warn("Failed to kill bootc-image-builder container during cleanup")
 		}
-		os.RemoveAll(tmpDir)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
+		}
 		// Don't remove tmpOutDir here - it's cleaned up separately after pushArtifact completes
-		os.RemoveAll(tmpContainerStorage)
+		if err := os.RemoveAll(tmpContainerStorage); err != nil {
+			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
+		}
 	}
 
 	return &privilegedPodmanWorker{
