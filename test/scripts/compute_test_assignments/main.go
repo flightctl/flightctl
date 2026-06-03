@@ -26,105 +26,36 @@
 package main
 
 import (
-	"container/heap"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"strconv"
-	"strings"
 
+	"github.com/flightctl/flightctl/test/scripts/pkg/e2etestutils"
 	"github.com/spf13/cobra"
 )
 
-// suiteOverheadPrefix is the key prefix used for per-suite BeforeSuite timings
-// in the cache, matching the prefix used by update_test_timings.
-const suiteOverheadPrefix = "__suite__:"
-
-// specReport is the subset of a Ginkgo SpecReport we care about.
-type specReport struct {
-	LeafNodeType            string   `json:"LeafNodeType"`
-	LeafNodeText            string   `json:"LeafNodeText"`
-	ContainerHierarchyTexts []string `json:"ContainerHierarchyTexts"`
-	State                   string   `json:"State"`
+// fmtDuration formats seconds as "Xm Ys" (e.g. "22m 15s").
+func fmtDuration(secs float64) string {
+	total := int(math.Round(secs))
+	m, s := total/60, total%60
+	if m == 0 {
+		return fmt.Sprintf("%ds", s)
+	}
+	return fmt.Sprintf("%dm %02ds", m, s)
 }
 
-// suiteReport is the top-level array element in a Ginkgo JSON report.
-type suiteReport struct {
-	SuiteDescription string       `json:"SuiteDescription"`
-	SpecReports      []specReport `json:"SpecReports"`
-}
+// Type aliases so the rest of this file keeps using the short names.
+type specTiming = e2etestutils.SpecTiming
+type specInfo = e2etestutils.SpecInfo
 
-// specInfo pairs a spec's full name with its parent suite name.
-type specInfo struct {
-	name  string
-	suite string
-}
-
-// nodeState tracks the accumulated estimated duration and assigned specs for
-// one shard in the LPT heap.
-type nodeState struct {
-	id     int
-	total  float64
-	specs  []string
-	suites map[string]struct{} // suites already started on this node
-}
-
-// nodeHeap is a min-heap of nodeState ordered by total estimated duration.
-type nodeHeap []nodeState
-
-func (h nodeHeap) Len() int            { return len(h) }
-func (h nodeHeap) Less(i, j int) bool  { return h[i].total < h[j].total }
-func (h nodeHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *nodeHeap) Push(x interface{}) { *h = append(*h, x.(nodeState)) }
-func (h *nodeHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[:n-1]
-	return x
-}
+const suiteOverheadPrefix = e2etestutils.SuiteOverheadPrefix
 
 func loadDiscovery(path string) ([]specInfo, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read discovery file: %w", err)
-	}
-	var suites []suiteReport
-	if err := json.Unmarshal(data, &suites); err != nil {
-		return nil, fmt.Errorf("parse discovery file: %w", err)
-	}
-
-	seen := make(map[string]struct{})
-	var specs []specInfo
-	for _, suite := range suites {
-		for _, sr := range suite.SpecReports {
-			if sr.LeafNodeType != "It" || sr.State == "skipped" {
-				continue
-			}
-			if sr.LeafNodeText == "" {
-				continue
-			}
-			parts := append(sr.ContainerHierarchyTexts, sr.LeafNodeText)
-			fullName := strings.Join(parts, " ")
-			if _, exists := seen[fullName]; exists {
-				continue
-			}
-			seen[fullName] = struct{}{}
-			specs = append(specs, specInfo{name: fullName, suite: suite.SuiteDescription})
-		}
-	}
-	sort.Slice(specs, func(i, j int) bool { return specs[i].name < specs[j].name })
-	return specs, nil
+	return e2etestutils.LoadDiscovery(path)
 }
 
-// specTiming mirrors the cache entry written by update_test_timings.
-// Only Avg is used for LPT scheduling; StdDev is stored for observability.
-type specTiming struct {
-	Avg    float64 `json:"avg"`
-	StdDev float64 `json:"stddev"`
-}
 
 func loadTimings(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
@@ -141,116 +72,12 @@ func loadTimings(path string) (map[string]specTiming, error) {
 	return timings, nil
 }
 
-// separateTimings splits the combined timings map into spec timings and
-// per-suite BeforeSuite overhead timings (keys prefixed with suiteOverheadPrefix).
-func separateTimings(all map[string]specTiming) (specTimings, suiteTimings map[string]specTiming) {
-	specTimings = make(map[string]specTiming, len(all))
-	suiteTimings = make(map[string]specTiming)
-	for k, v := range all {
-		if strings.HasPrefix(k, suiteOverheadPrefix) {
-			suiteTimings[strings.TrimPrefix(k, suiteOverheadPrefix)] = v
-		} else {
-			specTimings[k] = v
-		}
-	}
-	return
-}
-
-func medianFloat(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := make([]float64, len(values))
-	copy(sorted, values)
-	sort.Float64s(sorted)
-	n := len(sorted)
-	if n%2 == 1 {
-		return sorted[n/2]
-	}
-	return (sorted[n/2-1] + sorted[n/2]) / 2
-}
-
-// defaultDuration returns max(floor, median(avg)) across all known spec timings.
-// The default is intentionally based on avg-only so that the floor remains
-// meaningful regardless of the sigma setting.
-func defaultDuration(specTimings map[string]specTiming, floor float64) float64 {
-	if len(specTimings) == 0 {
-		return floor
-	}
-	vals := make([]float64, 0, len(specTimings))
-	for _, v := range specTimings {
-		vals = append(vals, v.Avg)
-	}
-	return math.Max(floor, medianFloat(vals))
-}
-
-// effectiveWeight returns the pessimistic weight used for LPT scheduling:
-// avg + sigma*stddev.  sigma=0 reduces to a plain average.
-func effectiveWeight(t specTiming, sigma float64) float64 {
-	return t.Avg + sigma*t.StdDev
-}
-
-// weighted pairs a spec with its estimated duration.
-type weighted struct {
-	spec     specInfo
-	duration float64
-}
-
-// lptAssign assigns specs to nodes using the Longest Processing Time greedy
-// algorithm.  The weight of each spec is avg + sigma*stddev; sigma=0 uses
-// plain averages, sigma=1 inflates by one standard deviation as a pessimistic
-// buffer for high-jitter specs.
-func lptAssign(specs []specInfo, specTimings map[string]specTiming, suiteTimings map[string]specTiming, nNodes int, defDuration float64, sigma float64) map[string][]string {
-	// Pair each spec with its effective duration; sort descending (LPT property).
-	ws := make([]weighted, len(specs))
-	for i, s := range specs {
-		var dur float64
-		if t, ok := specTimings[s.name]; ok {
-			dur = effectiveWeight(t, sigma)
-		} else {
-			dur = defDuration
-		}
-		ws[i] = weighted{s, dur}
-	}
-	sort.Slice(ws, func(i, j int) bool { return ws[i].duration > ws[j].duration })
-
-	h := make(nodeHeap, nNodes)
-	for i := range h {
-		h[i] = nodeState{id: i + 1, specs: []string{}, suites: make(map[string]struct{})}
-	}
-	heap.Init(&h)
-
-	for _, w := range ws {
-		n := heap.Pop(&h).(nodeState)
-
-		// Add BeforeSuite overhead the first time a spec from this suite lands
-		// on this node.
-		if w.spec.suite != "" {
-			if _, started := n.suites[w.spec.suite]; !started {
-				if overhead, ok := suiteTimings[w.spec.suite]; ok {
-					n.total += effectiveWeight(overhead, sigma)
-				}
-				n.suites[w.spec.suite] = struct{}{}
-			}
-		}
-
-		n.specs = append(n.specs, w.spec.name)
-		n.total += w.duration
-		heap.Push(&h, n)
-	}
-
-	result := make(map[string][]string, nNodes)
-	for _, n := range h {
-		result[strconv.Itoa(n.id)] = n.specs
-	}
-	return result
-}
 
 func printSummary(assignments map[string][]string, specTimings map[string]specTiming, suiteTimings map[string]specTiming, defDuration float64, unknowns []string, specs []specInfo, sigma float64) {
 	// Build a lookup from spec name to suite name.
 	suiteLookup := make(map[string]string, len(specs))
 	for _, s := range specs {
-		suiteLookup[s.name] = s.suite
+		suiteLookup[s.Name] = s.Suite
 	}
 
 	label := "Est. Duration"
@@ -271,19 +98,19 @@ func printSummary(assignments map[string][]string, specTimings map[string]specTi
 			if suite != "" {
 				if _, seen := suitesSeen[suite]; !seen {
 					if overhead, ok := suiteTimings[suite]; ok {
-						total += effectiveWeight(overhead, sigma)
-					}
-					suitesSeen[suite] = struct{}{}
+					total += e2etestutils.EffectiveWeight(overhead, sigma)
 				}
+				suitesSeen[suite] = struct{}{}
 			}
-			if t, ok := specTimings[s]; ok {
-				total += effectiveWeight(t, sigma)
+		}
+		if t, ok := specTimings[s]; ok {
+			total += e2etestutils.EffectiveWeight(t, sigma)
 			} else {
 				total += defDuration
 			}
 		}
 		totals = append(totals, total)
-		fmt.Printf("  %-4d %13.1fs %8d\n", nodeID, total, len(nodeSpecs))
+		fmt.Printf("  %-4d %15s %8d\n", nodeID, fmtDuration(total), len(nodeSpecs))
 	}
 
 	if len(totals) > 0 {
@@ -296,9 +123,9 @@ func printSummary(assignments map[string][]string, specTimings map[string]specTi
 				maxT = t
 			}
 		}
-		fmt.Printf("  Min node:         %.1fs\n", minT)
-		fmt.Printf("  Max node:         %.1fs\n", maxT)
-		fmt.Printf("  Spread (max-min): %.1fs\n", maxT-minT)
+		fmt.Printf("  Min node:         %s\n", fmtDuration(minT))
+		fmt.Printf("  Max node:         %s\n", fmtDuration(maxT))
+		fmt.Printf("  Spread (max-min): %s\n", fmtDuration(maxT-minT))
 	}
 
 	if len(unknowns) > 0 {
@@ -357,12 +184,12 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 			if err != nil {
 				return err
 			}
-			specTimings, suiteTimings := separateTimings(allTimings)
+		specTimings, suiteTimings := e2etestutils.SeparateTimings(allTimings)
 
-			def := defSecs
-			if def < 0 {
-				def = defaultDuration(specTimings, 60.0)
-			}
+		def := defSecs
+		if def < 0 {
+			def = e2etestutils.DefaultDuration(specTimings, 60.0)
+		}
 			fmt.Printf("Default duration for unknown specs: %.1fs\n", def)
 
 			if sigma > 0 {
@@ -372,12 +199,12 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				fmt.Printf("Suite BeforeSuite overhead: %d suite(s) tracked\n", len(suiteTimings))
 			}
 
-			var unknowns []string
-			for _, s := range specs {
-				if _, ok := specTimings[s.name]; !ok {
-					unknowns = append(unknowns, s.name)
-				}
+		var unknowns []string
+		for _, s := range specs {
+			if _, ok := specTimings[s.Name]; !ok {
+				unknowns = append(unknowns, s.Name)
 			}
+		}
 			fmt.Printf("Specs: %d total, %d with timing data, %d using default\n",
 				len(specs), len(specs)-len(unknowns), len(unknowns))
 
@@ -390,7 +217,7 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				return writeJSON(output, empty)
 			}
 
-			assignments := lptAssign(specs, specTimings, suiteTimings, nodes, def, sigma)
+			assignments, _ := e2etestutils.LPTAssign(specs, specTimings, suiteTimings, nodes, def, sigma)
 			if err := writeJSON(output, assignments); err != nil {
 				return err
 			}

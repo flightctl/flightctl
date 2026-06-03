@@ -9,7 +9,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/scripts/pkg/e2etestutils"
 	"github.com/stretchr/testify/require"
+)
+
+// Convenience aliases so test code stays readable.
+type junitTestCase = e2etestutils.JUnitTestCase
+
+var (
+	junitSpecName       = e2etestutils.JUnitSpecName
+	parseTimingsFromFile = e2etestutils.ParseTimingsFromFile
 )
 
 func TestRepoFromEnv(t *testing.T) {
