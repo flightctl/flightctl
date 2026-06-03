@@ -51,6 +51,10 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
+	// Ensure services are running (a previous restore test may have left them scaled down).
+	br := newBackupRestore(harness, setup.GetDefaultProviders())
+	Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
+
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 

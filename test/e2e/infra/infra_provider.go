@@ -103,6 +103,11 @@ type InfraProvider interface {
 	// has no such pod. Quadlet reads db.type from service-config.yaml (deploy/podman/service-config.yaml);
 	// db.type=external uses an external Postgres instance instead of the flightctl-db container.
 	BuiltinDatabaseWorkloadAvailable() bool
+
+	// RunOnHost runs a command on the infrastructure host (where services are deployed).
+	// For K8s: runs locally (test host has kubeconfig).
+	// For Quadlet: runs on the Quadlet host (SSH if remote, local if same host).
+	RunOnHost(command []string) (string, error)
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.
