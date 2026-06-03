@@ -121,6 +121,7 @@ rootful
 runtime
 schemas
 Sigstore
+skopeo
 Skopeo
 spec
 specs
@@ -162,6 +163,23 @@ openshift
 acm
 namespaces
 USB
+ext4
+exFAT
+FAT32
+mkfs
+lsblk
+unmount
+Unmount
+reposync
+RPMs
+repodata
+createrepo_c
+exfatprogs
+xorriso
+genisoimage
+Pre-pulled
+pre-load
+registry.redhat.io
 quay.io.
 API_URL
 madrid
@@ -356,6 +374,10 @@ multicluster
  Trustify
  distro
  README
+ ImageTagMirrorSet
+ ImageContentSourcePolicy
+ walkthrough
+ arg
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
@@ -369,9 +391,9 @@ v1beta1
 v1alpha1
 1.x.x
 ImageBuild
+ImageBuilds
 ImageExport
 ImageExports
-ImageBuilds
 ReadWrite
  - docs/user/references/upgrade-compatibility.md
 v1betaX
@@ -386,6 +408,8 @@ orin
  - docs/user/installing/installing-service-on-kubernetes.md
 demouser
 v3.15
+console.redhat.com
+Datapath
 values.yaml
 Keycloak
 flightctl.MY.DOMAIN
