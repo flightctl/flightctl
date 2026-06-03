@@ -26,7 +26,6 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"math"
@@ -36,39 +35,16 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/flightctl/flightctl/test/scripts/pkg/e2etestutils"
 	"github.com/google/go-github/v72/github"
 	"github.com/spf13/cobra"
 )
 
-// specTiming holds the aggregate timing data for a single spec across all
-// observed CI runs.
-type specTiming struct {
-	Avg    float64 `json:"avg"`
-	StdDev float64 `json:"stddev"`
-}
+// Type alias so the rest of this file can keep using the short name.
+type specTiming = e2etestutils.SpecTiming
 
-// junitTestSuites is the root element of Ginkgo's JUnit XML output.
-type junitTestSuites struct {
-	XMLName    xml.Name         `xml:"testsuites"`
-	TestSuites []junitTestSuite `xml:"testsuite"`
-}
+const suiteOverheadPrefix = e2etestutils.SuiteOverheadPrefix
 
-type junitTestSuite struct {
-	TestCases []junitTestCase `xml:"testcase"`
-}
-
-// junitTestCase holds the fields we need from each <testcase> element.
-// Skipped is non-nil when a <skipped/> child element is present.
-type junitTestCase struct {
-	Name      string     `xml:"name,attr"`
-	ClassName string     `xml:"classname,attr"`
-	Time      float64    `xml:"time,attr"`
-	Skipped   []struct{} `xml:"skipped"`
-}
-
-// suiteOverheadPrefix is the key prefix used to store per-suite BeforeSuite
-// average durations in the timings cache, e.g. "__suite__:Agent E2E Suite".
-const suiteOverheadPrefix = "__suite__:"
 
 func githubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
@@ -189,59 +165,6 @@ func downloadAndExtractArtifact(ctx context.Context, client *github.Client, owne
 	return nil
 }
 
-// junitSpecName extracts the plain spec name from a Ginkgo JUnit testcase name.
-//
-// Ginkgo formats testcase names as:
-//
-//	[It] Container1 Container2 LeafText [label1, label2, ...]
-//
-// We strip the "[It] " prefix and the trailing " [labels]" group so that the
-// resulting key matches what compute_test_assignments produces from the
-// discovery JSON (ContainerHierarchyTexts joined with LeafNodeText).
-// Non-It entries (e.g. [BeforeSuite]) return an empty string and are skipped.
-func junitSpecName(name string) string {
-	const itPrefix = "[It] "
-	if !strings.HasPrefix(name, itPrefix) {
-		return ""
-	}
-	name = strings.TrimPrefix(name, itPrefix)
-	// Strip trailing " [label1, label2, ...]" — the last bracket group.
-	if idx := strings.LastIndex(name, " ["); idx > 0 && strings.HasSuffix(name, "]") {
-		name = name[:idx]
-	}
-	return name
-}
-
-func parseTimingsFromFile(path string) (map[string][]float64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var suites junitTestSuites
-	if err := xml.Unmarshal(data, &suites); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-
-	result := make(map[string][]float64)
-	for _, suite := range suites.TestSuites {
-		for _, tc := range suite.TestCases {
-			if len(tc.Skipped) > 0 || tc.Time <= 0 {
-				continue
-			}
-			if tc.Name == "[BeforeSuite]" && tc.ClassName != "" {
-				key := suiteOverheadPrefix + tc.ClassName
-				result[key] = append(result[key], tc.Time)
-				continue
-			}
-			key := junitSpecName(tc.Name)
-			if key == "" {
-				continue
-			}
-			result[key] = append(result[key], tc.Time)
-		}
-	}
-	return result, nil
-}
 
 func loadExistingCache(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
@@ -282,19 +205,6 @@ func writeCache(path string, timings map[string]specTiming) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
-// populationStdDev computes the population standard deviation of values around
-// the given mean.  Returns 0 when fewer than 2 values are present.
-func populationStdDev(values []float64, mean float64) float64 {
-	if len(values) < 2 {
-		return 0
-	}
-	var variance float64
-	for _, v := range values {
-		diff := v - mean
-		variance += diff * diff
-	}
-	return math.Sqrt(variance / float64(len(values)))
-}
 
 func printSummary(timings map[string]specTiming, prevCount int) {
 	if len(timings) == 0 {
@@ -441,7 +351,7 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 					if e.IsDir() || !strings.HasSuffix(e.Name(), ".xml") {
 						continue
 					}
-					obs, err := parseTimingsFromFile(filepath.Join(tmpDir, e.Name()))
+					obs, err := e2etestutils.ParseTimingsFromFile(filepath.Join(tmpDir, e.Name()))
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "    Warning: parse %s: %v\n", e.Name(), err)
 						continue
@@ -467,7 +377,7 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 				avg := sum / float64(len(durations))
 				newTimings[name] = specTiming{
 					Avg:    avg,
-					StdDev: populationStdDev(durations, avg),
+					StdDev: e2etestutils.PopulationStdDev(durations, avg),
 				}
 			}
 			fmt.Printf("Computed averages for %d spec(s).\n", len(newTimings))
