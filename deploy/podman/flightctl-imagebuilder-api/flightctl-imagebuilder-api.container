@@ -24,5 +24,7 @@ RestartSec=30
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-api/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-api/config.yaml
 
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
+
 [Install]
 WantedBy=flightctl.target

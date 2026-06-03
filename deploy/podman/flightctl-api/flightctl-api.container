@@ -34,6 +34,7 @@ LimitNOFILE=300000
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
 
 [Install]
 WantedBy=flightctl.target
