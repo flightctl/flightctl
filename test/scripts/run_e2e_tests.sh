@@ -202,7 +202,7 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     echo "Node ${GINKGO_NODE} will run the following tests:"
     cat "${NODE_TESTS}"
 
-    FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | sed 's/.*/^&$/' | paste -sd '|')
+    FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | paste -sd '|')
     echo "Focus pattern for node ${GINKGO_NODE}: ${FOCUS_PATTERN}"
     GINKGO_FOCUS="${FOCUS_PATTERN}"
 
