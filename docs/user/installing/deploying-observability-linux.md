@@ -26,6 +26,105 @@ The first two categories can be collected from the Flight Control API server, th
 
 To store and visualize this telemetry data, you can deploy an observability stack as described in the following sections.
 
+## Air-gapped installation
+
+The standard `mirror-images` bundle excludes Prometheus and Grafana because
+`flightctl-observability` is optional. If you plan to run the observability stack
+on an air-gapped target, you must mirror those images manually before or alongside
+the main bundle transfer.
+
+### Images to mirror
+
+| Image | Variant |
+|-------|---------|
+| `docker.io/grafana/grafana:latest` | `community-el9` |
+| `docker.io/prom/prometheus:v2.13.1` | `community-el9` |
+| `quay.io/ceph/grafana:9.4.10` | `community-el10` |
+| `quay.io/prometheus/prometheus:v2.43.1` | `community-el10` |
+| `registry.redhat.io/rhel9/grafana:9.7-1766395319` | `redhat-el9`, `redhat-el10` |
+| `registry.redhat.io/rhacm2/prometheus-rhel9:v2.14.2-1` | `redhat-el9`, `redhat-el10` |
+
+### Include the observability RPM in the bundle
+
+When running `mirror-images`, add `flightctl-observability` to `--rpm-packages` so
+that the RPM and its dependencies are bundled alongside the core service packages:
+
+```bash
+./bin/mirror-images \
+    --variant community-el9 \
+    --bundle ~/flightctl-bundle.tar.gz \
+    --bundle-rpms \
+    --rpm-packages flightctl-services,flightctl-observability
+```
+
+### Mirror the images on the prep machine
+
+Copy the Prometheus and Grafana images to a local directory on the prep machine:
+
+```bash
+# community-el9
+skopeo copy docker://docker.io/grafana/grafana:latest \
+    dir:~/obs-images/grafana-grafana:latest
+skopeo copy docker://docker.io/prom/prometheus:v2.13.1 \
+    dir:~/obs-images/prom-prometheus:v2.13.1
+```
+
+Archive the directory and transfer it to the air-gapped target alongside the main
+bundle:
+
+```bash
+tar -czf ~/observability-images.tar.gz -C ~/obs-images .
+scp ~/observability-images.tar.gz <user>@<target_host>:~/
+```
+
+### Load the images into the local registry on the target
+
+On the target machine, extract the archive and push each image into the local
+registry:
+
+```bash
+mkdir ~/obs-images
+tar -xzf ~/observability-images.tar.gz -C ~/obs-images
+
+skopeo copy --dest-tls-verify=false \
+    "dir:$HOME/obs-images/grafana-grafana:latest" \
+    "docker://localhost:5000/grafana/grafana:latest"
+skopeo copy --dest-tls-verify=false \
+    "dir:$HOME/obs-images/prom-prometheus:v2.13.1" \
+    "docker://localhost:5000/prom/prometheus:v2.13.1"
+```
+
+Ensure `/etc/containers/registries.conf` mirrors `docker.io` to your local
+registry (this is already configured if you followed the offline service
+installation guide):
+
+```toml
+[[registry]]
+prefix = "docker.io"
+location = "localhost:5000"
+insecure = true
+```
+
+### Install the RPM and start the observability stack
+
+Install `flightctl-observability` from the bundle:
+
+```bash
+cd ~/flightctl-bundle
+sudo dnf install -y --nogpgcheck --disablerepo='*' rpms/flightctl-observability*.rpm rpms/*.rpm
+```
+
+Then follow the standard startup procedure below.
+
+> [!IMPORTANT]
+> Grafana data sources, dashboards, and Prometheus alerting rules ship with the
+> `flightctl-observability` RPM as defaults for Flight Control metrics. Organization-
+> specific customization — additional dashboards, external data sources, and alerting
+> integrations — must be configured manually. There is no automated mechanism to
+> configure these in air-gapped environments at this time.
+
+---
+
 ## Deploying the Observability Stack
 
 Prerequisites:

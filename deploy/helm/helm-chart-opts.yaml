@@ -44,6 +44,9 @@ community-el9:
       image: quay.io/flightctl/flightctl-db-setup-el9
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el9
+    ubiMinimal:
+      image: registry.access.redhat.com/ubi9/ubi-minimal
+      tag: "9.7-1763362218"
 redhat-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -93,6 +96,9 @@ redhat-el9:
       image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
+    ubiMinimal:
+      image: registry.redhat.io/ubi9/ubi-minimal
+      tag: "9.7-1763362218"
 community-el10:
   name: flightctl
   description: A helm chart for FlightControl
@@ -139,6 +145,9 @@ community-el10:
       image: quay.io/flightctl/flightctl-db-setup-el10
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el10
+    ubiMinimal:
+      image: registry.access.redhat.com/ubi10/ubi-minimal
+      tag: "10.1-1769677092"
 redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -188,3 +197,6 @@ redhat-el10:
       image: registry.redhat.io/rhem/flightctl-db-setup-rhel10
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel10
+    ubiMinimal:
+      image: registry.redhat.io/ubi10/ubi-minimal
+      tag: "10.1-1769677092"
