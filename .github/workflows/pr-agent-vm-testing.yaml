@@ -138,6 +138,31 @@ jobs:
             exit 1
           fi
 
+          MAX_ENROLLMENT_WAIT_SECONDS=180
+          elapsed=0
+
+          while [ "${elapsed}" -lt "${MAX_ENROLLMENT_WAIT_SECONDS}" ]; do
+            echo "Checking enrollment requests after ${elapsed}s"
+            enrollment_requests_output=$(./bin/flightctl get enrollmentrequests 2>&1 || true)
+            echo "${enrollment_requests_output}"
+
+            enrollment_request=$(echo "${enrollment_requests_output}" | awk 'NR > 1 && $2 == "Pending" {print $1; exit}')
+            if [ -n "${enrollment_request}" ]; then
+              echo "Approving enrollment request ${enrollment_request}"
+              ./bin/flightctl approve "enrollmentrequest/${enrollment_request}"
+              break
+            fi
+
+            sleep "${SLEEP_INTERVAL}"
+            elapsed=$((elapsed + SLEEP_INTERVAL))
+          done
+
+          if [ -z "${enrollment_request:-}" ]; then
+            echo "Timed out waiting for pending enrollment request"
+            ./bin/flightctl get enrollmentrequests || true
+            exit 1
+          fi
+
           MAX_AGENT_WAIT_SECONDS=300
           elapsed=0
 
