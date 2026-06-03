@@ -17,7 +17,6 @@ Volume=/etc/flightctl/pki/flightctl-gateway/server.key:/etc/flightctl/pki/flight
 User=1001
 Group=0
 Exec=nginx -g "daemon off;"
-ReloadCmd=nginx -s reload
 
 PublishPort=443:8443
 # Backwards-compat: pre-gateway installations used port 3443 for the API and 8445 for imagebuilder.
