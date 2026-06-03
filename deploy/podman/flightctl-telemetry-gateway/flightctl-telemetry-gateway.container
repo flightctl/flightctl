@@ -25,5 +25,7 @@ Volume=/etc/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightc
 Restart=on-failure
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file /etc/flightctl/flightctl-telemetry-gateway/config.yaml
 
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
+
 [Install]
 WantedBy=multi-user.target
