@@ -194,14 +194,21 @@ func aggregateJUnit(junitFiles []rawJUnitFile, allRunIDs []runRef) junitAgg {
 		}
 
 		// Infra instability check on the merged result.
-		total := len(merged)
+		// Only count executed (non-skipped) specs — label-filtered specs appear
+		// as skipped in every shard's JUnit and must not inflate the denominator,
+		// otherwise the threshold can never be reached.
+		executed := 0
 		failures := 0
 		for _, s := range merged {
-			if !s.Passed && !s.Skipped {
+			if s.Skipped {
+				continue
+			}
+			executed++
+			if !s.Passed {
 				failures++
 			}
 		}
-		if total > 0 && float64(failures)/float64(total) > infraInstabilityThreshold {
+		if executed > 0 && float64(failures)/float64(executed) > infraInstabilityThreshold {
 			agg.infraRuns = append(agg.infraRuns, ref)
 			continue
 		}

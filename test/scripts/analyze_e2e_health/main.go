@@ -31,15 +31,15 @@ import (
 )
 
 const (
-	defaultWorkflow     = "pr-e2e-testing.yaml"
-	defaultBranch       = "main"
-	defaultRuns         = 14
-	defaultTopN         = 10
-	outDir = "e2e-health"
+	defaultWorkflow = "pr-e2e-testing.yaml"
+	defaultBranch   = "main"
+	defaultRuns     = 14
+	defaultTopN     = 10
+	outDir          = "e2e-health"
 
-	defaultRawJobs      = outDir + "/e2e-raw-jobs.json"
-	defaultRawJunit     = outDir + "/e2e-raw-junit.json"
-	defaultDiscovery    = outDir + "/e2e-discovery.json"
+	defaultRawJobs     = outDir + "/e2e-raw-jobs.json"
+	defaultRawJunit    = outDir + "/e2e-raw-junit.json"
+	defaultDiscovery   = outDir + "/e2e-discovery.json"
 	defaultOutputHTML  = outDir + "/e2e-health-report.html"
 	defaultSummaryJSON = outDir + "/e2e-health-summary.json"
 	defaultReportData  = outDir + "/e2e-health-report-data.json"
@@ -260,12 +260,16 @@ Requires GH_TOKEN (or GITHUB_TOKEN) and GITHUB_REPOSITORY when collecting.`,
 						return fmt.Errorf("--out-dir cannot be combined with --%s", f)
 					}
 				}
-			rawJobsPath = filepath.Join(outDirFlag, "e2e-raw-jobs.json")
-			rawJunitPath = filepath.Join(outDirFlag, "e2e-raw-junit.json")
-			discoveryPath = filepath.Join(outDirFlag, "e2e-discovery.json")
-			outputHTML = filepath.Join(outDirFlag, "e2e-health-report.html")
-			summaryJSON = filepath.Join(outDirFlag, "e2e-health-summary.json")
-			reportData = filepath.Join(outDirFlag, "e2e-health-report-data.json")
+				rawJobsPath = filepath.Join(outDirFlag, "e2e-raw-jobs.json")
+				rawJunitPath = filepath.Join(outDirFlag, "e2e-raw-junit.json")
+				discoveryPath = filepath.Join(outDirFlag, "e2e-discovery.json")
+				outputHTML = filepath.Join(outDirFlag, "e2e-health-report.html")
+				summaryJSON = filepath.Join(outDirFlag, "e2e-health-summary.json")
+				reportData = filepath.Join(outDirFlag, "e2e-health-report-data.json")
+			}
+
+			if err := os.MkdirAll(filepath.Dir(discoveryPath), 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
 			}
 
 			specs, err := loadOrGenerateDiscovery(discoveryPath, "")
@@ -273,11 +277,6 @@ Requires GH_TOKEN (or GITHUB_TOKEN) and GITHUB_REPOSITORY when collecting.`,
 				return fmt.Errorf("discovery: %w", err)
 			}
 			fmt.Printf("Loaded discovery: %d specs from %s\n", len(specs), discoveryPath)
-
-			dir := filepath.Dir(rawJobsPath)
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return fmt.Errorf("create output dir %s: %w", dir, err)
-			}
 
 			var jobsFile rawJobsFile
 			var junitFiles []rawJUnitFile
