@@ -194,13 +194,14 @@ func aggregateJUnit(junitFiles []rawJUnitFile, allRunIDs []runRef) junitAgg {
 		}
 
 		// Infra instability check on the merged result.
-		// Only count executed (non-skipped) specs — label-filtered specs appear
+		// Only count executed (non-skipped) test specs — label-filtered specs appear
 		// as skipped in every shard's JUnit and must not inflate the denominator,
-		// otherwise the threshold can never be reached.
+		// otherwise the threshold can never be reached. __suite__: entries (BeforeSuite
+		// overhead) are also excluded; they are not test specs.
 		executed := 0
 		failures := 0
-		for _, s := range merged {
-			if s.Skipped {
+		for name, s := range merged {
+			if s.Skipped || strings.HasPrefix(name, suiteOverheadPrefix) {
 				continue
 			}
 			executed++
@@ -214,6 +215,9 @@ func aggregateJUnit(junitFiles []rawJUnitFile, allRunIDs []runRef) junitAgg {
 		}
 
 		for name, s := range merged {
+			if strings.HasPrefix(name, suiteOverheadPrefix) {
+				continue
+			}
 			existing := agg.specs[name]
 			switch {
 			case s.Skipped:
@@ -222,8 +226,12 @@ func aggregateJUnit(junitFiles []rawJUnitFile, allRunIDs []runRef) junitAgg {
 				existing.PassCount++
 			default:
 				existing.FailCount++
-				existing.LastFailedRunID = ref.RunID
-				existing.LastFailedURL = ref.RunURL
+				// Runs are processed newest-first; only record the URL on the
+				// first (most recent) failure so the link stays up to date.
+				if existing.LastFailedRunID == 0 {
+					existing.LastFailedRunID = ref.RunID
+					existing.LastFailedURL = ref.RunURL
+				}
 				if s.FailureMsg != "" && existing.FailureMsg == "" {
 					existing.FailureMsg = s.FailureMsg
 				}
