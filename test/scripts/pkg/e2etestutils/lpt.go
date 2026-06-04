@@ -106,6 +106,9 @@ func SeparateTimings(all map[string]SpecTiming) (specTimings, suiteTimings map[s
 // Returns the shard assignments map (nodeID → spec names) and the maximum
 // shard total (critical-path estimate).
 func LPTAssign(specs []SpecInfo, specTimings, suiteTimings map[string]SpecTiming, nNodes int, defDuration, sigma float64) (assignments map[string][]string, maxTotal float64) {
+	if nNodes <= 0 {
+		return map[string][]string{}, 0
+	}
 	ws := make([]weighted, len(specs))
 	for i, s := range specs {
 		var dur float64

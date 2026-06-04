@@ -11,6 +11,7 @@ package e2etestutils
 
 import (
 	"encoding/xml"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -78,11 +79,11 @@ func JUnitSpecName(name string) string {
 func ParseTimingsFromFile(path string) (map[string][]float64, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var suites junitTestSuites
 	if err := xml.Unmarshal(data, &suites); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse xml %s: %w", path, err)
 	}
 
 	result := make(map[string][]float64)
