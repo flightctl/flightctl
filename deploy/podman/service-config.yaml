@@ -170,6 +170,4 @@ userinfoProxy:
   insecureSkipTlsVerify:
 
 gateway:
-  # This is for backwards compatibility. Existing installations won't have this set so the nginx gateway
-  # will maintain the old API port exposed on 3443 for existing clients configured with that.
-  suppressOldPorts: true
+  suppressOldPorts: false

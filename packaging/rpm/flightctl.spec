@@ -347,6 +347,10 @@ fi
         install -Dv -m0644 "${LICENSE_FILE}" "%{buildroot}%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}"
         echo "%%license %{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
     done
+    # Own intermediate directories so RPM removes them on uninstall
+    find "%{buildroot}%{_datadir}/licenses/%{NAME}" -mindepth 1 -type d | sort -r | while read DIR; do
+        echo "%%dir ${DIR#%{buildroot}}" >> licenses.list
+    done
     touch licenses.list
 
     # flightctl-services sub-package steps
@@ -458,6 +462,7 @@ fi
 # No %%files section for the main package, so it won't be built
 
 %files cli -f licenses.list
+    %dir %{_datadir}/licenses/%{NAME}
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
@@ -770,6 +775,13 @@ fi
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_target}
+
+# On full removal: delete temporary build/export storage that may contain
+# leftover subdirectories from interrupted jobs (non-empty dirs RPM won't remove).
+if [ "$1" -eq 0 ]; then
+    rm -rf %{_var}/tmp/flightctl-builds || true
+    rm -rf %{_var}/tmp/flightctl-exports || true
+fi
 
 # If contexts were managed via policy, no cleanup is needed here.
 

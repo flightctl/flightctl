@@ -11,11 +11,13 @@ Welcome to the Flight Control user documentation.
   * **[Installing the Flight Control Service on Kubernetes](installing/installing-service-on-kubernetes.md)**
     * [Installing on Kubernetes](installing/installing-service-on-kubernetes.md#installing-on-kubernetes)
     * [Installing on OpenShift](installing/installing-service-on-kubernetes.md#installing-on-openshift)
+    * [Installing on MicroShift](installing/installing-service-on-kubernetes.md#installing-on-microshift)
     * [Installing on Disconnected OpenShift](installing/installing-service-on-openshift-disconnected.md)
     * [Installing with Advanced Cluster Management](installing/installing-service-on-kubernetes.md#installing-with-advanced-cluster-management)
     * [Installing with Ansible Automation Platform](installing/installing-service-on-kubernetes.md#installing-with-ansible-automation-platform)
 
   * **[Installing the Flight Control Service on Linux](installing/installing-service-on-linux.md)**
+    * [Installing offline on Linux (air-gapped)](installing/installing-service-on-linux-offline.md)
 
   * Configuring the Flight Control Service
     * [Configuring Authentication and Authorization](installing/configuring-auth/overview.md)
@@ -33,10 +35,17 @@ Welcome to the Flight Control user documentation.
   * Backing up and Restoring the Flight Control Service
     * [Backup and Restore](installing/backup-restore.md)
 
+  * Offline and Air-Gapped Installation
+    * [Setting up a local RPM repository](installing/offline-rpm-repository.md)
+    * [Packaging artifacts for portable media](installing/offline-portable-media.md)
+    * [Installing the Flight Control service offline on Linux](installing/installing-service-on-linux-offline.md)
+    * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
+
 * **[Installing the Flight Control CLI](installing/installing-cli.md)**
 
 * **[Installing the Flight Control Agent](installing/installing-agent.md)**
   * [Integrating with Greenboot](installing/configuring-device-greenboot.md)
+  * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
 
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 

@@ -81,6 +81,46 @@ flightctl version
 
 > Note: If you get a "command not found" error, ensure the binary is in your `PATH`.
 
+## Installing offline on RHEL
+
+If the target machine cannot reach the Flight Control service web console or the
+internet, you have two options for installing the CLI offline.
+
+### Option A: Install via RPM
+
+Download the `flightctl-cli` RPM and its dependencies on a connected machine, then
+transfer and install it on the air-gapped target. See
+[Setting up a local RPM repository](offline-rpm-repository.md) for download
+instructions and [Installing the Flight Control agent offline on RHEL](installing-agent-offline.md)
+for the transfer and install procedure (`flightctl-cli` follows the same steps as
+`flightctl-agent`).
+
+### Option B: Transfer the binary directly
+
+If you already have a connected machine where the CLI is installed, or you can
+access the Flight Control UI from that machine, copy the binary to the air-gapped
+target:
+
+1. On the connected machine, download or locate the `flightctl` binary.
+
+2. Copy the binary to the target machine:
+
+   ```bash
+   scp /usr/bin/flightctl <user>@<target_host>:~/
+   ```
+
+3. On the target machine, install the binary into your PATH:
+
+   ```bash
+   sudo install -o root -g root -m 0755 ~/flightctl /usr/local/bin/flightctl
+   ```
+
+4. Verify the installation:
+
+   ```bash
+   flightctl version
+   ```
+
 ## Next Steps
 
 After installing the CLI, you'll need to authenticate to the Flight Control service:
