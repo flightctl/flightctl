@@ -185,6 +185,11 @@ build-api: bin
 build-pam-issuer: bin
 	$(GOENV) GOOS=linux GOARCH=$(GOARCH) CGO_ENABLED=1 CGO_CFLAGS="$$CGO_CFLAGS -D_GNU_SOURCE" CGO_LDFLAGS="-ldl" go build -tags linux -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-pam-issuer
 
+DEV_VM_SRC := $(wildcard $(ROOT_DIR)/test/cmd/dev-vm/*.go)
+
+bin/flightctl-dev-vm: bin $(DEV_VM_SRC)
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build -buildvcs=false -o $@ ./test/cmd/dev-vm/
+
 build-db-migrate: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
 
