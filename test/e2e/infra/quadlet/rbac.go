@@ -3,8 +3,6 @@ package quadlet
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha512"
 	"fmt"
 	"os"
 	"os/exec"
@@ -80,7 +78,7 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 		sshArgs = append(sshArgs, sshTarget)
 
 		// Build remote command with proper shell quoting to prevent
-		// metacharacter expansion (e.g. $ in password hashes).
+		// metacharacter expansion (e.g. | in chpasswd pipes).
 		quoted := make([]string, len(command))
 		for i, arg := range command {
 			quoted[i] = shellQuote(arg)
@@ -115,7 +113,7 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 
 // runPodmanExec executes a command in the PAM issuer container.
 func (p *PAMRBACProvider) runPodmanExec(args ...string) (string, error) {
-	cmdArgs := append([]string{"podman", "exec", p.pamIssuerContainer}, args...)
+	cmdArgs := append([]string{"podman", "exec", "--user", "0", p.pamIssuerContainer}, args...)
 	return p.runCommand(cmdArgs...)
 }
 
@@ -333,149 +331,15 @@ func (p *PAMRBACProvider) DeleteUser(username string) error {
 }
 
 // SetUserPassword sets the password for a user in the PAM issuer container.
-// Generates a SHA-512 crypt hash in Go and passes it to usermod -p, avoiding
-// chpasswd/passwd which fail in rootless podman due to file-locking constraints.
 func (p *PAMRBACProvider) SetUserPassword(username, password string) error {
-	hash, err := sha512Crypt(password)
-	if err != nil {
-		return fmt.Errorf("failed to hash password for user %s: %w", username, err)
-	}
-	_, err = p.runPodmanExec("usermod", "-p", hash, username)
+	// Use chpasswd via shell to set password
+	cmd := fmt.Sprintf("echo '%s:%s' | chpasswd", username, password)
+	_, err := p.runPodmanExec("sh", "-c", cmd)
 	if err != nil {
 		return fmt.Errorf("failed to set password for user %s: %w", username, err)
 	}
 	logrus.Infof("PAM RBAC: set password for user %s", username)
 	return nil
-}
-
-// sha512Crypt generates a crypt(3)-compatible SHA-512 password hash ($6$salt$hash).
-func sha512Crypt(password string) (string, error) {
-	const saltLen = 16
-	const rounds = 5000
-	saltBytes := make([]byte, saltLen)
-	if _, err := rand.Read(saltBytes); err != nil {
-		return "", err
-	}
-	const itoa64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	salt := make([]byte, saltLen)
-	for i, b := range saltBytes {
-		salt[i] = itoa64[int(b)%len(itoa64)]
-	}
-
-	pass := []byte(password)
-	saltStr := salt
-
-	// Step 1-3: digest B
-	bCtx := sha512.New()
-	bCtx.Write(pass)
-	bCtx.Write(saltStr)
-	bCtx.Write(pass)
-	bHash := bCtx.Sum(nil)
-
-	// Step 4-8: digest A
-	aCtx := sha512.New()
-	aCtx.Write(pass)
-	aCtx.Write(saltStr)
-	for i := len(pass); i > 64; i -= 64 {
-		aCtx.Write(bHash)
-	}
-	aCtx.Write(bHash[:len(pass)%64])
-
-	// Step 9-10
-	for i := len(pass); i > 0; i >>= 1 {
-		if i%2 != 0 {
-			aCtx.Write(bHash)
-		} else {
-			aCtx.Write(pass)
-		}
-	}
-	aHash := aCtx.Sum(nil)
-
-	// Step 11: digest DP
-	dpCtx := sha512.New()
-	for range pass {
-		dpCtx.Write(pass)
-	}
-	dpHash := dpCtx.Sum(nil)
-
-	// Step 12: produce P string
-	p2 := make([]byte, len(pass))
-	for i := 0; i < len(pass); i += 64 {
-		copy(p2[i:], dpHash)
-	}
-
-	// Step 13: digest DS
-	dsCtx := sha512.New()
-	for i := 0; i < 16+int(aHash[0]); i++ {
-		dsCtx.Write(saltStr)
-	}
-	dsHash := dsCtx.Sum(nil)
-
-	// Step 14: produce S string
-	s := make([]byte, len(saltStr))
-	for i := 0; i < len(saltStr); i += 64 {
-		copy(s[i:], dsHash)
-	}
-
-	// Step 15-20: rounds
-	cHash := aHash
-	for i := 0; i < rounds; i++ {
-		cCtx := sha512.New()
-		if i%2 != 0 {
-			cCtx.Write(p2)
-		} else {
-			cCtx.Write(cHash)
-		}
-		if i%3 != 0 {
-			cCtx.Write(s)
-		}
-		if i%7 != 0 {
-			cCtx.Write(p2)
-		}
-		if i%2 != 0 {
-			cCtx.Write(cHash)
-		} else {
-			cCtx.Write(p2)
-		}
-		cHash = cCtx.Sum(nil)
-	}
-
-	// Step 21: encode
-	encode := func(a, b, c byte, n int) string {
-		v := uint(a)<<16 | uint(b)<<8 | uint(c)
-		out := make([]byte, n)
-		for i := 0; i < n; i++ {
-			out[i] = itoa64[v&0x3f]
-			v >>= 6
-		}
-		return string(out)
-	}
-
-	h := cHash
-	encoded := encode(h[0], h[21], h[42], 4) +
-		encode(h[22], h[43], h[1], 4) +
-		encode(h[44], h[2], h[23], 4) +
-		encode(h[3], h[24], h[45], 4) +
-		encode(h[25], h[46], h[4], 4) +
-		encode(h[47], h[5], h[26], 4) +
-		encode(h[6], h[27], h[48], 4) +
-		encode(h[28], h[49], h[7], 4) +
-		encode(h[50], h[8], h[29], 4) +
-		encode(h[9], h[30], h[51], 4) +
-		encode(h[31], h[52], h[10], 4) +
-		encode(h[53], h[11], h[32], 4) +
-		encode(h[12], h[33], h[54], 4) +
-		encode(h[34], h[55], h[13], 4) +
-		encode(h[56], h[14], h[35], 4) +
-		encode(h[15], h[36], h[57], 4) +
-		encode(h[37], h[58], h[16], 4) +
-		encode(h[59], h[17], h[38], 4) +
-		encode(h[18], h[39], h[60], 4) +
-		encode(h[40], h[61], h[19], 4) +
-		encode(h[62], h[20], h[41], 4) +
-		encode(0, 0, h[63], 2)
-
-	return fmt.Sprintf("$6$%s$%s", string(saltStr), encoded), nil
 }
 
 // GetUserGroups returns the groups a user belongs to.
