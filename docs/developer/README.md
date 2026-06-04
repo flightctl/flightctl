@@ -135,7 +135,7 @@ The `agent-vm` target accepts the following parameters:
 
 It is possible to create multiple VMs with different names and ports:
 
-```
+```bash
 make agent-vm VMNAME=flightctl-device-1 VMSSHPORT=2223
 make agent-vm VMNAME=flightctl-device-2 VMSSHPORT=2224
 make agent-vm VMNAME=flightctl-device-3 VMSSHPORT=2225
@@ -143,19 +143,19 @@ make agent-vm VMNAME=flightctl-device-3 VMSSHPORT=2225
 
 Attach to the serial console of a running VM (exit with Ctrl+]):
 
-```
+```bash
 make agent-vm-console VMNAME=flightctl-device-1
 ```
 
 Or connect via SSH (password: `user`):
 
-```
+```bash
 ssh -p 2223 -o StrictHostKeyChecking=no user@127.0.0.1
 ```
 
 If you created individual devices you need to clean them one by one:
 
-```
+```bash
 make clean-agent-vm VMNAME=flightctl-device-1
 make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
