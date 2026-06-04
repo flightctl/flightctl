@@ -1,0 +1,19 @@
+# RPM-only images for the redhat-el9 (RHEM) variant.
+#
+# These images are pulled by flightctl RPMs and are NOT listed in
+# deploy/helm/helm-chart-opts.yaml.  They must be mirrored separately
+# for an air-gapped redhat-el9 installation.
+#
+# Images that ARE in helm-chart-opts.yaml (api, worker, db, kv, etc.)
+# must NOT be duplicated here — the mirror tool reads both sources and
+# the helm-chart-opts entries take precedence for the redhat variants.
+
+pam-issuer:
+  image: registry.redhat.io/rhem/flightctl-pam-issuer-rhel9
+
+userinfo-proxy:
+  image: registry.redhat.io/rhem/flightctl-userinfo-proxy-rhel9
+
+# grafana and prometheus are intentionally omitted.
+# They belong to the optional flightctl-observability stack and must be mirrored
+# manually for air-gapped deployments. See deploying-observability-linux.md.

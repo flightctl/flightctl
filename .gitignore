@@ -28,3 +28,6 @@ __pycache__/
 
 # Implementation artifacts (AI workflow)
 /.artifacts/
+.mcp.json
+test/scripts/test-timings.json
+test/scripts/e2e-health/

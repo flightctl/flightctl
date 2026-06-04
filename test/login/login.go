@@ -282,8 +282,8 @@ func EnsureTestUsers(harness *e2e.Harness, namespace string, users []TestUser) e
 	if harness == nil {
 		return fmt.Errorf("harness is nil")
 	}
-	if namespace == "" {
-		return fmt.Errorf("namespace is empty")
+	if namespace == "" && !infra.IsQuadletEnvironment() {
+		return fmt.Errorf("namespace is empty (required for non-quadlet environments)")
 	}
 	for _, u := range users {
 		if u.Name == "" || u.Role == "" {

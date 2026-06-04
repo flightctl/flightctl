@@ -21,7 +21,7 @@ jobs:
   rpmlint:
     runs-on: "ubuntu-24.04"
     container:
-      image: fedora:latest
+      image: quay.io/fedora/fedora:latest
     steps:
       - name: Install dependencies
         run: |

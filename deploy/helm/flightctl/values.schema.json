@@ -566,6 +566,15 @@
         }
       }
     },
+    "ubiMinimal": {
+      "type": "object",
+      "description": "UBI minimal image used by init containers (e.g. alertmanager-proxy, test pods)",
+      "additionalProperties": false,
+      "properties": {
+        "image": { "type": "string", "description": "UBI minimal container image" },
+        "tag": { "type": "string", "description": "UBI minimal image tag" }
+      }
+    },
     "imageBuilderApi": {
       "type": "object",
       "description": "ImageBuilder API configuration",

@@ -97,9 +97,11 @@ func CreateAAPApplication(ctx context.Context, opts CreateAAPApplicationOptions)
 func buildOAuthApplicationRequest(baseDomain string, appName string, organization int) *aap.AAPOAuthApplicationRequest {
 	appURL := url.URL{Scheme: "https", Host: baseDomain + ":443"}
 	callbackURL := url.URL{Scheme: "https", Host: baseDomain + ":443", Path: "/callback"}
-	// local callback url is used by the cli
-	localCallbackURL := url.URL{Scheme: "http", Host: "127.0.0.1", Path: "/callback"}
-	redirectURIs := callbackURL.String() + " " + localCallbackURL.String()
+	// Local callback URLs are used by the CLI OAuth flow. Include both localhost
+	// and 127.0.0.1 forms with the default CLI callback port.
+	localhostCallbackURL := url.URL{Scheme: "http", Host: "localhost:8080", Path: "/callback"}
+	loopbackCallbackURL := url.URL{Scheme: "http", Host: "127.0.0.1:8080", Path: "/callback"}
+	redirectURIs := callbackURL.String() + " " + localhostCallbackURL.String() + " " + loopbackCallbackURL.String()
 
 	return &aap.AAPOAuthApplicationRequest{
 		Name:                   appName,

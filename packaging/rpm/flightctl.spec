@@ -313,7 +313,9 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
     install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
+    install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
     install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
+    install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -344,6 +346,10 @@ fi
     find -type f \( -name LICENSE -o -name License \) | while read LICENSE_FILE; do
         install -Dv -m0644 "${LICENSE_FILE}" "%{buildroot}%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}"
         echo "%%license %{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
+    done
+    # Own intermediate directories so RPM removes them on uninstall
+    find "%{buildroot}%{_datadir}/licenses/%{NAME}" -mindepth 1 -type d | sort -r | while read DIR; do
+        echo "%%dir ${DIR#%{buildroot}}" >> licenses.list
     done
     touch licenses.list
 
@@ -456,6 +462,7 @@ fi
 # No %%files section for the main package, so it won't be built
 
 %files cli -f licenses.list
+    %dir %{_datadir}/licenses/%{NAME}
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
@@ -475,7 +482,9 @@ fi
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     /usr/libexec/flightctl/configure-greenboot.sh
+    /usr/libexec/flightctl/mask-bootc-timer.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
+    /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
     /usr/share/sosreport/flightctl.py
     %{_sysusersdir}/flightctl.conf
     /etc/sudoers.d/*
@@ -491,6 +500,8 @@ systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Mask bootc auto-update timer on first boot (bootc/composefs); also run from %post below.
+systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
 
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
@@ -523,21 +534,14 @@ mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 # Disable bootc automatic updates on bootc systems (flightctl manages updates).
-# Detect via unit file path: systemctl list-unit-files is unreliable in RPM/chroot
-# and container image builds (no running systemd). Always create the mask symlink
-# for offline installs; systemctl mask applies when systemd is available.
-_bootc_timer_unit=/usr/lib/systemd/system/bootc-fetch-apply-updates.timer
-if [ -f "${_bootc_timer_unit}" ] || \
-   systemctl list-unit-files 'bootc-fetch-apply-updates.timer' 2>/dev/null | \
-     grep -q '^bootc-fetch-apply-updates.timer'; then
-    mkdir -p /etc/systemd/system
-    ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
-    systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
-fi
+# mask-bootc-timer.sh applies the mask; flightctl-mask-bootc-timer.service re-runs on
+# boot when image-build %post changes do not persist on bootc/composefs disks.
+/usr/libexec/flightctl/mask-bootc-timer.sh 2>/dev/null || true
 
 %postun agent
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
+    systemctl disable flightctl-mask-bootc-timer.service 2>/dev/null || true
     systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
     systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
     loginctl disable-linger flightctl || :
@@ -589,6 +593,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-gateway
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
@@ -770,6 +775,13 @@ fi
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_target}
+
+# On full removal: delete temporary build/export storage that may contain
+# leftover subdirectories from interrupted jobs (non-empty dirs RPM won't remove).
+if [ "$1" -eq 0 ]; then
+    rm -rf %{_var}/tmp/flightctl-builds || true
+    rm -rf %{_var}/tmp/flightctl-exports || true
+fi
 
 # If contexts were managed via policy, no cleanup is needed here.
 

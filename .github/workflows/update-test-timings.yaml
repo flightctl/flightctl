@@ -1,0 +1,66 @@
+name: "Update E2E Test Timings Cache"
+
+# Keeps the e2e-test-timings Actions cache fresh so compute_test_assignments
+# can produce duration-weighted shard assignments without hitting the GitHub
+# API on every CI run.
+#
+# Triggers:
+#   - After each successful push-to-main e2e run (workflow_run)
+#   - Weekly safety net (Monday 04:00 UTC)
+#   - Manually via workflow_dispatch
+#
+# New specs get a real weight after their first successful run on main
+# rather than waiting up to a week for the weekly schedule.
+#
+# Required permissions: actions:read (to download workflow artifacts).
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # weekly, Monday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Number of recent successful runs to average'
+        required: false
+        default: '10'
+  workflow_run:
+    workflows: ["E2E testing (Parallel Build)"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  # contents:read required for checkout; actions:write required for cache save and artifact reads.
+  contents: read
+  actions: write
+
+concurrency:
+  group: update-test-timings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-timings:
+    # For workflow_run events only proceed when the upstream run succeeded.
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update test timings cache
+        working-directory: test/scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNS: ${{ inputs.runs || '10' }}
+        run: |
+          go run ./update_test_timings \
+            --runs "${RUNS}" \
+            --workflow pr-e2e-testing.yaml \
+            --output test-timings.json
+
+      - name: Save timings to Actions cache
+        uses: actions/cache/save@v4
+        with:
+          path: test/scripts/test-timings.json
+          key: e2e-test-timings-${{ github.run_id }}

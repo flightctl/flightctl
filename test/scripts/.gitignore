@@ -1,0 +1,7 @@
+# Generated output from analyze_e2e_health and related tools
+e2e-health/
+
+# Generated/local files at the scripts root — exclude committed testdata fixtures
+*.json
+*.html
+!*/testdata/**
