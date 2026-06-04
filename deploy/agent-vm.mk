@@ -21,12 +21,12 @@ update-vm-agent: bin/flightctl-agent
 	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo systemctl restart flightctl-agent"
 	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo journalctl -u flightctl-agent -f"
 
-agent-vm-console:
+agent-vm-console: bin/flightctl-dev-vm
 	bin/flightctl-dev-vm console --name $(VMNAME)
 
 .PHONY: agent-vm agent-vm-console update-vm-agent
 
-clean-agent-vm:
+clean-agent-vm: bin/flightctl-dev-vm
 	bin/flightctl-dev-vm delete --name $(VMNAME)
 
 .PHONY: clean-agent-vm
