@@ -573,6 +573,9 @@ type NewCatalogItemTarget struct {
 	// CatalogName Name of the parent Catalog resource.
 	CatalogName string `json:"catalogName"`
 
+	// DisplayName Optional human-readable display name for the new CatalogItem.
+	DisplayName *string `json:"displayName,omitempty"`
+
 	// Readme Optional item-level readme for the new CatalogItem. Markdown is supported.
 	Readme *string `json:"readme,omitempty"`
 

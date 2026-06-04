@@ -361,16 +361,20 @@ func (c *Consumer) createNewCatalogItem(ctx context.Context, orgID uuid.UUID, ta
 		Readme:     target.Readme,
 	}
 	systemCategory := coredomain.CatalogItemCategorySystem
+	itemSpec := coredomain.CatalogItemSpec{
+		Type:      coredomain.CatalogItemTypeOS,
+		Category:  &systemCategory,
+		Artifacts: artifacts,
+		Versions:  []coredomain.CatalogItemVersion{version},
+	}
+	if target.DisplayName != nil {
+		itemSpec.DisplayName = target.DisplayName
+	}
 	item := coredomain.CatalogItem{
 		Metadata: coredomain.CatalogItemMeta{
 			Name: lo.ToPtr(target.CatalogItemName),
 		},
-		Spec: coredomain.CatalogItemSpec{
-			Type:      coredomain.CatalogItemTypeOS,
-			Category:  &systemCategory,
-			Artifacts: artifacts,
-			Versions:  []coredomain.CatalogItemVersion{version},
-		},
+		Spec: itemSpec,
 	}
 
 	_, err := c.mainStore.Catalog().CreateItem(ctx, orgID, target.CatalogName, &item)
