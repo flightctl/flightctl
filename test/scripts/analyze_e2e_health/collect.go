@@ -110,27 +110,34 @@ func collectHealthData(ctx context.Context, client *github.Client, owner, repo, 
 }
 
 func listCompletedRuns(ctx context.Context, client *github.Client, owner, repo, workflow string, limit int) ([]runSummary, error) {
-	opts := &github.ListWorkflowRunsOptions{
-		Branch:      defaultBranch,
-		ListOptions: github.ListOptions{PerPage: limit},
-	}
-	runs, _, err := client.Actions.ListWorkflowRunsByFileName(ctx, owner, repo, workflow, opts)
-	if err != nil {
-		return nil, fmt.Errorf("list workflow runs: %w", err)
-	}
+	// The GitHub REST API does not support multiple status values in one request,
+	// so fetch successes and failures separately and merge by recency.
 	var result []runSummary
-	for _, r := range runs.WorkflowRuns {
-		conclusion := r.GetConclusion()
-		if conclusion != "success" && conclusion != "failure" {
-			continue
+	for _, conclusion := range []string{"success", "failure"} {
+		opts := &github.ListWorkflowRunsOptions{
+			Branch:      defaultBranch,
+			Status:      conclusion,
+			ListOptions: github.ListOptions{PerPage: limit},
 		}
-		result = append(result, runSummary{
-			id:         r.GetID(),
-			url:        r.GetHTMLURL(),
-			date:       r.GetCreatedAt().Format("2006-01-02"),
-			conclusion: conclusion,
-			startedAt:  r.GetRunStartedAt().Time,
-		})
+		runs, _, err := client.Actions.ListWorkflowRunsByFileName(ctx, owner, repo, workflow, opts)
+		if err != nil {
+			return nil, fmt.Errorf("list workflow runs (%s): %w", conclusion, err)
+		}
+		for _, r := range runs.WorkflowRuns {
+			result = append(result, runSummary{
+				id:         r.GetID(),
+				url:        r.GetHTMLURL(),
+				date:       r.GetCreatedAt().Format("2006-01-02"),
+				conclusion: conclusion,
+				startedAt:  r.GetRunStartedAt().Time,
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].startedAt.After(result[j].startedAt)
+	})
+	if len(result) > limit {
+		result = result[:limit]
 	}
 	return result, nil
 }
@@ -168,7 +175,11 @@ func processRun(ctx context.Context, client *github.Client, owner, repo string, 
 
 	// Parse each XML file independently; one rawJUnitFile per shard artifact.
 	var shards []rawJUnitFile
-	entries, _ := os.ReadDir(tmpDir)
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "    Warning: read temp dir %s: %v\n", tmpDir, err)
+		return rawJob, nil, nil
+	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".xml") {
 			continue
@@ -237,7 +248,8 @@ func downloadAndExtract(ctx context.Context, client *github.Client, owner, repo 
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	httpClient := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

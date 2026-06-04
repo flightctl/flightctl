@@ -134,8 +134,8 @@ go run ./test/scripts/analyze_e2e_health
 
 # Re-run compute + render from existing raw files (no API calls needed):
 go run ./test/scripts/analyze_e2e_health \
-    --raw-jobs  e2e-raw-jobs.json \
-    --raw-junit e2e-raw-junit.json
+    --raw-jobs  e2e-health/e2e-raw-jobs.json \
+    --raw-junit e2e-health/e2e-raw-junit.json
 
 # Run tests:
 go test ./test/scripts/analyze_e2e_health/...
