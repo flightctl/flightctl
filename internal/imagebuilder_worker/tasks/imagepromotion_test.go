@@ -681,6 +681,50 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	require.Equal("v1.0", item.Spec.Versions[0].References[string(coredomain.CatalogItemArtifactTypeContainer)])
 }
 
+// TestEvaluator_NewCatalogItemWithDisplayName verifies that displayName from the promotion target
+// is persisted on the created CatalogItem spec.
+func TestEvaluator_NewCatalogItemWithDisplayName(t *testing.T) {
+	ctx := context.Background()
+	orgID := uuid.New()
+	require := require.New(t)
+
+	svc := newTestIBService(orgID)
+	catalogWriter := newDummyCatalogItemWriter()
+	catalogWriter.AddCatalog("my-catalog")
+	coreStore := &dummyCoreStore{writer: catalogWriter}
+
+	build := makeCompletedBuild("build-1", "sha256:aabb")
+	_, _ = svc.builds.Create(ctx, orgID, build)
+
+	target := api.ImagePromotionTarget{}
+	_ = target.FromNewCatalogItemTarget(api.NewCatalogItemTarget{
+		Type:            api.NewCatalogItem,
+		CatalogName:     "my-catalog",
+		CatalogItemName: "my-app",
+		Version:         "1.0.0",
+		DisplayName:     lo.ToPtr("My Pretty Name"),
+	})
+	promotion := &api.ImagePromotion{
+		Metadata: v1beta1.ObjectMeta{Name: lo.ToPtr("promo-display-name")},
+		Spec: api.ImagePromotionSpec{
+			Source: api.ImagePromotionSource{ImageBuildRef: "build-1"},
+			Target: target,
+		},
+		Status: &api.ImagePromotionStatus{},
+	}
+	setPromotionReadyCondition(promotion, domain.ImagePromotionConditionReasonWaitingForArtifacts,
+		conditionMessageForReasonWorker(domain.ImagePromotionConditionReasonWaitingForArtifacts))
+	_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+	consumer := newTestConsumer(svc, coreStore)
+	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
+
+	item := catalogWriter.GetItem("my-catalog", "my-app")
+	require.NotNil(item, "CatalogItem should be created")
+	require.NotNil(item.Spec.DisplayName)
+	require.Equal("My Pretty Name", *item.Spec.DisplayName)
+}
+
 // TestEvaluator_ExportsPending verifies that a promotion with export formats stays in
 // WaitingForArtifacts when the exports are not yet complete.
 func TestEvaluator_ExportsPending(t *testing.T) {
