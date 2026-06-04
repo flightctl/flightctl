@@ -1990,6 +1990,9 @@ components:
             readme:
               type: string
               description: Optional item-level readme for the new CatalogItem. Markdown is supported.
+            displayName:
+              type: string
+              description: Optional human-readable display name for the new CatalogItem.
 
     ExistingCatalogItemTarget:
       description: Publish target that appends a version to an existing CatalogItem. Rejected immediately if the CatalogItem does not exist.
