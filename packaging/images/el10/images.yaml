@@ -25,6 +25,9 @@ ui:
 db-setup:
   image: quay.io/flightctl/flightctl-db-setup-el10
   tag: latest
+gateway:
+  image: quay.io/sclorg/nginx-126-c10s
+  tag: "20260421"
 db:
   # Using CentOS Stream 10 PostgreSQL for EL10 flavor
   image: quay.io/sclorg/postgresql-16-c10s

@@ -25,6 +25,9 @@ ui:
 db-setup:
   image: quay.io/flightctl/flightctl-db-setup-el9
   tag: latest
+gateway:
+  image: quay.io/sclorg/nginx-124-c9s
+  tag: "20260422"
 db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
