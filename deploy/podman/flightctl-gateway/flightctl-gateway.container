@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control Gateway service
-After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service
-Wants=flightctl-certs-init.service
+After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
+Requires=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
 PartOf=flightctl.target
 
 [Container]
