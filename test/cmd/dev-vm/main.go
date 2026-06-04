@@ -7,7 +7,7 @@
 // Usage:
 //
 //	bin/flightctl-dev-vm start   [--name NAME] [--base-disk PATH] [--ssh-port PORT] [--mem MiB] [--work-dir DIR]
-//	bin/flightctl-dev-vm console [--name NAME] [--ssh-port PORT]
+//	bin/flightctl-dev-vm console [--name NAME]
 //	bin/flightctl-dev-vm delete  [--name NAME] [--work-dir DIR]
 //
 // Prerequisites: run 'make deploy' first so the flightctl API is up and the
@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"syscall"
 
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -33,6 +34,17 @@ const (
 	vmUser           = "user"
 	vmPassword       = "user"
 )
+
+// validVMName matches names that are safe to embed in filesystem paths.
+var validVMName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validateVMName rejects names containing path separators or traversal components.
+func validateVMName(name string) error {
+	if name == "" || !validVMName.MatchString(name) || filepath.Base(name) != name {
+		return fmt.Errorf("invalid VM name %q: must match [A-Za-z0-9._-]+", name)
+	}
+	return nil
+}
 
 func defaultWorkDir() string {
 	home, err := os.UserHomeDir()
@@ -146,9 +158,13 @@ Prerequisites: run 'make deploy' first.`,
 }
 
 func runStart(vmName, baseDisk string, sshPort, memoryMiB int, workDir string) error {
+	if err := validateVMName(vmName); err != nil {
+		return err
+	}
+
 	logrus.Infof("Starting VM %s (base: %s, ssh-port: %d, mem: %dMiB)", vmName, baseDisk, sshPort, memoryMiB)
 
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	if err := os.MkdirAll(workDir, 0700); err != nil {
 		return fmt.Errorf("creating work directory %s: %w", workDir, err)
 	}
 
@@ -163,7 +179,7 @@ func runStart(vmName, baseDisk string, sshPort, memoryMiB int, workDir string) e
 		logrus.Infof("Reusing existing overlay disk at %s", overlayPath)
 	}
 
-	if err := os.Chmod(overlayPath, 0644); err != nil {
+	if err := os.Chmod(overlayPath, 0600); err != nil {
 		return fmt.Errorf("setting overlay disk permissions: %w", err)
 	}
 
@@ -185,7 +201,7 @@ func runStart(vmName, baseDisk string, sshPort, memoryMiB int, workDir string) e
 	}
 
 	fmt.Printf("\nVM %q is running.\n", vmName)
-	fmt.Printf("  SSH:     ssh -p %d -o StrictHostKeyChecking=no %s@127.0.0.1  (password: %s)\n", sshPort, vmUser, vmPassword)
+	fmt.Printf("  SSH:     ssh -p %d -o StrictHostKeyChecking=no %s@127.0.0.1\n", sshPort, vmUser)
 	fmt.Printf("  Console: make agent-vm-console VMNAME=%s\n", vmName)
 	fmt.Printf("  Delete:  make clean-agent-vm VMNAME=%s\n\n", vmName)
 
@@ -199,7 +215,7 @@ func runStart(vmName, baseDisk string, sshPort, memoryMiB int, workDir string) e
 func runConsole(vmName string) error {
 	virshPath, err := exec.LookPath("virsh")
 	if err != nil {
-		return fmt.Errorf("virsh not found in PATH")
+		return fmt.Errorf("virsh not found in PATH: %w", err)
 	}
 
 	args := []string{"virsh", "-c", "qemu:///session", "console", vmName}
@@ -209,6 +225,10 @@ func runConsole(vmName string) error {
 }
 
 func runDelete(vmName, workDir string) error {
+	if err := validateVMName(vmName); err != nil {
+		return err
+	}
+
 	logrus.Infof("Deleting VM %s", vmName)
 
 	overlayPath := overlayDiskPath(workDir, vmName)
