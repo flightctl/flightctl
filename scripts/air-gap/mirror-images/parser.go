@@ -116,8 +116,10 @@ func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
 	pairs := make([]ImagePair, 0, len(cv.Images))
 	for _, spec := range cv.Images {
 		tag := spec.Tag
-		if tag == "" {
-			// No explicit tag: use the chart appVersion as the fallback.
+		if tag == "" || tag == "latest" {
+			// No explicit tag, or tag is the "latest" placeholder: use the
+			// chart appVersion (or --tag-override) so the bundled images match
+			// the installed RPM version.
 			tag = appVersion
 		}
 		image := normalizeDockerImage(spec.Image)
@@ -205,7 +207,11 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant, tagFallba
 		}
 
 		tag := spec.Tag
-		if tag == "" {
+		if tag == "" || tag == "latest" {
+			// No explicit tag, or tag is the "latest" placeholder: apply the
+			// effective tag (appVersion or --tag-override) so RPM-only images
+			// such as pam-issuer and userinfo-proxy are bundled at the correct
+			// release version rather than always pulling :latest.
 			tag = tagFallback
 		}
 
