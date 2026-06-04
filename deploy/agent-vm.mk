@@ -1,60 +1,33 @@
-VMNAME ?= flightctl-device-default
-VMRAM ?= 2048
-VMCPUS ?= 1
-VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
-VMDISKSIZE_DEFAULT := 10G
-VMDISKSIZE ?= $(VMDISKSIZE_DEFAULT)
-VMWAIT ?= 0
-CONTAINER_NAME ?= flightctl-device-no-bootc:base
+VMNAME    ?= flightctl-device-default
+VMRAM     ?= 2048
+VMSSHPORT ?= 2222
 INJECT_CONFIG ?= true
 
 BUILD_TYPE := bootc
 
 ifeq ($(INJECT_CONFIG),true)
-agent-vm: bin/output/qcow2/disk.qcow2 prepare-e2e-qcow-config
+agent-vm: bin/flightctl-dev-vm bin/output/qcow2/disk.qcow2 prepare-e2e-qcow-config
 else
-agent-vm: bin/output/qcow2/disk.qcow2
+agent-vm: bin/flightctl-dev-vm bin/output/qcow2/disk.qcow2
 endif
-	@echo "Booting Agent VM from $(VMDISK) with disk size $(VMDISKSIZE)"
-	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
-	@if [ "$(VMDISKSIZE)" != "$(VMDISKSIZE_DEFAULT)" ]; then \
-		sudo qemu-img resize $(VMDISK) $(VMDISKSIZE); \
-	fi
-	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
-	sudo virt-install --name $(VMNAME) \
-		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
-					  --vcpus $(VMCPUS) \
-					  --memory $(VMRAM) \
-					  --import --disk $(VMDISK),format=qcow2 \
-					  --os-variant fedora-eln  \
-					  --autoconsole text \
-					  --wait $(VMWAIT) \
-					  --transient || true
-
+	bin/flightctl-dev-vm start --name $(VMNAME) --mem $(VMRAM) --ssh-port $(VMSSHPORT)
 
 update-vm-agent: bin/flightctl-agent
-	@AGENT_IP=$$(sudo virsh domifaddr $(VMNAME) | awk '/ipv4/ {print $$4}' | cut -d'/' -f1 | head -n1); \
-	if [ -z "$$AGENT_IP" ]; then \
-		echo "ERROR: VM $(VMNAME) not running or no IP found"; \
-		exit 1; \
-	fi; \
-	echo "Updating Agent VM $$AGENT_IP with new flightctl-agent, if asked the password is 'user'"; \
-	ssh-copy-id -o IdentitiesOnly=yes user@$$AGENT_IP; \
-	scp -o IdentitiesOnly=yes bin/flightctl-agent user@$$AGENT_IP:~; \
-	ssh -o IdentitiesOnly=yes user@$$AGENT_IP "sudo ostree admin unlock || true"; \
-	ssh -o IdentitiesOnly=yes user@$$AGENT_IP "sudo mv /home/user/flightctl-agent /usr/bin/flightctl-agent"; \
-	ssh -o IdentitiesOnly=yes user@$$AGENT_IP "sudo restorecon /usr/bin/flightctl-agent"; \
-	ssh -o IdentitiesOnly=yes user@$$AGENT_IP "sudo systemctl restart flightctl-agent"; \
-	ssh -o IdentitiesOnly=yes user@$$AGENT_IP "sudo journalctl -u flightctl-agent -f"
+	@echo "Updating Agent VM at 127.0.0.1:$(VMSSHPORT) with new flightctl-agent"
+	sshpass -p user scp -P $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null bin/flightctl-agent user@127.0.0.1:~
+	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo ostree admin unlock || true"
+	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo mv /home/user/flightctl-agent /usr/bin/flightctl-agent"
+	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo restorecon /usr/bin/flightctl-agent"
+	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo systemctl restart flightctl-agent"
+	sshpass -p user ssh -p $(VMSSHPORT) -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@127.0.0.1 "sudo journalctl -u flightctl-agent -f"
 
 agent-vm-console:
-	sudo virsh console $(VMNAME)
+	bin/flightctl-dev-vm console --name $(VMNAME)
 
-.PHONY: agent-vm
+.PHONY: agent-vm agent-vm-console update-vm-agent
 
 clean-agent-vm:
-	sudo virsh destroy $(VMNAME) || true
-	sudo rm -f $(VMDISK)
+	bin/flightctl-dev-vm delete --name $(VMNAME)
 
 .PHONY: clean-agent-vm
 
@@ -62,6 +35,8 @@ agent-container: BUILD_TYPE := regular
 agent-container: bin/output/qcow2/disk.qcow2
 	@echo "Starting Agent Container flightctl-agent from $(CONTAINER_NAME)"
 	sudo podman run -d --network host --name flightctl-agent localhost:5000/$(CONTAINER_NAME)
+
+CONTAINER_NAME ?= flightctl-device-no-bootc:base
 
 run-agent-container:
 	sudo podman run -d --network host -v ./bin/flightctl-agent:/usr/bin/flightctl-agent:Z --name flightctl-agent localhost:5000/$(CONTAINER_NAME)

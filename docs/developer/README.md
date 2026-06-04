@@ -117,48 +117,44 @@ You can deploy a DB container of different sizes using a DB_VERSION variable for
 
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
-# this one will create a defailt `e2e DB container
+# this one will create a default `e2e` DB container
 make deploy
 # to create a small DB container use
 # make deploy DB_VERSION=small
-make agent-vm agent-vm-console # user/password is user/user
+make agent-vm
 ```
 
-The agent-vm target accepts multiple parameters:
+The VM uses user-session libvirt (`qemu:///session`) with QEMU user-networking, so no root is required.
+SSH is available on `127.0.0.1:2222` (password: `user`).
 
-- VMNAME: the name of the VM to create (default: flightctl-device-default)
-- VMCPUS: the number of CPUs to allocate to the VM (default: 1)
-- VMRAM: the amount of memory in MiB to allocate to the VM (default: 2048)
-- VMDISKSIZE: the disk size for the VM (default: 10G)
-- VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
+The `agent-vm` target accepts the following parameters:
 
-It is possible to create multiple VMs with different names:
+- `VMNAME`: the name of the VM to create (default: `flightctl-device-default`)
+- `VMRAM`: the amount of memory in MiB to allocate to the VM (default: `2048`)
+- `VMSSHPORT`: the host port forwarded to the VM's SSH (default: `2222`)
+
+It is possible to create multiple VMs with different names and ports:
 
 ```
-make agent-vm VMNAME=flightctl-device-1
-make agent-vm VMNAME=flightctl-device-2
-make agent-vm VMNAME=flightctl-device-3
+make agent-vm VMNAME=flightctl-device-1 VMSSHPORT=2223
+make agent-vm VMNAME=flightctl-device-2 VMSSHPORT=2224
+make agent-vm VMNAME=flightctl-device-3 VMSSHPORT=2225
 ```
 
-Those should appear on the root virsh list:
-```
-$ sudo virsh list
- Id   Name                        State
--------------------------------------------
- 13   flightctl-device-1          running
- 14   flightctl-device-2          running
- 15   flightctl-device-3          running
-````
+Attach to the serial console of a running VM (exit with Ctrl+]):
 
-And you can log in the consoles with agent-vm-console:
 ```
 make agent-vm-console VMNAME=flightctl-device-1
 ```
 
-NOTE: You can exit the console with Ctrl + ] , and `stty rows 80` and `stty columns 140` (for example) are useful to resize your console otherwise very small.
+Or connect via SSH (password: `user`):
 
+```
+ssh -p 2223 -o StrictHostKeyChecking=no user@127.0.0.1
+```
 
 If you created individual devices you need to clean them one by one:
+
 ```
 make clean-agent-vm VMNAME=flightctl-device-1
 make clean-agent-vm VMNAME=flightctl-device-2
