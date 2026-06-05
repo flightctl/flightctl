@@ -23,6 +23,7 @@ const (
 	AppTypeContainer AppType = "container"
 	AppTypeHelm      AppType = "helm"
 	AppTypeQuadlet   AppType = "quadlet"
+	AppTypeVm        AppType = "vm"
 )
 
 // Defines values for ApplicationStatusType.
@@ -625,6 +626,9 @@ type ApplicationPort = string
 
 // ApplicationProviderBase Common properties for all application types.
 type ApplicationProviderBase struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
@@ -958,6 +962,9 @@ type CheckRepositoryOciTagRequest struct {
 
 // ComposeApplication defines model for ComposeApplication.
 type ComposeApplication struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
@@ -1024,6 +1031,9 @@ type ConfigProviderSpec struct {
 
 // ContainerApplication defines model for ContainerApplication.
 type ContainerApplication struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
@@ -2039,6 +2049,9 @@ type GitRepoSpecType string
 
 // HelmApplication defines model for HelmApplication.
 type HelmApplication struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
@@ -2661,6 +2674,9 @@ type PermissionList struct {
 
 // QuadletApplication defines model for QuadletApplication.
 type QuadletApplication struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
@@ -3147,6 +3163,19 @@ type UserInfoResponse struct {
 type Version struct {
 	// Version Git version of the service.
 	Version string `json:"version"`
+}
+
+// VmApplication defines model for VmApplication.
+type VmApplication struct {
+	// Annotations Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time.
+	Annotations *map[string]string `json:"annotations,omitempty"`
+
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+	Name  *string `json:"name,omitempty"`
+	union json.RawMessage
 }
 
 // VolumeMount Mount configuration for a volume.
@@ -3687,6 +3716,34 @@ func (t *ApplicationProviderSpec) MergeHelmApplication(v HelmApplication) error 
 	return err
 }
 
+// AsVmApplication returns the union data inside the ApplicationProviderSpec as a VmApplication
+func (t ApplicationProviderSpec) AsVmApplication() (VmApplication, error) {
+	var body VmApplication
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromVmApplication overwrites any union data inside the ApplicationProviderSpec as the provided VmApplication
+func (t *ApplicationProviderSpec) FromVmApplication(v VmApplication) error {
+	v.AppType = "vm"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeVmApplication performs a merge with any union data inside the ApplicationProviderSpec, using the provided VmApplication
+func (t *ApplicationProviderSpec) MergeVmApplication(v VmApplication) error {
+	v.AppType = "vm"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ApplicationProviderSpec) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"appType"`
@@ -3709,6 +3766,8 @@ func (t ApplicationProviderSpec) ValueByDiscriminator() (interface{}, error) {
 		return t.AsHelmApplication()
 	case "quadlet":
 		return t.AsQuadletApplication()
+	case "vm":
+		return t.AsVmApplication()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}
@@ -4372,6 +4431,13 @@ func (t ComposeApplication) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if t.Annotations != nil {
+		object["annotations"], err = json.Marshal(t.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'annotations': %w", err)
+		}
+	}
+
 	object["appType"], err = json.Marshal(t.AppType)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
@@ -4410,6 +4476,13 @@ func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
 	err = json.Unmarshal(b, &object)
 	if err != nil {
 		return err
+	}
+
+	if raw, found := object["annotations"]; found {
+		err = json.Unmarshal(raw, &t.Annotations)
+		if err != nil {
+			return fmt.Errorf("error reading 'annotations': %w", err)
+		}
 	}
 
 	if raw, found := object["appType"]; found {
@@ -5595,6 +5668,13 @@ func (t QuadletApplication) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if t.Annotations != nil {
+		object["annotations"], err = json.Marshal(t.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'annotations': %w", err)
+		}
+	}
+
 	object["appType"], err = json.Marshal(t.AppType)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
@@ -5638,6 +5718,13 @@ func (t *QuadletApplication) UnmarshalJSON(b []byte) error {
 	err = json.Unmarshal(b, &object)
 	if err != nil {
 		return err
+	}
+
+	if raw, found := object["annotations"]; found {
+		err = json.Unmarshal(raw, &t.Annotations)
+		if err != nil {
+			return fmt.Errorf("error reading 'annotations': %w", err)
+		}
 	}
 
 	if raw, found := object["appType"]; found {
@@ -5972,5 +6059,127 @@ func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 
 func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProviderSpec returns the union data inside the VmApplication as a ImageApplicationProviderSpec
+func (t VmApplication) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec overwrites any union data inside the VmApplication as the provided ImageApplicationProviderSpec
+func (t *VmApplication) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the VmApplication, using the provided ImageApplicationProviderSpec
+func (t *VmApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineApplicationProviderSpec returns the union data inside the VmApplication as a InlineApplicationProviderSpec
+func (t VmApplication) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
+	var body InlineApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProviderSpec overwrites any union data inside the VmApplication as the provided InlineApplicationProviderSpec
+func (t *VmApplication) FromInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProviderSpec performs a merge with any union data inside the VmApplication, using the provided InlineApplicationProviderSpec
+func (t *VmApplication) MergeInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t VmApplication) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Annotations != nil {
+		object["annotations"], err = json.Marshal(t.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'annotations': %w", err)
+		}
+	}
+
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *VmApplication) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["annotations"]; found {
+		err = json.Unmarshal(raw, &t.Annotations)
+		if err != nil {
+			return fmt.Errorf("error reading 'annotations': %w", err)
+		}
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
 	return err
 }

@@ -5199,6 +5199,7 @@ components:
         - $ref: '#/components/schemas/QuadletApplication'
         - $ref: '#/components/schemas/ContainerApplication'
         - $ref: '#/components/schemas/HelmApplication'
+        - $ref: '#/components/schemas/VmApplication'
       discriminator:
         propertyName: appType
         mapping:
@@ -5206,6 +5207,7 @@ components:
           quadlet: '#/components/schemas/QuadletApplication'
           container: '#/components/schemas/ContainerApplication'
           helm: '#/components/schemas/HelmApplication'
+          vm: '#/components/schemas/VmApplication'
 
     ApplicationProviderBase:
       type: object
@@ -5216,6 +5218,12 @@ components:
           description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
         appType:
           $ref: '#/components/schemas/AppType'
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+          description: "Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time."
       required:
         - appType
 
@@ -5304,6 +5312,20 @@ components:
                 - "values-overrides.yml"
           required:
             - image
+
+    VmApplication:
+      type: object
+      description: >
+        A VM workload managed by the FlightCtl agent. The VM definition may be
+        delivered either as an OCI image/artifact or as inline application content.
+        For inline providers, the package must contain a KubeVirt VirtualMachine YAML
+        file named vm.yaml, following the same application package model as QuadletApplication.
+      allOf:
+        - $ref: '#/components/schemas/ApplicationProviderBase'
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/InlineApplicationProviderSpec'
+
     ApplicationUser:
       type: object
       properties:
@@ -5472,11 +5494,13 @@ components:
         - "quadlet"
         - "container"
         - "helm"
+        - "vm"
       x-enum-varnames:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
         - "AppTypeContainer"
         - "AppTypeHelm"
+        - "AppTypeVm"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'

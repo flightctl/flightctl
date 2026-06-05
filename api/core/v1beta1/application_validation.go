@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"sigs.k8s.io/yaml"
 )
 
 type applicationValidator interface {
@@ -91,4 +93,58 @@ func (u *unknownAppTypeValidator) ValidateContents(path string, content []byte, 
 
 func (u *unknownAppTypeValidator) Validate() []error {
 	return []error{fmt.Errorf("unsupported application type: %s", u.appType)}
+}
+
+// vmValidator validates the inline package contents for a VmApplication.
+// Rules: exactly one vm.yaml required; vm.yaml must have kind VirtualMachine,
+// apiVersion kubevirt.io/v1, and metadata.name matching the application name;
+// at most one .kube file; no other files.
+type vmValidator struct {
+	appName   string
+	hasVmYaml bool
+	kubeCount int
+}
+
+type vmManifestMeta struct {
+	ApiVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Metadata   struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+}
+
+func (v *vmValidator) ValidateContents(path string, content []byte, fleetTemplate bool) []error {
+	if path == "vm.yaml" {
+		v.hasVmYaml = true
+		var meta vmManifestMeta
+		if err := yaml.Unmarshal(content, &meta); err != nil {
+			return []error{fmt.Errorf("spec.applications[%s].inline[vm.yaml]: must be valid YAML: %w", v.appName, err)}
+		}
+		var errs []error
+		if meta.Kind != "VirtualMachine" {
+			errs = append(errs, fmt.Errorf("spec.applications[%s].inline[vm.yaml]: kind must be \"VirtualMachine\", got %q", v.appName, meta.Kind))
+		}
+		if meta.ApiVersion != "kubevirt.io/v1" {
+			errs = append(errs, fmt.Errorf("spec.applications[%s].inline[vm.yaml]: apiVersion must be \"kubevirt.io/v1\", got %q", v.appName, meta.ApiVersion))
+		}
+		if meta.Metadata.Name != v.appName {
+			errs = append(errs, fmt.Errorf("spec.applications[%s].inline[vm.yaml]: metadata.name %q must match application name %q", v.appName, meta.Metadata.Name, v.appName))
+		}
+		return errs
+	}
+	if strings.HasSuffix(path, ".kube") {
+		v.kubeCount++
+		if v.kubeCount > 1 {
+			return []error{fmt.Errorf("spec.applications[%s].inline: at most one .kube file is allowed, found more than one", v.appName)}
+		}
+		return nil
+	}
+	return []error{fmt.Errorf("spec.applications[%s].inline: unrecognised file %q; only vm.yaml and a single .kube file are allowed", v.appName, path)}
+}
+
+func (v *vmValidator) Validate() []error {
+	if !v.hasVmYaml {
+		return []error{fmt.Errorf("spec.applications[%s].inline: must contain exactly one file named \"vm.yaml\"", v.appName)}
+	}
+	return nil
 }

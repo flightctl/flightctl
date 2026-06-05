@@ -349,6 +349,8 @@ func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (
 		_, err = (*app).AsComposeApplication()
 	case domain.AppTypeQuadlet:
 		_, err = (*app).AsQuadletApplication()
+	case domain.AppTypeVm:
+		_, err = (*app).AsVmApplication()
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
