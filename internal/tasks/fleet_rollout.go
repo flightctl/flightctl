@@ -361,6 +361,8 @@ func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion
 			newAppItem, errs = f.replaceComposeApplicationParameters(device, appItem)
 		case domain.AppTypeQuadlet:
 			newAppItem, errs = f.replaceQuadletApplicationParameters(device, appItem)
+		case domain.AppTypeVm:
+			newAppItem = &appItem
 		default:
 			errs = append(errs, fmt.Errorf("unsupported app type for app %d: %s", appIndex, appType))
 		}

@@ -88,6 +88,7 @@ const (
 	AppTypeContainer = v1beta1.AppTypeContainer
 	AppTypeHelm      = v1beta1.AppTypeHelm
 	AppTypeQuadlet   = v1beta1.AppTypeQuadlet
+	AppTypeVm        = v1beta1.AppTypeVm
 )
 
 // ========== Image Pull Policy ==========
