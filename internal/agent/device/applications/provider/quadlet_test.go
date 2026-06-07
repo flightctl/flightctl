@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -2348,6 +2349,126 @@ func TestQuadletEnsureDependencies(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestQuadletCollectOCITargetsWithKube(t *testing.T) {
+	const (
+		virtLauncherRef  = "quay.io/kubevirt/virt-launcher:v1.8.0"
+		containerDiskRef = "quay.io/containerdisks/fedora:40"
+	)
+
+	kubePodYAML := `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fedora-vm
+spec:
+  containers:
+  - name: compute
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+  initContainers:
+  - name: volumecontainerdisk
+    image: quay.io/containerdisks/fedora:40
+  volumes:
+  - name: containerdisk
+    image:
+      reference: quay.io/containerdisks/fedora:40
+  - name: launcher-volume
+    image:
+      reference: quay.io/kubevirt/virt-launcher:v1.8.0
+`
+	kubeUnit := "[Kube]\nYaml=pod.yaml\n"
+
+	tests := []struct {
+		name            string
+		inlineContent   []v1beta1.ApplicationContent
+		expectedRefs    []string
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name: "When inline set has kube unit and pod YAML it should extract OCI targets",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "vm.kube", Content: lo.ToPtr(kubeUnit)},
+				{Path: "pod.yaml", Content: lo.ToPtr(kubePodYAML)},
+			},
+			expectedRefs: []string{containerDiskRef, virtLauncherRef},
+		},
+		{
+			name: "When inline set has kube unit but pod YAML is missing it should return an error",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "vm.kube", Content: lo.ToPtr(kubeUnit)},
+			},
+			wantErr:         true,
+			wantErrContains: "pod.yaml",
+		},
+		{
+			name: "When inline set has no kube file it should process container files unaffected",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "web.container", Content: lo.ToPtr("[Container]\nImage=nginx:latest\n")},
+			},
+			expectedRefs: []string{"nginx:latest"},
+		},
+		{
+			name: "When kube file has invalid base64 encoding it should return a decode error",
+			inlineContent: []v1beta1.ApplicationContent{
+				{
+					Path:            "vm.kube",
+					Content:         lo.ToPtr("!!not-valid-base64!!"),
+					ContentEncoding: lo.ToPtr(v1beta1.EncodingBase64),
+				},
+			},
+			wantErr:         true,
+			wantErrContains: "decoding kube unit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
+			mockResolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+				return nil
+			}).AnyTimes()
+
+			quadletApp := v1beta1.QuadletApplication{
+				AppType: v1beta1.AppTypeQuadlet,
+				Name:    lo.ToPtr("test-app"),
+			}
+			err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: tt.inlineContent,
+			})
+			require.NoError(err)
+
+			p := &quadletProvider{
+				inlineContent: tt.inlineContent,
+				spec: &ApplicationSpec{
+					Name:       "test-app",
+					User:       v1beta1.CurrentProcessUsername,
+					QuadletApp: &quadletApp,
+				},
+			}
+
+			targets, err := p.collectOCITargets(context.Background(), mockResolver)
+			if tt.wantErr {
+				require.Error(err)
+				if tt.wantErrContains != "" {
+					require.Contains(err.Error(), tt.wantErrContains)
+				}
+				return
+			}
+			require.NoError(err)
+
+			var refs []string
+			for _, tgt := range targets[v1beta1.CurrentProcessUsername] {
+				refs = append(refs, tgt.Reference)
+			}
+			require.ElementsMatch(tt.expectedRefs, refs)
 		})
 	}
 }
