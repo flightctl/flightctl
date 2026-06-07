@@ -17,6 +17,7 @@ const (
 	QuadletTypeNetwork   QuadletType = "network"
 	QuadletTypeImage     QuadletType = "image"
 	QuadletTypePod       QuadletType = "pod"
+	QuadletTypeKube      QuadletType = "kube"
 )
 
 var (
@@ -31,16 +32,15 @@ var (
 		quadlet.NetworkExtension:   {},
 		quadlet.ImageExtension:     {},
 		quadlet.PodExtension:       {},
+		quadlet.KubeExtension:      {},
 	}
 	UnsupportedQuadletExtensions = map[string]struct{}{
 		quadlet.BuildExtension:    {},
 		quadlet.ArtifactExtension: {},
-		quadlet.KubeExtension:     {},
 	}
 	UnsupportedQuadletSections = map[string]struct{}{
 		quadlet.BuildGroup:    {},
 		quadlet.ArtifactGroup: {},
-		quadlet.KubeGroup:     {},
 	}
 )
 
@@ -63,6 +63,9 @@ type QuadletReferences struct {
 	Pods []string
 	// The Name of the quadlet if the default will be overwritten
 	Name *string
+	// YamlFile is the Yaml= value from a [Kube] section, naming the Pod manifest file.
+	// Only populated for QuadletTypeKube.
+	YamlFile *string
 }
 
 // ParseQuadletReferences parses unit file data into a QuadletSpec
@@ -73,6 +76,7 @@ func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
 		quadlet.NetworkGroup:   QuadletTypeNetwork,
 		quadlet.ImageGroup:     QuadletTypeImage,
 		quadlet.PodGroup:       QuadletTypePod,
+		quadlet.KubeGroup:      QuadletTypeKube,
 	}
 
 	unit, err := quadlet.NewUnit(data)
@@ -177,6 +181,17 @@ func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
 			}
 		} else {
 			spec.Name = &name
+		}
+	}
+
+	if spec.Type == QuadletTypeKube {
+		yamlFile, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+		if err != nil {
+			if !errors.Is(err, quadlet.ErrKeyNotFound) {
+				return nil, fmt.Errorf("finding Yaml key in [Kube] section: %w", err)
+			}
+		} else {
+			spec.YamlFile = &yamlFile
 		}
 	}
 

@@ -60,6 +60,7 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string, opts ...Sp
 		common.QuadletTypeNetwork:   quadlet.NetworkExtension,
 		common.QuadletTypeImage:     quadlet.ImageExtension,
 		common.QuadletTypePod:       quadlet.PodExtension,
+		common.QuadletTypeKube:      quadlet.KubeExtension,
 	}
 
 	if expectedExt, ok := typeToExtension[spec.Type]; !ok {
@@ -106,8 +107,8 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string, opts ...Sp
 			}
 		}
 
-	case common.QuadletTypeNetwork, common.QuadletTypePod:
-		// no validation required
+	case common.QuadletTypeNetwork, common.QuadletTypePod, common.QuadletTypeKube:
+		// no validation required beyond the type/extension check above
 
 	default:
 		errs = append(errs, fmt.Errorf("%w: %q", common.ErrUnsupportedQuadletType, spec.Type))

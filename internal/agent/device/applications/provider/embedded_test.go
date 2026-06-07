@@ -395,9 +395,6 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 				"build-app": {
 					"app.build": "[Build]\n",
 				},
-				"kube-app": {
-					"app.kube": "[Kube]\n",
-				},
 			},
 			expectedCount: 0,
 			expectedNames: []string{},
