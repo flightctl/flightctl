@@ -34,7 +34,7 @@ type EnvironmentConfig struct {
 	// Namespace is the K8s namespace for flightctl services (K8s only)
 	Namespace string
 
-	// APIEndpoint is the FlightCtl API endpoint URL (e.g., "https://api.flightctl.example.com:3443")
+	// APIEndpoint is the FlightCtl API endpoint URL (e.g., "https://api.flightctl.example.com")
 	APIEndpoint string
 
 	// KubeConfig is the path to kubeconfig file (K8s only, defaults to ~/.kube/config)
@@ -80,7 +80,7 @@ const (
 	// DefaultQuadletConfigDir is the default config directory for Quadlet deployments
 	DefaultQuadletConfigDir = "/etc/flightctl"
 	// DefaultAPIPort is the default port for the FlightCtl API
-	DefaultAPIPort = "3443"
+	DefaultAPIPort = "443"
 )
 
 // GetDefaultQuadletAPIEndpoint returns the default API endpoint for Quadlet deployments.
@@ -142,7 +142,7 @@ func GetEnvironmentConfig() *EnvironmentConfig {
 
 // GetAPIEndpoint returns the API endpoint, using defaults if not explicitly set.
 // For K8s: checks API_ENDPOINT env var (set by run_e2e_tests.sh from K8s route)
-// For Quadlet: defaults to https://<host-ip>:3443 (uses host IP so VMs can reach it)
+// For Quadlet: defaults to https://<host-ip> (uses host IP so VMs can reach it)
 func (c *EnvironmentConfig) GetAPIEndpoint() string {
 	// First check our config
 	if c.APIEndpoint != "" {

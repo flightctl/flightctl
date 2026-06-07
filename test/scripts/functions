@@ -194,7 +194,7 @@ function get_endpoints() {
     else
       QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
     fi
-    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_HOST}:3443}
+    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_HOST}}
     export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://${QUADLET_HOST}:7443}
     export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://${QUADLET_HOST}:9001}
     echo "Using Quadlet endpoints: API=${FLIGHTCTL_API_ENDPOINT}, Agent=${FLIGHTCTL_AGENT_ENDPOINT}"
