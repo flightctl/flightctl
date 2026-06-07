@@ -64,6 +64,7 @@ jobs:
           else
             MSG="E2E Health Report — report generation failed; see run for details."
           fi
+          [ -z "$SLACK_WEBHOOK_URL" ] && { echo "SLACK_WEBHOOK_URL not set, skipping."; exit 0; }
           curl -sf -X POST "$SLACK_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
