@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -71,6 +72,10 @@ func (fo *fakeClientOptions) BuildClient() (*client.Client, error) {
 		}
 	}
 	return fo.client, nil
+}
+
+func (fo *fakeClientOptions) BuildImageBuilderClient(opts ...imagebuilderclient.ClientOption) (*client.ImageBuilderClient, error) {
+	return nil, fmt.Errorf("imagebuilder not configured in test")
 }
 
 func TestKindNameAutocompleter(t *testing.T) {

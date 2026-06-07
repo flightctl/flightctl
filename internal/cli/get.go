@@ -98,6 +98,7 @@ func NewCmdGet() *cobra.Command {
 			AllowMultipleNames: true,
 			AllowedKinds:       validResourceKinds,
 			FleetName:          &o.FleetName,
+			CatalogName:        &o.CatalogName,
 		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
