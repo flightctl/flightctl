@@ -72,6 +72,13 @@ const (
 	// AuthProvider annotation indicating it was created by a super admin
 	AuthProviderAnnotationCreatedBySuperAdmin = "auth-provider/createdBySuperAdmin"
 
+	// AnnotationWorkloadType is set by the control plane on QuadletApplication to
+	// indicate the workload category. Consumers (e.g. the agent) use it to select
+	// the appropriate application handler without re-parsing the inline content.
+	AnnotationWorkloadType = "flightctl.io/workload-type"
+	// WorkloadTypeVM is the value of AnnotationWorkloadType for KubeVirt VM workloads.
+	WorkloadTypeVM = "vm"
+
 	RepositoryAPIVersion = "v1beta1"
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"

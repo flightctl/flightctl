@@ -106,6 +106,8 @@ func newQuadletProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
+	isVM := quadletApp.Annotations != nil && (*quadletApp.Annotations)[v1beta1.AnnotationWorkloadType] == v1beta1.WorkloadTypeVM
+
 	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, user, volumes)
 	if err != nil {
 		return nil, err
@@ -139,14 +141,15 @@ func newQuadletProvider(
 		imageRef:       imageRef,
 		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
-			Name:       appName,
-			ID:         appID,
-			User:       user,
-			AppType:    v1beta1.AppTypeQuadlet,
-			Path:       appPath,
-			EnvVars:    envVars,
-			QuadletApp: &quadletApp,
-			Volume:     volumeManager,
+			Name:         appName,
+			ID:           appID,
+			User:         user,
+			AppType:      v1beta1.AppTypeQuadlet,
+			Path:         appPath,
+			EnvVars:      envVars,
+			IsVMWorkload: isVM,
+			QuadletApp:   &quadletApp,
+			Volume:       volumeManager,
 		},
 	}
 

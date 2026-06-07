@@ -38,6 +38,21 @@ const sampleKubeUnit = `[Kube]
 Yaml=pod.yaml
 `
 
+const nonVMPodYAML = `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: regular-app
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+  volumes:
+  - name: cache
+    image:
+      reference: redis:7
+`
+
 const kubeUnitNoYamlKey = `[Kube]
 KubeDownForce=false
 `
@@ -229,7 +244,7 @@ func TestCollectKubePodTargets(t *testing.T) {
 		wantErrContains string
 	}{
 		{
-			name:        "When kube unit and pod YAML are both present it should return OCI targets",
+			name:        "When kube unit and VM pod YAML are both present it should return OCI targets",
 			kubeContent: sampleKubeUnit,
 			inlineContent: []v1beta1.ApplicationContent{
 				{Path: "pod.yaml", Content: lo.ToPtr(samplePodYAML)},
@@ -237,6 +252,17 @@ func TestCollectKubePodTargets(t *testing.T) {
 			expectedRefs: []string{
 				"quay.io/containerdisks/fedora:40",
 				"quay.io/kubevirt/virt-launcher:v1.8.0",
+			},
+		},
+		{
+			name:        "When kube unit and non-VM pod YAML are both present it should return OCI targets",
+			kubeContent: sampleKubeUnit,
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "pod.yaml", Content: lo.ToPtr(nonVMPodYAML)},
+			},
+			expectedRefs: []string{
+				"redis:7",
+				"nginx:latest",
 			},
 		},
 		{
