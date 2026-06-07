@@ -1957,6 +1957,7 @@ components:
         catalogItemName:
           type: string
           minLength: 1
+          maxLength: 63
           description: Name of the CatalogItem to create or update.
         version:
           type: string
@@ -1983,6 +1984,7 @@ components:
               description: Name of the parent Catalog resource.
             catalogItemName:
               type: string
+              maxLength: 63
               description: Name of the CatalogItem to create.
             version:
               type: string
@@ -2007,6 +2009,7 @@ components:
               description: Name of the parent Catalog resource.
             catalogItemName:
               type: string
+              maxLength: 63
               description: Name of the CatalogItem to update.
             version:
               type: string
