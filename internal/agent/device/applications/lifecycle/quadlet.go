@@ -87,21 +87,41 @@ func (q *Quadlet) add(ctx context.Context, action Action, systemctl systemd.Mana
 		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
-	unitSet, err := q.loadedUnits(ctx, systemctl, services)
+	units, err := systemctl.ListUnitsByMatchPattern(ctx, services)
 	if err != nil {
 		return fmt.Errorf("listing loading units: %w", err)
 	}
 
+	unitSet := make(map[string]struct{}, len(units))
+	for _, u := range units {
+		if u.LoadState == string(v1beta1.SystemdLoadStateLoaded) {
+			unitSet[u.Unit] = struct{}{}
+		}
+	}
+
 	for _, service := range services {
 		if !isServiceLoaded(unitSet, service) {
-			err := fmt.Errorf("%s not loaded as a target", service)
-			generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
-			if logsErr != nil {
-				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
+			// Log actual load state for all returned units to aid diagnosis.
+			for _, u := range units {
+				q.log.Errorf("Unit state: %s loadState=%s activeState=%s subState=%s", u.Unit, u.LoadState, u.ActiveState, u.SubState)
 			}
-			if len(generatorLogs) > 0 {
-				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
-				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+			if len(units) == 0 {
+				q.log.Errorf("systemctl list-units returned no entries for services: %v", services)
+			}
+
+			err := fmt.Errorf("%s not loaded as a target", service)
+			// The podman quadlet generator's syslog identifier is "podman-system-generator".
+			for _, tag := range []string{"podman-system-generator", "quadlet-generator"} {
+				generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag(tag), client.WithLogSince(batchTime))
+				if logsErr != nil {
+					q.log.Errorf("Failed to fetch %s logs: %v", tag, logsErr)
+					continue
+				}
+				if len(generatorLogs) > 0 {
+					q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
+					err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+					break
+				}
 			}
 			return err
 		}

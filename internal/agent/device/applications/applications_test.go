@@ -17,6 +17,27 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// newMockVMProvider returns a MockProvider whose Spec() returns a minimal ApplicationSpec
+// for a VM workload with the given app name.
+func newMockVMProvider(ctrl *gomock.Controller, appName string) *provider.MockProvider {
+	// VolumeManager with nil logger is acceptable in tests (used by podman_monitor_test.go).
+	vol, err := provider.NewVolumeManager(nil, appName, v1beta1.AppTypeQuadlet, v1beta1.CurrentProcessUsername, nil)
+	if err != nil {
+		ctrl.T.Fatalf("newMockVMProvider: NewVolumeManager: %v", err)
+	}
+	spec := &provider.ApplicationSpec{
+		Name:         appName,
+		ID:           appName,
+		AppType:      v1beta1.AppTypeQuadlet,
+		User:         v1beta1.CurrentProcessUsername,
+		IsVMWorkload: true,
+		Volume:       vol,
+	}
+	mock := provider.NewMockProvider(ctrl)
+	mock.EXPECT().Spec().Return(spec).AnyTimes()
+	return mock
+}
+
 func TestApplicationStatus(t *testing.T) {
 	require := require.New(t)
 
@@ -287,6 +308,174 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(tt.expectedRestarts, status.Restarts)
 			require.Equal(tt.expectedStatus, status.Status)
 			require.Equal(tt.expectedSummaryStatus, summary.Status)
+		})
+	}
+}
+
+func TestVMApplicationStatus(t *testing.T) {
+	const appName = "fedora-vm"
+	const container = "virt-launcher-fedora-vm-compute"
+	const domain = virtLauncherDomainNamespace + "_" + appName
+
+	tests := []struct {
+		name                  string
+		virshStdout           string
+		virshExitCode         int
+		initialFailures       int
+		expectedStatus        v1beta1.ApplicationStatusType
+		expectedSummaryStatus v1beta1.ApplicationsSummaryStatusType
+		expectedReady         string
+	}{
+		{
+			name:                  "When virsh returns running it should report Running with Healthy summary",
+			virshStdout:           "running\n",
+			virshExitCode:         0,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedReady:         "1/1",
+		},
+		{
+			name:                  "When virsh returns shut off it should report Stopped with Healthy summary",
+			virshStdout:           "shut off\n",
+			virshExitCode:         0,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedReady:         "1/1",
+		},
+		{
+			name:                  "When virsh returns in shutdown it should report Stopping with Degraded summary",
+			virshStdout:           "in shutdown\n",
+			virshExitCode:         0,
+			expectedStatus:        v1beta1.ApplicationStatusStopping,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedReady:         "0/1",
+		},
+		{
+			name:                  "When virsh exits non-zero below threshold it should report Starting with Degraded summary",
+			virshStdout:           "",
+			virshExitCode:         1,
+			initialFailures:       0,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedReady:         "0/1",
+		},
+		{
+			name:                  "When virsh exits non-zero at threshold it should report Error with Error summary",
+			virshStdout:           "",
+			virshExitCode:         1,
+			initialFailures:       vmConsecutiveFailureThreshold - 1,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedReady:         "0/1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().
+				ExecuteWithContext(gomock.Any(), "podman", "exec", container, "virsh", "domstate", domain).
+				Return(tt.virshStdout, "", tt.virshExitCode)
+
+			mockProvider := newMockVMProvider(ctrl, appName)
+			app := NewVMApplication(mockProvider, mockExec, log.NewPrefixLogger(""))
+			app.vmPoller.consecutiveFailures = tt.initialFailures
+
+			appStatus, summary, err := app.Status()
+			require.NoError(err)
+			require.Equal(tt.expectedStatus, appStatus.Status)
+			require.Equal(tt.expectedSummaryStatus, summary.Status)
+			require.Equal(tt.expectedReady, appStatus.Ready)
+		})
+	}
+}
+
+func TestNewApplicationUsesWorkloadBasedLogic(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockProvider := newMockVMProvider(ctrl, "regular-app")
+	app := NewApplication(mockProvider)
+
+	// Non-VM application has no vmPoller — workload-based logic applies.
+	require.Nil(app.vmPoller)
+	// With no workloads the workload-based logic returns Unknown.
+	appStatus, summary, err := app.Status()
+	require.NoError(err)
+	require.Equal(v1beta1.ApplicationStatusUnknown, appStatus.Status)
+	require.Equal(v1beta1.ApplicationsSummaryStatusUnknown, summary.Status)
+}
+
+func TestNewAppFromProvider(t *testing.T) {
+	tests := []struct {
+		name         string
+		isVM         bool
+		user         v1beta1.Username
+		wantVMPoller bool
+		wantErr      bool
+	}{
+		{
+			name:         "When provider is not a VM workload it should return a regular application",
+			isVM:         false,
+			user:         v1beta1.CurrentProcessUsername,
+			wantVMPoller: false,
+		},
+		{
+			name:         "When provider is a VM workload with the current process user it should return a VM application",
+			isVM:         true,
+			user:         v1beta1.CurrentProcessUsername,
+			wantVMPoller: true,
+		},
+		{
+			name:    "When provider is a VM workload with a nonexistent user it should return an error",
+			isVM:    true,
+			user:    v1beta1.Username("nonexistent-user-emd4100-test"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			vol, err := provider.NewVolumeManager(nil, "app", v1beta1.AppTypeQuadlet, tt.user, nil)
+			require.NoError(err)
+
+			spec := &provider.ApplicationSpec{
+				Name:         "app",
+				ID:           "app",
+				AppType:      v1beta1.AppTypeQuadlet,
+				User:         tt.user,
+				IsVMWorkload: tt.isVM,
+				Volume:       vol,
+			}
+			mock := provider.NewMockProvider(ctrl)
+			mock.EXPECT().Spec().Return(spec).AnyTimes()
+			if tt.isVM && tt.wantErr {
+				mock.EXPECT().Name().Return("app").AnyTimes()
+			}
+
+			m := &manager{log: log.NewPrefixLogger("")}
+			app, err := m.newAppFromProvider(mock)
+
+			if tt.wantErr {
+				require.Error(err)
+				return
+			}
+			require.NoError(err)
+			concrete := app.(*application)
+			if tt.wantVMPoller {
+				require.NotNil(concrete.vmPoller)
+			} else {
+				require.Nil(concrete.vmPoller)
+			}
 		})
 	}
 }

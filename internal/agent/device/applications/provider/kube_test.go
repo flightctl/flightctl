@@ -307,11 +307,12 @@ func TestCollectKubePodTargets(t *testing.T) {
 		kubeContent     string
 		inlineContent   []v1beta1.ApplicationContent
 		expectedRefs    []string
+		expectedIsVM    bool
 		wantErr         bool
 		wantErrContains string
 	}{
 		{
-			name:        "When kube unit and pod YAML are both present it should return OCI targets",
+			name:        "When kube unit and VM pod YAML are both present it should return OCI targets and isVM=true",
 			kubeContent: sampleKubeUnit,
 			inlineContent: []v1beta1.ApplicationContent{
 				{Path: "pod.yaml", Content: lo.ToPtr(samplePodYAML)},
@@ -320,6 +321,19 @@ func TestCollectKubePodTargets(t *testing.T) {
 				"quay.io/containerdisks/fedora:40",
 				"quay.io/kubevirt/virt-launcher:v1.8.0",
 			},
+			expectedIsVM: true,
+		},
+		{
+			name:        "When kube unit and non-VM pod YAML are both present it should return OCI targets and isVM=false",
+			kubeContent: sampleKubeUnit,
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "pod.yaml", Content: lo.ToPtr(nonVMPodYAML)},
+			},
+			expectedRefs: []string{
+				"redis:7",
+				"nginx:latest",
+			},
+			expectedIsVM: false,
 		},
 		{
 			name:        "When kube unit references a pod YAML not in the inline set it should return an error",
@@ -382,7 +396,7 @@ func TestCollectKubePodTargets(t *testing.T) {
 				}).AnyTimes()
 			}
 
-			targets, err := collectKubePodTargets([]byte(tt.kubeContent), tt.inlineContent, mockResolver, v1beta1.CurrentProcessUsername)
+			targets, isVM, err := collectKubePodTargets([]byte(tt.kubeContent), tt.inlineContent, mockResolver, v1beta1.CurrentProcessUsername)
 			if tt.wantErr {
 				require.Error(err)
 				if tt.wantErrContains != "" {
@@ -391,12 +405,79 @@ func TestCollectKubePodTargets(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+			require.Equal(tt.expectedIsVM, isVM)
 
 			refs := make([]string, 0, len(targets))
 			for _, tgt := range targets {
 				refs = append(refs, tgt.Reference)
 			}
 			require.ElementsMatch(tt.expectedRefs, refs)
+		})
+	}
+}
+
+func TestDetectVMWorkload(t *testing.T) {
+	tests := []struct {
+		name            string
+		inlineContent   []v1beta1.ApplicationContent
+		expectedIsVM    bool
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name: "When inline content contains a .kube file referencing a VM pod YAML it should return true",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "app.kube", Content: lo.ToPtr(sampleKubeUnit)},
+				{Path: "pod.yaml", Content: lo.ToPtr(samplePodYAML)},
+			},
+			expectedIsVM: true,
+		},
+		{
+			name: "When inline content contains a .kube file referencing a non-VM pod YAML it should return false",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "app.kube", Content: lo.ToPtr(sampleKubeUnit)},
+				{Path: "pod.yaml", Content: lo.ToPtr(nonVMPodYAML)},
+			},
+			expectedIsVM: false,
+		},
+		{
+			name: "When inline content has no .kube file it should return false",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "pod.yaml", Content: lo.ToPtr(samplePodYAML)},
+			},
+			expectedIsVM: false,
+		},
+		{
+			name: "When .kube file references a pod YAML absent from inline content it should return an error",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "app.kube", Content: lo.ToPtr(sampleKubeUnit)},
+			},
+			wantErr:         true,
+			wantErrContains: "pod.yaml",
+		},
+		{
+			name: "When .kube file has no Yaml= directive it should return an error",
+			inlineContent: []v1beta1.ApplicationContent{
+				{Path: "app.kube", Content: lo.ToPtr(kubeUnitNoYamlKey)},
+			},
+			wantErr:         true,
+			wantErrContains: "Yaml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			isVM, err := detectVMWorkload(tt.inlineContent)
+			if tt.wantErr {
+				require.Error(err)
+				if tt.wantErrContains != "" {
+					require.Contains(err.Error(), tt.wantErrContains)
+				}
+				return
+			}
+			require.NoError(err)
+			require.Equal(tt.expectedIsVM, isVM)
 		})
 	}
 }

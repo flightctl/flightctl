@@ -116,6 +116,7 @@ func parsePodYAMLTargets(
 // collectKubePodTargets extracts OCI pull targets from a .kube inline Quadlet application.
 // It reads the Yaml= directive in the .kube unit to locate the pod YAML filename, finds
 // that file in inlineContent, and delegates to parsePodYAMLTargets.
+// Returns the OCI targets, whether the pod is a VM workload, and any error.
 // Returns an error if the .kube unit cannot be parsed, if the Yaml= directive is absent,
 // or if the referenced pod YAML file is not found in the inline set.
 func collectKubePodTargets(
@@ -123,15 +124,15 @@ func collectKubePodTargets(
 	inlineContent []v1beta1.ApplicationContent,
 	configProvider dependency.PullConfigResolver,
 	user v1beta1.Username,
-) ([]dependency.OCIPullTarget, error) {
+) ([]dependency.OCIPullTarget, bool, error) {
 	unit, err := quadlet.NewUnit(kubeContent)
 	if err != nil {
-		return nil, fmt.Errorf("parsing kube unit: %w", err)
+		return nil, false, fmt.Errorf("parsing kube unit: %w", err)
 	}
 
 	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
 	if err != nil {
-		return nil, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
+		return nil, false, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
 	}
 	yamlFilename = filepath.Base(yamlFilename)
 
@@ -139,15 +140,63 @@ func collectKubePodTargets(
 		if filepath.Base(inlineContent[i].Path) == yamlFilename {
 			podYAML, err := inlineContent[i].ContentsDecoded()
 			if err != nil {
-				return nil, fmt.Errorf("decoding pod YAML %q: %w", yamlFilename, err)
+				return nil, false, fmt.Errorf("decoding pod YAML %q: %w", yamlFilename, err)
 			}
-			targets, _, err := parsePodYAMLTargets(podYAML, configProvider, user)
+			targets, isVM, err := parsePodYAMLTargets(podYAML, configProvider, user)
 			if err != nil {
-				return nil, fmt.Errorf("extracting OCI targets from pod YAML %q: %w", yamlFilename, err)
+				return nil, false, fmt.Errorf("extracting OCI targets from pod YAML %q: %w", yamlFilename, err)
 			}
-			return targets, nil
+			return targets, isVM, nil
 		}
 	}
 
-	return nil, fmt.Errorf("pod YAML file %q not found in inline content", yamlFilename)
+	return nil, false, fmt.Errorf("pod YAML file %q not found in inline content", yamlFilename)
+}
+
+// detectVMWorkload scans inline application content for a .kube unit that references a pod
+// YAML containing a virt-launcher image. Returns (true, nil) when a VM workload is detected,
+// (false, nil) when no .kube file is present or when the pod has no virt-launcher reference,
+// and (false, err) when the .kube unit or pod YAML cannot be parsed.
+func detectVMWorkload(inlineContent []v1beta1.ApplicationContent) (bool, error) {
+	for _, c := range inlineContent {
+		if filepath.Ext(c.Path) != quadlet.KubeExtension {
+			continue
+		}
+		kubeBytes, err := c.ContentsDecoded()
+		if err != nil {
+			return false, fmt.Errorf("decoding kube unit %q: %w", c.Path, err)
+		}
+		unit, err := quadlet.NewUnit(kubeBytes)
+		if err != nil {
+			return false, fmt.Errorf("parsing kube unit: %w", err)
+		}
+		yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+		if err != nil {
+			return false, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
+		}
+		yamlFilename = filepath.Base(yamlFilename)
+		podFound := false
+		for _, ic := range inlineContent {
+			if filepath.Base(ic.Path) != yamlFilename {
+				continue
+			}
+			podFound = true
+			podYAML, err := ic.ContentsDecoded()
+			if err != nil {
+				return false, fmt.Errorf("decoding pod YAML %q: %w", yamlFilename, err)
+			}
+			var pod podSpec
+			if err := yaml.Unmarshal(podYAML, &pod); err != nil {
+				return false, fmt.Errorf("parsing pod YAML: %w", err)
+			}
+			if isVMWorkload(&pod) {
+				return true, nil
+			}
+			break
+		}
+		if !podFound {
+			return false, fmt.Errorf("pod YAML file %q not found in inline content", yamlFilename)
+		}
+	}
+	return false, nil
 }
