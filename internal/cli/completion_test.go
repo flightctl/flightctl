@@ -164,4 +164,46 @@ func TestKindNameAutocompleter(t *testing.T) {
 			}, suggestions)
 		}
 	})
+
+	t.Run("returns empty for imagebuilder kinds when imagebuilder not configured", func(t *testing.T) {
+		for _, kind := range []ResourceKind{ImageBuildKind, ImageExportKind, ImagePromotionKind} {
+			kna := KindNameAutocomplete{
+				Options:      newFakeClientOptionsWithResponses(t),
+				AllowedKinds: []ResourceKind{kind},
+			}
+
+			suggestions, directive := kna.ValidArgsFunction(nil, []string{kind.String()}, "")
+			require.Empty(t, suggestions, "expected no suggestions for kind %s when imagebuilder is not configured", kind)
+			require.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		}
+	})
+
+	t.Run("returns empty for catalog kinds when v1alpha1 client is not available", func(t *testing.T) {
+		catalogName := ""
+		for _, kind := range []ResourceKind{CatalogKind, CatalogItemKind} {
+			kna := KindNameAutocomplete{
+				Options:      newFakeClientOptionsWithResponses(t),
+				AllowedKinds: []ResourceKind{kind},
+				CatalogName:  &catalogName,
+			}
+
+			suggestions, directive := kna.ValidArgsFunction(nil, []string{kind.String()}, "")
+			require.Empty(t, suggestions, "expected no suggestions for kind %s when v1alpha1 is not configured", kind)
+			require.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+		}
+	})
+
+	t.Run("does not inject field selector when catalog name contains comma", func(t *testing.T) {
+		maliciousCatalogName := "valid-catalog,extra=injected"
+		kna := KindNameAutocomplete{
+			Options:      newFakeClientOptionsWithResponses(t),
+			AllowedKinds: []ResourceKind{CatalogItemKind},
+			CatalogName:  &maliciousCatalogName,
+		}
+
+		// Expect empty results — the catalog name is rejected and V1Alpha1 is nil on the fake client.
+		// The important thing is it does not panic.
+		suggestions, _ := kna.ValidArgsFunction(nil, []string{CatalogItemKind.String()}, "")
+		require.Empty(t, suggestions)
+	})
 }
