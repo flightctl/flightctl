@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 9 * * 1'  # Monday 09:00 UTC
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/e2e-health-report.yml'
+      - '.github/actions/setup-dependencies/**'
+      - 'test/scripts/analyze_e2e_health/**'
+      - 'test/scripts/pkg/e2etestutils/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,10 +26,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
 
       - name: Generate health report
         working-directory: test/scripts
