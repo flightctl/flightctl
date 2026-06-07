@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -219,15 +220,33 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 	return uniqueNames, cobra.ShellCompDirectiveNoFileComp
 }
 
+// completionTimeout caps how long a single completion API call may block.
+// Tab completion must remain snappy, so we enforce a short upper bound.
+const completionTimeout = 10 * time.Second
+
+// completionContext returns a short-lived context for completion API calls.
+// It derives from cmd.Context() when available so that cancellation propagates,
+// and falls back to context.Background() when cmd is nil (e.g. in tests).
+func completionContext(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		base = cmd.Context()
+	}
+	return context.WithTimeout(base, completionTimeout)
+}
+
 //nolint:gocyclo
 func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o ClientBuilderOptions, kind ResourceKind) []string {
 	if err := o.Complete(cmd, nil); err != nil {
 		return nil
 	}
 
+	ctx, cancel := completionContext(cmd)
+	defer cancel()
+
 	switch kind {
 	case ImageBuildKind, ImageExportKind, ImagePromotionKind:
-		return kna.getImageBuilderNames(o, kind)
+		return kna.getImageBuilderNames(ctx, o, kind)
 	}
 
 	var names []string
@@ -235,12 +254,12 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 	if err != nil {
 		return nil
 	}
-	c.Start(context.Background())
+	c.Start(ctx)
 	defer c.Stop()
 
 	switch kind {
 	case DeviceKind:
-		resp, err := c.ListDevicesWithResponse(context.Background(), &api.ListDevicesParams{})
+		resp, err := c.ListDevicesWithResponse(ctx, &api.ListDevicesParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -249,7 +268,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case EnrollmentRequestKind:
-		resp, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &api.ListEnrollmentRequestsParams{})
+		resp, err := c.ListEnrollmentRequestsWithResponse(ctx, &api.ListEnrollmentRequestsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -258,7 +277,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case CertificateSigningRequestKind:
-		resp, err := c.ListCertificateSigningRequestsWithResponse(context.Background(), &api.ListCertificateSigningRequestsParams{})
+		resp, err := c.ListCertificateSigningRequestsWithResponse(ctx, &api.ListCertificateSigningRequestsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -267,7 +286,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case EventKind:
-		resp, err := c.ListEventsWithResponse(context.Background(), &api.ListEventsParams{})
+		resp, err := c.ListEventsWithResponse(ctx, &api.ListEventsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -276,7 +295,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case FleetKind:
-		resp, err := c.ListFleetsWithResponse(context.Background(), &api.ListFleetsParams{})
+		resp, err := c.ListFleetsWithResponse(ctx, &api.ListFleetsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -285,7 +304,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case OrganizationKind:
-		resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
+		resp, err := c.ListOrganizationsWithResponse(ctx, &api.ListOrganizationsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -294,7 +313,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case RepositoryKind:
-		resp, err := c.ListRepositoriesWithResponse(context.Background(), &api.ListRepositoriesParams{})
+		resp, err := c.ListRepositoriesWithResponse(ctx, &api.ListRepositoriesParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -303,7 +322,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case ResourceSyncKind:
-		resp, err := c.ListResourceSyncsWithResponse(context.Background(), &api.ListResourceSyncsParams{})
+		resp, err := c.ListResourceSyncsWithResponse(ctx, &api.ListResourceSyncsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -313,7 +332,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 		}
 	case TemplateVersionKind:
 		if kna.FleetName != nil {
-			resp, err := c.ListTemplateVersionsWithResponse(context.Background(), *kna.FleetName, &api.ListTemplateVersionsParams{})
+			resp, err := c.ListTemplateVersionsWithResponse(ctx, *kna.FleetName, &api.ListTemplateVersionsParams{})
 			if err == nil && resp.JSON200 != nil {
 				for _, er := range resp.JSON200.Items {
 					if er.Metadata.Name != nil {
@@ -323,7 +342,10 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case CatalogKind:
-		resp, err := c.V1Alpha1().ListCatalogsWithResponse(context.Background(), &apiv1alpha1.ListCatalogsParams{})
+		if c.V1Alpha1() == nil {
+			break
+		}
+		resp, err := c.V1Alpha1().ListCatalogsWithResponse(ctx, &apiv1alpha1.ListCatalogsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -332,12 +354,15 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 			}
 		}
 	case CatalogItemKind:
+		if c.V1Alpha1() == nil {
+			break
+		}
 		params := apiv1alpha1.ListAllCatalogItemsParams{}
-		if kna.CatalogName != nil && *kna.CatalogName != "" {
+		if kna.CatalogName != nil && *kna.CatalogName != "" && !strings.Contains(*kna.CatalogName, ",") {
 			fieldSelector := "metadata.catalog=" + *kna.CatalogName
 			params.FieldSelector = &fieldSelector
 		}
-		resp, err := c.V1Alpha1().ListAllCatalogItemsWithResponse(context.Background(), &params)
+		resp, err := c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -350,18 +375,18 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 	return names
 }
 
-func (kna *KindNameAutocomplete) getImageBuilderNames(o ClientBuilderOptions, kind ResourceKind) []string {
+func (kna *KindNameAutocomplete) getImageBuilderNames(ctx context.Context, o ClientBuilderOptions, kind ResourceKind) []string {
 	ibClient, err := o.BuildImageBuilderClient()
 	if err != nil {
 		return nil
 	}
-	ibClient.Start(context.Background())
+	ibClient.Start(ctx)
 	defer ibClient.Stop()
 
 	var names []string
 	switch kind {
 	case ImageBuildKind:
-		resp, err := ibClient.ListImageBuildsWithResponse(context.Background(), &imagebuilderapi.ListImageBuildsParams{})
+		resp, err := ibClient.ListImageBuildsWithResponse(ctx, &imagebuilderapi.ListImageBuildsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -370,7 +395,7 @@ func (kna *KindNameAutocomplete) getImageBuilderNames(o ClientBuilderOptions, ki
 			}
 		}
 	case ImageExportKind:
-		resp, err := ibClient.ListImageExportsWithResponse(context.Background(), &imagebuilderapi.ListImageExportsParams{})
+		resp, err := ibClient.ListImageExportsWithResponse(ctx, &imagebuilderapi.ListImageExportsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
@@ -379,7 +404,7 @@ func (kna *KindNameAutocomplete) getImageBuilderNames(o ClientBuilderOptions, ki
 			}
 		}
 	case ImagePromotionKind:
-		resp, err := ibClient.ListImagePromotionsWithResponse(context.Background(), &imagebuilderapi.ListImagePromotionsParams{})
+		resp, err := ibClient.ListImagePromotionsWithResponse(ctx, &imagebuilderapi.ListImagePromotionsParams{})
 		if err == nil && resp.JSON200 != nil {
 			for _, er := range resp.JSON200.Items {
 				if er.Metadata.Name != nil {
