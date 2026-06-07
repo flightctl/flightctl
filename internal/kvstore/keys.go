@@ -109,3 +109,15 @@ type AwaitingReconnectionKey struct {
 func (a *AwaitingReconnectionKey) ComposeKey() string {
 	return fmt.Sprintf("v1/%s/device/%s/awaiting-reconnect", a.OrgID, a.DeviceName)
 }
+
+// VmPodYamlKey is a content-addressed KV key for caching the pod.yaml output
+// of the kubevirt-vm-to-pod conversion. The key is global (not scoped to
+// org/fleet/templateVersion) because the conversion is deterministic: the same
+// vm.yaml input always produces the same pod.yaml output.
+type VmPodYamlKey struct {
+	Sha256 string // hex-encoded SHA-256 of the vm.yaml content
+}
+
+func (k *VmPodYamlKey) ComposeKey() string {
+	return fmt.Sprintf("v1/vm-pod-yaml/%s", k.Sha256)
+}
