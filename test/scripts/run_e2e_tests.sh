@@ -105,7 +105,7 @@ case "${E2E_ENVIRONMENT}" in
             echo "Using local Quadlet host: ${QUADLET_HOST} (set E2E_SSH_HOST for remote Quadlet)"
         fi
         export QUADLET_HOST
-        API_ENDPOINT="https://${QUADLET_HOST}:3443"
+        API_ENDPOINT="https://${QUADLET_HOST}"
         echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
         ;;
     *)
