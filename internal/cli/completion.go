@@ -7,7 +7,10 @@ import (
 	"slices"
 	"strings"
 
+	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 )
@@ -158,6 +161,7 @@ func (o *CompletionOptions) Validate(args []string) error {
 type ClientBuilderOptions interface {
 	Complete(cmd *cobra.Command, args []string) error
 	BuildClient() (*client.Client, error)
+	BuildImageBuilderClient(opts ...imagebuilderclient.ClientOption) (*client.ImageBuilderClient, error)
 }
 
 type KindNameAutocomplete struct {
@@ -165,6 +169,7 @@ type KindNameAutocomplete struct {
 	AllowMultipleNames bool
 	AllowedKinds       []ResourceKind
 	FleetName          *string
+	CatalogName        *string
 }
 
 func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -216,100 +221,172 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 
 //nolint:gocyclo
 func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o ClientBuilderOptions, kind ResourceKind) []string {
-	var names []string
 	if err := o.Complete(cmd, nil); err != nil {
 		return nil
 	}
+
+	switch kind {
+	case ImageBuildKind, ImageExportKind, ImagePromotionKind:
+		return kna.getImageBuilderNames(o, kind)
+	}
+
+	var names []string
 	c, err := o.BuildClient()
-	if err == nil {
-		c.Start(context.Background())
-		defer c.Stop()
-		switch kind {
-		case DeviceKind:
-			resp, err := c.ListDevicesWithResponse(context.Background(), &api.ListDevicesParams{})
+	if err != nil {
+		return nil
+	}
+	c.Start(context.Background())
+	defer c.Stop()
+
+	switch kind {
+	case DeviceKind:
+		resp, err := c.ListDevicesWithResponse(context.Background(), &api.ListDevicesParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case EnrollmentRequestKind:
+		resp, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &api.ListEnrollmentRequestsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case CertificateSigningRequestKind:
+		resp, err := c.ListCertificateSigningRequestsWithResponse(context.Background(), &api.ListCertificateSigningRequestsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case EventKind:
+		resp, err := c.ListEventsWithResponse(context.Background(), &api.ListEventsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case FleetKind:
+		resp, err := c.ListFleetsWithResponse(context.Background(), &api.ListFleetsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case OrganizationKind:
+		resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case RepositoryKind:
+		resp, err := c.ListRepositoriesWithResponse(context.Background(), &api.ListRepositoriesParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case ResourceSyncKind:
+		resp, err := c.ListResourceSyncsWithResponse(context.Background(), &api.ListResourceSyncsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case TemplateVersionKind:
+		if kna.FleetName != nil {
+			resp, err := c.ListTemplateVersionsWithResponse(context.Background(), *kna.FleetName, &api.ListTemplateVersionsParams{})
 			if err == nil && resp.JSON200 != nil {
 				for _, er := range resp.JSON200.Items {
 					if er.Metadata.Name != nil {
 						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case EnrollmentRequestKind:
-			resp, err := c.ListEnrollmentRequestsWithResponse(context.Background(), &api.ListEnrollmentRequestsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case CertificateSigningRequestKind:
-			resp, err := c.ListCertificateSigningRequestsWithResponse(context.Background(), &api.ListCertificateSigningRequestsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case EventKind:
-			resp, err := c.ListEventsWithResponse(context.Background(), &api.ListEventsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case FleetKind:
-			resp, err := c.ListFleetsWithResponse(context.Background(), &api.ListFleetsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case OrganizationKind:
-			resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case RepositoryKind:
-			resp, err := c.ListRepositoriesWithResponse(context.Background(), &api.ListRepositoriesParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case ResourceSyncKind:
-			resp, err := c.ListResourceSyncsWithResponse(context.Background(), &api.ListResourceSyncsParams{})
-			if err == nil && resp.JSON200 != nil {
-				for _, er := range resp.JSON200.Items {
-					if er.Metadata.Name != nil {
-						names = append(names, *er.Metadata.Name)
-					}
-				}
-			}
-		case TemplateVersionKind:
-			if kna.FleetName != nil {
-				resp, err := c.ListTemplateVersionsWithResponse(context.Background(), *kna.FleetName, &api.ListTemplateVersionsParams{})
-				if err == nil && resp.JSON200 != nil {
-					for _, er := range resp.JSON200.Items {
-						if er.Metadata.Name != nil {
-							names = append(names, *er.Metadata.Name)
-						}
 					}
 				}
 			}
 		}
+	case CatalogKind:
+		resp, err := c.V1Alpha1().ListCatalogsWithResponse(context.Background(), &apiv1alpha1.ListCatalogsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case CatalogItemKind:
+		params := apiv1alpha1.ListAllCatalogItemsParams{}
+		if kna.CatalogName != nil && *kna.CatalogName != "" {
+			fieldSelector := "metadata.catalog=" + *kna.CatalogName
+			params.FieldSelector = &fieldSelector
+		}
+		resp, err := c.V1Alpha1().ListAllCatalogItemsWithResponse(context.Background(), &params)
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	}
 
+	return names
+}
+
+func (kna *KindNameAutocomplete) getImageBuilderNames(o ClientBuilderOptions, kind ResourceKind) []string {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return nil
+	}
+	ibClient.Start(context.Background())
+	defer ibClient.Stop()
+
+	var names []string
+	switch kind {
+	case ImageBuildKind:
+		resp, err := ibClient.ListImageBuildsWithResponse(context.Background(), &imagebuilderapi.ListImageBuildsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case ImageExportKind:
+		resp, err := ibClient.ListImageExportsWithResponse(context.Background(), &imagebuilderapi.ListImageExportsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
+	case ImagePromotionKind:
+		resp, err := ibClient.ListImagePromotionsWithResponse(context.Background(), &imagebuilderapi.ListImagePromotionsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, er := range resp.JSON200.Items {
+				if er.Metadata.Name != nil {
+					names = append(names, *er.Metadata.Name)
+				}
+			}
+		}
 	}
 	return names
 }
