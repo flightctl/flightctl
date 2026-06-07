@@ -16,6 +16,10 @@
          secureboot is enabled -->
     <!-- Note: for CentOS Stream 10, we need a x64 v3 CPU model -->
     <model>Haswell-noTSX-IBRS</model>
+    <!-- expose VMX/SVM to enable nested KVM inside the guest (/dev/kvm); optional so
+         environments without nested-virt support still work -->
+    <feature name='vmx' policy='optional'/>
+    <feature name='svm' policy='optional'/>
   </cpu>
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>

@@ -19,6 +19,57 @@ import (
 const (
 	// QuadletUnitPath is the quadlet unit path on device (rootful)
 	QuadletUnitPath = "/etc/containers/systemd"
+
+	// vmYAMLTemplate is a KubeVirt VirtualMachine manifest template for e2e VM tests.
+	// Placeholders: 1=name, 2=containerdisk image.
+	vmYAMLTemplate = `apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: %s
+spec:
+  running: true
+  template:
+    spec:
+      domain:
+        devices:
+          disks:
+          - disk:
+              bus: virtio
+            name: containerdisk
+          - disk:
+              bus: virtio
+            name: cloudinitdisk
+          interfaces:
+          - masquerade: {}
+            name: default
+            ports:
+            - port: 2222
+          rng: {}
+        memory:
+          guest: 1024M
+        resources: {}
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - containerdisk:
+          image: %s
+        name: containerdisk
+      - cloudInitNoCloud:
+          userData: |-
+            #cloud-config
+            ssh_pwauth: true
+            password: fedora
+            chpasswd: { expire: False }
+        name: cloudinitdisk
+`
+
+	// vmKubeUnitTemplate is a Quadlet Kube unit template for e2e VM tests.
+	// Yaml= is intentionally omitted: the server always injects Yaml=pod.yaml
+	// when rendering a VmApplication, overriding any user-supplied value.
+	vmKubeUnitTemplate = `[Kube]
+PublishPort=2222:2222
+`
 )
 
 // QuadletPathForUser returns the quadlet systemd path for the given user.
@@ -229,6 +280,29 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 
 	err := volume.FromMountVolumeProviderSpec(mountVolumeProvider)
 	return volume, err
+}
+
+// NewVmApplicationSpec creates an inline VmApplication spec containing a KubeVirt
+// VirtualMachine manifest (vm.yaml) and a Quadlet Kube unit ({name}.kube).
+func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
+	vmYAML := fmt.Sprintf(vmYAMLTemplate, name, image)
+	kubeUnit := vmKubeUnitTemplate
+
+	vmApp := v1beta1.VmApplication{
+		AppType: v1beta1.AppTypeVm,
+		Name:    lo.ToPtr(name),
+	}
+	if err := vmApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{
+			{Path: "vm.yaml", Content: lo.ToPtr(vmYAML)},
+			{Path: name + ".kube", Content: lo.ToPtr(kubeUnit)},
+		},
+	}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	var appSpec v1beta1.ApplicationProviderSpec
+	err := appSpec.FromVmApplication(vmApp)
+	return appSpec, err
 }
 
 // NewHelmApplicationSpec creates a HelmApplication spec with optional values files.

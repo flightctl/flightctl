@@ -75,6 +75,9 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
+	// IsVMWorkload is true when the inline Quadlet contains a .kube unit referencing
+	// a pod YAML with a virt-launcher image, indicating a KubeVirt VM workload.
+	IsVMWorkload bool
 	// bootTime is used for embedded app comparison (unexported, works with reflect.DeepEqual)
 	bootTime string
 	// Volume manager.
