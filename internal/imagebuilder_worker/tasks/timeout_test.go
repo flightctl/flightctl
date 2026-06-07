@@ -285,6 +285,10 @@ func (m *mockImageExportService) ListCompletedForBuild(_ context.Context, _ uuid
 	return nil, nil
 }
 
+func (m *mockImageExportService) ListTerminalNonCompletedForBuild(_ context.Context, _ uuid.UUID, _ string, _ apiimagebuilder.ExportFormatType) (*apiimagebuilder.ImageExport, error) {
+	return nil, nil
+}
+
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {
 	now := time.Now().UTC()
 	conditions := []apiimagebuilder.ImageBuildCondition{

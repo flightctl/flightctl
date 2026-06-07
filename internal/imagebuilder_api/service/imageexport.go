@@ -72,6 +72,9 @@ type ImageExportService interface {
 	// ListCompletedForBuild returns the most recently completed ImageExport for the given
 	// imageBuildRef and export format, or nil if none exists yet.
 	ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error)
+	// ListTerminalNonCompletedForBuild returns a terminal non-completed ImageExport (Failed or
+	// Canceled) for the given imageBuildRef and export format, or nil if none exists.
+	ListTerminalNonCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error)
 }
 
 // ImageExportDownload contains information for downloading an ImageExport artifact
@@ -1113,6 +1116,30 @@ func (s *imageExportService) ListCompletedForBuild(ctx context.Context, orgId uu
 		return nil, nil
 	}
 	return &exports.Items[0], nil
+}
+
+func (s *imageExportService) ListTerminalNonCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
+	for _, reason := range []domain.ImageExportConditionReason{
+		domain.ImageExportConditionReasonFailed,
+		domain.ImageExportConditionReasonCanceled,
+	} {
+		fs, err := selector.NewFieldSelectorFromMap(map[string]string{
+			"spec.source.imageBuildRef":      imageBuildRef,
+			"spec.format":                    string(format),
+			"status.conditions.ready.reason": string(reason),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to build field selector: %w", err)
+		}
+		exports, err := s.imageExportStore.List(ctx, orgId, mainstore.ListParams{FieldSelector: fs, Limit: 1})
+		if err != nil {
+			return nil, err
+		}
+		if len(exports.Items) > 0 {
+			return &exports.Items[0], nil
+		}
+	}
+	return nil, nil
 }
 
 // GetLogs retrieves logs for an ImageExport
