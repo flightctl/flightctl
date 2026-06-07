@@ -97,7 +97,7 @@ When running e2e against a Quadlet deployment (e.g. after `make deploy-quadlets`
 | `E2E_SSH_PASSWORD` | SSH password (alternative to key). Used when `E2E_SSH_KEY_PATH` is not set; requires `sshpass` on the test host. |
 | `E2E_USE_SUDO` | Use sudo for systemctl/podman on the device. Default: `true` for Quadlet. |
 | `E2E_CONFIG_DIR` | FlightCtl config directory on the device. Default: `/etc/flightctl`. |
-| `E2E_API_ENDPOINT` | FlightCtl API URL (e.g. `https://<host>:3443`). Inferred from host if unset. |
+| `E2E_API_ENDPOINT` | FlightCtl API URL (e.g. `https://<host>`). Inferred from host if unset. |
 | `E2E_PAM_USER` | PAM user for `flightctl login` (Quadlet/standalone API). Default: `admin`. |
 | `E2E_PAM_PASSWORD` | PAM password for login. |
 | `E2E_DEFAULT_PAM_PASSWORD` | Fallback PAM password if `E2E_PAM_PASSWORD` is unset (e.g. test default). |
