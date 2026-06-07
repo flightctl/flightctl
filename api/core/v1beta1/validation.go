@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -1116,6 +1117,7 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 			allErrs = append(allErrs, fmt.Errorf("invalid quadlet inline provider: %w", err))
 		} else {
 			allErrs = append(allErrs, inlineSpec.Validate(AppTypeQuadlet, fleetTemplate)...)
+			allErrs = append(allErrs, validateKubeYamlDirectives(inlineSpec, pathPrefix)...)
 		}
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown quadlet provider type: %s", providerType))
@@ -1125,6 +1127,90 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 	allErrs = append(allErrs, validateApplicationVolumes(quadlet.Volumes, appName, AppTypeQuadlet, fleetTemplate)...)
 
 	return allErrs
+}
+
+// validateKubeYamlDirectives checks that every .kube file in inlineSpec has its
+// Yaml= target present in the inline set and that the target is a valid Pod manifest.
+// Content is decoded from base64 when necessary so validation is consistent regardless
+// of how the caller encoded the inline files.
+func validateKubeYamlDirectives(inlineSpec InlineApplicationProviderSpec, pathPrefix string) []error {
+	// Build a lookup map of path → decoded content for all inline files.
+	fileContents := make(map[string][]byte, len(inlineSpec.Inline))
+	for _, f := range inlineSpec.Inline {
+		if f.Content == nil {
+			continue
+		}
+		decoded, err := decodeApplicationContent(f)
+		if err != nil {
+			continue // malformed encoding is already caught by ApplicationContent.Validate
+		}
+		fileContents[f.Path] = decoded
+	}
+
+	var errs []error
+	for _, f := range inlineSpec.Inline {
+		if !strings.HasSuffix(f.Path, ".kube") || f.Content == nil {
+			continue
+		}
+		kubeBytes, ok := fileContents[f.Path]
+		if !ok {
+			continue
+		}
+		yamlFile := parseKubeYamlDirective(string(kubeBytes))
+		if yamlFile == "" {
+			continue
+		}
+		targetBytes, ok := fileContents[yamlFile]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s.inline[%s]: Yaml=%s references a file not present in the inline set",
+				pathPrefix, f.Path, yamlFile))
+			continue
+		}
+		errs = append(errs, validatePodManifest(targetBytes, pathPrefix+".inline["+yamlFile+"]")...)
+	}
+	return errs
+}
+
+// decodeApplicationContent returns the decoded byte content of an ApplicationContent entry,
+// handling both plain and base64 encodings.
+func decodeApplicationContent(f ApplicationContent) ([]byte, error) {
+	if f.Content == nil {
+		return nil, fmt.Errorf("nil content")
+	}
+	if f.IsBase64() {
+		return base64.StdEncoding.DecodeString(*f.Content)
+	}
+	return []byte(*f.Content), nil
+}
+
+// parseKubeYamlDirective extracts the value of the Yaml= key from a [Kube] unit file.
+// Returns an empty string if the directive is absent or the content cannot be parsed.
+func parseKubeYamlDirective(kubeContent string) string {
+	for _, line := range strings.Split(kubeContent, "\n") {
+		line = strings.TrimSpace(line)
+		key, value, found := strings.Cut(line, "=")
+		if found && strings.TrimSpace(key) == "Yaml" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+type podManifestMeta struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+}
+
+// validatePodManifest checks that the given YAML content is a valid Kubernetes Pod manifest.
+func validatePodManifest(content []byte, pathPrefix string) []error {
+	var meta podManifestMeta
+	if err := yaml.Unmarshal(content, &meta); err != nil {
+		return []error{fmt.Errorf("%s: must be valid YAML: %w", pathPrefix, err)}
+	}
+	if meta.Kind != "Pod" {
+		return []error{fmt.Errorf("%s: kind must be \"Pod\", got %q", pathPrefix, meta.Kind)}
+	}
+	return nil
 }
 
 func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {

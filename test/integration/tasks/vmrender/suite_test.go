@@ -1,0 +1,145 @@
+package vmrender_test
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/tasks"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
+	containers "github.com/flightctl/flightctl/test/harness/containers"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
+	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/testcontainers/testcontainers-go"
+)
+
+const (
+	kubevirtVmToPodImageRepo = "flightctl/kubevirt-vm-to-pod-test"
+	kubevirtVmToPodImageTag  = "latest"
+)
+
+var (
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
+
+	vmConverter     tasks.VmConverterFn
+	vmBinaryCleanup func()
+)
+
+func TestVmRender(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "VmRender Suite")
+}
+
+// SynchronizedBeforeSuite ensures the expensive binary extraction runs only
+// once (on proc 1). The resulting path is broadcast as []byte to all procs,
+// which each initialise their own vmConverter, Redis connection, and tracer.
+var _ = SynchronizedBeforeSuite(
+	// Proc 1 only: extract the kubevirt-vm-to-pod binary from a container.
+	func(ctx context.Context) []byte {
+		Expect(integrationstack.EnsureRunning(ctx)).To(Succeed())
+		binaryPath, cleanup, err := buildKubevirtVmToPodBinary(ctx)
+		Expect(err).ToNot(HaveOccurred(), "failed to extract kubevirt-vm-to-pod binary")
+		vmBinaryCleanup = cleanup
+		return []byte(binaryPath)
+	},
+	// All procs: receive the shared binary path; set up per-process state.
+	func(ctx context.Context, binaryPathBytes []byte) {
+		suiteCtx = testutil.InitSuiteTracerForGinkgo("VmRender Suite")
+		Expect(integrationstack.EnsureRunning(ctx)).To(Succeed())
+
+		var err error
+		redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+			suiteCtx, flightlog.InitLogs())
+		Expect(err).NotTo(HaveOccurred())
+
+		vmConverter = tasks.NewVmConverter(string(binaryPathBytes))
+	},
+)
+
+// SynchronizedAfterSuite mirrors the above: per-process cleanup first, then
+// proc-1 teardown (binary container + temp dir) last.
+var _ = SynchronizedAfterSuite(
+	func() {
+		if redisCleanup != nil {
+			redisCleanup()
+		}
+	},
+	func() {
+		if vmBinaryCleanup != nil {
+			vmBinaryCleanup()
+		}
+	},
+)
+
+// buildKubevirtVmToPodBinary builds the kubevirt-vm-to-pod image from the
+// Containerfile.kubevirt-vm-to-pod that lives alongside this test (same
+// ubi9/go-toolset base as the production worker). The built image is kept so
+// subsequent runs skip the build. The binary is copied out of the running
+// container via CopyFileFromContainer, written to a temp directory, and the
+// container is terminated. Returns the absolute binary path and a cleanup func.
+func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
+	containers.ConfigureDockerHost()
+
+	req := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			// The Containerfile lives alongside this test file; Go tests run
+			// with cwd set to the package directory.
+			Context:    ".",
+			Dockerfile: "Containerfile.kubevirt-vm-to-pod",
+			Repo:       kubevirtVmToPodImageRepo,
+			Tag:        kubevirtVmToPodImageTag,
+			KeepImage:  true, // reuse across test runs; rebuilds only on Containerfile changes
+		},
+		// Keep the container alive so CopyFileFromContainer can read from it.
+		Cmd: []string{"/bin/bash", "-c", "sleep 300"},
+	}
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ProviderType:     containers.GetProviderType(),
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("start kubevirt-vm-to-pod container: %w", err)
+	}
+	cleanup := func() { _ = c.Terminate(ctx) }
+
+	rc, err := c.CopyFileFromContainer(ctx, "/usr/local/bin/kubevirt-vm-to-pod")
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("copy binary from container: %w", err)
+	}
+	data, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("read binary: %w", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "flightctl-kubevirt-vm-to-pod-*")
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	combinedCleanup := func() {
+		cleanup()
+		_ = os.RemoveAll(tmpDir)
+	}
+
+	binaryPath := filepath.Join(tmpDir, "kubevirt-vm-to-pod")
+	if err := os.WriteFile(binaryPath, data, 0700); err != nil { //nolint:gosec // executable binary requires execute permission
+		combinedCleanup()
+		return "", nil, fmt.Errorf("write binary: %w", err)
+	}
+	return binaryPath, combinedCleanup, nil
+}

@@ -72,10 +72,29 @@ type DeviceRenderLogic struct {
 	templateVersion *string
 	deviceConfig    *[]domain.ConfigProviderSpec
 	applications    *[]domain.ApplicationProviderSpec
+	vmConverter     VmConverterFn
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
-	return DeviceRenderLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, cfg: cfg, orgId: orgId, event: event}
+	return DeviceRenderLogic{
+		log:            log,
+		serviceHandler: serviceHandler,
+		k8sClient:      k8sClient,
+		kvStore:        kvStore,
+		cfg:            cfg,
+		orgId:          orgId,
+		event:          event,
+		vmConverter:    defaultVmConverter,
+	}
+}
+
+// WithVmConverter returns a copy of DeviceRenderLogic using the given converter
+// for VM application rendering. Intended for integration tests that extract the
+// kubevirt-vm-to-pod binary into a temporary directory and supply its path via
+// NewVmConverter.
+func (t DeviceRenderLogic) WithVmConverter(fn VmConverterFn) DeviceRenderLogic {
+	t.vmConverter = fn
+	return t
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -214,7 +233,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 
 	for i := range *t.applications {
 		application := (*t.applications)[i]
-		name, renderedApplication, renderErr := renderApplication(ctx, &application)
+		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.kvStore)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
 		// Append invalid configs only if there's an error
@@ -334,7 +353,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 	}
 }
 
-func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (*string, *domain.ApplicationProviderSpec, error) {
+func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
@@ -350,7 +369,16 @@ func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (
 	case domain.AppTypeQuadlet:
 		_, err = (*app).AsQuadletApplication()
 	case domain.AppTypeVm:
-		_, err = (*app).AsVmApplication()
+		vmApp, parseErr := (*app).AsVmApplication()
+		if parseErr != nil {
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, parseErr)
+		}
+		appName := vmApp.Name
+		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, kvStore)
+		if renderErr != nil {
+			return appName, nil, renderErr
+		}
+		return appName, converted, nil
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
