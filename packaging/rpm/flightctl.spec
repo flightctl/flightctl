@@ -647,6 +647,7 @@ fi
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
+    %{_datadir}/containers/systemd/flightctl-listeners.volume
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_db.sh

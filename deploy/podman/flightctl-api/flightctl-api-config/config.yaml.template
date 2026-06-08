@@ -22,7 +22,7 @@ database:
 {{- end}}
 service:
   address: flightctl-api:3080
-  agentEndpointAddress: flightctl-api:7443
+  agentEndpointAddress: unix:///var/run/flightctl-listeners/api-agent.sock
   baseUrl: https://{{.global.baseDomain}}/_/flightctl/
   disableTLS: true
   baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/

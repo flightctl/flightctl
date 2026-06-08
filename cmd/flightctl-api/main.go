@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,7 +95,18 @@ func main() {
 	}
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)
-	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
+	network := "tcp"
+	agentAddress := cfg.Service.AgentEndpointAddress
+	if strings.HasPrefix(cfg.Service.AgentEndpointAddress, "unix://") {
+		network = "unix"
+		agentAddress = strings.TrimPrefix(cfg.Service.AgentEndpointAddress, "unix://")
+		if _, err := os.Stat(agentAddress); err == nil {
+			if err := os.Remove(agentAddress); err != nil {
+				log.Fatalf("Failed to remove previous unix socket at %s: %v", agentAddress, err)
+			}
+		}
+	}
+	agentListener, err := net.Listen(network, agentAddress)
 	if err != nil {
 		log.Fatalf("creating listener: %s", err)
 	}
