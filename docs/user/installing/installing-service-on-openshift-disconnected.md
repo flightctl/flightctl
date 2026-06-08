@@ -142,6 +142,9 @@ spec:
   - source: docker.io
     mirrors:
     - <mirror-registry-host>:<port>
+  - source: registry.access.redhat.com
+    mirrors:
+    - <mirror-registry-host>:<port>
 EOF
 ```
 
@@ -207,11 +210,14 @@ Check that all pods are running:
 oc get pods -n flightctl
 ```
 
-Confirm the API is reachable:
+Confirm the API is reachable and returns an empty fleet list:
 
 ```bash
-curl -k https://api.flightctl.example.com/api/v1/fleets
+flightctl get fleets
 ```
+
+The Flight Control UI is available at the hostname set in `global.baseDomain`.
+Open it in a browser to verify the service is running end-to-end.
 
 ## Optional: deploying the observability stack
 
@@ -224,6 +230,19 @@ for image lists and configuration details.
 
 ## Next steps
 
-- [Configuring Authentication and Authorization](configuring-auth/overview.md)
-- [Installing the Flight Control CLI](installing-cli.md)
-- [Deploying an Observability Stack on Kubernetes](deploying-observability-kubernetes.md)
+1. **Set up authentication** — configure an identity provider before allowing user
+   access. For OpenShift-integrated login see
+   [Configuring OpenShift Authentication](configuring-auth/auth-openshift.md),
+   or review the [Authentication Overview](configuring-auth/overview.md) for all options.
+
+2. **Create an organization and assign roles** — Flight Control requires at least
+   one organization before users can manage devices. See
+   [Managing Organizations](configuring-auth/organizations.md) and the role
+   assignment section of the authentication guide.
+
+3. **Log in with the CLI** — see [Logging In](../using/cli/logging-in.md) for the
+   `flightctl login` command and certificate trust setup.
+
+4. **Deploy the observability stack (optional)** — see
+   [Deploying an Observability Stack on Kubernetes](deploying-observability-kubernetes.md)
+   for Prometheus and Grafana setup.
