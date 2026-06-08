@@ -57,7 +57,7 @@ make build-mirror-images
 
 | Flag | Values |
 |------|--------|
-| `--variant` | `community-el9`, `community-el10`, `redhat-el9`, `redhat-el10` |
+| `--variant` | `community-el9`, `community-el10`, `rhem-el9`, `rhem-el10` |
 
 ### Destination (required in non-bundle mode)
 
@@ -188,7 +188,7 @@ make build-mirror-images
 
 ```bash
 # Image counts per variant
-for v in community-el9 community-el10 redhat-el9 redhat-el10; do
+for v in community-el9 community-el10 rhem-el9 rhem-el10; do
     n=$(./bin/mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null | wc -l)
     echo "$v: $n images"
 done
@@ -232,7 +232,7 @@ export RPM_SPEC=/dev/null
 | Error | Fix |
 |-------|-----|
 | `required file not found: deploy/helm/helm-chart-opts.yaml` | Run from the repo root or `git pull` |
-| `invalid variant 'x'` | Use one of: `community-el9`, `community-el10`, `redhat-el9`, `redhat-el10` |
+| `invalid variant 'x'` | Use one of: `community-el9`, `community-el10`, `rhem-el9`, `rhem-el10` |
 | `registry.redhat.io` auth failure | `podman login registry.redhat.io` before running |
 | `appVersion is 'latest'` warning | Use `--tag-override v1.x.x` or check out a release tag |
 | `N image(s) failed to copy` | Check `[ERROR]` lines on stderr; tool continues past failures |

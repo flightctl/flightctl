@@ -16,7 +16,7 @@ On the **prep machine** (internet-connected):
 - RHEL 9 or RHEL 10 with `skopeo` installed (`sudo dnf install -y skopeo`)
 - The `mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
 - `helm` CLI installed
-- For `redhat-el9` or `redhat-el10` variants: credentials for `registry.redhat.io`
+- For `rhem-el9` or `rhem-el10` variants: credentials for `registry.redhat.io`
   (`podman login registry.redhat.io`)
 
 On the **disconnected cluster**:
@@ -34,8 +34,8 @@ Choose the variant that matches your deployment:
 |---------|----------|
 | `community-el9` | Community images from `quay.io` (RHEL 9 base) |
 | `community-el10` | Community images from `quay.io` (RHEL 10 base) |
-| `redhat-el9` | Red Hat images from `registry.redhat.io` (requires entitlement) |
-| `redhat-el10` | Red Hat images from `registry.redhat.io` (requires entitlement) |
+| `rhem-el9` | Red Hat images from `registry.redhat.io` (requires entitlement) |
+| `rhem-el10` | Red Hat images from `registry.redhat.io` (requires entitlement) |
 
 ### Option A: Direct push (prep machine can reach the internal registry)
 
@@ -44,7 +44,7 @@ registry in a single step:
 
 ```bash
 ./bin/mirror-images \
-    --variant redhat-el9 \
+    --variant rhem-el9 \
     --dest-registry <mirror-registry-host>:<port> \
     --execute \
     --tag-override <version>
@@ -67,7 +67,7 @@ disconnected environment, then push from there:
 ```bash
 # On the prep machine (internet-connected)
 ./bin/mirror-images \
-    --variant redhat-el9 \
+    --variant rhem-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --tag-override <version>
 
@@ -107,7 +107,7 @@ scp flightctl-<version>.tgz <user>@<bastion>:~/
 OpenShift uses `ImageTagMirrorSet` to redirect image pulls from source registries
 to your mirror. Apply the appropriate configuration for your variant.
 
-### For `redhat-el9` or `redhat-el10`
+### For `rhem-el9` or `rhem-el10`
 
 ```bash
 oc apply -f - <<EOF
@@ -156,7 +156,7 @@ oc wait nodes --all --for=condition=Ready --timeout=10m
 
 ## Step 4: Create an image pull secret (Red Hat variants only)
 
-If you are using a `redhat-el9` or `redhat-el10` variant and your mirror registry
+If you are using a `rhem-el9` or `rhem-el10` variant and your mirror registry
 requires authentication, create a pull secret in the `flightctl` namespace:
 
 ```bash
