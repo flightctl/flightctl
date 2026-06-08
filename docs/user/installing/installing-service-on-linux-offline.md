@@ -56,8 +56,8 @@ Replace `community-el9` with your target variant:
 |---------|----------|
 | `community-el9` | RHEL 9 or CentOS Stream 9 |
 | `community-el10` | RHEL 10 or CentOS Stream 10 |
-| `redhat-el9` | RHEL 9 with Red Hat registry images (requires registry.redhat.io credentials) |
-| `redhat-el10` | RHEL 10 with Red Hat registry images |
+| `rhem-el9` | RHEL 9 with Red Hat registry images (requires registry.redhat.io credentials) |
+| `rhem-el10` | RHEL 10 with Red Hat registry images |
 
 ### Pinning to a specific release version
 
@@ -230,7 +230,7 @@ location = "localhost:5000"
 insecure = true
 ```
 
-For `redhat-el9` or `redhat-el10` variants, add a mirror entry for
+For `rhem-el9` or `rhem-el10` variants, add a mirror entry for
 `registry.redhat.io` in place of `registry.access.redhat.com`.
 
 > [!IMPORTANT]

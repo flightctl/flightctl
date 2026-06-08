@@ -30,8 +30,8 @@ import (
 var validVariants = []string{
 	"community-el9",
 	"community-el10",
-	"redhat-el9",
-	"redhat-el10",
+	"rhem-el9",
+	"rhem-el10",
 }
 
 // schemeRE matches URL scheme prefixes that must not appear in --dest-registry.
@@ -291,7 +291,7 @@ Examples:
   mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000
 
   # Execute: mirror images to a running local registry
-  mirror-images --variant redhat-el9 --dest-registry local-registry.example.com:5000 --execute
+  mirror-images --variant rhem-el9 --dest-registry local-registry.example.com:5000 --execute
 
   # Bundle: create offline archive with all images
   mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz
@@ -461,7 +461,7 @@ Examples:
 	}
 
 	// Register flags.
-	cmd.Flags().StringVar(&variant, "variant", "", "Chart variant (community-el9 | community-el10 | redhat-el9 | redhat-el10)")
+	cmd.Flags().StringVar(&variant, "variant", "", "Chart variant (community-el9 | community-el10 | rhem-el9 | rhem-el10)")
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS verification for the destination registry (required for HTTP registries)")

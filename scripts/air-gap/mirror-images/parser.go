@@ -149,13 +149,13 @@ func ParseHelmChartOpts(path, variant, appVersion string) ([]ImagePair, error) {
 //
 //   - community-el9  → packaging/images/el9/images.yaml
 //   - community-el10 → packaging/images/el10/images.yaml
-//   - redhat-el9     → packaging/images/rhel9/images.yaml
-//   - redhat-el10    → packaging/images/rhel10/images.yaml
+//   - rhem-el9     → packaging/images/rhel9/images.yaml
+//   - rhem-el10    → packaging/images/rhel10/images.yaml
 //
 // A missing file is treated as a non-fatal warning so the tool can still emit
 // helm-chart-opts images even when the images file is absent.
 func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant, tagFallback string) ([]ImagePair, error) {
-	isRedhat := strings.Contains(variant, "redhat")
+	isRedhat := strings.Contains(variant, "rhem")
 	isEl10 := strings.Contains(variant, "el10")
 
 	var path, label string
@@ -190,9 +190,9 @@ func ParseObsImages(el9Path, el10Path, rhel9Path, rhel10Path, variant, tagFallba
 
 	logInfo("Found %d RPM-only image entries", len(obs))
 
-	// For redhat variants every image is expected to come from registry.redhat.io;
+	// For rhem variants every image is expected to come from registry.redhat.io;
 	// warn only when community variants unexpectedly reference the downstream registry.
-	warnOnRedhatRegistry := !strings.Contains(variant, "redhat")
+	warnOnRedhatRegistry := !strings.Contains(variant, "rhem")
 
 	pairs := make([]ImagePair, 0, len(obs))
 	for key, spec := range obs {
