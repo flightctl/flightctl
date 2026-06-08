@@ -13,7 +13,7 @@ For the connected (online) installation procedure, see
 
 On the **prep machine** (internet-connected):
 
-- RHEL 9 or RHEL 10 with `skopeo` installed (`sudo dnf install -y skopeo`)
+- RHEL 9 or RHEL 10 with `skopeo` and `createrepo_c` installed (`sudo dnf install -y skopeo createrepo_c`)
 - The `mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
 - Sufficient disk space for the bundle (~5–10 GB depending on the variant)
 
