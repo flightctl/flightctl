@@ -96,10 +96,27 @@ func (d *Detector) Detect() (DeploymentType, error) {
 	}
 
 	return DeploymentTypeUnknown, fmt.Errorf(
-		"unable to detect deployment type: " +
-			"flightctl-api.service is not active and no kubeconfig found " +
-			"(~/.kube/config or $KUBECONFIG); " +
-			"use --deployment-type to specify explicitly",
+		"unable to detect deployment type:\n" +
+			"  - no systemd service (flightctl-api.service is not active)\n" +
+			"  - no kubeconfig (~/.kube/config or $KUBECONFIG)\n" +
+			"\n" +
+			"This usually means FlightCtl is running on a different host or in a VM.\n" +
+			"\n" +
+			"To run the backup:\n" +
+			"  1. SSH into the host/VM where FlightCtl is running:\n" +
+			"     ssh <user>@<host-or-vm>\n" +
+			"\n" +
+			"  2. Run the backup command with --deployment-type:\n" +
+			"     flightctl-backup --output <directory> --deployment-type=podman\n" +
+			"     (use --deployment-type=kubernetes for Kubernetes deployments)\n" +
+			"\n" +
+			"  3. Copy the backup archive to a safe location (off the VM)\n" +
+			"\n" +
+			"Example for quadlet/podman deployment in a VM:\n" +
+			"  ssh root@my-flightctl-vm\n" +
+			"  flightctl-backup --output /tmp/backup --deployment-type=podman\n" +
+			"  exit\n" +
+			"  scp root@my-flightctl-vm:/tmp/backup/*.tar.gz ./backups/",
 	)
 }
 
