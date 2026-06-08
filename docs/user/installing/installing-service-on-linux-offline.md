@@ -23,6 +23,7 @@ On the **target machine** (air-gapped):
 - `podman` installed
 - `skopeo` installed (`skopeo` must be available before network is removed,
   or transferred as an RPM in the bundle)
+- `containernetworking-plugins` installed (`sudo dnf install -y containernetworking-plugins`)
 - A transfer method — see [Packaging artifacts for portable media](offline-portable-media.md)
 
 ## Step 1: Create the offline bundle on the prep machine
@@ -47,8 +48,14 @@ install script on the target can install packages by name rather than by file gl
     --variant community-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms \
-    --rpm-createrepo
+    --rpm-createrepo \
+    --rpm-exclude flightctl-agent
 ```
+
+The `--rpm-exclude flightctl-agent` flag downloads the agent RPM into the bundle's
+`rpms/` directory (for use when building device OS images with the image builder) but
+does not auto-install it on the server. Omit this flag only if you intentionally want
+the agent installed on the server machine.
 
 Replace `community-el9` with your target variant:
 
@@ -289,7 +296,7 @@ sudo systemctl status flightctl.target
 Confirm the API is reachable using the FQDN you set in `global.baseDomain`:
 
 ```bash
-curl -k https://<baseDomain>:3443/api/v1/fleets
+flightctl get fleets
 ```
 
 ## Optional: deploying the observability stack offline
