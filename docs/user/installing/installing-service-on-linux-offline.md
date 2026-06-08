@@ -293,10 +293,12 @@ Check that all quadlet services are running:
 sudo systemctl status flightctl.target
 ```
 
-Confirm the API is reachable using the FQDN you set in `global.baseDomain`:
+Confirm the API is reachable using the FQDN you set in `global.baseDomain`.
+The default API port is `3443`; installations using a reverse proxy or load
+balancer may use port `443` instead:
 
 ```bash
-flightctl get fleets
+curl -k https://<baseDomain>:3443/api/v1/fleets
 ```
 
 ## Optional: deploying the observability stack offline
