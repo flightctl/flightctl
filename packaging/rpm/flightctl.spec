@@ -286,7 +286,7 @@ fi
         fi;
         echo "${commit:-unknown}";
     )" \
-    %{?disable_fips} %make_build build-cli build-agent build-restore build-standalone
+    %{?disable_fips} %make_build build-cli build-agent build-backup build-restore build-standalone
 
     # SELinux modules build
     %make_build --directory packaging/selinux
@@ -300,6 +300,7 @@ fi
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
     cp bin/flightctl %{buildroot}/usr/bin
+    cp bin/flightctl-backup %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/usr/lib/tmpfiles.d
@@ -436,6 +437,7 @@ fi
 %if %{fips_enabled}
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-agent
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-backup
     bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-restore
     GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
 %endif
@@ -464,6 +466,7 @@ fi
 %files cli -f licenses.list
     %dir %{_datadir}/licenses/%{NAME}
     %{_bindir}/flightctl
+    %{_bindir}/flightctl-backup
     %{_bindir}/flightctl-restore
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish

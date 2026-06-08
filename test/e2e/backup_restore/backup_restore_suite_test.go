@@ -40,8 +40,7 @@ var _ = BeforeSuite(func() {
 	if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 		Skip(reason)
 	}
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = BeforeEach(func() {

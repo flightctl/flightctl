@@ -2,6 +2,7 @@
 package quadlet
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -105,6 +106,12 @@ func (p *InfraProvider) RunCommand(command ...string) (string, error) {
 	return p.runCommand(command...)
 }
 
+// RunCommandContext runs a command on the Quadlet host with context cancellation support.
+// If ctx is canceled, the command is killed. Returns context.Canceled if ctx was canceled.
+func (p *InfraProvider) RunCommandContext(ctx context.Context, command ...string) (string, error) {
+	return p.runCommandWithOptionalStdinContext(ctx, nil, command...)
+}
+
 // ReadHostFile reads a raw file from the quadlet host.
 func (p *InfraProvider) ReadHostFile(path string) (string, error) {
 	output, err := p.runCommand("cat", path)
@@ -140,8 +147,9 @@ func getSSHPassword() string {
 	return os.Getenv("E2E_SSH_PASSWORD")
 }
 
-// runCommandWithOptionalStdin runs a command (SSH if remote, else local). If stdin is non-nil it is attached to the process.
-func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...string) (string, error) {
+// runCommandWithOptionalStdinContext runs a command with context cancellation support.
+// If ctx is canceled, the command is killed. Returns context.Canceled if ctx was canceled.
+func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, stdin io.Reader, command ...string) (string, error) {
 	var cmd *exec.Cmd
 
 	if p.isRemote() {
@@ -165,16 +173,17 @@ func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...
 		sshArgs = append(sshArgs, strings.Join(remoteParts, " "))
 
 		if usePassword {
-			cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from internal config (host, user, key path)
+			cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from trusted config
 			cmd.Env = append(os.Environ(), "SSHPASS="+getSSHPassword())
 		} else {
-			cmd = exec.Command("ssh", sshArgs...)
+			cmd = exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // G204: sshArgs from trusted config
 		}
 	} else {
+		// Local execution
 		if p.useSudo {
-			cmd = exec.Command("sudo", command...)
+			cmd = exec.CommandContext(ctx, "sudo", command...) //nolint:gosec // G204: command from trusted caller
 		} else {
-			cmd = exec.Command(command[0], command[1:]...) //nolint:gosec // G204: command args are from internal test config
+			cmd = exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // G204: command from trusted caller
 		}
 	}
 
@@ -186,6 +195,12 @@ func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...
 		return string(output), fmt.Errorf("command failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
+}
+
+// runCommandWithOptionalStdin runs a command (SSH if remote, else local). If stdin is non-nil it is attached to the process.
+// Calls runCommandWithOptionalStdinContext with a background context.
+func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...string) (string, error) {
+	return p.runCommandWithOptionalStdinContext(context.Background(), stdin, command...)
 }
 
 // runCommand executes a command, using SSH if the host is remote.
