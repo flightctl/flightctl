@@ -210,10 +210,10 @@ Check that all pods are running:
 oc get pods -n flightctl
 ```
 
-Confirm the API is reachable and returns an empty fleet list:
+Confirm the API is reachable:
 
 ```bash
-flightctl get fleets
+curl -k https://<baseDomain>/api/v1/fleets
 ```
 
 The Flight Control UI is available at the hostname set in `global.baseDomain`.
