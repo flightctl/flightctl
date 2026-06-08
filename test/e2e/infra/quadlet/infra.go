@@ -553,6 +553,11 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// RunOnHost runs a command on the Quadlet host (SSH if remote, local if same host).
+func (p *InfraProvider) RunOnHost(command []string) (string, error) {
+	return p.RunCommand(command...)
+}
+
 // BuiltinDatabaseWorkloadAvailable reports whether service-config uses the built-in DB container.
 // When db.type is external (see deploy/podman/service-config.yaml), there is no local flightctl-db
 // workload to exec pg_dump into, matching Helm external DB behavior.
