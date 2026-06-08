@@ -47,7 +47,7 @@ community-el9:
     ubiMinimal:
       image: registry.access.redhat.com/ubi9/ubi-minimal
       tag: "9.7-1763362218"
-redhat-el9:
+rhem-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
   home: https://red.ht/rhem
@@ -148,7 +148,7 @@ community-el10:
     ubiMinimal:
       image: registry.access.redhat.com/ubi10/ubi-minimal
       tag: "10.1-1769677092"
-redhat-el10:
+rhem-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
   home: https://red.ht/rhem

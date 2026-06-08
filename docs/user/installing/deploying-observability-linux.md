@@ -41,8 +41,8 @@ the main bundle transfer.
 | `docker.io/prom/prometheus:v2.13.1` | `community-el9` |
 | `quay.io/ceph/grafana:9.4.10` | `community-el10` |
 | `quay.io/prometheus/prometheus:v2.43.1` | `community-el10` |
-| `registry.redhat.io/rhel9/grafana:9.7-1766395319` | `redhat-el9`, `redhat-el10` |
-| `registry.redhat.io/rhacm2/prometheus-rhel9:v2.14.2-1` | `redhat-el9`, `redhat-el10` |
+| `registry.redhat.io/rhel9/grafana:9.7-1766395319` | `rhem-el9`, `rhem-el10` |
+| `registry.redhat.io/rhacm2/prometheus-rhel9:v2.14.2-1` | `rhem-el9`, `rhem-el10` |
 
 ### Include the observability RPM in the bundle
 
