@@ -1,9 +1,14 @@
 include /usr/share/nginx/modules/mod-stream.conf;
 
-worker_processes auto;
 error_log stderr;
 pid /run/nginx.pid;
-events {}
+
+worker_processes auto;
+worker_rlimit_nofile 65535;
+
+events {
+  worker_connections 16384;
+}
 
 http {
   access_log /dev/stdout;
@@ -121,7 +126,7 @@ stream {
     listen 7443;
     listen [::]:7443 ipv6only=on;
 
-    proxy_pass flightctl-api:7443;
+    proxy_pass unix:/var/run/flightctl-listeners/api-agent.sock;
   }
 
   # Passthrough to the Telemetry Gateway service
