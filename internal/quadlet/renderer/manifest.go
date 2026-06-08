@@ -102,6 +102,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		// Shared files
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.network", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl.network"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.target", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl.target"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-listeners.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-listeners.volume"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-observability.target", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-observability.target"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/service-config.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "service-config.yaml"), Template: false, Mode: RegularFileMode},
 

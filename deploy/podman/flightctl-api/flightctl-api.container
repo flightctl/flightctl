@@ -24,6 +24,10 @@ Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,
 # TPM CA PEMs for enrollment (paths in service.tpmCAPaths must exist inside the container)
 Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+Volume=flightctl-listeners:/var/run/flightctl-listeners/:z
+
+# This ensures that the unix socket allows root group access
+PodmanArgs=--umask=0002
 
 Ulimit=nofile=300000:300000
 
