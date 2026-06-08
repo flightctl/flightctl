@@ -3,7 +3,6 @@ package imagebuilder_worker_test
 import (
 	"context"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -12,13 +11,15 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/service"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -29,7 +30,11 @@ import (
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
 )
 
 func TestImageBuilderWorker(t *testing.T) {
@@ -39,6 +44,18 @@ func TestImageBuilderWorker(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutilpkg.InitSuiteTracerForGinkgo("Containerfile Generation Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 func newTestImageBuild(name string, bindingType string) api.ImageBuild {
@@ -119,18 +136,14 @@ var _ = Describe("Containerfile Generation", func() {
 		ctx = testutilpkg.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStoreInst, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
-
-		// Run imagebuilder-specific migrations only for local strategy
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := storeInst.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
 
 		// Setup CA for enrollment credential generation (needed for early binding)
 		testDirPath := GinkgoT().TempDir()
@@ -144,11 +157,12 @@ var _ = Describe("Containerfile Generation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create service handler for enrollment credential generation
-		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{})
+		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{}, false)
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStoreInst, dbName)
+		_ = mainStoreInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Late binding containerfile generation", func() {

@@ -3,14 +3,16 @@
 set -euo pipefail
 
 # Script parameters
-IMAGE_TAG="${1:-latest}"
-SERVICE_CONFIG_PATH="${2:-/etc/flightctl/flightctl-api/config.yaml}"
+IMAGE_TAG="${IMAGE_TAG:-${1:-latest}}"
+SERVICE_CONFIG_PATH="${SERVICE_CONFIG_PATH:-${2:-/etc/flightctl/flightctl-api/config.yaml}}"
 
 # Tool paths
 PODMAN="${PODMAN:-$(command -v podman || echo '/usr/bin/podman')}"
 
-# Configuration
-DB_SETUP_IMAGE="quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}"
+# Image configuration
+DB_SETUP_REGISTRY="${DB_SETUP_REGISTRY:-quay.io}"
+DB_SETUP_IMAGE="${DB_SETUP_IMAGE:-flightctl/flightctl-db-setup}"
+DB_SETUP_IMAGE_REF="${DB_SETUP_REGISTRY}/${DB_SETUP_IMAGE}:${IMAGE_TAG}"
 INSTALL_CONFIG_FILE="/etc/flightctl/flightctl-services-install.conf"
 SERVICE_CONFIG_DIR="/etc/flightctl"
 
@@ -74,7 +76,7 @@ wait_for_database() {
     [ -n "${DB_SSL_ROOT_CERT}" ] && podman_args+=("-e" "DB_SSL_ROOT_CERT=${DB_SSL_ROOT_CERT}")
 
     podman_args+=("--secret" "flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD")
-    podman_args+=("${DB_SETUP_IMAGE}")
+    podman_args+=("${DB_SETUP_IMAGE_REF}")
     podman_args+=("/app/deploy/scripts/wait-for-database.sh")
     podman_args+=("--timeout=${DB_WAIT_TIMEOUT}" "--sleep=${DB_WAIT_SLEEP}")
 
@@ -93,7 +95,7 @@ run_migration_dry_run() {
         --secret flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD \
         -v "${SERVICE_CONFIG_PATH}":/root/.flightctl/config.yaml:ro,z \
         -v "${SERVICE_CONFIG_DIR}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
-        "${DB_SETUP_IMAGE}" /usr/local/bin/flightctl-db-migrate --dry-run; then
+        "${DB_SETUP_IMAGE_REF}" /usr/local/bin/flightctl-db-migrate --dry-run; then
         echo "[flightctl] dry-run completed successfully"
     else
         echo "[flightctl] dry-run failed"
@@ -105,7 +107,7 @@ run_migration_dry_run() {
 main() {
     echo "[flightctl] pre-upgrade migration dry-run (tag=${IMAGE_TAG})"
     echo "[flightctl] using service config: ${SERVICE_CONFIG_PATH}"
-    echo "[flightctl] using image: ${DB_SETUP_IMAGE}"
+    echo "[flightctl] using image: ${DB_SETUP_IMAGE_REF}"
 
     load_install_config
     

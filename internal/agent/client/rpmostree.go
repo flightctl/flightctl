@@ -34,6 +34,14 @@ func (c *RPMOSTree) Switch(_ context.Context, target string) error {
 	return c.client.RebaseToContainerImageAllowUnsigned(imageRef)
 }
 
+func (c *RPMOSTree) Rollback(ctx context.Context) error {
+	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, "rpm-ostree", "rollback")
+	if exitCode != 0 {
+		return fmt.Errorf("rpm-ostree rollback: %s", stderr)
+	}
+	return c.Apply(ctx)
+}
+
 func (c *RPMOSTree) Apply(ctx context.Context) error {
 	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, "systemctl", "reboot")
 	if ctx.Err() != nil {

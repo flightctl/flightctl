@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -16,11 +15,11 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -66,22 +65,18 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 		sourceRepoName = fmt.Sprintf("source-repo-%s", testID)
 		outputRepoName = fmt.Sprintf("output-repo-%s", testID)
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStore, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		mainStore = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
-		// Run imagebuilder-specific migrations only for local strategy
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := imageBuilderStore.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
-
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err := testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories for ImageBuild/ImageExport tests with unique test-id-based names
@@ -139,7 +134,8 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStore, dbName)
+		_ = mainStore.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 

@@ -18,6 +18,8 @@ servers:
 tags:
   - name: catalog
     description: Operations on Catalog resources.
+  - name: vulnerability
+    description: Operations for vulnerability reports and organization-wide summaries.
 paths:
   /catalogitems:
     x-resource: catalogitems
@@ -50,6 +52,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -62,31 +66,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs:
     x-resource: catalogs
     get:
@@ -118,6 +122,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -173,6 +179,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+          links:
+            GetCatalog:
+              operationId: getCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteCatalog:
+              operationId: deleteCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            ListCatalogItems:
+              operationId: listCatalogItems
+              parameters:
+                catalog: '$response.body#/metadata/name'
+            CreateCatalogItem:
+              operationId: createCatalogItem
+              parameters:
+                catalog: '$response.body#/metadata/name'
+            ReplaceCatalog:
+              operationId: replaceCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetCatalogStatus:
+              operationId: getCatalogStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceCatalogStatus:
+              operationId: replaceCatalogStatus
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -230,6 +265,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -352,6 +393,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -366,6 +413,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -470,6 +523,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -525,6 +584,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -636,6 +701,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: continue
           in: query
           description: An optional parameter to query more results from the server.
@@ -654,6 +720,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -709,6 +777,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
       requestBody:
         description: The CatalogItem resource to create.
         required: true
@@ -723,6 +792,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CatalogItem'
+          links:
+            GetCatalogItem:
+              operationId: getCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
+            DeleteCatalogItem:
+              operationId: deleteCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
+            ReplaceCatalogItem:
+              operationId: replaceCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -773,6 +858,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -786,6 +872,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CatalogItem'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -822,6 +914,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -896,6 +989,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -905,6 +999,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
           content:
             application/json:
               schema:
@@ -945,6 +1045,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource to patch.
@@ -1000,6 +1101,528 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /vulnerabilities/summary:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: Return organization-wide CVE counts by severity.
+      operationId: getVulnerabilitySummary
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilitySummaryResponse'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: List distinct vulnerabilities across the organization with affected device counts.
+      operationId: listVulnerabilities
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Field to sort vulnerability list results by.
+          schema:
+            type: string
+            enum: [severity, cvssScore, publishedAt, cveId]
+            default: severity
+        - name: order
+          in: query
+          description: Sort order for the results.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityGroupList'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities/devices/{name}:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: List vulnerabilities affecting a single device by device metadata name.
+      operationId: getDeviceVulnerabilities
+      parameters:
+        - name: name
+          in: path
+          description: The metadata.name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Field to sort vulnerability list results by.
+          schema:
+            type: string
+            enum: [severity, cvssScore, publishedAt, cveId]
+            default: severity
+        - name: order
+          in: query
+          description: Sort order for the results.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityList'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities/fleets/{name}:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: List vulnerabilities aggregated for a fleet by fleet metadata name.
+      operationId: getFleetVulnerabilities
+      parameters:
+        - name: name
+          in: path
+          description: The metadata.name of the Fleet resource.
+          required: true
+          schema:
+            type: string
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Field to sort vulnerability list results by.
+          schema:
+            type: string
+            enum: [severity, cvssScore, publishedAt, cveId]
+            default: severity
+        - name: order
+          in: query
+          description: Sort order for the results.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityGroupList'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities/devices/{name}/summary:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: Return the severity summary for a single device without fetching the full CVE list.
+      operationId: getDeviceVulnerabilitySummary
+      parameters:
+        - name: name
+          in: path
+          description: The metadata.name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceVulnerabilitySummaryResponse'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities/fleets/{name}/summary:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: Return the severity summary for a single fleet without fetching the full CVE list.
+      operationId: getFleetVulnerabilitySummary
+      parameters:
+        - name: name
+          in: path
+          description: The metadata.name of the Fleet resource.
+          required: true
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FleetVulnerabilitySummaryResponse'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /vulnerabilities/cves/{cveId}/impact:
+    x-resource: vulnerabilities
+    get:
+      tags:
+        - vulnerability
+      description: Return per-fleet and fleetless blast radius for a CVE identifier.
+      operationId: getVulnerabilityImpact
+      parameters:
+        - name: cveId
+          in: path
+          description: The CVE identifier (for example, CVE-2024-1234). Unknown identifiers still return 200 with an empty list of affected resources (blast radius) when no matching data is found.
+          required: true
+          schema:
+            type: string
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: >-
+            Restricts blast-radius rows by device owner before aggregation. Supported key is `owner`
+            (device owner string, for example `owner=Fleet/my-fleet`). Operators include `=`, `==`, `!=`, and set-style `in` / `notin` where applicable.
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: Field to sort blast radius rows by.
+          schema:
+            type: string
+            enum: [affectedDevices, fleetName]
+            default: affectedDevices
+        - name: order
+          in: query
+          description: Sort order for the results.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityImpact'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "501":
+          description: Not Implemented (vulnerability feature is not enabled on this server).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
@@ -1019,6 +1642,21 @@ components:
       enum:
         - v1alpha1
         - flightctl.io/v1alpha1
+      x-enum-varnames:
+        - ApiVersionV1alpha1
+        - ApiVersionFlightctlIoV1alpha1
+    SemVer:
+      type: string
+      x-go-type: string
+      description: 'Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1)'
+      pattern: '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'
+      example: "1.2.3"
+    SemVerRange:
+      type: string
+      x-go-type: string
+      description: 'Semver range constraint (e.g., >=1.0.0 <2.0.0). Space-separated terms, each with optional operator (>=, <=, >, <, =, ~, ^) followed by a version.'
+      pattern: '^[>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?( [>=<~^]*[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9a-zA-Z.-]+)?(\+[0-9a-zA-Z.-]+)?)*$'
+      example: ">=1.0.0 <2.0.0"
     # Catalog-specific schemas (shared types come from v1beta1 via external refs)
     Catalog:
       type: object
@@ -1039,6 +1677,14 @@ components:
         - kind
         - metadata
         - spec
+      additionalProperties: false
+      example:
+        apiVersion: flightctl.io/v1alpha1
+        kind: Catalog
+        metadata:
+          name: edge-apps
+        spec:
+          displayName: Edge Applications
     CatalogSpec:
       type: object
       description: CatalogSpec describes the configuration of a catalog. Catalogs are containers for locally-managed CatalogItems.
@@ -1058,6 +1704,7 @@ components:
         support:
           type: string
           description: Link to support resources or documentation for getting help.
+      additionalProperties: false
     CatalogStatus:
       type: object
       description: CatalogStatus represents the current status of a catalog source.
@@ -1069,6 +1716,7 @@ components:
             $ref: '../v1beta1/openapi.yaml#/components/schemas/Condition'
       required:
         - conditions
+      additionalProperties: false
     CatalogList:
       type: object
       description: CatalogList is a list of Catalogs.
@@ -1090,6 +1738,7 @@ components:
         - kind
         - metadata
         - items
+      additionalProperties: false
     CatalogItemMeta:
       type: object
       description: 'Metadata for CatalogItem resources. Extends ObjectMeta with catalog scoping.'
@@ -1103,6 +1752,9 @@ components:
               example: edge-apps
           required:
             - catalog
+      # Note: No additionalProperties: false here because this schema is used in allOf compositions
+      # with ObjectMeta. Setting additionalProperties: false would prevent the composition from working
+      # properly and would reject valid ObjectMeta fields like name, labels, annotations, etc.
     CatalogItem:
       type: object
       description: CatalogItem represents an application template from a catalog. It provides default configuration values that can be customized when adding the application to a fleet.
@@ -1121,6 +1773,7 @@ components:
         - kind
         - metadata
         - spec
+      additionalProperties: false
     CatalogItemArtifact:
       type: object
       description: 'An artifact reference. The type field is the discriminator and must be unique within the artifacts list.'
@@ -1139,9 +1792,11 @@ components:
       required:
         - type
         - uri
+      additionalProperties: false
     CatalogItemArtifactType:
       type: string
       description: 'Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.'
+      example: container
       enum:
         - container
         - qcow2
@@ -1152,6 +1807,7 @@ components:
         - vhd
         - raw
         - gce
+        - qcow2-disk-container
       x-enum-varnames:
         - CatalogItemArtifactTypeContainer
         - CatalogItemArtifactTypeQcow2
@@ -1162,6 +1818,7 @@ components:
         - CatalogItemArtifactTypeVhd
         - CatalogItemArtifactTypeRaw
         - CatalogItemArtifactTypeGce
+        - CatalogItemArtifactTypeQcow2DiskContainer
     CatalogItemConfigurable:
       type: object
       description: 'Configuration fields that can be specified at item level (as defaults) and overridden at version level. Version-level values fully replace item-level values (not merged).'
@@ -1182,6 +1839,9 @@ components:
         readme:
           type: string
           description: 'Detailed documentation, preferably in markdown format.'
+      # Note: No additionalProperties: false here because this schema is used in allOf compositions
+      # (e.g., CatalogItemVersion) where other schemas add their own properties. Setting
+      # additionalProperties: false would prevent the composition from working properly.
     CatalogItemSpec:
       type: object
       description: CatalogItemSpec defines the configuration for a catalog item.
@@ -1245,6 +1905,7 @@ components:
         - type
         - artifacts
         - versions
+      additionalProperties: false
     CatalogItemVersion:
       type: object
       description: |
@@ -1258,8 +1919,9 @@ components:
         - type: object
           properties:
             version:
-              type: string
-              description: 'Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.'
+              allOf:
+                - $ref: '#/components/schemas/SemVer'
+              description: 'Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1). Required for version ordering and upgrade graph.'
               example: "2.45.0"
             references:
               type: object
@@ -1273,20 +1935,23 @@ components:
                 qcow2: "v2.45.0"
             channels:
               type: array
+              minItems: 1
               items:
                 type: string
               description: 'Channels this version belongs to.'
             replaces:
-              type: string
+              allOf:
+                - $ref: '#/components/schemas/SemVer'
               description: 'The single version this one replaces, defining the primary upgrade edge.'
             skips:
               type: array
               items:
-                type: string
+                $ref: '#/components/schemas/SemVer'
               description: 'Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.'
               example: ["1.0.0", "1.1.0"]
             skipRange:
-              type: string
+              allOf:
+                - $ref: '#/components/schemas/SemVerRange'
               description: 'Semver range of versions that can upgrade directly to this one. Use for z-stream updates or hotfixes.'
               example: ">=1.0.0 <1.3.0"
             deprecation:
@@ -1316,6 +1981,7 @@ components:
         - kind
         - metadata
         - items
+      additionalProperties: false
     CatalogItemCategory:
       type: string
       description: 'Category of a catalog item.'
@@ -1363,6 +2029,7 @@ components:
           example: nginx-plus
       required:
         - message
+      additionalProperties: false
     Status:
       type: object
       properties:
@@ -1392,3 +2059,470 @@ components:
         - code
         - reason
         - message
+      additionalProperties: false
+    VulnerabilitySummaryResponse:
+      type: object
+      description: Estate-wide vulnerability summary counts.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - cvesBySeverity
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Resource kind; always VulnerabilitySummary.
+        cvesBySeverity:
+          $ref: '#/components/schemas/CveCountsBySeverity'
+    DeviceCountsBySeverity:
+      type: object
+      description: Counts of distinct devices affected in the organization, grouped by vulnerability severity.
+      additionalProperties: false
+      required:
+        - total
+        - critical
+        - high
+        - medium
+        - low
+        - none
+        - unknown
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Number of distinct devices with at least one vulnerability finding in the organization.
+        critical:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is critical.
+        high:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is high.
+        medium:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is medium.
+        low:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is low.
+        none:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is none.
+        unknown:
+          type: integer
+          format: int64
+          description: Number of devices whose highest severity finding is unknown.
+    CveCountsBySeverity:
+      type: object
+      description: Counts of distinct CVEs in the organization by highest severity.
+      additionalProperties: false
+      required:
+        - total
+        - critical
+        - high
+        - medium
+        - low
+        - none
+        - unknown
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Total distinct CVEs across the organization.
+        critical:
+          type: integer
+          format: int64
+          description: Count of distinct Critical CVEs.
+        high:
+          type: integer
+          format: int64
+          description: Count of distinct High CVEs.
+        medium:
+          type: integer
+          format: int64
+          description: Count of distinct Medium CVEs.
+        low:
+          type: integer
+          format: int64
+          description: Count of distinct Low CVEs.
+        none:
+          type: integer
+          format: int64
+          description: Count of distinct CVEs with no exploitable impact (CVSS score 0).
+        unknown:
+          type: integer
+          format: int64
+          description: Count of distinct CVEs with unknown or unscored severity.
+    Vulnerability:
+      type: object
+      description: A single vulnerability (CVE) finding. Vulnerabilities are global CVE records from Trustify; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - cveId
+        - severity
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Always Vulnerability.'
+        cveId:
+          type: string
+          description: CVE identifier (e.g. CVE-2024-1234).
+        advisoryId:
+          type: string
+          description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+        severity:
+          type: string
+          description: Normalized severity label.
+          enum: [Critical, High, Medium, Low, None, Unknown]
+        cvssScore:
+          type: number
+          format: float
+          description: CVSS base score when available.
+        description:
+          type: string
+          description: Short summary of the vulnerability.
+        publishedAt:
+          type: string
+          format: date-time
+          description: Advisory publish time when known.
+        image:
+          type: string
+          description: Image reference (name or URL) from the device context.
+        imageDigest:
+          type: string
+          description: Immutable image digest from the device context.
+        affectedDevices:
+          type: integer
+          format: int64
+          description: Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for organization-wide context it is the count across the whole organization.
+    VulnerabilityList:
+      type: object
+      description: Paginated list of Vulnerability resources.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Always VulnerabilityList.'
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: Paginated Vulnerability resources for this page.
+          items:
+            $ref: '#/components/schemas/Vulnerability'
+    VulnerabilityImageRef:
+      type: object
+      description: Reference to an OS or workload image by name and digest.
+      additionalProperties: false
+      required:
+        - image
+        - imageDigest
+      properties:
+        image:
+          type: string
+          description: Image reference (name or URL).
+        imageDigest:
+          type: string
+          description: Immutable image digest.
+        affectedDevices:
+          type: integer
+          format: int64
+          description: Devices running this exact image digest within the parent scope (fleet or blast radius row).
+    VulnerabilityGroupItem:
+      type: object
+      description: A single CVE finding for a specific image digest, including all image refs that resolve to that digest.
+      additionalProperties: false
+      required:
+        - imageDigest
+        - severity
+        - imageRefs
+      properties:
+        imageDigest:
+          type: string
+          description: Immutable image digest.
+        imageRefs:
+          type: array
+          description: Image references observed for this digest within the query scope.
+          items:
+            type: string
+        severity:
+          type: string
+          description: Severity of this CVE for this digest.
+          enum: [Critical, High, Medium, Low, None, Unknown]
+        cvssScore:
+          type: number
+          format: float
+          description: CVSS base score when available.
+        advisoryId:
+          type: string
+          description: Vendor advisory identifier when available.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+        description:
+          type: string
+          description: Short summary of the vulnerability.
+        publishedAt:
+          type: string
+          format: date-time
+          description: Advisory publish time when known.
+        affectedDevices:
+          type: integer
+          format: int64
+          description: Number of devices in scope running this digest.
+        firstSeenAt:
+          type: string
+          format: date-time
+          description: When this CVE was first observed in this digest.
+    VulnerabilityGroup:
+      type: object
+      description: >
+        A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide
+        vulnerability list endpoints. Each finding represents one image in which the CVE was
+        detected.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - cveId
+        - severity
+        - findings
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource. Always VulnerabilityGroup.'
+        cveId:
+          type: string
+          description: CVE identifier (e.g. CVE-2024-1234).
+        severity:
+          type: string
+          description: Worst severity across all findings in this group.
+          enum: [Critical, High, Medium, Low, None, Unknown]
+        maxCvssScore:
+          type: number
+          format: float
+          description: Highest CVSS base score across all findings.
+        maxPublishedAt:
+          type: string
+          format: date-time
+          description: Latest advisory publish time across all findings.
+        affectedDevices:
+          type: integer
+          format: int64
+          description: Total distinct devices affected by this CVE within scope.
+        findings:
+          type: array
+          description: Per-digest findings for this CVE within the query scope.
+          items:
+            $ref: '#/components/schemas/VulnerabilityGroupItem'
+    VulnerabilityGroupList:
+      type: object
+      description: Paginated list of VulnerabilityGroup resources (fleet-scoped or organization-wide).
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource. Always VulnerabilityGroupList.'
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: Paginated VulnerabilityGroup resources for this page.
+          items:
+            $ref: '#/components/schemas/VulnerabilityGroup'
+    DeviceVulnerabilitySummaryResponse:
+      type: object
+      description: Severity summary for a single device.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - summary
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Resource kind; always DeviceVulnerabilitySummary.
+        image:
+          type: string
+          description: Image reference from device status. Absent when the device has no rendered OS image.
+        imageDigest:
+          type: string
+          description: Image digest from device status. Absent when the device has no rendered OS image.
+        summary:
+          $ref: '#/components/schemas/VulnerabilitySeveritySummary'
+    FleetVulnerabilitySummaryResponse:
+      type: object
+      description: Severity summary for a single fleet.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - summary
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Resource kind; always FleetVulnerabilitySummary.
+        summary:
+          $ref: '#/components/schemas/FleetVulnerabilitySummary'
+    VulnerabilitySeveritySummary:
+      type: object
+      description: Total vulnerability counts by severity for the full result set (not only the current page).
+      additionalProperties: false
+      required:
+        - total
+        - critical
+        - high
+        - medium
+        - low
+        - none
+        - unknown
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Total vulnerabilities across all severities for the full result set.
+        critical:
+          type: integer
+          format: int64
+          description: Count of Critical severity findings in the full result set.
+        high:
+          type: integer
+          format: int64
+          description: Count of High severity findings in the full result set.
+        medium:
+          type: integer
+          format: int64
+          description: Count of Medium severity findings in the full result set.
+        low:
+          type: integer
+          format: int64
+          description: Count of Low severity findings in the full result set.
+        none:
+          type: integer
+          format: int64
+          description: Count of findings with no exploitable impact (CVSS score 0).
+        unknown:
+          type: integer
+          format: int64
+          description: Count of findings with unknown or unscored severity.
+    FleetVulnerabilitySummary:
+      description: Fleet vulnerability totals including unique digest count.
+      allOf:
+        - $ref: '#/components/schemas/VulnerabilitySeveritySummary'
+        - type: object
+          additionalProperties: false
+          required:
+            - uniqueDigests
+          properties:
+            uniqueDigests:
+              type: integer
+              format: int64
+              description: Distinct image digests observed in the fleet.
+    VulnerabilityImpact:
+      type: object
+      description: Blast radius for a single CVE across fleets and fleetless devices.
+      additionalProperties: false
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - cveId
+        - severity
+        - items
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Resource kind; always VulnerabilityImpact.
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ListMeta'
+        cveId:
+          type: string
+          description: CVE identifier for this blast radius response.
+        issuer:
+          type: string
+          description: Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+        link:
+          type: string
+          description: URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+        severity:
+          type: string
+          description: Worst severity for this CVE in the fleet or fleetless group.
+          enum: [Critical, High, Medium, Low, None, Unknown]
+        maxCvssScore:
+          type: number
+          format: float
+          description: Highest CVSS base score for this CVE in the fleet or fleetless group.
+        maxPublishedAt:
+          type: string
+          format: date-time
+          description: When this CVE was first observed in the fleet or fleetless group.
+        items:
+          type: array
+          description: Per-fleet or fleetless rows with device and image counts.
+          items:
+            $ref: '#/components/schemas/AffectedFleet'
+    AffectedFleet:
+      type: object
+      description: One fleet or the fleetless aggregate with device and image counts for a CVE.
+      additionalProperties: false
+      required:
+        - fleetName
+        - fleetless
+        - affectedDevices
+        - findings
+      properties:
+        fleetName:
+          type: string
+          description: Fleet metadata.name, empty for the fleetless aggregate.
+        fleetless:
+          type: boolean
+          description: True when this row represents devices not owned by a fleet.
+        affectedDevices:
+          type: integer
+          format: int64
+          description: Devices in this fleet or fleetless group affected by the CVE.
+        findings:
+          type: array
+          description: Per-digest findings within this fleet or fleetless group.
+          items:
+            $ref: '#/components/schemas/VulnerabilityGroupItem'

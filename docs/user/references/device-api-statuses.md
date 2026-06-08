@@ -243,14 +243,9 @@ The `device.status.conditions` field may contain a Condition of type `DeviceDeco
 | `Completed` | The agent has completed its decommissioning process, up until the point of wiping its management certificate that is used to communicate with the service. |
 | `Error` | The agent has encountered an unrecoverable error during its decommissioning process and will not be able to take further actions. |
 
-NOTE: the Decommissioning State reflects the device perspective. It is possible for the user to request decommissioning (the device will be marked as "decommissioning" server-side) but for the device not to receive this request. This corresponds to the Requested state in the diagram below.
+NOTE: the Decommissioning State reflects the device perspective. It is possible for the user to request decommissioning (the device will be marked as "decommissioning" server-side) but for the device not to have received this request. This corresponds to the Requested state in the diagram below.
 
 The following state diagram shows the possible transitions between lifecycle statuses and states. Note that none of these transitions are guaranteed to occur, and the device may remain in any one of these states indefinitely, including the Decommissioning state.
-
-The diagram below also shows "Decommissioning Requested" and "Decommissioning Received" states:
-
-- "Requested" represents when `device.spec.decommissioning` is set but the device has not yet acknowledged (no condition exists)
-- "Received" represents when the condition reason is `Started` (device has acknowledged the request but decommissioning has not yet completed or reached an error)
 
 ### State diagram for device lifecycle
 
@@ -258,19 +253,11 @@ The diagram below also shows "Decommissioning Requested" and "Decommissioning Re
 stateDiagram
     direction LR
         state Decommissioning {
-            [*] --> Decommissioning Requested
-            Decommissioning Requested --> Decommissioning Received
+            [*] --> Requested
+            Requested --> Started
         }
 
         state Decommissioned {
-            [*] --> Decommissioning Ended
-        }
-
-        state Decommissioning Received {
-            [*] --> Started
-        }
-
-        state Decommissioning Ended {
             [*] --> Completed
             [*] --> Error
         }

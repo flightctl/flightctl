@@ -31,6 +31,10 @@ spec:
         - name: periodic
           image: {{ include "flightctl.ensureOsQualifiedImage" .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
+          ports:
+            - containerPort: 15690
+              name: metrics
+              protocol: TCP
           env:
             - name: HOME
               value: "/root"
@@ -54,6 +58,21 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- end }}
+            {{- $vuln := default dict .Values.vulnerabilityReporting -}}
+            {{- $trustify := default dict $vuln.trustify -}}
+            {{- $auth := default dict $trustify.auth -}}
+            {{- if and (default false $vuln.enabled) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_id
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $auth.secretName }}
+                  key: client_secret
             {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml

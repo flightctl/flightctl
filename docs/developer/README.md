@@ -19,9 +19,51 @@ To run unit tests, use `make unit-test`.  This requires installing gotestsum:
 
 `go install gotest.tools/gotestsum@latest`
 
+To run integration tests, use `make integration-test`. This requires Podman (or Docker) - the test
+framework uses testcontainers to automatically start ephemeral Postgres, Redis, and Alertmanager
+instances. No manual setup is required.
+
+Key options for integration tests:
+- `INTEGRATION_PROCS=N` - Number of parallel processes (default: 4)
+- `TEST_DIR=./test/integration/store` - Run specific test suite
+- `INTEGRATION_GINKGO_FOCUS="pattern"` - Run tests matching pattern
+
+Example: `make integration-test TEST_DIR=./test/integration/agent INTEGRATION_PROCS=1`
+
 To generate API code and mocks, use `make generate`  This requires installing mockgen:
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
+
+### Container image building
+
+Flight Control supports building containers for multiple Enterprise Linux versions using OS-qualified image naming. The build system uses an `OS` variable to specify the target Enterprise Linux version:
+
+```bash
+# Build containers for Enterprise Linux 9 (default)
+make build-containers OS=el9
+
+# Build containers for Enterprise Linux 10
+make build-containers OS=el10
+```
+
+**OS-Qualified Image Names:**
+
+All Flight Control service containers use OS-qualified naming with the format `flightctl-{service}-{OS}:latest`:
+
+- **EL9**: `flightctl-api-el9:latest`, `flightctl-worker-el9:latest`, etc.
+- **EL10**: `flightctl-api-el10:latest`, `flightctl-worker-el10:latest`, etc.
+
+This naming scheme prevents conflicts when building and deploying containers across different Enterprise Linux versions.
+
+**Available Make Targets:**
+
+- `make build-containers` - Build all service containers (defaults to `OS=el9`)
+- `make clean-containers` - Remove containers for the current OS
+- `make bundle-containers` - Bundle containers for distribution
+
+**Registry Image Naming:**
+
+Registry images follow the same pattern: `quay.io/flightctl/flightctl-{service}-{OS}:{version}`
 
 ## Running
 
@@ -75,49 +117,45 @@ You can deploy a DB container of different sizes using a DB_VERSION variable for
 
 ```
 # will create the cluster, and the agent config files in bin/agent which will be embedded in the image
-# this one will create a defailt `e2e DB container
+# this one will create a default `e2e` DB container
 make deploy
 # to create a small DB container use
 # make deploy DB_VERSION=small
-make agent-vm agent-vm-console # user/password is user/user
+make agent-vm
 ```
 
-The agent-vm target accepts multiple parameters:
+The VM uses user-session libvirt (`qemu:///session`) with QEMU user-networking, so no root is required.
+SSH is available on `127.0.0.1:2222` (password: `user`).
 
-- VMNAME: the name of the VM to create (default: flightctl-device-default)
-- VMCPUS: the number of CPUs to allocate to the VM (default: 1)
-- VMRAM: the amount of memory in MiB to allocate to the VM (default: 2048)
-- VMDISKSIZE: the disk size for the VM (default: 10G)
-- VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
+The `agent-vm` target accepts the following parameters:
 
-It is possible to create multiple VMs with different names:
+- `VMNAME`: the name of the VM to create (default: `flightctl-device-default`)
+- `VMRAM`: the amount of memory in MiB to allocate to the VM (default: `2048`)
+- `VMSSHPORT`: the host port forwarded to the VM's SSH (default: `2222`)
 
+It is possible to create multiple VMs with different names and ports:
+
+```bash
+make agent-vm VMNAME=flightctl-device-1 VMSSHPORT=2223
+make agent-vm VMNAME=flightctl-device-2 VMSSHPORT=2224
+make agent-vm VMNAME=flightctl-device-3 VMSSHPORT=2225
 ```
-make agent-vm VMNAME=flightctl-device-1
-make agent-vm VMNAME=flightctl-device-2
-make agent-vm VMNAME=flightctl-device-3
-```
 
-Those should appear on the root virsh list:
-```
-$ sudo virsh list
- Id   Name                        State
--------------------------------------------
- 13   flightctl-device-1          running
- 14   flightctl-device-2          running
- 15   flightctl-device-3          running
-````
+Attach to the serial console of a running VM (exit with Ctrl+]):
 
-And you can log in the consoles with agent-vm-console:
-```
+```bash
 make agent-vm-console VMNAME=flightctl-device-1
 ```
 
-NOTE: You can exit the console with Ctrl + ] , and `stty rows 80` and `stty columns 140` (for example) are useful to resize your console otherwise very small.
+Or connect via SSH (password: `user`):
 
+```bash
+ssh -p 2223 -o StrictHostKeyChecking=no user@127.0.0.1
+```
 
 If you created individual devices you need to clean them one by one:
-```
+
+```bash
 make clean-agent-vm VMNAME=flightctl-device-1
 make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
@@ -135,6 +173,10 @@ Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
 ```
 bin/devicesimulator --count=100
 ```
+
+## Backup and restore
+
+For backup and restore procedures applicable to development deployments, see [Backup and Restore](../user/installing/backup-restore.md). Development deployments using kind or quadlets can use the same `flightctl-backup` and `flightctl-restore` commands documented for production environments.
 
 ## Metrics
 

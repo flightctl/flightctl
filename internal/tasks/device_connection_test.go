@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,9 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 	require := require.New(b)
 	log.Level = logrus.ErrorLevel
 	for _, deviceCount := range []int{1000, 2000, 5000} {
-		dbStore, cfg, dbName, db := store.PrepareDBForUnitTests(ctx, log)
+		cfg, dbName, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		require.NoError(err)
+		dbStore := store.NewStore(db, log.WithField("pkg", "store"))
 
 		ctrl := gomock.NewController(b)
 		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
@@ -52,7 +55,7 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, false)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
@@ -64,8 +67,8 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		}
 		cleanupFn := func() {
 			kvStore.Close()
-			dbStore.Close()
-			store.DeleteTestDB(ctx, log, cfg, dbStore, dbName)
+			_ = dbStore.Close()
+			require.NoError(testdb.DeleteTestDB(ctx, log, cfg, db, dbName))
 		}
 		b.Run(fmt.Sprintf("update_summary_status_%d_devices", deviceCount), func(b *testing.B) {
 			err := benchmarkUpdateSummaryStatusBatch(ctx, b, log, db, serviceHandler, deviceNames)

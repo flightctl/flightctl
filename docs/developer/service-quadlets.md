@@ -26,6 +26,15 @@ More info about systemd units using Podman Quadlet including definitions of fiel
 > **Note**
 > Flight Control Quadlets are configured to run rootful containers and rootless is not supported
 
+### OS-qualified container images
+
+Flight Control uses OS-qualified container image naming to support multiple Enterprise Linux versions. All service containers include the Enterprise Linux version in their name:
+
+- **EL9**: `quay.io/flightctl/flightctl-{service}-el9:latest`
+- **EL10**: `quay.io/flightctl/flightctl-{service}-el10:latest`
+
+Examples in this document use EL9 images (`-el9` suffix). For EL10 deployments, substitute `-el10` in the image names.
+
 ## Flight Control Service Architecture
 
 The Flight Control Quadlets are organized in the `deploy/podman/` directory with the following general structure:
@@ -165,7 +174,7 @@ Both internal and external database modes use identical authentication mechanism
 ```ini
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
+Image=quay.io/flightctl/flightctl-api-el9:latest
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
@@ -201,8 +210,8 @@ make deploy-kv
 ```
 
 > **NOTE**
-> Deploying individual services makes use of service-name-standalone.container files
-> The -standalone files are handled as a special case and currently used for integration testing 
+> Deploying individual services makes use of service-name-standalone.container files.
+> The -standalone files are handled as a special case for running individual services without the full stack. 
 
 ### Deployment Flow
 
@@ -344,7 +353,7 @@ The RPM upgrade process includes:
 > Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
 
 > [!NOTE]
-> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/installing/performing-database-restore.md).
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Backup and Restore](../user/installing/backup-restore.md) procedures.
 
 ### Running the Services Container
 
@@ -402,7 +411,7 @@ Requires=
 
 [Container]
 ContainerName=flightctl-myservice
-Image=quay.io/flightctl/flightctl-myservice:latest
+Image=quay.io/flightctl/flightctl-myservice-el9:latest
 Network=flightctl.network
 # !Important!
 # Because the containers are run using rootful podman host port definitions

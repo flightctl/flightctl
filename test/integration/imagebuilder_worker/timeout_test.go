@@ -3,22 +3,20 @@ package imagebuilder_worker_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -61,22 +59,18 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		sourceRepoName = fmt.Sprintf("source-repo-%s", testID)
 		outputRepoName = fmt.Sprintf("output-repo-%s", testID)
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStore, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		mainStore = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
-		// Run imagebuilder-specific migrations only for local strategy
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := imageBuilderStore.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
-
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err := testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories for ImageBuild/ImageExport tests with unique test-id-based names
@@ -99,11 +93,12 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 
 		// Create kvStore for Redis operations
 		var kvErr error
-		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, "localhost", 6379, domain.SecureString("adminpass"))
+		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(kvErr).ToNot(HaveOccurred())
 
-		// Create config with defaults
+		// Create config with defaults (must keep integration DB/KV endpoints, not localhost:5432)
 		cfg = config.NewDefault()
+		testdb.ApplyIntegrationConnectionOverrides(cfg)
 
 		// Create imagebuilder service
 		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
@@ -122,7 +117,8 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStore, dbName)
+		_ = mainStore.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	// Helper function to create an ImageBuild with specific status

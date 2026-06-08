@@ -12,8 +12,6 @@ Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
-PublishPort=443:8080
-
 Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
@@ -21,6 +19,8 @@ Restart=always
 RestartSec=30
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-ui/env.template --output-file /etc/flightctl/flightctl-ui/env
+
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
 
 [Install]
 WantedBy=flightctl.target

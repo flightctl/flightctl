@@ -31,6 +31,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -127,9 +128,15 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 				if !ok {
 					return
 				}
-				if err := handler(ctx, b, "test-entry-id", t, log); err != nil {
+				// Use detached context with grace period for in-flight work.
+				// This allows handlers to complete database operations even when
+				// the test context is cancelled during cleanup.
+				processCtx, cancel := context.WithTimeout(
+					context.WithoutCancel(ctx), 30*time.Second)
+				if err := handler(processCtx, b, "test-entry-id", t, log); err != nil {
 					log.WithError(err).Errorf("handling message: %s", string(b))
 				}
+				cancel()
 			}
 		}
 	}()
@@ -264,7 +271,7 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: error initializing test DB: %w", err)
 	}
-	defer store.CloseDB(dbTemp)
+	defer testdb.CloseDB(dbTemp)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)

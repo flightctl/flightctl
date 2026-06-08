@@ -16,12 +16,14 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("FleetSelector", func() {
@@ -36,6 +38,7 @@ var _ = Describe("FleetSelector", func() {
 		serviceHandler service.Service
 		cfg            *config.Config
 		dbName         string
+		db             *gorm.DB
 		workerClient   worker_client.WorkerClient
 		logic          tasks.FleetSelectorMatchingLogic
 	)
@@ -47,7 +50,10 @@ var _ = Describe("FleetSelector", func() {
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		eventStore = storeInst.Event()
@@ -55,9 +61,9 @@ var _ = Describe("FleetSelector", func() {
 		producer := queues.NewMockQueueProducer(ctrl)
 		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(producer, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		event := api.Event{
 			Reason: api.EventReasonResourceUpdated,
 			InvolvedObject: api.ObjectReference{
@@ -70,7 +76,8 @@ var _ = Describe("FleetSelector", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	// Helper function to get events for a specific involved object
@@ -216,7 +223,7 @@ var _ = Describe("FleetSelector", func() {
 			err := logic.FleetSelectorUpdated(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(6))
@@ -277,7 +284,7 @@ var _ = Describe("FleetSelector", func() {
 			err := logic.FleetSelectorUpdated(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(4))
@@ -299,7 +306,7 @@ var _ = Describe("FleetSelector", func() {
 			err := logic.FleetSelectorUpdated(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(4))
@@ -333,7 +340,7 @@ var _ = Describe("FleetSelector", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nolabels-noowner", nil, nil, &map[string]string{})
 
 			// Set all devices to have multiple owners condition initially
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(7))
@@ -421,7 +428,7 @@ var _ = Describe("FleetSelector", func() {
 			err := deviceStore.SetServiceConditions(ctx, orgId, noLabelsNoOwnerDevice, []api.Condition{condition}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(6))
@@ -534,7 +541,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// All devices should still be owned by fleet
-			listParams := store.ListParams{Limit: 0}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(5))

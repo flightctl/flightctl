@@ -96,6 +96,10 @@
                 "createAdminUser": {
                   "type": "boolean",
                   "description": "Create default flightctl-admin ServiceAccount with admin access"
+                },
+                "organizationNamePrefix": {
+                  "type": "string",
+                  "description": "Optional prefix for organization names from this provider."
                 }
               }
             },
@@ -176,6 +180,7 @@
                 "clientId": { "type": "string", "description": "OAuth2 client ID" },
                 "clientSecret": { "type": "string", "description": "OAuth2 client secret (prefer mounting from a secret)" },
                 "enabled": { "type": "boolean", "description": "Whether the AAP provider is enabled" },
+                "organizationNamePrefix": { "type": "string", "description": "Optional prefix for organization names from this provider." },
                 "scopes": {
                   "type": "array",
                   "description": "List of OAuth2 scopes to request",
@@ -198,7 +203,8 @@
                 "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
                 "tokenUrl": { "type": "string", "description": "OAuth token URL (leave empty to auto-detect from OpenShift cluster)" },
                 "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" },
-                "projectLabelFilter": { "type": "string", "description": "Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)" }
+                "projectLabelFilter": { "type": "string", "description": "Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)" },
+                "organizationNamePrefix": { "type": "string", "description": "Optional prefix for organization names from this provider." }
               }
             }
           }
@@ -415,6 +421,10 @@
           "type": ["object", "null"],
           "description": "Additional labels for API PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "renderedSpecPollTimeout": {
+          "type": "string",
+          "description": "Timeout for the rendered device spec long-poll (e.g., 2m, 30s)"
         }
       }
     },
@@ -483,6 +493,19 @@
           "additionalProperties": { "type": "string" }
         },
         "consumers": { "type": "integer", "description": "Number of periodic consumers" },
+        "clusterLevelSecretAccess": {
+          "type": "boolean",
+          "description": "Allow flightctl-periodic to list/watch secrets at the cluster level for change detection"
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Prometheus metrics endpoint configuration",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable Prometheus metrics endpoint" },
+            "address": { "type": "string", "description": "Address for the metrics HTTP server" }
+          }
+        },
         "tasks": {
           "type": "object",
           "description": "Periodic tasks configuration",
@@ -543,6 +566,15 @@
         }
       }
     },
+    "ubiMinimal": {
+      "type": "object",
+      "description": "UBI minimal image used by init containers (e.g. alertmanager-proxy, test pods)",
+      "additionalProperties": false,
+      "properties": {
+        "image": { "type": "string", "description": "UBI minimal container image" },
+        "tag": { "type": "string", "description": "UBI minimal image tag" }
+      }
+    },
     "imageBuilderApi": {
       "type": "object",
       "description": "ImageBuilder API configuration",
@@ -582,6 +614,9 @@
         "rpmRepoUrl": { "type": "string", "description": "RPM repository URL to add via dnf config-manager --add-repo for flightctl-agent package" },
         "rpmRepoAdd": { "type": "boolean", "description": "Whether to add the RPM repository via dnf config-manager --add-repo (defaults to true)" },
         "rpmRepoEnable": { "type": "string", "description": "RPM repository name to enable via --enablerepo for flightctl-agent package installation" },
+        "dnfTimeout": { "type": "integer", "description": "DNF timeout in seconds for flightctl-agent installation (default: 5)" },
+        "dnfRetries": { "type": "integer", "description": "DNF retry count for flightctl-agent installation (default: 0)" },
+        "dnfSkipUnavailable": { "type": "boolean", "description": "Skip unavailable packages during flightctl-agent installation (default: true)" },
         "entitlementCertsSecretName": { "type": "string", "description": "Secret name containing RHEL entitlement certificates. On OpenShift, copy 'etc-pki-entitlement' from 'openshift-config-managed' namespace" },
         "yumReposSecretName": { "type": "string", "description": "Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d" },
         "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
@@ -589,7 +624,7 @@
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
         "serviceImages": {
           "type": "object",
-          "description": "Builder images (podman, bootc-image-builder) and skip-TLS options",
+          "description": "Builder images (podman, bootc-image-builder, syft) and skip-TLS options",
           "properties": {
             "podman": {
               "type": "object",
@@ -603,6 +638,54 @@
               "properties": {
                 "image": { "type": "string", "description": "bootc-image-builder image (leave empty to use default)" },
                 "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the bootc-image-builder image" }
+              }
+            },
+            "syft": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "Syft image for SBOM generation; empty uses docker.io/anchore/syft:v1.44.0" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Syft image" }
+              }
+            }
+          }
+        },
+        "sbom": {
+          "type": "object",
+          "description": "SBOM generation and distribution after image push",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable SBOM generation" },
+            "pushToRegistry": { "type": "boolean", "description": "Push SBOM as OCI referrer artifact" },
+            "uploadToTrustify": { "type": "boolean", "description": "Upload SBOM to Trustify when vulnerability reporting is enabled" },
+            "purlTransform": {
+              "type": "object",
+              "description": "PURL normalization for advisory matching; rules are per package type under byType (e.g. rpm)",
+              "properties": {
+                "enabled": { "type": "boolean", "description": "Enable PURL normalization" },
+                "byType": {
+                  "type": "object",
+                  "description": "Map package type ID (rpm, npm, ...) to qualifier and namespace rules for that type only",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "namespaceMapping": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                        "description": "Map PURL namespace to advisory namespace for this type"
+                      },
+                      "distroMapping": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                        "description": "Map distro qualifier values for this type"
+                      },
+                      "allowedQualifiers": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Qualifier keys to retain; omit or empty to keep qualifiers unchanged"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
               }
             }
           }
@@ -742,6 +825,37 @@
         "databaseMigrationDryRun": {
           "type": "boolean",
           "description": "Enable pre-upgrade database migration dry-run hook"
+        }
+      }
+    },
+    "vulnerabilityReporting": {
+      "type": "object",
+      "description": "Vulnerability integration configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable vulnerability integration (sync task + API endpoints)" },
+        "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
+        "trustify": {
+          "type": "object",
+          "description": "Trustify API connection details",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": { "type": "string", "description": "Trustify API base URL (do not include /api/v1 or /api/v2 paths)" },
+            "auth": {
+              "type": "object",
+              "description": "Trustify authentication configuration",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "description": "Authentication mode. Allowed values: 'client-credentials', 'none'.",
+                  "enum": ["client-credentials", "none"]
+                },
+                "oidcIssuerUrl": { "type": "string", "description": "OIDC issuer URL for client-credentials mode" },
+                "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys" }
+              }
+            }
+          }
         }
       }
     },

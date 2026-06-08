@@ -36,6 +36,8 @@ DeviceTemplate
 df
 e.g.
 ECDSA
+EL9
+EL10
 EnrollmentRequest
 EnrollmentRequests
 Envoy
@@ -119,10 +121,13 @@ rootful
 runtime
 schemas
 Sigstore
+skopeo
 Skopeo
 spec
 specs
 SpiceDB
+stream9
+stream10
 subdomains
 substring
 systemd
@@ -158,6 +163,23 @@ openshift
 acm
 namespaces
 USB
+ext4
+exFAT
+FAT32
+mkfs
+lsblk
+unmount
+Unmount
+reposync
+RPMs
+repodata
+createrepo_c
+exfatprogs
+xorriso
+genisoimage
+Pre-pulled
+pre-load
+registry.redhat.io
 quay.io.
 API_URL
 madrid
@@ -274,7 +296,9 @@ pprof
 RFC3339
 RPC
 sos
+sanitization
 sudo
+systemInfo
 ts
 update_device_status_duration_seconds
 v1.0.0
@@ -295,6 +319,8 @@ subcommand
 statefulsets
 daemonsets
 cronjobs
+CronJob
+Helm
 imagebuilds
 imagebuild
 imageexport
@@ -336,6 +362,22 @@ multicluster
  repos
  RHSM
  volumeMount
+ Syft
+ CycloneDX
+ PURL
+ PURLs
+ referrer
+ imageBuilderWorker
+ GeneratingSBOM
+ vulnerabilityReporting
+ SBOM
+ Trustify
+ distro
+ README
+ ImageTagMirrorSet
+ ImageContentSourcePolicy
+ walkthrough
+ arg
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
@@ -349,9 +391,9 @@ v1beta1
 v1alpha1
 1.x.x
 ImageBuild
+ImageBuilds
 ImageExport
 ImageExports
-ImageBuilds
 ReadWrite
  - docs/user/references/upgrade-compatibility.md
 v1betaX
@@ -366,6 +408,8 @@ orin
  - docs/user/installing/installing-service-on-kubernetes.md
 demouser
 v3.15
+console.redhat.com
+Datapath
 values.yaml
 Keycloak
 flightctl.MY.DOMAIN
@@ -606,9 +650,36 @@ ImageExport
 OCI
 ReadWrite
 ImageBuilder
- - docs/user/references/agent-architecture.md
+Syft
+CycloneDX
+PURL
+PURLs
+SBOM
+Trustify
+- docs/user/references/agent-architecture.md
 MCD-like
 jumphost-less
  - docs/user/using/greenboot.md
 flightctl_agent_pre_rollback
 redboot-task-runner
+- docs/user/installing/configuring-vulnerability-integration.md
+CVE
+CVEs
+CVSS
+SBOM
+SBOMs
+Trustify
+v2
+canonical
+unencoded
+- docs/user/using/viewing-vulnerabilities.md
+NVD
+- docs/user/using/auto-syncing-dependencies.md
+DependencyChangeDetected
+DependencySyncProbeFailed
+ETag
+ETags
+parameterized
+SharedInformer
+sha256
+runbook

@@ -1,13 +1,17 @@
 package tasks
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
+	"testing"
 
 	"github.com/go-git/go-billy/v5/memfs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/require"
 )
 
 var _ = Describe("ConvertFileSystemToIgnition", func() {
@@ -80,3 +84,126 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 		})
 	})
 })
+
+func TestSanitizeGitError(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    error
+		expected string
+	}{
+		{
+			name:     "strips prefix before colon",
+			input:    errors.New("authentication required: invalid credentials"),
+			expected: "invalid credentials",
+		},
+		{
+			name:     "strips trailing period",
+			input:    errors.New("connection refused."),
+			expected: "connection refused",
+		},
+		{
+			name:     "strips prefix and trailing period",
+			input:    errors.New("authentication required: token expired."),
+			expected: "token expired",
+		},
+		{
+			name:     "passes through simple message",
+			input:    errors.New("timeout"),
+			expected: "timeout",
+		},
+		{
+			name:     "redacts credentials from embedded URLs",
+			input:    errors.New("transport: auth: bad token https://user:pass@host.com"),
+			expected: "bad token https://redacted@host.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			result := sanitizeGitError(tt.input)
+			require.Equal(tt.expected, result)
+		})
+	}
+}
+
+func TestGitLsRemote_EmptyURL(t *testing.T) {
+	require := require.New(t)
+	_, err := GitLsRemote(context.Background(), "", []string{"main"}, nil)
+	require.Error(err)
+	require.Contains(err.Error(), "must not be empty")
+}
+
+func TestGitLsRemote_EmptyRefs(t *testing.T) {
+	require := require.New(t)
+	resolved, err := GitLsRemote(context.Background(), "https://example.com/repo.git", []string{}, nil)
+	require.NoError(err)
+	require.Empty(resolved)
+}
+
+func TestGitLsRemote_HappyPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+	require := require.New(t)
+	resolved, err := GitLsRemote(context.Background(), "https://github.com/flightctl/flightctl.git", []string{"main"}, nil)
+	require.NoError(err)
+	require.Contains(resolved, "main")
+	require.Len(resolved["main"], 40, "commit SHA should be 40 hex chars")
+}
+
+func TestGitLsRemote_MultipleRefs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+	require := require.New(t)
+	resolved, err := GitLsRemote(context.Background(), "https://github.com/flightctl/flightctl.git", []string{"main", "nonexistent-branch-xyz"}, nil)
+	require.NoError(err)
+	require.Contains(resolved, "main")
+	require.NotContains(resolved, "nonexistent-branch-xyz")
+}
+
+func TestGitLsRemote_InvalidURL(t *testing.T) {
+	require := require.New(t)
+	_, err := GitLsRemote(context.Background(), "not-a-real-url://invalid", []string{"main"}, nil)
+	require.Error(err)
+	require.Contains(err.Error(), "failed to list remote refs")
+	require.NotContains(err.Error(), "password")
+	require.NotContains(err.Error(), "token")
+}
+
+func TestRedactURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "redacts user:pass",
+			input:    "https://user:secret@github.com/org/repo.git",
+			expected: "https://redacted@github.com/org/repo.git",
+		},
+		{
+			name:     "passes through URL without credentials",
+			input:    "https://github.com/org/repo.git",
+			expected: "https://github.com/org/repo.git",
+		},
+		{
+			name:     "redacts token-only auth",
+			input:    "https://ghp_secret_token@github.com/org/repo.git",
+			expected: "https://redacted@github.com/org/repo.git",
+		},
+		{
+			name:     "passes through non-URL string",
+			input:    "not-a-url",
+			expected: "not-a-url",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			require.Equal(tt.expected, redactURL(tt.input))
+		})
+	}
+}

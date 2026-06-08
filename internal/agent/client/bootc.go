@@ -94,6 +94,17 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	}
 }
 
+// Rollback stages the previous deployment and reboots into it.
+func (b *bootc) Rollback(ctx context.Context) error {
+	b.log.Info("Rolling back to previous deployment")
+	args := []string{"rollback", "--apply"}
+	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
+	if exitCode != 0 && exitCode != 137 {
+		return fmt.Errorf("bootc rollback: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 // Apply restart or reboot into the new target image.
 func (b *bootc) Apply(ctx context.Context) error {
 	args := []string{"upgrade", "--apply"}

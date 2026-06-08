@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -20,8 +19,8 @@ import (
 // Redis state polling helpers to replace fixed time.Sleep() calls
 func waitForRedisConsumerGroupReady(ctx context.Context, queueName string, timeout time.Duration) bool {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "adminpass",
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
 		DB:       0,
 	})
 	defer redisClient.Close()
@@ -46,8 +45,8 @@ func waitForRedisConsumerGroupReady(ctx context.Context, queueName string, timeo
 
 func waitForRedisFailedMessagesState(ctx context.Context, queueName string, expectedCount int, timeout time.Duration) bool {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "adminpass",
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
 		DB:       0,
 	})
 	defer redisClient.Close()
@@ -67,8 +66,8 @@ func waitForRedisFailedMessagesState(ctx context.Context, queueName string, expe
 
 func waitForRedisInFlightTasksState(ctx context.Context, queueName string, expectedCompleted, expectedIncomplete int, timeout time.Duration) bool {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "adminpass",
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
 		DB:       0,
 	})
 	defer redisClient.Close()
@@ -105,8 +104,8 @@ func waitForRedisInFlightTasksState(ctx context.Context, queueName string, expec
 
 func waitForRedisConsumerStopped(ctx context.Context, queueName string, timeout time.Duration) bool {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "adminpass",
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
 		DB:       0,
 	})
 	defer redisClient.Close()
@@ -155,7 +154,7 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 
 		// Create a Redis provider with a short retry config for testing - this will skip the test if Redis is not available
 		var err error
-		provider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.RetryConfig{
+		provider, err = queues.NewRedisProvider(ctx, log, processID, redisHost, redisPort, redisPassword, queues.RetryConfig{
 			BaseDelay:    100 * time.Millisecond, // Short delays for testing
 			MaxRetries:   3,
 			MaxDelay:     500 * time.Millisecond,
@@ -167,8 +166,8 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 
 		// Clean up global Redis keys from previous tests
 		redisClient := redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
-			Password: "adminpass",
+			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+			Password: string(redisPassword),
 			DB:       0,
 		})
 		defer redisClient.Close()
@@ -200,12 +199,14 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 	})
 
 	AfterEach(func() {
-		if cancel != nil {
-			cancel()
-		}
+		// Stop and drain consumers BEFORE cancelling context
+		// This ensures in-flight operations complete before context is cancelled
 		if provider != nil {
 			provider.Stop()
 			provider.Wait()
+		}
+		if cancel != nil {
+			cancel()
 		}
 	})
 
@@ -314,8 +315,8 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 
 			// Simulate Redis restart: delete the stream (removes stream and consumer group)
 			redisClient := redis.NewClient(&redis.Options{
-				Addr:     "localhost:6379",
-				Password: "adminpass",
+				Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+				Password: string(redisPassword),
 				DB:       0,
 			})
 			defer redisClient.Close()

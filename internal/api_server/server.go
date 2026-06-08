@@ -91,7 +91,8 @@ func New(
 // that one.
 var pathRegex = regexp.MustCompile(`Error at \"/(.*)\":`)
 
-func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
+// OapiMultiErrorHandler handles multiple OpenAPI validation errors by selecting the most relevant one
+func OapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 	if len(errs) == 0 {
 		return http.StatusInternalServerError, nil
 	}
@@ -152,8 +153,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing API server")
 
 	// Create service handler and wrap with tracing
+	vulnerabilityEnabled := s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled
 	baseServiceHandler := service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, vulnerabilityEnabled)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth with traced service handler for OIDC provider access
@@ -190,7 +192,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware
-	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.store, s.log)
+	identityMapper := service.NewIdentityMapper(s.store, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
@@ -235,15 +238,20 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}
 	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapimiddleware.Options{
-		ErrorHandler:          OapiErrorHandler,
-		MultiErrorHandler:     oapiMultiErrorHandler,
+		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Beta1),
+		MultiErrorHandler:     OapiMultiErrorHandler,
 		SilenceServersWarning: true, // Suppress Host header mismatch warnings
 	})
 
 	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
 		Middlewares: []versioning.Middleware{v1beta1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
-			server.HandlerFromMux(&customTransportHandler{handlerV1Beta1}, r)
+			server.HandlerWithOptions(&customTransportHandler{handlerV1Beta1}, server.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandlerForVersion(versioning.V1Beta1)(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 
@@ -253,8 +261,8 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
 	}
 	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1alpha1Swagger, &oapimiddleware.Options{
-		ErrorHandler:          OapiErrorHandler,
-		MultiErrorHandler:     oapiMultiErrorHandler,
+		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Alpha1),
+		MultiErrorHandler:     OapiMultiErrorHandler,
 		SilenceServersWarning: true,
 	})
 
@@ -266,7 +274,12 @@ func (s *Server) Run(ctx context.Context) error {
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
 		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
-			serverv1alpha1.HandlerFromMux(handlerV1Alpha1, r)
+			serverv1alpha1.HandlerWithOptions(handlerV1Alpha1, serverv1alpha1.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandlerForVersion(versioning.V1Alpha1)(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 
@@ -300,9 +313,8 @@ func (s *Server) Run(ctx context.Context) error {
 		// Auth validate with stricter rate limiting (separate group)
 		// This ensures it gets all the necessary middleware with stricter rate limiting
 		r.Group(func(r chi.Router) {
-			// Add conditional middleware
+			r.Use(negotiator.NegotiateMiddleware)
 			r.Use(v1beta1OapiMiddleware)
-			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 			ConfigureRateLimiterFromConfig(
 				r,
 				s.cfg.Service.RateLimit,
@@ -313,7 +325,7 @@ func (s *Server) Run(ctx context.Context) error {
 				Handler:            handlerV1Beta1,
 				HandlerMiddlewares: nil,
 				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-					OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+					OapiErrorHandlerForVersion(versioning.V1Beta1)(w, err.Error(), http.StatusBadRequest)
 				},
 			}
 			r.Get("/auth/validate", wrapper.AuthValidate)
@@ -341,7 +353,6 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
-		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 		// Add websocket rate limiting (only if configured and enabled)
 		ConfigureRateLimiterFromConfig(
 			r,

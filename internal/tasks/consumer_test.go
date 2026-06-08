@@ -222,6 +222,16 @@ func TestShouldValidateFleet(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "DependencyChangeDetectedOnFleet",
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonDependencyChangeDetected, "fleet1"),
+			expected: true,
+		},
+		{
+			name:     "DependencyChangeDetectedOnDevice",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDependencyChangeDetected, "device1"),
+			expected: false,
+		},
+		{
 			name:     "DeviceUpdated",
 			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
 			expected: false,
@@ -307,6 +317,16 @@ func TestShouldRenderDevice(t *testing.T) {
 			name:     "DeviceDecommissioned",
 			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDeviceDecommissioned, "device1"),
 			expected: true,
+		},
+		{
+			name:     "DependencyChangeDetectedOnDevice",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDependencyChangeDetected, "device1"),
+			expected: true,
+		},
+		{
+			name:     "DependencyChangeDetectedOnFleet",
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonDependencyChangeDetected, "fleet1"),
+			expected: false,
 		},
 	}
 

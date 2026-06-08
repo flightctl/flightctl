@@ -43,7 +43,7 @@ jobs:
           echo "Generated nodes matrix: ${nodes}"
 
   e2e-test:
-    runs-on: ubuntu-24.04
+    runs-on: flightctl-ci-runner
     needs: generate-matrix
     strategy:
       fail-fast: false
@@ -187,6 +187,7 @@ jobs:
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
+          ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}
         run: |
           if [[ "${RUNNER_DEBUG}" == "1" ]]; then
@@ -211,6 +212,16 @@ jobs:
           path: reports/junit_e2e_test.xml
           if-no-files-found: warn
           overwrite: true
+          retention-days: 30
+
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          path: artifacts/deployment-logs/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # ========== COLLECT LOGS ==========
       - name: Collect and Upload Logs

@@ -466,6 +466,91 @@ func GetQuadletApplicationInlineContent(spec v1beta1.ApplicationProviderSpec) (s
 	return *content, nil
 }
 
+// RenderedAppRefs holds extracted image references and inline content from a device's applications.
+type RenderedAppRefs struct {
+	ContainerImage  string // image from the container app
+	ContainerVolRef string // first image-backed volume ref from the container app
+	QuadletImage    string // image from the quadlet image app
+	QuadletVolRef   string // first image-backed volume ref from the quadlet image app
+	InlineContent   string // inline content from the inline quadlet app
+}
+
+// GetDeviceRenderedAppRefs extracts rendered application references from the device spec,
+// matching apps by the given names. Pass empty string for any app name to skip extraction.
+func (h *Harness) GetDeviceRenderedAppRefs(deviceId, containerAppName, quadletAppName, inlineAppName string) (*RenderedAppRefs, error) {
+	device, err := h.GetDevice(deviceId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device %s: %w", deviceId, err)
+	}
+	if device == nil || device.Spec == nil || device.Spec.Applications == nil {
+		return nil, fmt.Errorf("device %s has nil spec or applications", deviceId)
+	}
+
+	result := &RenderedAppRefs{}
+	for _, appSpec := range *device.Spec.Applications {
+		name, nameErr := appSpec.GetName()
+		if nameErr != nil {
+			return nil, fmt.Errorf("GetName failed: %w", nameErr)
+		}
+		if name == nil || *name == "" {
+			return nil, fmt.Errorf("application has nil or empty name")
+		}
+
+		switch *name {
+		case containerAppName:
+			if containerAppName == "" {
+				continue
+			}
+			result.ContainerImage, err = GetContainerApplicationImage(appSpec)
+			if err != nil {
+				return nil, fmt.Errorf("GetContainerApplicationImage: %w", err)
+			}
+			containerApp, cErr := appSpec.AsContainerApplication()
+			if cErr == nil && containerApp.Volumes != nil {
+				for _, vol := range *containerApp.Volumes {
+					if imageMount, mErr := vol.AsImageMountVolumeProviderSpec(); mErr == nil {
+						result.ContainerVolRef = imageMount.Image.Reference
+						break
+					}
+				}
+			}
+		case quadletAppName:
+			if quadletAppName == "" {
+				continue
+			}
+			quadletApp, qErr := appSpec.AsQuadletApplication()
+			if qErr != nil {
+				return nil, fmt.Errorf("AsQuadletApplication: %w", qErr)
+			}
+			imageProvider, iErr := quadletApp.AsImageApplicationProviderSpec()
+			if iErr != nil {
+				return nil, fmt.Errorf("AsImageApplicationProviderSpec: %w", iErr)
+			}
+			result.QuadletImage = imageProvider.Image
+			if quadletApp.Volumes != nil {
+				for _, vol := range *quadletApp.Volumes {
+					if imageVol, vErr := vol.AsImageVolumeProviderSpec(); vErr == nil {
+						result.QuadletVolRef = imageVol.Image.Reference
+						break
+					}
+				}
+			}
+		case inlineAppName:
+			if inlineAppName == "" {
+				continue
+			}
+			result.InlineContent, err = GetQuadletApplicationInlineContent(appSpec)
+			if err != nil {
+				return nil, fmt.Errorf("GetQuadletApplicationInlineContent: %w", err)
+			}
+		}
+	}
+
+	GinkgoWriter.Printf("GetDeviceRenderedAppRefs: container=%s containerVol=%s quadlet=%s quadletVol=%s inlineLen=%d\n",
+		result.ContainerImage, result.ContainerVolRef, result.QuadletImage, result.QuadletVolRef, len(result.InlineContent))
+	return result, nil
+}
+
 // =============================================================================
 // Device update functions
 // =============================================================================

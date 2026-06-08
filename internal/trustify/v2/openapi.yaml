@@ -1,0 +1,369 @@
+openapi: 3.0.3
+info:
+  title: Trustify
+  description: Software Supply-Chain Security API (SBOM and advisory endpoints)
+  license:
+    name: Apache License, Version 2.0
+    identifier: Apache-2.0
+  version: 0.4.12
+paths:
+  /api/v2/purl:
+    get:
+      tags:
+      - purl
+      summary: List PURLs
+      description: Search for Package URLs. Use q parameter for text search (e.g., q=<hex-digest> to find OCI PURLs by image digest).
+      operationId: listPurls
+      parameters:
+      - name: q
+        in: query
+        description: Search query (text search across PURL fields). Use pipe for OR (e.g., digest1|digest2).
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: List of matching PURLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurlListResponse'
+  /api/v2/sbom/by-package:
+    get:
+      tags:
+      - sbom
+      summary: Find SBOMs by package
+      description: Find all SBOMs containing the provided package (identified by PURL).
+      operationId: listSbomsByPackage
+      parameters:
+      - name: purl
+        in: query
+        description: Package URL to search for
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: List of SBOMs containing the package
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SbomListResponse'
+  /api/v2/sbom:
+    get:
+      tags:
+      - sbom
+      summary: List SBOMs
+      operationId: listSboms
+      parameters:
+      - name: q
+        in: query
+        description: Search query (e.g., sha256~<digest> or name~<image>)
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Maximum number of results to return
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: offset
+        in: query
+        description: Number of results to skip
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: List of matching SBOMs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SbomListResponse'
+    post:
+      tags:
+      - sbom
+      summary: Upload an SBOM
+      operationId: uploadSbom
+      parameters:
+      - name: labels
+        in: query
+        description: Labels to associate with the SBOM (e.g., image digest as sha256~<digest>)
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: CycloneDX or SPDX SBOM document in JSON format
+      responses:
+        '201':
+          description: SBOM uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SbomUploadResponse'
+        '400':
+          description: Invalid SBOM format
+        '409':
+          description: SBOM already exists
+  /api/v2/sbom/{id}/advisory:
+    get:
+      tags:
+      - sbom
+      summary: Get advisories for an SBOM
+      operationId: getSbomAdvisories
+      parameters:
+      - name: id
+        in: path
+        description: SBOM ID (e.g., urn:uuid:...)
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: List of advisories affecting the SBOM
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SbomAdvisory'
+        '404':
+          description: SBOM not found
+components:
+  schemas:
+    PurlListResponse:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurlSummary'
+        total:
+          type: integer
+          format: int64
+    PurlSummary:
+      type: object
+      required:
+      - uuid
+      - purl
+      properties:
+        uuid:
+          type: string
+          description: Unique identifier for this PURL
+        purl:
+          type: string
+          description: The Package URL string
+        base:
+          $ref: '#/components/schemas/PurlBase'
+          nullable: true
+        version:
+          $ref: '#/components/schemas/PurlVersion'
+          nullable: true
+        qualifiers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+    PurlBase:
+      type: object
+      required:
+      - uuid
+      - purl
+      properties:
+        uuid:
+          type: string
+        purl:
+          type: string
+          description: Base PURL without version or qualifiers
+    PurlVersion:
+      type: object
+      required:
+      - uuid
+      - purl
+      - version
+      properties:
+        uuid:
+          type: string
+        purl:
+          type: string
+        version:
+          type: string
+    SbomListResponse:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SbomSummary'
+        total:
+          type: integer
+          format: int64
+    SbomSummary:
+      type: object
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          description: SBOM ID (URN format)
+        name:
+          type: string
+          description: SBOM name (usually the image reference)
+        sha256:
+          type: string
+          nullable: true
+          description: SHA256 digest of the SBOM content
+        published:
+          type: string
+          format: date-time
+          nullable: true
+    SbomAdvisory:
+      type: object
+      required:
+      - uuid
+      - identifier
+      - document_id
+      - title
+      - status
+      properties:
+        uuid:
+          type: string
+        identifier:
+          type: string
+          description: Advisory identifier (e.g., URL or reference)
+        document_id:
+          type: string
+          description: CVE ID (e.g., CVE-2023-44487)
+        issuer:
+          nullable: true
+          description: The issuer of the advisory, if known.
+          $ref: '#/components/schemas/Issuer'
+        title:
+          type: string
+          nullable: true
+        published:
+          type: string
+          format: date-time
+          nullable: true
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: array
+          items:
+            $ref: '#/components/schemas/SbomStatus'
+    SbomStatus:
+      type: object
+      required:
+      - identifier
+      - status
+      - average_severity
+      - average_score
+      properties:
+        identifier:
+          type: string
+          description: CVE identifier
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          description: Vulnerability status (affected, fixed, not_affected, unknown)
+        average_severity:
+          $ref: '#/components/schemas/Severity'
+        average_score:
+          type: number
+          format: double
+        published:
+          type: string
+          format: date-time
+          nullable: true
+    Severity:
+      type: string
+      description: Qualitative Severity Rating Scale
+      enum:
+      - none
+      - low
+      - medium
+      - high
+      - critical
+    SbomUploadResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          description: ID of the uploaded SBOM
+        document_id:
+          type: string
+          description: Document ID (URN format)
+    Issuer:
+      type: object
+      description: The issuer of an advisory (e.g., Red Hat, NVD).
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The opaque UUID of the organization.
+        name:
+          type: string
+          description: The name of the organization.
+        cpe_key:
+          type: string
+          nullable: true
+          description: The CPE key of the organization, if known.
+        website:
+          type: string
+          nullable: true
+          description: The website of the organization, if known.

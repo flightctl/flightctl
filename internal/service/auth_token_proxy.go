@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/authn"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/domain"
 )
 
@@ -138,26 +139,16 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			return nil, "", "", domain.StatusInternalServerError("Failed to discover token endpoint")
 		}
 
-		clientSecret := ""
-		if oidcSpec.ClientSecret != nil {
-			clientSecret = *oidcSpec.ClientSecret
-		}
-
 		return &ProviderConfig{
 			Issuer:        oidcSpec.Issuer,
 			TokenEndpoint: tokenEndpoint,
 			ClientId:      oidcSpec.ClientId,
-		}, oidcSpec.ClientId, clientSecret, domain.StatusOK()
+		}, oidcSpec.ClientId, oidcSpec.ClientSecret, domain.StatusOK()
 
 	case interface {
 		GetOAuth2Spec() domain.OAuth2ProviderSpec
 	}:
 		oauth2Spec := provider.GetOAuth2Spec()
-
-		clientSecret := ""
-		if oauth2Spec.ClientSecret != nil {
-			clientSecret = *oauth2Spec.ClientSecret
-		}
 
 		issuer := ""
 		if oauth2Spec.Issuer != nil {
@@ -168,7 +159,7 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        issuer,
 			TokenEndpoint: oauth2Spec.TokenUrl,
 			ClientId:      oauth2Spec.ClientId,
-		}, oauth2Spec.ClientId, clientSecret, domain.StatusOK()
+		}, oauth2Spec.ClientId, oauth2Spec.ClientSecret, domain.StatusOK()
 
 	case interface {
 		GetOpenShiftSpec() domain.OpenShiftProviderSpec
@@ -202,10 +193,6 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 		}, clientId, clientSecret, domain.StatusOK()
 	case interface{ GetAapSpec() domain.AapProviderSpec }:
 		aapSpec := provider.GetAapSpec()
-		clientSecret := ""
-		if aapSpec.ClientSecret != nil {
-			clientSecret = *aapSpec.ClientSecret
-		}
 		// Ensure token URL has trailing slash (AAP requires it)
 		tokenUrl := aapSpec.TokenUrl
 		if !strings.HasSuffix(tokenUrl, "/") {
@@ -215,8 +202,8 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        aapSpec.ApiUrl,
 			TokenEndpoint: tokenUrl,
 			ClientId:      aapSpec.ClientId,
-			UseBasicAuth:  aapSpec.ClientSecret != nil && *aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
-		}, aapSpec.ClientId, clientSecret, domain.StatusOK()
+			UseBasicAuth:  aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
+		}, aapSpec.ClientId, aapSpec.ClientSecret, domain.StatusOK()
 
 	default:
 		return nil, "", "", domain.StatusBadRequest("Provider type not supported")
@@ -240,11 +227,14 @@ type ProxyResult struct {
 // discoverTokenEndpoint discovers the token endpoint from an OIDC issuer's well-known configuration
 // Results are cached to avoid repeated HTTP calls
 func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
-	issuer = strings.TrimSuffix(issuer, "/")
+	normalized, err := authprovider.NormalizeIssuerURL(issuer)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL: %w", err)
+	}
 
 	// Check cache first (read lock)
 	p.tokenEndpointCacheMu.RLock()
-	if cached, ok := p.tokenEndpointCache[issuer]; ok {
+	if cached, ok := p.tokenEndpointCache[normalized]; ok {
 		// Check if entry has expired
 		if time.Now().Before(cached.expiresAt) {
 			p.tokenEndpointCacheMu.RUnlock()
@@ -254,7 +244,10 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 	p.tokenEndpointCacheMu.RUnlock()
 
 	// Not in cache, perform discovery
-	discoveryURL := issuer + "/.well-known/openid-configuration"
+	discoveryURL, err := authprovider.DiscoveryURL(issuer)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL for discovery: %w", err)
+	}
 
 	resp, err := p.discoveryClient.Get(discoveryURL)
 	if err != nil {
@@ -280,7 +273,7 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 
 	// Cache the result with TTL (write lock)
 	p.tokenEndpointCacheMu.Lock()
-	p.tokenEndpointCache[issuer] = &cacheEntry{
+	p.tokenEndpointCache[normalized] = &cacheEntry{
 		endpoint:  discovery.TokenEndpoint,
 		expiresAt: time.Now().Add(p.tokenEndpointCacheTTL),
 	}

@@ -64,6 +64,17 @@ details:
 | **Application Status** | `DeviceApplicationError`, `DeviceApplicationDegraded`, `DeviceApplicationHealthy`              |
 | **Device Lifecycle**  | `DeviceIsRebooting`, `DeviceDecommissioned`, `DeviceDecommissionFailed`, `DeviceMultipleOwnersDetected`, `DeviceMultipleOwnersResolved`, `DeviceSpecInvalid`, `DeviceSpecValid` |
 | **Content Management** | `DeviceContentUpdating`, `DeviceContentUpToDate`, `DeviceContentOutOfDate`                     |
+| **Vulnerability (CVE)** | `DeviceVulnerabilityCVEWarning`, `DeviceVulnerabilityCVECritical`, `DeviceVulnerabilityCVEResolved` *(see below)* |
+
+### Vulnerability (CVE) events
+
+When [vulnerability integration](../installing/configuring-vulnerability-integration.md) is enabled, Flight Control emits per-device lifecycle events for high-severity CVEs detected on OS images in use. Each event has `involvedObject.kind` set to `Device` and `involvedObject.name` set to the device name.
+
+The event `details` contain `detailType: DeviceVulnerabilityCVE` with the following fields:
+
+- `cveId` — the CVE identifier
+- `imageRef` — the human-readable image reference
+- `imageDigest` — the image digest the device is running
 
 ### Resource Lifecycle Events
 
@@ -74,6 +85,25 @@ details:
 | **Fleet Rollouts**    | `FleetRolloutCreated`, `FleetRolloutStarted`, `FleetRolloutBatchCompleted`                     |
 | **Repositories**      | `RepositoryAccessible`, `RepositoryInaccessible`                                              |
 | **ResourceSync**      | `ResourceSyncAccessible`, `ResourceSyncInaccessible`, `ResourceSyncCommitDetected`, `ResourceSyncParsed`, `ResourceSyncParsingFailed`, `ResourceSyncSynced`, `ResourceSyncSyncFailed`, `ResourceSyncCompleted` |
+
+### Dependency sync events
+
+When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Control emits events to track dependency change detection and probe failures. Each event has `involvedObject.kind` set to `Fleet` or `Device` depending on what owns the dependency.
+
+| Event Reason | Type | Description |
+|-------------|------|-------------|
+| `DependencyChangeDetected` | Normal | A dependency fingerprint changed — triggers template version creation or device re-render. |
+| `DependencySyncProbeFailed` | Warning | A probe failed (git, HTTP, or secret informer error). |
+
+**`DependencyChangeDetected`** event details (`detailType: DependencyChangeDetected`):
+
+* `resourceKey` — the dependency identifier (for example, `git:my-repo/main`, `http:my-repo/path`)
+* `fingerprint` — the new fingerprint value
+
+**`DependencySyncProbeFailed`** event details (`detailType: DependencySyncProbeFailed`):
+
+* `resourceKey` — the dependency that failed
+* `errorMessage` — sanitized error description (credentials redacted)
 
 ### System Events
 
@@ -130,7 +160,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 - `reason` – Event reason (e.g., `DeviceDisconnected`)  
 - `type` – Event type (`Normal` or `Warning`)  
 - `actor` – Event actor (`user:admin`, `service:api-server`)  
-- `involvedObject.kind` – Kind of resource (`Device`, `Fleet`)  
+- `involvedObject.kind` – Kind of resource (`Device`, `Fleet`, …)  
 - `involvedObject.name` – Resource name  
 - `metadata.creationTimestamp` – Creation timestamp
 

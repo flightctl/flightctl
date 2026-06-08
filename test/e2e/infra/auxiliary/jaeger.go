@@ -3,6 +3,7 @@ package auxiliary
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -56,12 +57,12 @@ func (j *Jaeger) Start(ctx context.Context, network string, reuse bool) error {
 		return fmt.Errorf("get mapped port for %s: %w", jaegerUIPort, err)
 	}
 	j.Port = uiPort.Port()
-	j.URL = fmt.Sprintf("http://%s:%s", j.Host, j.Port)
+	j.URL = fmt.Sprintf("http://%s", net.JoinHostPort(j.Host, j.Port))
 	otlpPort, err := container.MappedPort(ctx, jaegerOTLPHTTPPort)
 	if err != nil {
 		return fmt.Errorf("get mapped port for %s: %w", jaegerOTLPHTTPPort, err)
 	}
-	j.OTLPEndpoint = fmt.Sprintf("%s:%s", j.Host, otlpPort.Port())
+	j.OTLPEndpoint = net.JoinHostPort(j.Host, otlpPort.Port())
 	logrus.Infof("Jaeger container started: UI=%s OTLP=%s", j.URL, j.OTLPEndpoint)
 	return nil
 }

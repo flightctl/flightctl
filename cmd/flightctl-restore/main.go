@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 
+	"github.com/flightctl/flightctl/internal/backup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
-	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/restore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -23,24 +24,57 @@ func main() {
 }
 
 func NewFlightCtlRestoreCommand() *cobra.Command {
+	var deploymentType string
+	var namespace string
+	var internalNamespace string
+	var keepOldDB bool
+	var dbContainerName string
+	var dbName string
+	var kvContainerName string
+
 	cmd := &cobra.Command{
-		Use:   "flightctl-restore [flags]",
-		Short: "flightctl-restore prepares devices after database restoration.",
-		Long: `flightctl-restore prepares devices after database restoration.
+		Use:   "flightctl-restore <archive-path> [flags]",
+		Short: "flightctl-restore restores Flight Control state from a backup archive.",
+		Long: `flightctl-restore restores Flight Control state from a backup archive.
 
-This command runs post-restoration device preparation tasks including:
-- Initializing database and KV store connections
-- Setting up organization resolvers and caches
-- Preparing devices for normal operation after restore
+This command restores a Flight Control server from a backup archive produced
+by flightctl-backup. It performs the following steps:
 
-The command should be run after restoring the database from a backup.`,
+  1. Verifies the SHA256 checksum of the archive
+  2. Extracts the archive to a temporary directory
+  3. Reads and validates archive metadata (deployment type compatibility)
+  4. Stops FlightCtl services (systemd units or Kubernetes Deployments)
+  5. Restores the database from the archive dump
+  6. Starts FlightCtl services again (always, even on failure)
+  7. Prepares devices for reconnection after restore
+
+WARNING: FlightCtl services will be stopped for the duration of the restore.
+Plan for a service outage before running this command in production.
+
+The archive-path argument is required and must point to a .tar.gz archive
+created by flightctl-backup.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRestore(cmd.Context())
+			return runRestore(cmd.Context(), args[0], deploymentType, namespace, internalNamespace, keepOldDB, dbContainerName, dbName, kvContainerName)
 		},
 		SilenceUsage: true,
 	}
 
-	// Add version command
+	cmd.Flags().StringVar(&deploymentType, "deployment-type", "",
+		"Override deployment type detection (kubernetes or podman)")
+	cmd.Flags().StringVar(&namespace, "namespace", "",
+		"Kubernetes external namespace for api/ui deployments (default: flightctl)")
+	cmd.Flags().StringVar(&internalNamespace, "internal-namespace", "",
+		"Kubernetes internal namespace for worker/periodic/db deployments (default: namespace)")
+	cmd.Flags().BoolVar(&keepOldDB, "keep-old-db", false,
+		"Keep the pre-restore database renamed as <dbname>_old_<timestamp> instead of dropping it")
+	cmd.Flags().StringVar(&dbContainerName, "db-container-name", "",
+		"Podman database container name (default: flightctl-db)")
+	cmd.Flags().StringVar(&dbName, "db-name", "",
+		"Podman database name override (default: from service config)")
+	cmd.Flags().StringVar(&kvContainerName, "kv-container-name", "",
+		"Podman KV container name (default: flightctl-kv)")
+
 	cmd.AddCommand(NewCmdVersion())
 
 	return cmd
@@ -59,53 +93,77 @@ func NewCmdVersion() *cobra.Command {
 	return cmd
 }
 
-func runRestore(ctx context.Context) error {
-	// Bypass span check for restore operations
+func runRestore(ctx context.Context, archivePath, deploymentType, namespace, internalNamespace string, keepOldDB bool, dbContainerName, dbName, kvContainerName string) error {
+	if deploymentType != "" {
+		if err := backup.ValidateDeploymentType(deploymentType); err != nil {
+			return err
+		}
+	}
+
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
+	cfg := config.NewDefault()
+	logger := log.InitLogs(cfg.Service.LogLevel)
+	logger.Println("Starting Flight Control restore")
+	defer logger.Println("Flight Control restore completed")
+
+	var err error
+	var dt backup.DeploymentType
+	if deploymentType != "" {
+		dt = backup.DeploymentType(deploymentType)
+	} else {
+		logger.Println("Detecting current deployment type")
+		dt, err = backup.DetectDeployment()
+		if err != nil {
+			return fmt.Errorf("failed to detect current deployment type: %w", err)
+		}
+	}
+	logger.Printf("Deployment type: %s", dt)
+
+	// EDM-4052: Validate required dependencies before attempting restore operations
+	if dt == backup.DeploymentTypeKubernetes {
+		if _, err := exec.LookPath("kubectl"); err != nil {
+			return fmt.Errorf("kubectl is required for Kubernetes restore but was not found in PATH. " +
+				"Please install kubectl and ensure it is configured and authenticated to your cluster. " +
+				"See the backup and restore documentation for prerequisites: " +
+				"https://github.com/flightctl/flightctl/blob/main/docs/user/installing/backup-restore.md#prerequisites")
+		}
+		logger.Println("Dependency check passed: kubectl is available")
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting Flight Control restore preparation")
-	defer log.Println("Flight Control restore preparation completed")
-	log.Printf("Using config: %s", cfg)
+	var restoreDeployer restore.Deployer
+	switch dt {
+	case backup.DeploymentTypeKubernetes:
+		var k8sOpts []restore.KubernetesRestoreOption
+		if namespace != "" {
+			k8sOpts = append(k8sOpts, restore.WithRestoreNamespace(namespace))
+		}
+		if internalNamespace != "" {
+			k8sOpts = append(k8sOpts, restore.WithRestoreInternalNamespace(internalNamespace))
+		}
+		k8sOpts = append(k8sOpts, restore.WithKeepOldDB(keepOldDB))
+		restoreDeployer = restore.NewKubernetesRestoreDeployer(logger, k8sOpts...)
+	default:
+		var podmanOpts []restore.PodmanRestoreOption
+		podmanOpts = append(podmanOpts, restore.WithPodmanKeepOldDB(keepOldDB))
+		if dbContainerName != "" {
+			podmanOpts = append(podmanOpts, restore.WithDBContainerName(dbContainerName))
+		}
+		if dbName != "" {
+			podmanOpts = append(podmanOpts, restore.WithDBName(dbName))
+		}
+		if kvContainerName != "" {
+			podmanOpts = append(podmanOpts, restore.WithKVContainerName(kvContainerName))
+		}
+		restoreDeployer = restore.NewPodmanRestoreDeployer(logger, podmanOpts...)
+	}
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-restore")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
+			logger.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
 
-	log.Println("Initializing database connection for restore operations")
-	db, err := store.InitDB(cfg, log)
-	if err != nil {
-		log.Fatalf("initializing database: %v", err)
-	}
-	defer func() {
-		if sqlDB, err := db.DB(); err != nil {
-			log.Printf("Failed to get database connection for cleanup: %v", err)
-		} else {
-			sqlDB.Close()
-		}
-	}()
-
-	log.Println("Initializing KV store connection for restore operations")
-	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
-	if err != nil {
-		log.Fatalf("initializing KV store: %v", err)
-	}
-	defer kvStore.Close()
-
-	log.Println("Running post-restoration device preparation")
-	restoreStore := restore.NewRestoreStore(db)
-	if _, err := restore.PrepareDevices(ctx, restoreStore, kvStore, log); err != nil {
-		log.Fatalf("preparing devices after restore: %v", err)
-	}
-
-	log.Println("Post-restoration device preparation completed successfully")
-	return nil
+	return restore.Restore(ctx, archivePath, restoreDeployer, logger)
 }

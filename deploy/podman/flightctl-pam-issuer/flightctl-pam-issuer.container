@@ -10,10 +10,7 @@ Image={{ .PamIssuer.Image }}:{{ .PamIssuer.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
-PublishPort=8444:8444
 Environment=HOME=/root
-Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.crt:/root/.flightctl/certs/server.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 # User database: same volume as 1.0.0 /etc (flightctl-pam-issuer-etc) mounted at /userdb; kept in sync with container's /etc.
@@ -25,6 +22,8 @@ Restart=always
 RestartSec=30
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
+
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
 
 [Install]
 WantedBy=flightctl.target

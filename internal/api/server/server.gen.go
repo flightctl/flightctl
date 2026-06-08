@@ -207,6 +207,12 @@ type ServerInterface interface {
 	// (PUT /repositories/{name})
 	ReplaceRepository(w http.ResponseWriter, r *http.Request, name string)
 
+	// (POST /repositories/{name}/check-oci-image)
+	CheckRepositoryOciImage(w http.ResponseWriter, r *http.Request, name string)
+
+	// (POST /repositories/{name}/check-oci-tag)
+	CheckRepositoryOciTag(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /resourcesyncs)
 	ListResourceSyncs(w http.ResponseWriter, r *http.Request, params ListResourceSyncsParams)
 
@@ -546,6 +552,16 @@ func (_ Unimplemented) PatchRepository(w http.ResponseWriter, r *http.Request, n
 
 // (PUT /repositories/{name})
 func (_ Unimplemented) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /repositories/{name}/check-oci-image)
+func (_ Unimplemented) CheckRepositoryOciImage(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /repositories/{name}/check-oci-tag)
+func (_ Unimplemented) CheckRepositoryOciTag(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1114,6 +1130,14 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 	err = runtime.BindQueryParameter("form", true, false, "summaryOnly", r.URL.Query(), &params.SummaryOnly)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "summaryOnly", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cveId" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "cveId", r.URL.Query(), &params.CveId)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cveId", Err: err})
 		return
 	}
 
@@ -2383,6 +2407,56 @@ func (siw *ServerInterfaceWrapper) ReplaceRepository(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// CheckRepositoryOciImage operation middleware
+func (siw *ServerInterfaceWrapper) CheckRepositoryOciImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckRepositoryOciImage(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckRepositoryOciTag operation middleware
+func (siw *ServerInterfaceWrapper) CheckRepositoryOciTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckRepositoryOciTag(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListResourceSyncs operation middleware
 func (siw *ServerInterfaceWrapper) ListResourceSyncs(w http.ResponseWriter, r *http.Request) {
 
@@ -2863,6 +2937,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/repositories/{name}", wrapper.ReplaceRepository)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/repositories/{name}/check-oci-image", wrapper.CheckRepositoryOciImage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/repositories/{name}/check-oci-tag", wrapper.CheckRepositoryOciTag)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/resourcesyncs", wrapper.ListResourceSyncs)

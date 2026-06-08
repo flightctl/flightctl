@@ -1,7 +1,6 @@
 # Disable debug information package creation
 %define debug_package %{nil}
 
-# Define the Go Import Path
 %global goipath github.com/flightctl/flightctl
 
 # SELinux specifics
@@ -20,7 +19,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:         1%{?dist}
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -48,6 +47,7 @@ flightctl is the CLI for controlling the Flight Control service.
 Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
+Requires: greenboot
 Requires: jq
 Requires: sudo
 
@@ -176,7 +176,6 @@ echo "Running post-install actions for Flight Control Observability Stack..."
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
-chown 472:472 /var/lib/grafana
 
 # Apply persistent SELinux contexts for volumes and configuration files.
 /usr/sbin/semanage fcontext -a -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
@@ -253,6 +252,15 @@ fi
 %setup -q %{forgesetupargs}
 
 %build
+
+%global fips_enabled 0%{?rhel}
+
+%if %{fips_enabled}
+%define disable_fips %{nil}
+%else
+%define disable_fips DISABLE_FIPS="true"
+%endif
+
     # if this is a buggy version of go we need to set GOPROXY as workaround
     # see https://github.com/golang/go/issues/61928
     GOENVFILE=$(go env GOROOT)/go.env
@@ -260,24 +268,33 @@ fi
         export GOPROXY='https://proxy.golang.org,direct'
     fi
 
-    # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
-    SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
-    SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(
-        commit=$(git rev-parse --short HEAD 2>/dev/null);
+    SOURCE_GIT_TAG="$(
+        tag=$(./hack/current-version 2>/dev/null || true);
+        if [ -z "$tag" ]; then
+            tag=$(echo "v%{version}" | tr '~' '-');
+        fi;
+        echo "${tag}";
+    )" \
+    SOURCE_GIT_TREE_STATE="clean" \
+    SOURCE_GIT_COMMIT="$(
+        commit=$(git rev-parse --short HEAD 2>/dev/null || true);
+        if [ -z "$commit" ]; then
+            commit=$(grep -v '^\$Format' packaging/rpm/git-metadata 2>/dev/null | tr -d '[:space:]');
+        fi;
         if [ -z "$commit" ]; then
             commit=$(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//');
         fi;
         echo "${commit:-unknown}";
-    )}" \
-    %if 0%{?rhel} == 9
-        %make_build build-cli build-agent build-restore build-standalone
-    %else
-        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore build-standalone
-    %endif
+    )" \
+    %{?disable_fips} %make_build build-cli build-agent build-restore build-standalone
 
     # SELinux modules build
     %make_build --directory packaging/selinux
+
+%if %{fips_enabled}
+    GOFLAGS='' GOBIN="$PWD/bin" go install github.com/flightctl/fips-validator@v0.0.0-20250930084220-ceca2caa6e48
+%endif
+
 
 %install
     mkdir -p %{buildroot}/usr/bin
@@ -296,7 +313,9 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
     install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
+    install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
     install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
+    install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -322,6 +341,18 @@ fi
 
     install -Dpm 0440 packaging/rpm/sudoers.d/flightctl %{buildroot}/etc/sudoers.d/flightctl
 
+    # Collect license files (top-level + vendored dependencies if present)
+    rm -f licenses.list
+    find -type f \( -name LICENSE -o -name License \) | while read LICENSE_FILE; do
+        install -Dv -m0644 "${LICENSE_FILE}" "%{buildroot}%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}"
+        echo "%%license %{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
+    done
+    # Own intermediate directories so RPM removes them on uninstall
+    find "%{buildroot}%{_datadir}/licenses/%{NAME}" -mindepth 1 -type d | sort -r | while read DIR; do
+        echo "%%dir ${DIR#%{buildroot}}" >> licenses.list
+    done
+    touch licenses.list
+
     # flightctl-services sub-package steps
     # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
@@ -330,6 +361,7 @@ fi
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
     IMAGE_TAG=$(echo %{version} | tr '~' '-')
+    %define images_config       packaging/images/%{?rhel:el%{rhel}}%{!?rhel:el9}/images.yaml
 
     # Check if IMAGE_TAG matches a release version pattern (x.x.x or x.x.x-rcX).
     # Release versions match: 1.2.3 or 1.2.3-rc1
@@ -339,13 +371,9 @@ fi
     else
         APPLY_UI_OVERRIDE=""
     fi
-    %if 0%{?rhel} == 10
-    IMAGES_CONFIG=packaging/images/el10/images.yaml
-    %else
-    IMAGES_CONFIG=packaging/images/el9/images.yaml
-    %endif
+
     bin/flightctl-standalone render quadlets \
-        --config "${IMAGES_CONFIG}" \
+        --config "%{images_config}" \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
@@ -355,6 +383,9 @@ fi
         --bin-dir "%{buildroot}/usr/bin" \
         --var-tmp-dir "%{buildroot}%{_var}/tmp" \
         --var-lib-dir "%{buildroot}/var/lib"
+
+
+    mkdir -p %{buildroot}%{_sysconfdir}/flightctl/tpm-cas
 
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
@@ -383,7 +414,6 @@ fi
      mkdir -p %{buildroot}/var/lib/grafana
 
 %check
-    %{buildroot}%{_bindir}/flightctl-agent version
     # Run the installed binary from the buildroot and capture its output
     out="$("%{buildroot}%{_bindir}/flightctl-agent" version)"
     echo "$out"
@@ -402,6 +432,13 @@ fi
         echo "ERROR: Git Commit is empty"
         exit 1
     fi
+
+%if %{fips_enabled}
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-agent
+    bin/fips-validator binary %{buildroot}%{_bindir}/flightctl-restore
+    GOLANG_FIPS=1 OPENSSL_FORCE_FIPS_MODE=1 LD_DEBUG=symbols bin/flightctl version |& grep OPENSSL
+%endif
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -424,10 +461,10 @@ fi
 # File listings
 # No %%files section for the main package, so it won't be built
 
-%files cli
+%files cli -f licenses.list
+    %dir %{_datadir}/licenses/%{NAME}
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
-    %license LICENSE
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
@@ -445,7 +482,9 @@ fi
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     /usr/libexec/flightctl/configure-greenboot.sh
+    /usr/libexec/flightctl/mask-bootc-timer.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
+    /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
     /usr/share/sosreport/flightctl.py
     %{_sysusersdir}/flightctl.conf
     /etc/sudoers.d/*
@@ -461,6 +500,8 @@ systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Mask bootc auto-update timer on first boot (bootc/composefs); also run from %post below.
+systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
 
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
@@ -492,6 +533,20 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
+# Disable bootc automatic updates on bootc systems (flightctl manages updates).
+# mask-bootc-timer.sh applies the mask; flightctl-mask-bootc-timer.service re-runs on
+# boot when image-build %post changes do not persist on bootc/composefs disks.
+/usr/libexec/flightctl/mask-bootc-timer.sh 2>/dev/null || true
+
+%postun agent
+# Restore bootc automatic-update timer only on full removal (not upgrade)
+if [ "$1" -eq 0 ]; then
+    systemctl disable flightctl-mask-bootc-timer.service 2>/dev/null || true
+    systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
+    systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
+    loginctl disable-linger flightctl || :
+fi
+
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
@@ -503,15 +558,17 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/tpm-cas
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
+    %dir %{_sysconfdir}/flightctl/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
@@ -534,7 +591,9 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-gateway
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
@@ -556,11 +615,10 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
     %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
-    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %{_datadir}/flightctl/flightctl-gateway/nginx.conf.template
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
@@ -582,11 +640,11 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %{_datadir}/containers/systemd/flightctl-kv.volume
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
     %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
+    %{_datadir}/containers/systemd/flightctl-gateway.container
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
-    %{_datadir}/containers/systemd/flightctl-cli-artifacts-certs.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
 
@@ -617,14 +675,34 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
 # $1 == 2 if it's an upgrade
 if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
+    %define db_setup_registry   quay.io
+    %define db_setup_image      flightctl/flightctl-db-setup-%{?rhel:el%{rhel}}%{!?rhel:el9}
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
     if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+        SCRIPT="%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh"
+        # Versions before the EDM-3833 fix hardcode the wrong image name and overwrite
+        # the DB_SETUP_IMAGE env var. Detect this and patch just that line in a temp copy
+        # so the rest of the script (config reading, secrets, network) stays correct for
+        # the currently installed system state.
+        # Can be removed once all deployments have upgraded past the fix.
+        if grep -q 'DB_SETUP_IMAGE="quay.io/flightctl/flightctl-db-setup:' "$SCRIPT" 2>/dev/null; then
+            TMPSCRIPT=$(mktemp /tmp/flightctl-dry-run.XXXXXX.sh)
+            cp "$SCRIPT" "$TMPSCRIPT"
+            chmod +x "$TMPSCRIPT"
+            CORRECT_IMAGE="%{db_setup_registry}/%{db_setup_image}:${IMAGE_TAG}"
+            sed -i "s|DB_SETUP_IMAGE=.*|DB_SETUP_IMAGE=\"${CORRECT_IMAGE}\"|" "$TMPSCRIPT"
+            SCRIPT="$TMPSCRIPT"
+        fi
         IMAGE_TAG="$IMAGE_TAG" \
+        DB_SETUP_REGISTRY="%{db_setup_registry}" \
+        DB_SETUP_IMAGE="%{db_setup_image}" \
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
-        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+        bash "$SCRIPT" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+            [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
             echo "flightctl: dry-run failed; aborting upgrade." >&2
             exit 1
         }
+        [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
     else
         echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
     fi
@@ -674,6 +752,13 @@ EOF
 fi
 
 if [ "$1" -eq 2 ]; then # it's an upgrade
+  # Migrate trustXForwardedHeaders: false -> true now that the nginx gateway
+  # terminates TLS and the UI must trust X-Forwarded-Proto/Host headers.
+  svcconfig="%{_sysconfdir}/flightctl/service-config.yaml"
+  if [ -f "$svcconfig" ]; then
+    %{__sed} -E -i 's/^([[:space:]]*trustXForwardedHeaders:[[:space:]]*)("false"|'"'"'false'"'"'|false)([[:space:]]*(#.*)?)$/\1true\3/' "$svcconfig" || :
+  fi
+
   %{__cat} <<'EOF'
 [flightctl] Upgraded.
 
@@ -690,6 +775,13 @@ fi
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_target}
+
+# On full removal: delete temporary build/export storage that may contain
+# leftover subdirectories from interrupted jobs (non-empty dirs RPM won't remove).
+if [ "$1" -eq 0 ]; then
+    rm -rf %{_var}/tmp/flightctl-builds || true
+    rm -rf %{_var}/tmp/flightctl-exports || true
+fi
 
 # If contexts were managed via policy, no cleanup is needed here.
 

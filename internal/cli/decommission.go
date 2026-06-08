@@ -123,7 +123,10 @@ func (o *DecommissionOptions) Run(ctx context.Context, args []string) error {
 
 	if response.HTTPResponse != nil {
 		if response.HTTPResponse.StatusCode != http.StatusOK {
-			return fmt.Errorf("unsuccessful decommissioning device request %s: %s", name, string(response.Body))
+			return &CLIError{
+				Context: fmt.Sprintf("decommissioning device %s: failed", name),
+				Err:     &APIError{Status: ParseStatusFromBody(response.Body)},
+			}
 		}
 	}
 

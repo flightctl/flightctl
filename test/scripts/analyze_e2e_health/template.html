@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>E2E Health Report</title>
+<style>
+:root{
+  --bg:#f9fafb;--card:#fff;--border:#e5e7eb;--text:#111827;--muted:#6b7280;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--blue:#3b82f6;
+  --bar-bg:#f3f4f6;
+  --badge-amber-bg:#fef3c7;--badge-amber-fg:#92400e;
+  --badge-red-bg:#fee2e2;--badge-red-fg:#991b1b;
+  --badge-green-bg:#dcfce7;--badge-green-fg:#166534;
+  --badge-blue-bg:#dbeafe;--badge-blue-fg:#1e40af;
+  --highlight-bg:#fffbeb;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#0f172a;--card:#1e293b;--border:#334155;--text:#f1f5f9;--muted:#94a3b8;
+    --bar-bg:#334155;
+    --badge-amber-bg:#3d1f00;--badge-amber-fg:#fbbf24;
+    --badge-red-bg:#3b0a0a;--badge-red-fg:#fca5a5;
+    --badge-green-bg:#052e16;--badge-green-fg:#4ade80;
+    --badge-blue-bg:#172554;--badge-blue-fg:#93c5fd;
+    --highlight-bg:#1c1a07;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:1140px;margin:0 auto;padding:24px 16px}
+header{border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:20px}
+h1{font-size:22px;font-weight:700}
+h2{font-size:17px;font-weight:600;margin-bottom:12px}
+h3{font-size:12px;font-weight:600;margin-bottom:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.meta{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:20px}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-amber{background:var(--badge-amber-bg);color:var(--badge-amber-fg)}
+.badge-red{background:var(--badge-red-bg);color:var(--badge-red-fg)}
+.badge-green{background:var(--badge-green-bg);color:var(--badge-green-fg)}
+.badge-blue{background:var(--badge-blue-bg);color:var(--badge-blue-fg)}
+.stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;justify-content:center}
+.stat{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:110px;text-align:center}
+.stat-value{font-size:26px;font-weight:700}
+.stat-label{font-size:11px;color:var(--muted);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 10px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.spec-name{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.failure-msg{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-top:4px;white-space:pre-wrap;word-break:break-word}
+details summary{cursor:pointer;color:var(--blue);font-size:12px;user-select:none}
+.chart-wrap{margin:12px 0;min-width:0}
+.cols-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-width:0;align-items:start}
+.cols-2>*{min-width:0}
+.cols-2.equal-height{align-items:stretch}
+.cols-2.equal-height .card{overflow-y:auto;max-height:680px}
+.cols-2.equal-height .card h2{position:sticky;top:0;background:var(--card);z-index:1;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--border)}
+@media(max-width:700px){.cols-2{grid-template-columns:1fr}}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+nav a{font-size:13px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card)}
+nav a:hover{background:var(--bg);text-decoration:none}
+.highlight{background:var(--highlight-bg);border-left:3px solid var(--amber);padding:10px 14px;border-radius:0 4px 4px 0;margin:12px 0;font-size:13px}
+.warn-box{display:flex;align-items:flex-start;gap:10px;background:var(--highlight-bg);border:1px solid var(--amber);border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px}
+.warn-icon{flex-shrink:0;font-size:16px;line-height:1.4}
+.warn-body{flex:1;min-width:0}
+.warn-title{font-weight:600;color:var(--text)}
+.warn-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.warn-links a{display:inline-block;padding:2px 8px;border:1px solid var(--amber);border-radius:4px;font-size:12px;color:var(--amber);font-weight:500}
+.warn-links a:hover{text-decoration:none;opacity:.8}
+.indent{padding-left:16px;color:var(--muted)}
+/* scrollbar styling — applies to the equal-height card scroll areas */
+.cols-2.equal-height .card{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.cols-2.equal-height .card::-webkit-scrollbar{width:6px}
+.cols-2.equal-height .card::-webkit-scrollbar-track{background:transparent}
+.cols-2.equal-height .card::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.cols-2.equal-height .card::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+/* LPT debug dialog */
+.lpt-btn{background:none;border:none;color:var(--blue);cursor:pointer;font-size:12px;padding:2px 4px;border-radius:3px;white-space:nowrap}
+.lpt-btn:hover{text-decoration:underline}
+dialog.lpt-debug{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0;max-width:860px;width:95vw;max-height:80vh;overflow:hidden;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0}
+dialog.lpt-debug[open]{display:flex;flex-direction:column}
+dialog.lpt-debug::backdrop{background:rgba(0,0,0,.5)}
+.lpt-dialog-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)}
+.lpt-dialog-header h3{font-size:14px;font-weight:600;margin:0;color:var(--text)}
+.lpt-dialog-header button{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1;flex-shrink:0}
+.lpt-dialog-body{overflow-y:auto;padding:16px 20px;flex:1}
+.lpt-dialog-meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;color:var(--muted)}
+.lpt-dialog-meta strong{color:var(--text)}
+.lpt-shard-table{width:100%;border-collapse:collapse;font-size:12px}
+.lpt-shard-table th{text-align:left;padding:5px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;white-space:nowrap}
+.lpt-shard-table td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.lpt-shard-table tr.critical-shard td{background:color-mix(in srgb,var(--blue) 8%,transparent)}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <h1>E2E Health Report</h1>
+  <div class="meta">Generated {{.GeneratedAt}} &nbsp;·&nbsp; <a href="{{.RepoURL}}" target="_blank">{{.RepoURL}}</a> &nbsp;·&nbsp; {{.AnalyzedRuns}} runs analyzed</div>
+</header>
+
+<nav>
+  <a href="#pipeline">Pipeline Timing</a>
+  <a href="#optimization">Test Optimization Matrix</a>
+  <a href="#flakes">Flaky Tests</a>
+</nav>
+
+<!-- Summary bar -->
+<div class="card" style="margin-bottom:20px">
+  <div class="stats-row">
+    {{if .EstimatedWallTimeSecs}}
+    <div class="stat"><div class="stat-value">{{FormatDuration .EstimatedWallTimeSecs}}</div><div class="stat-label">Avg wall time</div></div>
+    {{end}}
+    {{if .PipelineOverviewReady}}
+    <div class="stat"><div class="stat-value">{{FormatDuration .PipelineOverheadSecs}}</div><div class="stat-label">Avg prepare time</div></div>
+    <div class="stat"><div class="stat-value">{{FormatDuration .BaselineShardSecs}}</div><div class="stat-label">Avg testing time</div></div>
+    {{end}}
+    {{if .InferredShardCount}}
+    <div class="stat"><div class="stat-value">{{.InferredShardCount}}</div><div class="stat-label">Parallel shards</div></div>
+    {{end}}
+    <div class="stat"><div class="stat-value">{{.AnalyzedRuns}}</div><div class="stat-label">Runs analyzed</div></div>
+  </div>
+  <div class="stats-row" style="margin-bottom:0">
+    <div class="stat"><div class="stat-value">{{.TotalAnalyzedSpecs}}</div><div class="stat-label">Specs tracked</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--red)">{{.ConsistentlyFailingCount}}</div><div class="stat-label">Always failing</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--amber)">{{.FlakyCount}}</div><div class="stat-label">Flaky</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--green)">{{.CleanCount}}</div><div class="stat-label">Never failed</div></div>
+  </div>
+</div>
+
+<section id="pipeline">
+<div class="card">
+  <h2>Pipeline Timing</h2>
+  <div class="meta">Average wall-clock durations over {{.AnalyzedRuns}} analyzed runs (±1σ shown next to each value)</div>
+  {{if .PipelinePhases}}
+  <div class="chart-wrap" style="max-height:420px;overflow-y:auto">{{.PipelineChartSVG}}</div>
+  <p class="meta" style="margin-top:4px">* slowest shard across parallel matrix jobs</p>
+  {{else}}
+  <p class="meta">No pipeline timing data collected for this period.</p>
+  {{end}}
+</div>
+</section>
+
+<!-- Section 3: Optimization Opportunities -->
+<section id="optimization">
+<div class="card">
+  <h2>Test Optimization Matrix</h2>
+  {{if .OptimEntries}}
+  <div style="overflow-x:auto">
+  <table style="min-width:900px">
+    <thead>
+      <tr>
+        <th rowspan="2" style="vertical-align:bottom">Test</th>
+        <th rowspan="2" style="vertical-align:bottom">Current Avg</th>
+        <th rowspan="2" style="vertical-align:bottom">Target</th>
+        <th rowspan="2" style="vertical-align:bottom">Cumulative saving</th>
+        <th colspan="{{len .OptimNodeOffsets}}" style="text-align:center;border-bottom:1px solid var(--border)">Est. workflow — click for LPT breakdown (shards)</th>
+      </tr>
+      <tr>
+        {{range $j, $off := .OptimNodeOffsets}}
+        <th style="text-align:center;white-space:nowrap">
+          {{if eq $j 0}}N={{$.InferredShardCount}}{{else}}+{{$off}}{{end}}
+        </th>
+        {{end}}
+      </tr>
+    </thead>
+    <tbody>
+    {{range $i, $e := .OptimEntries}}
+    {{if eq $i 0}}
+    <tr style="background:color-mix(in srgb,var(--blue) 5%,transparent);font-style:italic">
+      <td class="spec-name" colspan="4" style="color:var(--muted)">{{$e.Name}}</td>
+      {{range $j, $nc := $e.NodeCountEsts}}
+      <td style="text-align:center">
+        <button class="lpt-btn" onclick="(function(d){d.showModal();d.onclick=function(e){if(e.target===d)d.close()}})(document.getElementById('lpt-debug-{{$i}}-{{$j}}'))">~{{FormatDuration $nc.EstimatedSec}}</button>
+      </td>
+      {{end}}
+    </tr>
+    {{else}}
+    <tr>
+      <td class="spec-name">{{$e.Name}}</td>
+      <td>{{FormatDuration $e.AvgSecs}}</td>
+      <td>{{FormatDuration $e.TargetSecs}}</td>
+      <td style="color:var(--green);font-weight:600">
+        {{- $first := index $e.CumulativeByOffset 0 -}}
+        {{- $last := index $e.CumulativeByOffset (IntSub (len $e.CumulativeByOffset) 1) -}}
+        {{if gt $first 0.0}}−{{FormatDuration $first}}{{else}}—{{end}}
+        {{if gt $last $first}} → −{{FormatDuration $last}}{{end}}
+      </td>
+      {{range $j, $nc := $e.NodeCountEsts}}
+      <td style="text-align:center">
+        <button class="lpt-btn" onclick="(function(d){d.showModal();d.onclick=function(e){if(e.target===d)d.close()}})(document.getElementById('lpt-debug-{{$i}}-{{$j}}'))">~{{FormatDuration $nc.EstimatedSec}}</button>
+      </td>
+      {{end}}
+    </tr>
+    {{end}}
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+
+  {{range $i, $e := .OptimEntries}}
+  {{range $j, $nc := $e.NodeCountEsts}}
+  <dialog id="lpt-debug-{{$i}}-{{$j}}" class="lpt-debug">
+    <div class="lpt-dialog-header">
+      <h3>
+        {{if eq $i 0}}Current (no changes){{else}}Step {{$i}}: after fixing "{{$e.Name}}"{{end}}
+        — {{$nc.Nodes}} shards
+      </h3>
+      <button onclick="this.closest('dialog').close()">✕</button>
+    </div>
+    <div class="lpt-dialog-body">
+      <div class="lpt-dialog-meta">
+        <span>Pipeline overhead: <strong>~{{FormatDuration $nc.Debug.PipelineOverhead}}</strong></span>
+        <span>Max shard: <strong>~{{FormatDuration $nc.Debug.MaxShardSecs}}</strong></span>
+        <span>Est. total: <strong>~{{FormatDuration $nc.EstimatedSec}}</strong></span>
+      </div>
+      <table class="lpt-shard-table">
+        <thead><tr><th>Node</th><th>Est. Duration</th><th>Specs</th></tr></thead>
+        <tbody>
+        {{range $nc.Debug.Shards}}
+        <tr{{if .Critical}} class="critical-shard"{{end}}>
+          <td>{{if .Critical}}★ {{end}}{{.ID}}</td>
+          <td><strong>{{FormatDuration .Total}}</strong></td>
+          <td>{{len .Specs}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </dialog>
+  {{end}}
+  {{end}}
+  <p class="meta" style="margin-top:8px;margin-bottom:4px">
+    Baseline breakdown: <strong>~{{FormatDuration .PipelineOverheadSecs}}</strong> pipeline overhead (build, deploy, etc.)
+    + <strong>~{{FormatDuration (Sub .OptimBaselineWorkflowSecs .PipelineOverheadSecs)}}</strong> slowest test shard
+    = <strong>~{{FormatDuration .OptimBaselineWorkflowSecs}}</strong> total at {{.InferredShardCount}} shards.
+  </p>
+  <p class="meta"><strong>Rows</strong> = optimizing tests (each row reduces that test and all slower ones above it to the next test's duration). <strong>Columns</strong> = adding nodes. Cumulative saving is vs the baseline row at each node count.</p>
+  {{else}}
+  <p class="meta">Not enough timing data to compute optimization opportunities.</p>
+  {{end}}
+</div>
+</section>
+
+<!-- Flaky Tests (moved to end) -->
+<section id="flakes">
+<div class="card">
+  <h2>Flaky Tests</h2>
+  {{if .InfraInstabilityCount}}<p class="meta" style="margin-bottom:12px">{{.InfraInstabilityCount}} infra instability event(s) excluded from per-spec counts</p>{{end}}
+  {{if or (gt .FlakyCount 0) (gt .ConsistentlyFailingCount 0)}}
+  <div class="cols-2">
+    <div class="chart-wrap">{{.FlakeDonutSVG}}</div>
+    <div>
+      <table>
+        <thead><tr><th>Rate</th><th>Class</th><th>Last Failed</th><th>Test</th></tr></thead>
+        <tbody>
+        {{range .FlakeEntries}}
+        <tr>
+          <td><strong>{{FailPct .FailRate}}</strong><br><span class="meta">{{.FailCount}}/{{.TotalRuns}} runs</span></td>
+          <td>{{if eq .Class "Flaky"}}<span class="badge badge-amber">Flaky</span>{{else}}<span class="badge badge-red">Consistent</span>{{end}}</td>
+          <td>{{if .LastRunURL}}<a href="{{.LastRunURL}}" target="_blank">view run</a>{{end}}</td>
+          <td>
+            <div class="spec-name">{{if .GinkgoLabel}}<span class="badge badge-blue">[{{.GinkgoLabel}}]</span> {{end}}{{.SpecName}}</div>
+            {{if .FailureMsg}}<details><summary>failure detail</summary><div class="failure-msg">{{.FailureMsg}}</div></details>{{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {{else}}
+  <p style="color:var(--green);font-weight:600">✓ No flakes detected in the analyzed runs.</p>
+  {{end}}
+  {{if gt .PreTestFailureCount 0}}
+  <div class="warn-box">
+    <span class="warn-icon">⚠</span>
+    <div class="warn-body">
+      <div class="warn-title">{{.PreTestFailureCount}} run(s) failed before tests ran — build/deploy failure</div>
+      <div class="warn-links">
+        {{range .PreTestFailureRefs}}<a href="{{.RunURL}}" target="_blank">{{.Date}}</a>{{end}}
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+</section>
+
+</div>
+</body>
+</html>

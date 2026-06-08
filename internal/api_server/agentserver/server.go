@@ -95,8 +95,9 @@ func (s *AgentServer) init(ctx context.Context) error {
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
+	// Agent does not expose vulnerability features; keep disabled for agent-facing endpoints.
 	s.serviceHandler = service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, false))
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
 	return nil
@@ -226,7 +227,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
-	s.identityMapper = service.NewIdentityMapper(s.store, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.store, s.log)
+	s.identityMapper = service.NewIdentityMapper(s.store, orgProvisioner, s.log)
 	s.identityMapper.Start()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(s.identityMapper, s.log)
 
@@ -306,7 +308,12 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 			}),
 		},
 		RegisterRoutes: func(r chi.Router) {
-			agentserver.HandlerFromMux(handlerV1Beta1, r)
+			agentserver.HandlerWithOptions(handlerV1Beta1, agentserver.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					apiserver.OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 

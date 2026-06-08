@@ -119,6 +119,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenPath := make(map[string]struct{}, len(configs))
+	seenNames := make(map[string]struct{}, len(configs))
 	for i, config := range configs {
 		t, err := config.Type()
 		if err != nil {
@@ -126,6 +127,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 			return allErrs
 		}
 
+		var configName string
 		switch t {
 		case GitConfigProviderType:
 			provider, err := config.AsGitConfigProviderSpec()
@@ -133,6 +135,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 		case HttpConfigProviderType:
 			provider, err := config.AsHttpConfigProviderSpec()
@@ -140,6 +143,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			path := provider.HttpRef.FilePath
 			if _, exists := seenPath[path]; exists {
 				allErrs = append(allErrs, fmt.Errorf("spec.config[%d].httpRef, device path must be unique for all config providers: %s", i, path))
@@ -153,6 +157,7 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 
 			for j, inline := range provider.Inline {
 				path := inline.Path
@@ -169,10 +174,20 @@ func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 				allErrs = append(allErrs, err)
 				break
 			}
+			configName = provider.Name
 			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
 		default:
-			// if we hit this case, it means that the type should be added to the switch statement above
 			allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+		}
+
+		// configName is empty only when type-specific decoding failed (break above).
+		// Empty names are separately rejected by each provider's Validate() (ValidateConfigName enforces minLen=1).
+		if configName != "" {
+			if _, exists := seenNames[configName]; exists {
+				allErrs = append(allErrs, fmt.Errorf("spec.config[%d]: duplicate config provider name: %s", i, configName))
+			} else {
+				seenNames[configName] = struct{}{}
+			}
 		}
 	}
 	return allErrs
@@ -342,7 +357,7 @@ func (r ResourceAlertRule) Validate(specSampleInterval string) []error {
 
 func (c GitConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
 
 	containsParams, paramErrs := validateParametersInString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", fleetTemplate)
@@ -361,7 +376,7 @@ func (c GitConfigProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 
 	containsParams, paramErrs := validateParametersInString(&c.SecretRef.Name, "spec.config[].secretRef.name", fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
@@ -389,7 +404,7 @@ func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 	for i := range c.Inline {
 		containsParams, paramErrs := validateParametersInString(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i), fleetTemplate)
 		allErrs = append(allErrs, paramErrs...)
@@ -425,7 +440,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (h HttpConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
 
 	containsParams, paramErrs := validateParametersInString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath", fleetTemplate)
@@ -679,6 +694,9 @@ func (r *Repository) Validate() []error {
 		if ociRepoSpec.CaCrt != nil {
 			allErrs = append(allErrs, validation.ValidateBase64Field(*ociRepoSpec.CaCrt, "spec.ca.crt", maxBase64CertificateLength)...)
 		}
+		if ociRepoSpec.BaseImages != nil {
+			allErrs = append(allErrs, validateBaseImages(*ociRepoSpec.BaseImages)...)
+		}
 	case string(RepoSpecTypeHttp):
 		httpRepoSpec, err := r.Spec.AsHttpRepoSpec()
 		if err != nil {
@@ -803,6 +821,31 @@ func validateHttpConfig(config *HttpConfig) []error {
 
 		if config.Token != nil {
 			errs = append(errs, validation.ValidateBearerToken(config.Token, "spec.httpConfig.token")...)
+		}
+	}
+	return errs
+}
+
+func validateBaseImages(baseImages []BaseImageEntry) []error {
+	var errs []error
+	seenImageNames := make(map[string]int, len(baseImages))
+	for i, entry := range baseImages {
+		path := fmt.Sprintf("spec.baseImages[%d]", i)
+		errs = append(errs, validation.ValidateString(&entry.ImageName, path+".imageName", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
+		if firstIdx, exists := seenImageNames[entry.ImageName]; exists {
+			errs = append(errs, fmt.Errorf("%s.imageName: duplicate imageName %q (already defined at spec.baseImages[%d].imageName)", path, entry.ImageName, firstIdx))
+		} else {
+			seenImageNames[entry.ImageName] = i
+		}
+		seen := make(map[string]struct{}, len(entry.Tags))
+		for j, tag := range entry.Tags {
+			tagCopy := tag
+			errs = append(errs, validation.ValidateString(&tagCopy, fmt.Sprintf("%s.tags[%d]", path, j), 1, 128, validation.OciImageTagRegexp, validation.OciImageTagFmt)...)
+			if _, exists := seen[tag]; exists {
+				errs = append(errs, fmt.Errorf("%s.tags[%d]: duplicate tag %q", path, j, tag))
+			} else {
+				seen[tag] = struct{}{}
+			}
 		}
 	}
 	return errs

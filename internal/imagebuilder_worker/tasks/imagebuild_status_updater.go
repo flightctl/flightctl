@@ -20,6 +20,7 @@ type statusUpdateRequest struct {
 	Condition      *domain.ImageBuildCondition
 	LastSeen       *time.Time
 	ImageReference *string
+	ManifestDigest *string
 	// done is closed when the update has been processed (used for terminal conditions)
 	done chan struct{}
 }
@@ -111,6 +112,7 @@ func (u *statusUpdater) run(cfg *config.Config) {
 	// Track pending updates
 	var pendingCondition *domain.ImageBuildCondition
 	var pendingImageReference *string
+	var pendingManifestDigest *string
 	lastSeenUpdateTime := time.Now().UTC()
 
 	// Track the last time output was received - updated when new output arrives
@@ -138,11 +140,12 @@ func (u *statusUpdater) run(cfg *config.Config) {
 					// Store a copy of the time we're setting
 					lastSetLastSeenCopy := *lastOutputTime
 					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference)
+					u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference, pendingManifestDigest)
 					// Also persist logs to DB periodically
 					u.persistLogsToDB()
 					pendingCondition = nil      // Clear after update
 					pendingImageReference = nil // Clear after update
+					pendingManifestDigest = nil // Clear after update
 				}
 			}
 		case output := <-u.outputChan:
@@ -167,11 +170,15 @@ func (u *statusUpdater) run(cfg *config.Config) {
 			if req.ImageReference != nil {
 				pendingImageReference = req.ImageReference
 			}
-			// Update immediately when condition or image reference changes
-			if req.Condition != nil || req.ImageReference != nil {
-				u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference)
+			if req.ManifestDigest != nil {
+				pendingManifestDigest = req.ManifestDigest
+			}
+			// Update immediately when condition, image reference, or manifest digest changes
+			if req.Condition != nil || req.ImageReference != nil || req.ManifestDigest != nil {
+				u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference, pendingManifestDigest)
 				pendingCondition = nil      // Clear after update
 				pendingImageReference = nil // Clear after update
+				pendingManifestDigest = nil // Clear after update
 			}
 			// Signal completion if done channel exists (used for synchronous updates)
 			if req.done != nil {
@@ -181,12 +188,12 @@ func (u *statusUpdater) run(cfg *config.Config) {
 	}
 }
 
-// updateStatus performs the actual database update, merging conditions, LastSeen, and ImageReference
+// updateStatus performs the actual database update, merging conditions, LastSeen, ImageReference, and ManifestDigest
 // Note: Uses u.ctx (updaterCtx) which is derived from the consumer context, NOT the build context.
 // When cancelBuild() is called, only buildCtx is canceled - updaterCtx remains valid until
 // cleanupStatusUpdater() is called, which happens AFTER processImageBuild() returns.
 // This ensures we can still write the final status (e.g., Canceled) after the build is canceled.
-func (u *statusUpdater) updateStatus(condition *domain.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
+func (u *statusUpdater) updateStatus(condition *domain.ImageBuildCondition, lastSeen *time.Time, imageReference *string, manifestDigest *string) {
 	// Load current status from database
 	imageBuild, status := u.imageBuildService.Get(u.ctx, u.orgID, u.imageBuildName, false)
 	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
@@ -247,6 +254,11 @@ func (u *statusUpdater) updateStatus(condition *domain.ImageBuildCondition, last
 		imageBuild.Status.ImageReference = imageReference
 	}
 
+	// Update ManifestDigest if provided
+	if manifestDigest != nil {
+		imageBuild.Status.ManifestDigest = manifestDigest
+	}
+
 	// Write updated status atomically
 	_, err := u.imageBuildService.UpdateStatus(u.ctx, u.orgID, imageBuild)
 	if err != nil {
@@ -280,11 +292,12 @@ func (u *statusUpdater) UpdateCondition(condition domain.ImageBuildCondition) {
 	}
 }
 
-// UpdateImageReference sends an image reference update request to the updater goroutine
+// UpdateImageReference sends an image reference and manifest digest update request to the updater goroutine.
+// Both values come from the push operation and are set together.
 // Exported for testing purposes.
-func (u *statusUpdater) UpdateImageReference(imageReference string) {
+func (u *statusUpdater) UpdateImageReference(imageReference, manifestDigest string) {
 	select {
-	case u.updateChan <- statusUpdateRequest{ImageReference: &imageReference}:
+	case u.updateChan <- statusUpdateRequest{ImageReference: &imageReference, ManifestDigest: &manifestDigest}:
 	case <-u.ctx.Done():
 		// Context canceled, ignore update
 	}

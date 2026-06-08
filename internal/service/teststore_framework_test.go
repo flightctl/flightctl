@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -22,14 +29,31 @@ const statusNotFoundCode = int32(http.StatusNotFound)
 
 type TestStore struct {
 	store.Store
-	devices            *DummyDevice
-	events             *DummyEvent
-	fleets             *DummyFleet
-	catalogs           *DummyCatalog
-	repositories       *DummyRepository
-	resourceSyncVals   *DummyResourceSync
-	enrollmentRequests *DummyEnrollmentRequest
-	organizations      *DummyOrganization
+	devices                   *DummyDevice
+	events                    *DummyEvent
+	fleets                    *DummyFleet
+	catalogs                  *DummyCatalog
+	repositories              *DummyRepository
+	resourceSyncVals          *DummyResourceSync
+	enrollmentRequests        *DummyEnrollmentRequest
+	organizations             *DummyOrganization
+	dummyVulnerabilityFinding *DummyVulnerabilityFinding
+}
+
+type DummyVulnerabilityFinding struct {
+	findings    []model.VulnerabilityFinding
+	deviceStore *DummyDevice
+
+	// StubCVELifecycleResponses switches ListCVEEvent* methods to return the fields below instead of empty (for CVE sync tests).
+	StubCVELifecycleResponses bool
+	CVELifecycleResolution    []store.CVEEventResolutionCandidate
+	CVELifecycleResolutionErr error
+	CVELifecycleSupersede     []store.CVEEventCandidate
+	CVELifecycleSupersedeErr  error
+	CVELifecycleCritical      []store.CVEEventCandidate
+	CVELifecycleCriticalErr   error
+	CVELifecycleWarning       []store.CVEEventCandidate
+	CVELifecycleWarningErr    error
 }
 
 type DummyDevice struct {
@@ -66,6 +90,7 @@ type DummyCatalog struct {
 	store.Catalog
 	catalogs *[]domain.Catalog
 	items    *[]domain.CatalogItem
+	getErr   error
 }
 
 type DummyOrganization struct {
@@ -98,6 +123,9 @@ func (s *TestStore) init() {
 	}
 	if s.organizations == nil {
 		s.organizations = &DummyOrganization{organizations: &[]*model.Organization{}}
+	}
+	if s.dummyVulnerabilityFinding == nil {
+		s.dummyVulnerabilityFinding = &DummyVulnerabilityFinding{deviceStore: s.devices}
 	}
 }
 
@@ -139,6 +167,11 @@ func (s *TestStore) EnrollmentRequest() store.EnrollmentRequest {
 func (s *TestStore) Organization() store.Organization {
 	s.init()
 	return s.organizations
+}
+
+func (s *TestStore) VulnerabilityFinding() store.VulnerabilityFinding {
+	s.init()
+	return s.dummyVulnerabilityFinding
 }
 
 // --------------------------------------> Event
@@ -313,6 +346,9 @@ func (s *DummyFleet) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 // --------------------------------------> Catalog
 
 func (s *DummyCatalog) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	for _, catalog := range *s.catalogs {
 		if name == *catalog.Metadata.Name {
 			var c domain.Catalog
@@ -667,6 +703,665 @@ func (s *DummyOrganization) List(ctx context.Context, listParams store.ListParam
 		return []*model.Organization{}, nil
 	}
 	return *s.organizations, nil
+}
+
+// --------------------------------------> VulnerabilityFinding
+
+func (d *DummyVulnerabilityFinding) InitialMigration(_ context.Context) error { return nil }
+
+func (d *DummyVulnerabilityFinding) ListDeployedImageDigests(_ context.Context) ([]string, error) {
+	seen := map[string]struct{}{}
+	for _, f := range d.findings {
+		seen[f.ImageDigest] = struct{}{}
+	}
+	digests := make([]string, 0, len(seen))
+	for digest := range seen {
+		digests = append(digests, digest)
+	}
+	return digests, nil
+}
+
+func (d *DummyVulnerabilityFinding) UpsertFindings(_ context.Context, findings []model.VulnerabilityFinding) ([]model.ChangedFinding, error) {
+	var changed []model.ChangedFinding
+	for _, f := range findings {
+		updated := false
+		for i, existing := range d.findings {
+			if existing.ImageDigest == f.ImageDigest && existing.CveID == f.CveID {
+				severityChanged := string(existing.Severity) != string(f.Severity)
+				statusChanged := string(existing.Status) != string(f.Status)
+				if severityChanged || statusChanged {
+					changed = append(changed, model.ChangedFinding{
+						ImageDigest:     f.ImageDigest,
+						CveID:           f.CveID,
+						Severity:        string(f.Severity),
+						Status:          string(f.Status),
+						SeverityChanged: severityChanged,
+						StatusChanged:   statusChanged,
+					})
+				}
+				d.findings[i] = f
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			// New finding - both severity and status are "changed" (from nothing)
+			changed = append(changed, model.ChangedFinding{
+				ImageDigest:     f.ImageDigest,
+				CveID:           f.CveID,
+				Severity:        string(f.Severity),
+				Status:          string(f.Status),
+				SeverityChanged: true,
+				StatusChanged:   true,
+			})
+			d.findings = append(d.findings, f)
+		}
+	}
+	return changed, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilities(ctx context.Context, digest string, listParams store.ListParams) (*store.VulnerabilityListResult, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, listParams.FieldSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	var matched []model.VulnerabilityFinding
+	for _, f := range d.findings {
+		if f.ImageDigest != digest {
+			continue
+		}
+		if !findingMatchesVulnerabilityFilters(f, filters) {
+			continue
+		}
+		matched = append(matched, f)
+	}
+
+	total := int64(len(matched))
+	sortCol, sortOrder := getSortColAndOrder(listParams)
+	sort.SliceStable(matched, func(i, j int) bool {
+		return compareFindingsBySortColumn(matched[i], matched[j], sortCol, sortOrder) < 0
+	})
+
+	if listParams.Limit <= 0 {
+		return &store.VulnerabilityListResult{Items: matched}, nil
+	}
+
+	// Simple offset-based pagination for tests (cursor ignored for simplicity)
+	offset := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		// For tests, we use a simple index as continue token
+		offset, _ = strconv.Atoi(listParams.Continue.Names[0])
+	}
+	start := offset
+	if start > len(matched) {
+		start = len(matched)
+	}
+	end := start + listParams.Limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	items := matched[start:end]
+
+	var cont *string
+	if end < len(matched) {
+		cont = store.BuildContinueString([]string{strconv.Itoa(end)}, total-int64(end))
+	}
+
+	return &store.VulnerabilityListResult{Items: items, Continue: cont}, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilitySummary(ctx context.Context, digest string, fieldSelector *selector.FieldSelector) (store.SeverityCounts, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, fieldSelector)
+	if err != nil {
+		return store.SeverityCounts{}, err
+	}
+
+	seenRanks := make(map[string]int)
+	for _, f := range d.findings {
+		if f.ImageDigest != digest {
+			continue
+		}
+		if !findingMatchesVulnerabilityFilters(f, filters) {
+			continue
+		}
+		rank := store.SeverityToRank(f.Severity)
+		if current, ok := seenRanks[f.CveID]; !ok || rank < current {
+			seenRanks[f.CveID] = rank
+		}
+	}
+
+	var counts store.SeverityCounts
+	for _, rank := range seenRanks {
+		counts.Total++
+		switch model.VulnerabilitySeverityFromRank(rank) {
+		case model.VulnerabilitySeverityCritical:
+			counts.Critical++
+		case model.VulnerabilitySeverityHigh:
+			counts.High++
+		case model.VulnerabilitySeverityMedium:
+			counts.Medium++
+		case model.VulnerabilitySeverityLow:
+			counts.Low++
+		case model.VulnerabilitySeverityNone:
+			counts.None++
+		default:
+			counts.Unknown++
+		}
+	}
+	return counts, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListFleetDeviceImageDigests(_ context.Context, _ uuid.UUID, fleetName string) ([]store.DeviceImageDigest, error) {
+	owner := util.ResourceOwner(domain.FleetKind, fleetName)
+	seen := map[string]store.DeviceImageDigest{}
+	for _, dev := range *d.deviceStore.devices {
+		if lo.FromPtr(dev.Metadata.Owner) != owner {
+			continue
+		}
+		if dev.Status == nil || dev.Status.Os.ImageDigest == "" {
+			continue
+		}
+		key := dev.Status.Os.ImageDigest
+		entry := seen[key]
+		entry.ImageDigest = key
+		entry.DeviceCount++
+
+		imageFound := false
+		for _, imageRef := range entry.ImageRefs {
+			if imageRef == dev.Status.Os.Image {
+				imageFound = true
+				break
+			}
+		}
+		if !imageFound {
+			entry.ImageRefs = append(entry.ImageRefs, dev.Status.Os.Image)
+		}
+		seen[key] = entry
+	}
+	result := make([]store.DeviceImageDigest, 0, len(seen))
+	for _, v := range seen {
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListOrgDeviceImageDigests(_ context.Context, _ uuid.UUID) ([]store.DeviceImageDigest, error) {
+	seen := map[string]store.DeviceImageDigest{}
+	for _, dev := range *d.deviceStore.devices {
+		if dev.Status == nil || dev.Status.Os.ImageDigest == "" {
+			continue
+		}
+		key := dev.Status.Os.ImageDigest
+		entry := seen[key]
+		entry.ImageDigest = key
+		entry.DeviceCount++
+
+		imageFound := false
+		for _, imageRef := range entry.ImageRefs {
+			if imageRef == dev.Status.Os.Image {
+				imageFound = true
+				break
+			}
+		}
+		if !imageFound {
+			entry.ImageRefs = append(entry.ImageRefs, dev.Status.Os.Image)
+		}
+		seen[key] = entry
+	}
+	result := make([]store.DeviceImageDigest, 0, len(seen))
+	for _, v := range seen {
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilityGroups(ctx context.Context, digests []store.DeviceImageDigest, listParams store.ListParams) (*store.VulnerabilityGroupResult, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, listParams.FieldSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	digestSet := map[string]struct{}{}
+	for _, dig := range digests {
+		digestSet[dig.ImageDigest] = struct{}{}
+	}
+	groupMap := map[string]*store.VulnerabilityGroup{}
+	for _, f := range d.findings {
+		if _, ok := digestSet[f.ImageDigest]; !ok {
+			continue
+		}
+		if !findingMatchesVulnerabilityFilters(f, filters) {
+			continue
+		}
+		g, exists := groupMap[f.CveID]
+		if !exists {
+			rank := store.SeverityToRank(f.Severity)
+			g = &store.VulnerabilityGroup{CveID: f.CveID, SeverityRank: rank}
+			groupMap[f.CveID] = g
+		} else {
+			rank := store.SeverityToRank(f.Severity)
+			if rank < g.SeverityRank {
+				g.SeverityRank = rank
+			}
+		}
+
+		if f.CvssScore != nil && (g.MaxCvssScore == nil || *f.CvssScore > *g.MaxCvssScore) {
+			score := *f.CvssScore
+			g.MaxCvssScore = &score
+		}
+		if f.PublishedAt != nil && (g.MaxPublishedAt == nil || f.PublishedAt.After(*g.MaxPublishedAt)) {
+			publishedAt := *f.PublishedAt
+			g.MaxPublishedAt = &publishedAt
+		}
+		g.Findings = append(g.Findings, f)
+	}
+
+	groups := make([]store.VulnerabilityGroup, 0, len(groupMap))
+	for _, g := range groupMap {
+		groups = append(groups, *g)
+	}
+	sortCol, sortOrder := getSortColAndOrder(listParams)
+	sort.SliceStable(groups, func(i, j int) bool {
+		return compareVulnerabilityGroupsBySortColumn(groups[i], groups[j], sortCol, sortOrder) < 0
+	})
+
+	total := int64(len(groups))
+	if listParams.Limit <= 0 {
+		return &store.VulnerabilityGroupResult{Groups: groups}, nil
+	}
+
+	// Simple offset-based pagination for tests
+	offset := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		offset, _ = strconv.Atoi(listParams.Continue.Names[0])
+	}
+	start := offset
+	if start > len(groups) {
+		start = len(groups)
+	}
+	end := start + listParams.Limit
+	if end > len(groups) {
+		end = len(groups)
+	}
+	items := groups[start:end]
+
+	var cont *string
+	if end < len(groups) {
+		cont = store.BuildContinueString([]string{strconv.Itoa(end)}, total-int64(end))
+	}
+
+	return &store.VulnerabilityGroupResult{Groups: items, Continue: cont}, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetFleetVulnerabilitySummary(ctx context.Context, digests []store.DeviceImageDigest, fieldSelector *selector.FieldSelector) (store.FleetSeverityCounts, error) {
+	filters, err := parseVulnerabilityFindingFilters(ctx, fieldSelector)
+	if err != nil {
+		return store.FleetSeverityCounts{}, err
+	}
+
+	digestSet := map[string]struct{}{}
+	for _, dig := range digests {
+		digestSet[dig.ImageDigest] = struct{}{}
+	}
+	// Track the worst (minimum rank) severity per CVE across all matching digests.
+	cveWorstRank := map[string]int{}
+	for _, f := range d.findings {
+		if _, ok := digestSet[f.ImageDigest]; !ok {
+			continue
+		}
+		if !findingMatchesVulnerabilityFilters(f, filters) {
+			continue
+		}
+		rank := store.SeverityToRank(f.Severity)
+		if existing, seen := cveWorstRank[f.CveID]; !seen || rank < existing {
+			cveWorstRank[f.CveID] = rank
+		}
+	}
+	var counts store.FleetSeverityCounts
+	counts.UniqueDigests = int64(len(digestSet))
+	for _, rank := range cveWorstRank {
+		counts.Total++
+		switch model.VulnerabilitySeverityFromRank(rank) {
+		case model.VulnerabilitySeverityCritical:
+			counts.Critical++
+		case model.VulnerabilitySeverityHigh:
+			counts.High++
+		case model.VulnerabilitySeverityMedium:
+			counts.Medium++
+		case model.VulnerabilitySeverityLow:
+			counts.Low++
+		case model.VulnerabilitySeverityNone:
+			counts.None++
+		default:
+			counts.Unknown++
+		}
+	}
+	return counts, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetOrgVulnerabilitySummary(_ context.Context, _ uuid.UUID) (store.OrgVulnerabilitySummary, error) {
+	return store.OrgVulnerabilitySummary{}, nil
+}
+
+func (d *DummyVulnerabilityFinding) FindAnyFindingForCVE(_ context.Context, cveID string) (*model.VulnerabilityFinding, error) {
+	for i := range d.findings {
+		if d.findings[i].CveID == cveID {
+			f := d.findings[i]
+			return &f, nil
+		}
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) FindingsForCVEAndImageDigests(_ context.Context, cveID string, imageDigests []string) ([]model.VulnerabilityFinding, error) {
+	if len(imageDigests) == 0 {
+		return nil, nil
+	}
+	wantDigest := map[string]struct{}{}
+	for _, dig := range imageDigests {
+		wantDigest[dig] = struct{}{}
+	}
+	var out []model.VulnerabilityFinding
+	for _, f := range d.findings {
+		if f.CveID != cveID {
+			continue
+		}
+		if _, ok := wantDigest[f.ImageDigest]; ok {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetVulnerabilityImpactPage(_ context.Context, _ uuid.UUID, _ string, _ store.ListParams) (*store.ImpactPageResult, error) {
+	return &store.ImpactPageResult{}, nil
+}
+
+func (d *DummyVulnerabilityFinding) GetImpactDigestDetails(_ context.Context, _ uuid.UUID, _ string, _ []string, _ bool) ([]store.ImpactDigestDetail, error) {
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListCVEEventResolutionCandidates(_ context.Context) ([]store.CVEEventResolutionCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleResolution, d.CVELifecycleResolutionErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListOpenWarningSupersedeCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleSupersede, d.CVELifecycleSupersedeErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListCriticalCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleCritical, d.CVELifecycleCriticalErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ListWarningCVEEventCandidates(_ context.Context) ([]store.CVEEventCandidate, error) {
+	if d.StubCVELifecycleResponses {
+		return d.CVELifecycleWarning, d.CVELifecycleWarningErr
+	}
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) ComputeAllCVEActions(_ context.Context, _ []model.ChangedFinding, _ time.Time) ([]model.CVEEventAction, error) {
+	return nil, nil
+}
+
+func (d *DummyVulnerabilityFinding) BatchUpdateOpenEvents(_ context.Context, actions []model.CVEEventAction) ([]model.CVEEventAction, error) {
+	return actions, nil
+}
+
+type vulnerabilityFindingFilter struct {
+	field string
+	op    string
+	value string
+}
+
+var vulnerabilityFilterPattern = regexp.MustCompile(`\b(severity|cve_id)\b\s*(=|!=)\s*\?`)
+
+func parseVulnerabilityFindingFilters(ctx context.Context, fs *selector.FieldSelector) ([]vulnerabilityFindingFilter, error) {
+	if fs == nil {
+		return nil, nil
+	}
+
+	query, args, err := fs.Parse(ctx, &dummyVulnerabilityFindingResolver{})
+	if err != nil {
+		return nil, err
+	}
+	if len(args) == 0 {
+		return nil, nil
+	}
+
+	matches := vulnerabilityFilterPattern.FindAllStringSubmatch(query, -1)
+	if len(matches) != len(args) {
+		return nil, fmt.Errorf("unsupported field selector query for dummy vulnerability store")
+	}
+
+	filters := make([]vulnerabilityFindingFilter, 0, len(matches))
+	for i, m := range matches {
+		value, ok := args[i].(string)
+		if !ok {
+			return nil, fmt.Errorf("unsupported field selector argument type %T for dummy vulnerability store", args[i])
+		}
+		filters = append(filters, vulnerabilityFindingFilter{
+			field: m[1],
+			op:    m[2],
+			value: value,
+		})
+	}
+	return filters, nil
+}
+
+func findingMatchesVulnerabilityFilters(f model.VulnerabilityFinding, filters []vulnerabilityFindingFilter) bool {
+	for _, filter := range filters {
+		var actual string
+		switch filter.field {
+		case "severity":
+			actual = string(f.Severity)
+		case "cve_id":
+			actual = f.CveID
+		default:
+			return false
+		}
+
+		switch filter.op {
+		case "=":
+			if actual != filter.value {
+				return false
+			}
+		case "!=":
+			if actual == filter.value {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func getSortColAndOrder(listParams store.ListParams) (store.SortColumn, store.SortOrder) {
+	sortCol := store.SortBySeverity
+	if len(listParams.SortColumns) > 0 {
+		sortCol = listParams.SortColumns[0]
+	}
+	sortOrder := store.SortDesc
+	if listParams.SortOrder != nil {
+		sortOrder = *listParams.SortOrder
+	}
+	return sortCol, sortOrder
+}
+
+func compareFindingsBySortColumn(a, b model.VulnerabilityFinding, sortCol store.SortColumn, sortOrder store.SortOrder) int {
+	descending := sortOrder == store.SortDesc
+	switch sortCol {
+	case store.SortByCvssScore:
+		if result := compareNullableFloat(a.CvssScore, b.CvssScore, descending); result != 0 {
+			return result
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	case store.SortByPublishedAt:
+		if result := compareNullableTime(a.PublishedAt, b.PublishedAt, descending); result != 0 {
+			return result
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	case store.SortByCveId:
+		if descending {
+			return strings.Compare(b.CveID, a.CveID)
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	default: // severity
+		rankA := store.SeverityToRank(a.Severity)
+		rankB := store.SeverityToRank(b.Severity)
+		if rankA != rankB {
+			if descending {
+				if rankA < rankB {
+					return -1
+				}
+				return 1
+			}
+			if rankA > rankB {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	}
+}
+
+func compareVulnerabilityGroupsBySortColumn(a, b store.VulnerabilityGroup, sortCol store.SortColumn, sortOrder store.SortOrder) int {
+	descending := sortOrder == store.SortDesc
+	switch sortCol {
+	case store.SortByCvssScore:
+		if result := compareNullableFloat(a.MaxCvssScore, b.MaxCvssScore, descending); result != 0 {
+			return result
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	case store.SortByPublishedAt:
+		if result := compareNullableTime(a.MaxPublishedAt, b.MaxPublishedAt, descending); result != 0 {
+			return result
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	case store.SortByCveId:
+		if descending {
+			return strings.Compare(b.CveID, a.CveID)
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	default: // severity
+		if a.SeverityRank != b.SeverityRank {
+			if descending {
+				if a.SeverityRank < b.SeverityRank {
+					return -1
+				}
+				return 1
+			}
+			if a.SeverityRank > b.SeverityRank {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.CveID, b.CveID)
+	}
+}
+
+func compareNullableFloat(a, b *float64, descending bool) int {
+	if a == nil && b == nil {
+		return 0
+	}
+	// Match DB behavior where NULLS are always last.
+	if a == nil {
+		return 1
+	}
+	if b == nil {
+		return -1
+	}
+	if *a == *b {
+		return 0
+	}
+	if descending {
+		if *a > *b {
+			return -1
+		}
+		return 1
+	}
+	if *a < *b {
+		return -1
+	}
+	return 1
+}
+
+func compareNullableTime(a, b *time.Time, descending bool) int {
+	if a == nil && b == nil {
+		return 0
+	}
+	// Match DB behavior where NULLS are always last.
+	if a == nil {
+		return 1
+	}
+	if b == nil {
+		return -1
+	}
+	if a.Equal(*b) {
+		return 0
+	}
+	if descending {
+		if a.After(*b) {
+			return -1
+		}
+		return 1
+	}
+	if a.Before(*b) {
+		return -1
+	}
+	return 1
+}
+
+type dummyVulnerabilityFindingResolver struct{}
+
+func (r *dummyVulnerabilityFindingResolver) ResolveNames(name selector.SelectorName) ([]string, error) {
+	switch name.String() {
+	case "severity":
+		return []string{"severity"}, nil
+	case "cveId":
+		return []string{"cve_id"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported field selector %q for dummy vulnerability findings, supported: severity, cveId", name.String())
+	}
+}
+
+func (r *dummyVulnerabilityFindingResolver) ResolveFields(name selector.SelectorName) ([]*selector.SelectorField, error) {
+	switch name.String() {
+	case "severity":
+		return []*selector.SelectorField{{
+			Name:      selector.NewSelectorName("severity"),
+			Type:      selector.String,
+			FieldName: "severity",
+			FieldType: "text",
+		}}, nil
+	case "cveId":
+		return []*selector.SelectorField{{
+			Name:      selector.NewSelectorName("cveId"),
+			Type:      selector.String,
+			FieldName: "cve_id",
+			FieldType: "text",
+		}}, nil
+	default:
+		return nil, fmt.Errorf("unsupported field selector %q for dummy vulnerability findings, supported: severity, cveId", name.String())
+	}
+}
+
+func (r *dummyVulnerabilityFindingResolver) List() []selector.SelectorName {
+	return []selector.SelectorName{
+		selector.NewSelectorName("severity"),
+		selector.NewSelectorName("cveId"),
+	}
 }
 
 // --------------------------------------> WorkerClient

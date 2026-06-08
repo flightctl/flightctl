@@ -732,6 +732,15 @@ func TestValidateAlertRules(t *testing.T) {
 }
 
 func TestValidateConfigs(t *testing.T) {
+	const (
+		dupName    = "my-config"
+		sharedName = "shared-name"
+		pathA      = "/path/a"
+		pathB      = "/path/b"
+		pathC      = "/path/c"
+		mntSecret  = "/mnt/secret"
+	)
+
 	require := require.New(t)
 	tests := []struct {
 		name    string
@@ -766,6 +775,56 @@ func TestValidateConfigs(t *testing.T) {
 		{
 			name:    "empty configs",
 			configs: []ConfigProviderSpec{},
+			wantErr: false,
+		},
+		{
+			name: "When duplicate http config names are used it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec(dupName, pathA),
+				newNamedHttpConfigProviderSpec(dupName, pathB),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate inline config names are used it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedInlineConfigProviderSpec(dupName, []string{pathA}),
+				newNamedInlineConfigProviderSpec(dupName, []string{pathB}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across http and inline types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec(sharedName, pathA),
+				newNamedInlineConfigProviderSpec(sharedName, []string{pathB}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across git and http types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedGitConfigProviderSpec(sharedName),
+				newNamedHttpConfigProviderSpec(sharedName, pathA),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When duplicate names across k8s and inline types it should reject",
+			configs: []ConfigProviderSpec{
+				newNamedK8sSecretConfigProviderSpec(sharedName, mntSecret),
+				newNamedInlineConfigProviderSpec(sharedName, []string{pathA}),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When all config names are unique it should accept",
+			configs: []ConfigProviderSpec{
+				newNamedHttpConfigProviderSpec("config-a", pathA),
+				newNamedHttpConfigProviderSpec("config-b", pathB),
+				newNamedInlineConfigProviderSpec("config-c", []string{pathC}),
+				newNamedGitConfigProviderSpec("config-d"),
+			},
 			wantErr: false,
 		},
 	}
@@ -815,6 +874,76 @@ func newInlineConfigProviderSpec(paths []string) ConfigProviderSpec {
 	}
 
 	_ = provider.FromInlineConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedHttpConfigProviderSpec(name, path string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := HttpConfigProviderSpec{
+		Name: name,
+		HttpRef: struct {
+			FilePath   string  `json:"filePath"`
+			Repository string  `json:"repository"`
+			Suffix     *string `json:"suffix,omitempty"`
+		}{
+			FilePath:   path,
+			Repository: "default-repo",
+			Suffix:     nil,
+		},
+	}
+	_ = provider.FromHttpConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedInlineConfigProviderSpec(name string, paths []string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	var inlines []FileSpec
+	for _, p := range paths {
+		inlines = append(inlines, FileSpec{Path: p})
+	}
+	spec := InlineConfigProviderSpec{
+		Name:   name,
+		Inline: inlines,
+	}
+	_ = provider.FromInlineConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedGitConfigProviderSpec(name string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := GitConfigProviderSpec{
+		Name: name,
+		GitRef: struct {
+			Path           string `json:"path"`
+			Repository     string `json:"repository"`
+			TargetRevision string `json:"targetRevision"`
+		}{
+			Path:           "/etc/app",
+			Repository:     "default-repo",
+			TargetRevision: "main",
+		},
+	}
+	_ = provider.FromGitConfigProviderSpec(spec)
+	return provider
+}
+
+func newNamedK8sSecretConfigProviderSpec(name, mountPath string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := KubernetesSecretProviderSpec{
+		Name: name,
+		SecretRef: struct {
+			Group     string   `json:"group,omitempty"`
+			MountPath string   `json:"mountPath"`
+			Name      string   `json:"name"`
+			Namespace string   `json:"namespace"`
+			User      Username `json:"user,omitempty"`
+		}{
+			MountPath: mountPath,
+			Name:      "my-secret",
+			Namespace: "default",
+		},
+	}
+	_ = provider.FromKubernetesSecretProviderSpec(spec)
 	return provider
 }
 
@@ -2166,6 +2295,99 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repoSpec := RepositorySpec{}
 			err := repoSpec.FromOciRepoSpec(tt.spec)
+			require.NoError(t, err)
+
+			repo := Repository{
+				ApiVersion: "v1beta1",
+				Kind:       "Repository",
+				Metadata: ObjectMeta{
+					Name: lo.ToPtr("test-oci-repo"),
+				},
+				Spec: repoSpec,
+			}
+
+			errs := repo.Validate()
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected validation error")
+				if tt.errMsg != "" {
+					found := false
+					for _, e := range errs {
+						if strings.Contains(e.Error(), tt.errMsg) {
+							found = true
+							break
+						}
+					}
+					require.True(t, found, "expected error containing %q, got %v", tt.errMsg, errs)
+				}
+			} else {
+				require.Empty(t, errs, "unexpected validation errors: %v", errs)
+			}
+		})
+	}
+}
+
+func TestRepository_Validate_BaseImages(t *testing.T) {
+	makeBaseImage := func(imageName string, tags ...string) BaseImageEntry {
+		return BaseImageEntry{ImageName: imageName, Tags: tags}
+	}
+
+	tests := []struct {
+		name    string
+		images  []BaseImageEntry
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid - single base image",
+			images:  []BaseImageEntry{makeBaseImage("centos-bootc/centos-bootc", "stream9")},
+			wantErr: false,
+		},
+		{
+			name: "valid - multiple base images with unique image names",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9"),
+				makeBaseImage("rhel/rhel-bootc", "9.4"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid - duplicate imageName across entries",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9"),
+				makeBaseImage("centos-bootc/centos-bootc", "stream10"),
+			},
+			wantErr: true,
+			errMsg:  "spec.baseImages[1].imageName: duplicate imageName",
+		},
+		{
+			name: "invalid - triplicate imageName: second and third are both flagged",
+			images: []BaseImageEntry{
+				makeBaseImage("my-org/my-image", "v1"),
+				makeBaseImage("my-org/my-image", "v2"),
+				makeBaseImage("my-org/my-image", "v3"),
+			},
+			wantErr: true,
+			errMsg:  "spec.baseImages[1].imageName: duplicate imageName",
+		},
+		{
+			name: "invalid - duplicate tags within an entry",
+			images: []BaseImageEntry{
+				makeBaseImage("centos-bootc/centos-bootc", "stream9", "stream9"),
+			},
+			wantErr: true,
+			errMsg:  `spec.baseImages[0].tags[1]: duplicate tag "stream9"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoSpec := RepositorySpec{}
+			err := repoSpec.FromOciRepoSpec(OciRepoSpec{
+				Registry:   "quay.io",
+				Type:       "oci",
+				BaseImages: &tt.images,
+			})
 			require.NoError(t, err)
 
 			repo := Repository{

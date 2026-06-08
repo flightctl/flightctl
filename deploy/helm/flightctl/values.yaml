@@ -49,6 +49,8 @@ global:
       rbacNs: ""
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
+      # -- Optional prefix for org names from this provider (e.g. "k8s-"). Incoming org name is exposed as prefix + name.
+      organizationNamePrefix: ""
     oidc:
       # -- OIDC Client ID
       clientId: "flightctl-client"
@@ -104,6 +106,8 @@ global:
       scopes:
         - "read"
         - "write"
+      # -- Optional prefix for org names from this provider (e.g. "aap-"). Incoming org names are exposed as prefix + name.
+      organizationNamePrefix: ""
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
@@ -123,6 +127,8 @@ global:
       issuer: ""
       # -- Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)
       projectLabelFilter: ""
+      # -- Optional prefix for org (project) names from this provider (e.g. "ocp-"). Incoming names are exposed as prefix + name.
+      organizationNamePrefix: ""
   # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
   exposeServicesMethod: "auto"
   # -- Configuration for 'gateway' service exposure method
@@ -307,6 +313,14 @@ periodic:
     pullPolicy: ""
   # -- Number of periodic consumers
   consumers: 5
+  # -- Allow flightctl-periodic to list/watch secrets at the cluster level for change detection
+  clusterLevelSecretAccess: false
+  # -- Metrics configuration for flightctl-periodic
+  metrics:
+    # -- Enable Prometheus metrics endpoint
+    enabled: true
+    # -- Address for the metrics HTTP server
+    address: ":15690"
 
 # -- Alert Exporter Configuration
 alertExporter:
@@ -331,7 +345,17 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
+# -- UBI Minimal base image used by init containers (cert setup, etc.)
+# Override this when deploying in an air-gapped environment where
+# registry.access.redhat.com is unreachable — set image and tag to the
+# mirrored location produced by the mirror-images tool.
+ubiMinimal:
+  # -- UBI minimal image repository
+  image: registry.access.redhat.com/ubi9/ubi-minimal
+  # -- UBI minimal image tag (pinned to avoid unexpected updates)
+  tag: "9.7-1763362218"
+
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service
@@ -371,7 +395,7 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
-  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  # -- Builder images (podman, bootc-image-builder, syft) and skip-TLS options
   serviceImages:
     podman:
       # -- Podman builder image (leave empty to use default).
@@ -383,6 +407,22 @@ imageBuilderWorker:
       image: ""
       # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
       skipTlsVerify: false
+    syft:
+      # -- Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`.
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Syft image.
+      skipTlsVerify: false
+  # -- SBOM generation after image push (Syft produces CycloneDX JSON; PURL normalization; optional OCI referrer push and Trustify upload when configured).
+  sbom:
+    # -- Run SBOM generation after a successful image push.
+    enabled: true
+    # -- Attach the SBOM to the pushed image as an OCI 1.1 referrer artifact on the destination registry.
+    pushToRegistry: true
+    # -- Upload the SBOM to Trustify when vulnerability reporting is enabled and Trustify is configured (same settings as `vulnerabilityReporting` elsewhere in this chart).
+    uploadToTrustify: true
+    purlTransform:
+      # -- Normalize RPM PURLs (namespace/distro/qualifiers) before push/upload for advisory matching.
+      enabled: true
   # -- Resource requests and limits
   resources: {}
 
@@ -456,6 +496,23 @@ dbSetup:
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0
+
+# -- Vulnerability Integration Configuration
+vulnerabilityReporting:
+  # -- Enable vulnerability integration (sync task + API endpoints).
+  enabled: false
+  # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
+  syncInterval: "15m"
+  trustify:
+    # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
+    endpoint: ""
+    auth:
+      # -- Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'.
+      mode: "none"
+      # -- OIDC issuer URL for client-credentials mode.
+      oidcIssuerUrl: ""
+      # -- Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys.
+      secretName: ""
 
 # -- Upgrade hooks
 upgradeHooks:

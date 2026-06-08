@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -58,7 +59,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		// Check if TLS connection exists
 		if r.TLS == nil {
 			m.log.Debug("No TLS connection for agent authentication")
-			http.Error(w, "TLS connection required for agent authentication", http.StatusBadRequest)
+			transport.WriteJSONError(w, r, "TLS connection required for agent authentication", http.StatusBadRequest)
 			return
 		}
 
@@ -87,7 +88,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		peerSigner := m.ca.PeerCertificateSignerFromCtx(ctx)
 		if peerSigner == nil {
 			m.log.Warn("could not determine peer certificate signer")
-			http.Error(w, "could not determine peer certificate signer", http.StatusUnauthorized)
+			transport.WriteJSONError(w, r, "could not determine peer certificate signer", http.StatusUnauthorized)
 			return
 		}
 
@@ -99,7 +100,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 				m.ca.Cfg.DeviceManagementRenewalSignerName,
 				peerSigner.Name(),
 			)
-			http.Error(w, fmt.Sprintf(
+			transport.WriteJSONError(w, r, fmt.Sprintf(
 				"unexpected client certificate signer: expected %q or %q, got %q",
 				m.ca.Cfg.DeviceManagementSignerName,
 				m.ca.Cfg.DeviceManagementRenewalSignerName,
@@ -112,7 +113,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
 		if err != nil {
 			m.log.Warnf("Agent certificate validation failed: %v", err)
-			http.Error(w, fmt.Sprintf("Certificate validation failed: %v", err), http.StatusUnauthorized)
+			transport.WriteJSONError(w, r, fmt.Sprintf("Certificate validation failed: %v", err), http.StatusUnauthorized)
 			return
 		}
 
@@ -120,7 +121,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		fingerprint, err := signer.DeviceFingerprintFromCN(m.ca.Cfg, peerCertificate.Subject.CommonName)
 		if err != nil {
 			m.log.Errorf("Failed to extract device fingerprint: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to extract device fingerprint: %v", err), http.StatusUnauthorized)
+			transport.WriteJSONError(w, r, fmt.Sprintf("Failed to extract device fingerprint: %v", err), http.StatusUnauthorized)
 			return
 		}
 
@@ -128,7 +129,7 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		orgID, present, err := signer.GetOrgIDExtensionFromCert(peerCertificate)
 		if err != nil {
 			m.log.Errorf("Failed to extract organization ID from certificate: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to extract organization ID: %v", err), http.StatusUnauthorized)
+			transport.WriteJSONError(w, r, fmt.Sprintf("Failed to extract organization ID: %v", err), http.StatusUnauthorized)
 			return
 		}
 

@@ -34,10 +34,12 @@ const (
 	FleetKind                     ResourceKind = "fleet"
 	ImageBuildKind                ResourceKind = "imagebuild"
 	ImageExportKind               ResourceKind = "imageexport"
+	ImagePromotionKind            ResourceKind = "imagepromotion"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
 	TemplateVersionKind           ResourceKind = "templateversion"
+	VulnerabilityKind             ResourceKind = "vulnerability"
 )
 
 func (r ResourceKind) String() string {
@@ -74,10 +76,12 @@ var (
 		FleetKind:                     {},
 		ImageBuildKind:                {},
 		ImageExportKind:               {},
+		ImagePromotionKind:            {},
 		OrganizationKind:              {},
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
 		TemplateVersionKind:           {},
+		VulnerabilityKind:             {},
 	}
 
 	validResourceKinds = slices.Collect(maps.Keys(resourceKindSet))
@@ -93,10 +97,12 @@ var (
 		"fleets":                     FleetKind,
 		"imagebuilds":                ImageBuildKind,
 		"imageexports":               ImageExportKind,
+		"imagepromotions":            ImagePromotionKind,
 		"organizations":              OrganizationKind,
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
 		"templateversions":           TemplateVersionKind,
+		"vulnerabilities":            VulnerabilityKind,
 	}
 
 	kindToPlural = map[ResourceKind]string{
@@ -110,10 +116,12 @@ var (
 		FleetKind:                     "fleets",
 		ImageBuildKind:                "imagebuilds",
 		ImageExportKind:               "imageexports",
+		ImagePromotionKind:            "imagepromotions",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
+		VulnerabilityKind:             "vulnerabilities",
 	}
 
 	shortnameToKind = map[string]ResourceKind{
@@ -127,10 +135,12 @@ var (
 		"flt":  FleetKind,
 		"ib":   ImageBuildKind,
 		"ie":   ImageExportKind,
+		"ip":   ImagePromotionKind,
 		"org":  OrganizationKind,
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,
 		"tv":   TemplateVersionKind,
+		"vuln": VulnerabilityKind,
 	}
 )
 
@@ -256,11 +266,68 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 		var responseError api.Status
 		err := json.Unmarshal(responseBody, &responseError)
 		if err != nil {
-			return fmt.Errorf("%d %s", statusCode, string(responseBody))
+			return fmt.Errorf("server returned %d: %s", statusCode, string(responseBody))
 		}
-		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+		return fmt.Errorf("server returned %d: %s", statusCode, responseError.Message)
 	}
 	return nil
+}
+
+// FormatStatusError formats an api.Status for user-facing display.
+// Returns a formatted string with status code and message.
+func FormatStatusError(status *api.Status) string {
+	if status == nil || status.Message == "" {
+		return "unknown error"
+	}
+	if status.Code != 0 {
+		return fmt.Sprintf("response status: %d, message: %s", status.Code, status.Message)
+	}
+	return status.Message
+}
+
+// ParseStatusFromBody attempts to parse the response body as an api.Status.
+// Returns a Status with diagnostic text if parsing fails, body is empty, or Message is missing.
+func ParseStatusFromBody(body []byte) *api.Status {
+	if len(body) == 0 {
+		return &api.Status{Message: "empty response body"}
+	}
+	var status api.Status
+	if err := json.Unmarshal(body, &status); err != nil {
+		return &api.Status{Message: fmt.Sprintf("malformed response: %s", string(body))}
+	}
+	if status.Message == "" {
+		status.Message = fmt.Sprintf("no message in response: %s", string(body))
+	}
+	return &status
+}
+
+// APIError represents an error from an API operation with structured details.
+type APIError struct {
+	Status *api.Status // parsed API response, may be nil
+}
+
+// Error implements the error interface.
+func (e *APIError) Error() string {
+	return FormatStatusError(e.Status)
+}
+
+// CLIError represents a CLI operation error that can wrap other errors.
+type CLIError struct {
+	Context string // e.g., "applying examples/imagebuild.yaml/foo: failed"
+	Err     error  // nested error (could be APIError or other)
+}
+
+// Error implements the error interface with user-friendly formatting.
+func (e *CLIError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s\n%s", e.Context, e.Err.Error())
+	}
+	return e.Context
+}
+
+// Unwrap returns the underlying error for errors.As/Is support.
+func (e *CLIError) Unwrap() error {
+	return e.Err
 }
 
 func validateOrganizationID(orgID string) error {

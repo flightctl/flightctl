@@ -2,13 +2,13 @@
 
 ## Installing on Kubernetes
 
-You can install the Flight Control Service on any certified Kubernetes distribution that supports the Gateway API. If you have an OpenShift Kubernetes cluster available, refer to [Installing on OpenShift](#installing-on-openshift) for a more streamlined experience.
+You can install the Flight Control Service on any certified Kubernetes distribution that supports the Gateway API. If you have an OpenShift Kubernetes cluster available, refer to [Installing on OpenShift](#installing-on-openshift) for a more streamlined experience. If you are running RHEL and need a lightweight Kubernetes distribution, refer to [Installing on MicroShift](#installing-on-microshift).
 
 It is recommended to install `cert-manager` before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using Helm's built-in functions once, but does not manage them.
 
 ### (Optional) Installing a `kind` cluster
 
-If you do not have a Kubernetes cluster available, you can use the [installation on Linux](installing-service-on-linux.md) or create a local test cluster using `kind` (Kubernetes in Docker). This section guides you through setting up a `kind` cluster with Gateway API support for use with Flight Control.
+If you do not have a Kubernetes cluster available and are not running RHEL, you can use the [installation on Linux](installing-service-on-linux.md) or create a local test cluster using `kind` (Kubernetes in Docker). This section guides you through setting up a `kind` cluster with Gateway API support for use with Flight Control.
 
 Prerequisites:
 
@@ -194,6 +194,9 @@ Procedure:
       --set global.baseDomainTlsSecretName=flightctl-tls
     ```
 
+    > [!IMPORTANT]
+    > EL10 container images are not supported with Helm deployments. Use EL9 images only.
+
 6. Wait for the pods to be in `Running` or `Completed` state:
 
     ```console
@@ -271,6 +274,9 @@ Procedure:
       --namespace ${FC_NAMESPACE} --create-namespace
     ```
 
+    > [!IMPORTANT]
+    > EL10 container images are not supported with Helm deployments. Use EL9 images only.
+
 4. Wait for the pods to be in `Running` or `Completed` state:
 
     ```console
@@ -312,6 +318,100 @@ Procedure:
 6. Click on the URL shown under "Location" to access the Flight Control UI with your current user account and credentials.
 
 If you need to access your service using the `flightctl` CLI, find and click the "Copy login command" button to see the command to use to log the `flightctl` CLI in to your service.
+
+## Installing on MicroShift
+
+MicroShift is the recommended lightweight Kubernetes distribution for RHEL. It is installed as an RPM, runs as a systemd service, and exposes OpenShift-compatible APIs including Routes and OAuth. The Flight Control Helm chart automatically detects MicroShift as an OpenShift cluster and uses Routes for service exposure, so no Gateway API configuration is required.
+
+Prerequisites:
+
+- You have a RHEL 9 host with an active Red Hat subscription.
+- You have a Red Hat pull secret downloaded from [console.redhat.com](https://console.redhat.com) → OpenShift → Downloads.
+- You have `helm` version 3.17+ installed.
+
+### Step 1: Install MicroShift
+
+1. Enable the MicroShift and Fast Datapath repositories:
+
+    ```console
+    sudo subscription-manager repos \
+        --enable rhocp-4.17-for-rhel-9-x86_64-rpms \
+        --enable fast-datapath-for-rhel-9-x86_64-rpms
+    ```
+
+2. Install MicroShift:
+
+    ```console
+    sudo dnf install -y microshift
+    ```
+
+3. Copy your pull secret to the required location:
+
+    ```console
+    sudo cp ~/openshift-pull-secret.json /etc/crio/openshift-pull-secret
+    sudo chmod 600 /etc/crio/openshift-pull-secret
+    ```
+
+4. Enable and start MicroShift:
+
+    ```console
+    sudo systemctl enable --now microshift
+    ```
+
+### Step 2: Configure kubeconfig access
+
+```console
+mkdir -p ~/.kube
+sudo cat /var/lib/microshift/resources/kubeadmin/$(hostname)/kubeconfig > ~/.kube/config
+```
+
+Verify the cluster is running:
+
+```console
+kubectl get nodes
+```
+
+### Step 3: Install Flight Control
+
+1. Define the Flight Control version and namespace:
+
+    ```console
+    FC_VERSION=1.1.0
+    FC_NAMESPACE=flightctl
+    ```
+
+2. Deploy Flight Control:
+
+    ```console
+    helm upgrade --install flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
+      --namespace ${FC_NAMESPACE} --create-namespace
+    ```
+
+    > [!IMPORTANT]
+    > EL10 container images are not supported with Helm deployments. Use EL9 images only.
+
+3. Wait for the pods to be in `Running` or `Completed` state:
+
+    ```console
+    kubectl get pods -n ${FC_NAMESPACE} -w
+    ```
+
+### Step 4: Access the service
+
+Get the UI URL:
+
+```console
+oc get route flightctl-ui -n ${FC_NAMESPACE} -o jsonpath='{.spec.host}'
+```
+
+Log in with the `flightctl` CLI:
+
+```console
+FC_API_ENDPOINT=$(oc get route flightctl-api -n ${FC_NAMESPACE} -o jsonpath='{.spec.host}')
+FC_TOKEN=$(kubectl create token flightctl-admin -n ${FC_NAMESPACE} --duration=24h)
+
+flightctl login ${FC_API_ENDPOINT} -t ${FC_TOKEN}
+```
 
 ## Installing with Advanced Cluster Management
 

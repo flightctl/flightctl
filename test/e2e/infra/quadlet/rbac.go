@@ -77,8 +77,13 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
 		sshArgs = append(sshArgs, sshTarget)
 
-		// Build remote command with optional sudo
-		remoteCmd := strings.Join(command, " ")
+		// Build remote command with proper shell quoting to prevent
+		// metacharacter expansion (e.g. | in chpasswd pipes).
+		quoted := make([]string, len(command))
+		for i, arg := range command {
+			quoted[i] = shellQuote(arg)
+		}
+		remoteCmd := strings.Join(quoted, " ")
 		if p.useSudo {
 			remoteCmd = "sudo " + remoteCmd
 		}
@@ -108,8 +113,13 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 
 // runPodmanExec executes a command in the PAM issuer container.
 func (p *PAMRBACProvider) runPodmanExec(args ...string) (string, error) {
-	cmdArgs := append([]string{"podman", "exec", p.pamIssuerContainer}, args...)
+	cmdArgs := append([]string{"podman", "exec", "--user", "0", p.pamIssuerContainer}, args...)
 	return p.runCommand(cmdArgs...)
+}
+
+// shellQuote wraps s in single quotes for safe use in a remote shell command.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // buildGroupName constructs the group name from namespace and role name.
@@ -291,9 +301,14 @@ func (p *PAMRBACProvider) removeUserFromGroup(username, groupName string) error 
 // --- PAM-specific convenience methods for tests ---
 
 // CreateUser creates a user in the PAM issuer container.
+// Idempotent: returns nil if the user already exists.
 func (p *PAMRBACProvider) CreateUser(username string) error {
 	_, err := p.runPodmanExec("adduser", username)
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			logrus.Debugf("PAM RBAC: user %s already exists", username)
+			return nil
+		}
 		return fmt.Errorf("failed to create user %s: %w", username, err)
 	}
 	logrus.Infof("PAM RBAC: created user %s", username)
@@ -301,9 +316,14 @@ func (p *PAMRBACProvider) CreateUser(username string) error {
 }
 
 // DeleteUser deletes a user from the PAM issuer container.
+// Idempotent: returns nil if the user does not exist.
 func (p *PAMRBACProvider) DeleteUser(username string) error {
 	_, err := p.runPodmanExec("userdel", "-r", username)
 	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			logrus.Debugf("PAM RBAC: user %s does not exist", username)
+			return nil
+		}
 		return fmt.Errorf("failed to delete user %s: %w", username, err)
 	}
 	logrus.Infof("PAM RBAC: deleted user %s", username)

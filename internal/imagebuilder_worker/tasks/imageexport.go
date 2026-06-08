@@ -3,15 +3,11 @@ package tasks
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	_ "embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
@@ -31,13 +28,19 @@ import (
 	"github.com/sirupsen/logrus"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 // containerdiskTemplate is embedded from the templates directory for building containerdisk images
 //
 //go:embed templates/Containerfile.containerdisk.tmpl
 var containerdiskTemplate string
+
+const (
+	// exportStorageBaseDir is the base directory for temporary container storage used
+	// during image export. A unique subdirectory is created per job and removed when
+	// the job completes. Any leftovers from a crash are swept on worker startup.
+	exportStorageBaseDir = "/var/tmp/flightctl-exports"
+)
 
 var (
 	// errImageBuildNotReady is returned when ImageBuild is not ready yet (pending state)
@@ -481,8 +484,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
 	}
 
-	baseStorageDir := "/var/tmp/flightctl-exports"
-	tmpContainerStorage, err := os.MkdirTemp(baseStorageDir, "storage-*")
+	tmpContainerStorage, err := os.MkdirTemp(exportStorageBaseDir, "storage-*")
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		os.RemoveAll(tmpOutDir)
@@ -532,9 +534,13 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
 			log.WithError(err).Warn("Failed to kill bootc-image-builder container during cleanup")
 		}
-		os.RemoveAll(tmpDir)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
+		}
 		// Don't remove tmpOutDir here - it's cleaned up separately after pushArtifact completes
-		os.RemoveAll(tmpContainerStorage)
+		if err := os.RemoveAll(tmpContainerStorage); err != nil {
+			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
+		}
 	}
 
 	return &privilegedPodmanWorker{
@@ -1047,57 +1053,6 @@ func getReferencedDigest(
 	return destManifestDesc, nil
 }
 
-// newOCIAuthClient builds an auth.Client configured with TLS settings and credentials
-// from an OciRepoSpec. It handles SkipServerVerification, custom CA certificates, and
-// registry authentication in one place.
-func newOCIAuthClient(ociSpec *coredomain.OciRepoSpec, registryHostname string, log logrus.FieldLogger) (*auth.Client, error) {
-	authClient := &auth.Client{}
-
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
-	customTLS := false
-
-	if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
-		tlsConfig.InsecureSkipVerify = true
-		customTLS = true
-		log.Debug("Using InsecureSkipVerify for TLS")
-	}
-
-	if ociSpec.CaCrt != nil {
-		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode CA certificate: %w", err)
-		}
-		rootCAs, err := x509.SystemCertPool()
-		if err != nil {
-			rootCAs = x509.NewCertPool()
-		}
-		if !rootCAs.AppendCertsFromPEM(ca) {
-			return nil, fmt.Errorf("failed to append CA certificates from PEM")
-		}
-		tlsConfig.RootCAs = rootCAs
-		customTLS = true
-		log.Debug("Custom CA certificate configured for TLS")
-	}
-
-	if customTLS {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = tlsConfig
-		authClient.Client = &http.Client{Transport: transport}
-	}
-
-	if ociSpec.OciAuth != nil {
-		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
-		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			authClient.Credential = auth.StaticCredential(registryHostname, auth.Credential{
-				Username: dockerAuth.Username,
-				Password: dockerAuth.Password,
-			})
-		}
-	}
-
-	return authClient, nil
-}
-
 // pushArtifact pushes the exported artifact to the destination registry using oras-go/v2
 // as a referrer artifact that references the original source image
 func (c *Consumer) pushArtifact(
@@ -1167,15 +1122,9 @@ func (c *Consumer) pushArtifact(
 	statusUpdater.reportOutput([]byte("Starting artifact push to destination registry\n"))
 
 	// Create repository reference (no tag needed - referrer will be discoverable via referrers API)
-	repoRef, err := remote.NewRepository(destRef)
+	repoRef, err := oci.BuildOciRepoRef(&ociSpec, destRef)
 	if err != nil {
-		return fmt.Errorf("failed to create repository reference: %w", err)
-	}
-
-	// Use PlainHTTP for HTTP registries
-	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
-		repoRef.PlainHTTP = true
-		log.Debug("Using PlainHTTP for HTTP registry")
+		return fmt.Errorf("failed to configure OCI repository reference: %w", err)
 	}
 
 	// Skip referrers GC to avoid authentication issues when pushing multiple artifacts
@@ -1183,16 +1132,13 @@ func (c *Consumer) pushArtifact(
 	// ORAS tries to delete old referrer indices which can cause auth failures with some registries
 	repoRef.SkipReferrersGC = true
 
-	// Configure auth client with TLS settings (SkipServerVerification, CA cert) and credentials
-	authClient, err := newOCIAuthClient(&ociSpec, destRegistryHostname, log)
-	if err != nil {
-		return fmt.Errorf("failed to configure OCI auth client: %w", err)
+	if repoRef.PlainHTTP {
+		log.Debug("Using PlainHTTP for HTTP registry")
 	}
-	if authClient.Credential != nil {
+	if ociSpec.OciAuth != nil {
 		log.Info("Successfully configured authentication for destination registry")
 		statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
 	}
-	repoRef.Client = authClient
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject
 	destImageTag := imageBuild.Spec.Destination.ImageTag

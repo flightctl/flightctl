@@ -2,10 +2,10 @@
 // integrates with FlightControl's existing authentication and authorization system.
 //
 // It validates bearer tokens and authorizes requests before proxying them to
-// Alertmanager running on localhost:9093. Users must have "get" access to the
-// "alerts" resource to access the proxy.
+// Alertmanager running on localhost:9093 (can be configured if different). Users must have "get"
+// access to the "alerts" resource to access the proxy.
 //
-// The proxy listens on port 8443 with HTTPS and requires:
+// The proxy listens by default on port 8443 with HTTPS and requires:
 // - Authorization: Bearer <token> header
 //
 // This works with all Flight Control auth types: OIDC, OpenShift, and AAP.
@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -41,17 +42,14 @@ import (
 )
 
 const (
-	proxyPort              = ":8443"
-	defaultAlertmanagerURL = "http://localhost:9093"
-	alertsResource         = "alerts"
-	getAction              = "get"
-	healthPath             = "/health"
-	statusPath             = "/api/v2/status"
+	alertsResource = "alerts"
+	getAction      = "get"
+	healthPath     = "/health"
+	statusPath     = "/api/v2/status"
 )
 
 type AlertmanagerProxy struct {
 	log    logrus.FieldLogger
-	cfg    *config.Config
 	proxy  *httputil.ReverseProxy
 	target *url.URL
 }
@@ -60,7 +58,7 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 	// Get alertmanager URL from environment or use default
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL == "" {
-		alertmanagerURL = defaultAlertmanagerURL
+		alertmanagerURL = fmt.Sprintf("http://%s:%d", cfg.Alertmanager.Hostname, cfg.Alertmanager.Port)
 	}
 
 	target, err := url.Parse(alertmanagerURL)
@@ -72,7 +70,6 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 
 	return &AlertmanagerProxy{
 		log:    log,
-		cfg:    cfg,
 		proxy:  proxy,
 		target: target,
 	}, nil
@@ -188,26 +185,6 @@ func main() {
 	logger.Println("Starting Alertmanager Proxy service")
 	defer logger.Println("Alertmanager Proxy service stopped")
 
-	serverCerts, err := config.LoadServerCertificates(cfg, logger)
-	if err != nil {
-		logger.Fatalf("loading server certificates: %v", err)
-	}
-
-	certBytes, keyBytes, err := serverCerts.GetPEMBytes()
-	if err != nil {
-		logger.Fatalf("failed getting certificate bytes: %v", err)
-	}
-
-	cert, err := tls.X509KeyPair(certBytes, keyBytes)
-	if err != nil {
-		logger.Fatalf("failed creating certificate pair: %v", err)
-	}
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
 	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
@@ -233,7 +210,7 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil, false)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
@@ -262,7 +239,8 @@ func main() {
 	}
 
 	// Create identity mapper for mapping identities to database objects
-	identityMapper := service.NewIdentityMapper(dataStore, logger)
+	orgProvisioner := service.NewOrgProvisioner(dataStore, logger)
+	identityMapper := service.NewIdentityMapper(dataStore, orgProvisioner, logger)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
@@ -331,15 +309,44 @@ func main() {
 
 	router.Mount("/", proxy)
 
+	listenAddress := cfg.Alertmanager.ProxyListenAddress
+
 	// Wrap router with OpenTelemetry handler to enable tracing spans
 	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server")
 	// Create HTTPS server using FlightControl's TLS middleware
-	server := middleware.NewHTTPServer(handler, logger, proxyPort, cfg)
+	server := middleware.NewHTTPServer(handler, logger, listenAddress, cfg)
 
-	// Create TLS listener
-	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)
-	if err != nil {
-		logger.Fatalf("creating TLS listener: %v", err)
+	var listener net.Listener
+	if cfg.Service.DisableTLS {
+		listener, err = net.Listen("tcp", listenAddress)
+		if err != nil {
+			logger.Fatalf("creating listener: %v", err)
+		}
+	} else {
+		serverCerts, err := config.LoadServerCertificates(cfg, logger)
+		if err != nil {
+			logger.Fatalf("loading server certificates: %v", err)
+		}
+
+		certBytes, keyBytes, err := serverCerts.GetPEMBytes()
+		if err != nil {
+			logger.Fatalf("failed getting certificate bytes: %v", err)
+		}
+
+		cert, err := tls.X509KeyPair(certBytes, keyBytes)
+		if err != nil {
+			logger.Fatalf("failed creating certificate pair: %v", err)
+		}
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS13,
+		}
+		// Create TLS listener
+		listener, err = middleware.NewTLSListener(listenAddress, tlsConfig)
+		if err != nil {
+			logger.Fatalf("creating TLS listener: %v", err)
+		}
 	}
 
 	go func() {
@@ -354,7 +361,9 @@ func main() {
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
+	sanitizedTarget := *proxy.target
+	sanitizedTarget.User = nil
+	logger.Printf("Alertmanager proxy listening on %s, proxying to %s", listenAddress, sanitizedTarget.String())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("Server error: %v", err)
 	}

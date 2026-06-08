@@ -24,13 +24,20 @@ func TestParametrisableTemplates(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	ctx := context.Background()
+	auxSvcs = auxiliary.Get(ctx)
+
+	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
+	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
+	auxSvcs.FileServer = fileServerSvcs.FileServer
+
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = AfterSuite(func() {
-	// In CI, cleanup containers; in local dev, leave running for speed
+	_ = auxiliary.StopServices([]auxiliary.Service{auxiliary.ServiceFileServer})
+
 	if auxSvcs != nil {
 		auxSvcs.Cleanup(context.Background())
 	}
@@ -66,6 +73,7 @@ var _ = AfterEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

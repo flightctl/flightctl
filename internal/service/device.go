@@ -43,13 +43,16 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, devi
 	return result, StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
 }
 
-func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, domain.Status) {
+func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.DeviceListParams, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
 	listParams.AnnotationSelector = annotationSelector
-	return listParams, domain.StatusOK()
+	return &store.DeviceListParams{
+		ListParams: *listParams,
+		CveID:      params.CveId,
+	}, domain.StatusOK()
 }
 
 func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
@@ -65,7 +68,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, param
 			return nil, domain.StatusBadRequest("parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true")
 		}
 
-		result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
+		result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
 
 		switch err {
 		case nil:
@@ -129,7 +132,7 @@ func (h *ServiceHandler) ListConnectivityChangedDevices(ctx context.Context, org
 		return nil, domain.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, *storeParams, cutoffTime)
+	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, storeParams.ListParams, cutoffTime)
 	if err == nil {
 		return result, domain.StatusOK()
 	}
@@ -256,6 +259,9 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 	if name != *incomingDevice.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
+	if incomingDevice.Status == nil {
+		return nil, domain.StatusBadRequest("device status is required")
+	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
 		if h.agentGate.Acquire(ctx, 1) == nil {
@@ -325,11 +331,11 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID,
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	var (
-		isNew                 bool
-		kvRenderedVersion     string
-		err                   error
-		isAgent               bool
-		movedToConflictPaused bool
+		isNew                   bool
+		kvRenderedVersion       string
+		err                     error
+		isAgent                 bool
+		processedAwaitReconnect bool
 	)
 
 	if _, isAgent = ctx.Value(consts.AgentCtxKey).(string); isAgent {
@@ -339,10 +345,10 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 		}
 
 		// Process awaiting reconnect annotation if present and KV store contains the awaiting reconnection key
-		movedToConflictPaused = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
+		processedAwaitReconnect = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
 	}
 
-	if params.KnownRenderedVersion != nil && !movedToConflictPaused {
+	if params.KnownRenderedVersion != nil && !processedAwaitReconnect {
 		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
 			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
@@ -352,7 +358,8 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 			return nil, domain.StatusNoContent()
 		}
 	}
-	// When movedToConflictPaused we skip WaitForNewVersion and return the current device (200) so the agent sees ConflictPaused and invalidates lastStatus.
+	// When processedAwaitReconnect we skip WaitForNewVersion and return the current device (200)
+	// so the agent sees the updated state and re-pushes its status.
 
 	if isAgent {
 		if h.agentGate.Acquire(ctx, 1) == nil {
@@ -446,8 +453,8 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid
 	return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) domain.Status {
-	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -470,7 +477,6 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UU
 }
 
 func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	// Create callback to handle condition changes
 	callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
 		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
 	}
@@ -542,7 +548,7 @@ func (h *ServiceHandler) CountDevices(ctx context.Context, orgId uuid.UUID, para
 	if status.Code != http.StatusOK {
 		return 0, status
 	}
-	result, err := h.store.Device().Count(ctx, orgId, *storeParams)
+	result, err := h.store.Device().Count(ctx, orgId, storeParams.ListParams)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -556,7 +562,7 @@ func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, orgId 
 	if status.Code != http.StatusOK {
 		return status
 	}
-	err := h.store.Device().MarkRolloutSelection(ctx, orgId, *storeParams, limit)
+	err := h.store.Device().MarkRolloutSelection(ctx, orgId, storeParams.ListParams, limit)
 	return StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -570,7 +576,7 @@ func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, orgId uuid.UU
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().CountByLabels(ctx, orgId, *storeParams, groupBy)
+	result, err := h.store.Device().CountByLabels(ctx, orgId, storeParams.ListParams, groupBy)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -579,7 +585,7 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid.UUID,
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
+	result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -642,7 +648,7 @@ func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind
 }
 
 // processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key.
-// Returns true if the device was moved to ConflictPaused state, false otherwise.
+// Returns true if the annotation was processed (regardless of whether the device ended up ConflictPaused or Online).
 func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) bool {
 	// Check if KV store contains the awaiting reconnection key
 	key := kvstore.AwaitingReconnectionKey{
@@ -690,7 +696,7 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 				h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
 			}
 		}
-		return wasConflictPaused
+		return true
 	}
 	h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
 	return false

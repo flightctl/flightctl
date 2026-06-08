@@ -464,24 +464,36 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	if err != nil {
 		// Translate TLS errors during token validation and offer interactive prompt
 		errorInfo := classifyTLSError(err)
-		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
-			if o.promptUseInsecure(errorInfo) {
-				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
-				if cerr == nil {
-					c.Start(ctx)
-					defer c.Stop()
-					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
-				}
-			}
-		}
-		if err != nil {
+
+		// Guard: can't handle this TLS error or shouldn't offer insecure prompt
+		if errorInfo.Type == TLSErrorUnknown || !o.shouldOfferInsecurePrompt() || o.InsecureSkipVerify {
 			friendlyErr := getUserFriendlyTLSError(err)
 			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
 		}
+
+		// Guard: user declined insecure prompt
+		if !o.promptUseInsecure(errorInfo) {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
+		}
+
+		// User accepted insecure prompt - create new client and retry
+		o.enableInsecure()
+		newClient, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
+		if cerr != nil {
+			return nil, fmt.Errorf("creating insecure client: %w", cerr)
+		}
+		newClient.Start(ctx)
+		defer newClient.Stop()
+		c = newClient.ClientWithResponses
+		res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("validating token after TLS retry:\n%s", friendlyErr)
+		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 	return c, nil
 }
@@ -810,7 +822,7 @@ func (o *LoginOptions) validateURLFormat(urlStr string) error {
 // For nodePort mode: uses the same host as the main API but on port 8445.
 // For route mode: uses imagebuilder-api.{domain} with standard ports (443 for https, 80 for http).
 func deriveImageBuilderService(mainService client.Service) (*client.Service, error) {
-	const defaultImageBuilderPort = "8445"
+	const defaultImageBuilderPort = 8445
 
 	parsedUrl, err := url.Parse(mainService.Server)
 	if err != nil {
@@ -822,19 +834,16 @@ func deriveImageBuilderService(mainService client.Service) (*client.Service, err
 
 	// Detect if we're using routes (no port or standard ports 80/443)
 	// For routes, use a different hostname: imagebuilder-api.{domain}
-	// For nodePort, use the same hostname with port 8445
+	// For nodePort, use the same hostname with the /_/imagebuilder/ path.
 	var imageBuilderURL string
-	if port == "" || port == "443" || port == "80" {
-		// Route mode: replace "api." with "imagebuilder-api." in the hostname
-		if strings.HasPrefix(hostname, "api.") {
-			imageBuilderURL = parsedUrl.Scheme + "://" + strings.Replace(hostname, "api.", "imagebuilder-api.", 1)
-		} else {
-			// Fallback: if hostname doesn't start with "api.", append port 8445
-			imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
-		}
-	} else {
+	// Route mode: replace "api." with "imagebuilder-api." in the hostname
+	if (port == "" || port == "443" || port == "80") && strings.HasPrefix(hostname, "api.") {
+		imageBuilderURL = parsedUrl.Scheme + "://" + strings.Replace(hostname, "api.", "imagebuilder-api.", 1)
+	} else if port == "3443" {
 		// NodePort mode: use the same host but with the imagebuilder port
-		imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+		imageBuilderURL = fmt.Sprintf("%s://%s:%d", parsedUrl.Scheme, hostname, defaultImageBuilderPort)
+	} else {
+		imageBuilderURL = fmt.Sprintf("%s://%s/_/imagebuilder", parsedUrl.Scheme, parsedUrl.Host)
 	}
 
 	return &client.Service{

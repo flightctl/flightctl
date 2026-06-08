@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -100,6 +100,7 @@ type RendererConfig struct {
 	Prometheus         ImageConfig `mapstructure:"prometheus"`
 	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
 	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
+	Gateway            ImageConfig `mapstructure:"gateway"`
 }
 
 func NewRendererConfig() *RendererConfig {

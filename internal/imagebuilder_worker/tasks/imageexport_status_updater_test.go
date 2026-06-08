@@ -70,8 +70,8 @@ func (m *mockImageExportServiceForStatusUpdater) List(ctx context.Context, orgId
 	return nil, v1beta1.StatusOK()
 }
 
-func (m *mockImageExportServiceForStatusUpdater) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageExportServiceForStatusUpdater) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageExportServiceForStatusUpdater) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
@@ -92,6 +92,10 @@ func (m *mockImageExportServiceForStatusUpdater) GetLogs(ctx context.Context, or
 
 func (m *mockImageExportServiceForStatusUpdater) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
 	return nil
+}
+
+func (m *mockImageExportServiceForStatusUpdater) ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format api.ExportFormatType) (*api.ImageExport, error) {
+	return nil, nil
 }
 
 func (m *mockImageExportServiceForStatusUpdater) getCallsCount() int {

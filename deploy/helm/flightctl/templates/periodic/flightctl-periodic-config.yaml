@@ -29,8 +29,15 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+    {{ if (default dict .Values.periodic).metrics }}
+    metrics:
+        enabled: {{ .Values.periodic.metrics.enabled }}
+        address: {{ .Values.periodic.metrics.address | quote }}
+    {{ end }}
     periodic:
         consumers: {{ .Values.periodic.consumers }}
+        clusterLevelSecretAccess: {{ .Values.periodic.clusterLevelSecretAccess }}
+        releaseNamespace: {{ .Release.Namespace }}
         {{ if .Values.periodic.tasks }}
         tasks:
           {{ if .Values.periodic.tasks.resourceSync }}
@@ -45,3 +52,22 @@ data:
         endpoint: {{ .Values.dev.tracing.endpoint }}
         insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
+    {{- $vuln := default dict .Values.vulnerabilityReporting }}
+    {{- $trustify := default dict $vuln.trustify }}
+    {{- $auth := default dict $trustify.auth }}
+    {{- if default false $vuln.enabled }}
+    vulnerabilityReporting:
+        enabled: true
+        syncInterval: {{ $vuln.syncInterval | default "15m" | quote }}
+        {{- if $vuln.trustify }}
+        trustify:
+            endpoint: {{ $trustify.endpoint | quote }}
+            {{- if $vuln.trustify.auth }}
+            auth:
+                mode: {{ $auth.mode | default "none" | quote }}
+                {{- if $auth.oidcIssuerUrl }}
+                oidcIssuerUrl: {{ $auth.oidcIssuerUrl | quote }}
+                {{- end }}
+            {{- end }}
+        {{- end }}
+    {{- end }}

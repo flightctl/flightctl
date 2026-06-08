@@ -263,3 +263,9 @@ valkey-cli INFO stats | grep evicted
 
 **Problem**: Slow queue processing
 **Solution**: Monitor queue depth and increase memory if needed
+
+**Problem**: Redis memory overcommit warning
+
+> WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition.
+
+**Solution**: To overcome this warning run `sudo sysctl vm.overcommit_memory=1` and add `vm.overcommit_memory = 1` to `/etc/sysctl.conf` to make it persistent across reboots.

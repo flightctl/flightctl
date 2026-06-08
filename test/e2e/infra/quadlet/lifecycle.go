@@ -3,7 +3,6 @@ package quadlet
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -32,15 +31,12 @@ func (p *ServiceLifecycleProvider) serviceToSystemdUnit(service infra.ServiceNam
 
 // runSystemctl executes a systemctl command.
 func (p *ServiceLifecycleProvider) runSystemctl(args ...string) (string, error) {
-	var cmd *exec.Cmd
-	if p.useSudo {
-		cmd = exec.Command("sudo", append([]string{"systemctl"}, args...)...) //nolint:gosec // G204: args are from internal test config
-	} else {
-		cmd = exec.Command("systemctl", args...)
+	// Delegate to the quadlet InfraProvider so this works for both local and remote quadlet hosts.
+	// InfraProvider is responsible for SSH and sudo handling.
+	if p.infra == nil {
+		return "", fmt.Errorf("quadlet infra provider is nil")
 	}
-
-	output, err := cmd.CombinedOutput()
-	return string(output), err
+	return p.infra.RunCommand(append([]string{"systemctl"}, args...)...)
 }
 
 // isKnownInactiveOutput returns true if the trimmed systemctl is-active output

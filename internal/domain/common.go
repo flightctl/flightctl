@@ -95,6 +95,11 @@ const (
 	ResourceKindTemplateVersion                        = v1beta1.ResourceKindTemplateVersion
 )
 
+// ========== Dependency Sync Status ==========
+
+type DependencySyncStatus = v1beta1.DependencySyncStatus
+type DependencySyncConfigRefStatus = v1beta1.DependencySyncConfigRefStatus
+
 // ========== Interfaces ==========
 
 type SensitiveDataHider = v1beta1.SensitiveDataHider

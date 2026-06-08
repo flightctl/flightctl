@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/service"
@@ -19,15 +20,24 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
+	"gorm.io/gorm"
 )
 
-var suiteCtx context.Context
+var (
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
+)
 
 // Mock task executor for testing
 type mockPeriodicTaskExecutor struct {
@@ -80,6 +90,18 @@ func TestStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Periodic Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Periodic", func() {
@@ -92,6 +114,7 @@ var _ = Describe("Periodic", func() {
 		storeInst                store.Store
 		cfg                      *config.Config
 		dbName                   string
+		db                       *gorm.DB
 		workerClient             worker_client.WorkerClient
 		orgId                    uuid.UUID
 		publisherConfig          periodic.PeriodicTaskPublisherConfig
@@ -112,7 +135,10 @@ var _ = Describe("Periodic", func() {
 		log = flightlog.InitLogs()
 
 		// Setup database and store
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Grab default org id from the database
 		orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
@@ -124,11 +150,11 @@ var _ = Describe("Periodic", func() {
 		}
 
 		processID := fmt.Sprintf("periodic-test-%s", uuid.New().String())
-		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, "adminpass", queues.DefaultRetryConfig())
+		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup kvStore for test
-		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 
 		queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
@@ -136,7 +162,7 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
@@ -175,15 +201,14 @@ var _ = Describe("Periodic", func() {
 			queuesProvider.Stop()
 		}
 
-		// Clean up kvStore
+		// Close kvStore (no need to DeleteAllKeys - ephemeral container handles cleanup)
 		if kvStore != nil {
-			err := kvStore.DeleteAllKeys(ctx)
-			Expect(err).ToNot(HaveOccurred())
 			kvStore.Close()
 		}
 
 		// Clean up database
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 
 		// Clean up channel manager
 		if channelManager != nil {

@@ -2,9 +2,11 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"text/template"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -94,8 +96,8 @@ func (h *Harness) CreateGitRepositoryOnServer(config GitServerConfig, keyPath ut
 	}
 
 	// Store the repository name for cleanup
-	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
+	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s/home/user/repos/%s.git",
+		config.User, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), repoName)
 
 	logrus.Infof("Created git repository: %s on git server", repoName)
 	return nil
@@ -133,8 +135,8 @@ func (h *Harness) CloneGitRepositoryFromServer(config GitServerConfig, keyPath u
 		return fmt.Errorf("SSH private key path is required to clone from git server")
 	}
 
-	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
+	repoURL := fmt.Sprintf("ssh://%s@%s/home/user/repos/%s.git",
+		config.User, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), repoName)
 
 	// Create parent directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
@@ -203,6 +205,35 @@ func (h *Harness) PushContentToGitServerRepo(config GitServerConfig, keyPath uti
 	}
 
 	logrus.Infof("Pushed content to git repository %s, file: %s", repoName, filePath)
+	return nil
+}
+
+// CreateGitBranchOnServer creates a new branch from main in a git repository on the server.
+func (h *Harness) CreateGitBranchOnServer(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, branchName string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if branchName == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
+	defer os.RemoveAll(workDir)
+
+	if err := h.CloneGitRepositoryFromServer(config, keyPath, repoName, workDir); err != nil {
+		return fmt.Errorf("failed to clone repository: %w", err)
+	}
+
+	err := h.runGitCommands(workDir, keyPath, [][]string{
+		{"git", "fetch", "origin", "main"},
+		{"git", "checkout", "-B", branchName, "origin/main"},
+		{"git", "push", "-u", "origin", branchName},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", branchName, err)
+	}
+
+	logrus.Infof("Created branch %s in git repository %s", branchName, repoName)
 	return nil
 }
 

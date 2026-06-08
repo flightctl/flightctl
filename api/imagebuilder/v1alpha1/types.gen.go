@@ -23,6 +23,11 @@ const (
 	Early EarlyBindingType = "early"
 )
 
+// Defines values for ExistingCatalogItemTargetType.
+const (
+	ExistingCatalogItem ExistingCatalogItemTargetType = "ExistingCatalogItem"
+)
+
 // Defines values for ExportFormatType.
 const (
 	ExportFormatTypeISO                ExportFormatType = "iso"
@@ -33,13 +38,14 @@ const (
 
 // Defines values for ImageBuildConditionReason.
 const (
-	ImageBuildConditionReasonBuilding  ImageBuildConditionReason = "Building"
-	ImageBuildConditionReasonCanceled  ImageBuildConditionReason = "Canceled"
-	ImageBuildConditionReasonCanceling ImageBuildConditionReason = "Canceling"
-	ImageBuildConditionReasonCompleted ImageBuildConditionReason = "Completed"
-	ImageBuildConditionReasonFailed    ImageBuildConditionReason = "Failed"
-	ImageBuildConditionReasonPending   ImageBuildConditionReason = "Pending"
-	ImageBuildConditionReasonPushing   ImageBuildConditionReason = "Pushing"
+	ImageBuildConditionReasonBuilding       ImageBuildConditionReason = "Building"
+	ImageBuildConditionReasonCanceled       ImageBuildConditionReason = "Canceled"
+	ImageBuildConditionReasonCanceling      ImageBuildConditionReason = "Canceling"
+	ImageBuildConditionReasonCompleted      ImageBuildConditionReason = "Completed"
+	ImageBuildConditionReasonFailed         ImageBuildConditionReason = "Failed"
+	ImageBuildConditionReasonGeneratingSBOM ImageBuildConditionReason = "GeneratingSBOM"
+	ImageBuildConditionReasonPending        ImageBuildConditionReason = "Pending"
+	ImageBuildConditionReasonPushing        ImageBuildConditionReason = "Pushing"
 )
 
 // Defines values for ImageBuildConditionType.
@@ -82,19 +88,62 @@ const (
 	ImageExportSourceTypeImageBuild ImageExportSourceType = "imageBuild"
 )
 
+// Defines values for ImagePromotionConditionReason.
+const (
+	ImagePromotionConditionReasonAmendmentFailed     ImagePromotionConditionReason = "AmendmentFailed"
+	ImagePromotionConditionReasonBuildCanceled       ImagePromotionConditionReason = "BuildCanceled"
+	ImagePromotionConditionReasonBuildFailed         ImagePromotionConditionReason = "BuildFailed"
+	ImagePromotionConditionReasonCompleted           ImagePromotionConditionReason = "Completed"
+	ImagePromotionConditionReasonFailed              ImagePromotionConditionReason = "Failed"
+	ImagePromotionConditionReasonPublishing          ImagePromotionConditionReason = "Publishing"
+	ImagePromotionConditionReasonWaitingForArtifacts ImagePromotionConditionReason = "WaitingForArtifacts"
+)
+
+// Defines values for ImagePromotionConditionType.
+const (
+	ImagePromotionConditionTypeReady ImagePromotionConditionType = "Ready"
+)
+
+// Defines values for ImagePromotionTargetType.
+const (
+	ImagePromotionTargetTypeExistingCatalogItem ImagePromotionTargetType = "ExistingCatalogItem"
+	ImagePromotionTargetTypeNewCatalogItem      ImagePromotionTargetType = "NewCatalogItem"
+)
+
 // Defines values for LateBindingType.
 const (
 	Late LateBindingType = "late"
 )
 
+// Defines values for NewCatalogItemTargetType.
+const (
+	NewCatalogItem NewCatalogItemTargetType = "NewCatalogItem"
+)
+
 // Defines values for ResourceKind.
 const (
-	ResourceKindImageBuild  ResourceKind = "ImageBuild"
-	ResourceKindImageExport ResourceKind = "ImageExport"
+	ResourceKindImageBuild     ResourceKind = "ImageBuild"
+	ResourceKindImageExport    ResourceKind = "ImageExport"
+	ResourceKindImagePromotion ResourceKind = "ImagePromotion"
 )
 
 // ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 type ApiVersion = string
+
+// ArtifactPromotionStatus defines model for ArtifactPromotionStatus.
+type ArtifactPromotionStatus struct {
+	// Format Artifact format. "container" for the ImageBuild artifact; one of the exportFormats values for additional artifacts.
+	Format string `json:"format"`
+
+	// Published True when this format's artifact reference has been successfully written to the CatalogItemVersion. For the initial publish, all formats are published atomically. For amendments, formats added via PATCH/PUT start as published=false and transition to published=true when their CatalogItem patch succeeds.
+	Published bool `json:"published"`
+
+	// Ready True when at least one successful artifact of this format is available.
+	Ready bool `json:"ready"`
+
+	// ResolvedExport Name of the ImageExport resource that will be (or was) used for this format. Absent for the container artifact and for formats not yet ready.
+	ResolvedExport *string `json:"resolvedExport,omitempty"`
+}
 
 // BindingType The type of binding for the image build.
 type BindingType string
@@ -107,6 +156,36 @@ type EarlyBinding struct {
 
 // EarlyBindingType The type of binding.
 type EarlyBindingType string
+
+// ExistingCatalogItemTarget defines model for ExistingCatalogItemTarget.
+type ExistingCatalogItemTarget struct {
+	// CatalogItemName Name of the CatalogItem to update.
+	CatalogItemName string `json:"catalogItemName"`
+
+	// CatalogName Name of the parent Catalog resource.
+	CatalogName string `json:"catalogName"`
+
+	// Readme Optional version-level readme for this version entry. Markdown is supported.
+	Readme *string `json:"readme,omitempty"`
+
+	// Replaces The single version this one replaces, defining the primary upgrade edge.
+	Replaces *string `json:"replaces,omitempty"`
+
+	// SkipRange Semver range of versions that can upgrade directly to this one (e.g. ">=1.0.0 <1.3.0").
+	SkipRange *string `json:"skipRange,omitempty"`
+
+	// Skips Additional versions that can upgrade directly to this one.
+	Skips *[]string `json:"skips,omitempty"`
+
+	// Type Discriminator for the target type.
+	Type ExistingCatalogItemTargetType `json:"type"`
+
+	// Version Semver version string for the new CatalogItem version entry.
+	Version string `json:"version"`
+}
+
+// ExistingCatalogItemTargetType Discriminator for the target type.
+type ExistingCatalogItemTargetType string
 
 // ExportFormatType The type of format to export the image to.
 type ExportFormatType string
@@ -189,6 +268,18 @@ type ImageBuildList struct {
 
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
+// ImageBuildNewVersionRequest Request body for the newversion subresource endpoint.
+type ImageBuildNewVersionRequest struct {
+	// DestinationImageTag Override for spec.destination.imageTag. If omitted, the parent's tag is used.
+	DestinationImageTag *string `json:"destinationImageTag,omitempty"`
+
+	// Name Name for the new ImageBuild resource.
+	Name string `json:"name"`
+
+	// SourceImageTag Override for spec.source.imageTag. If omitted, the parent's tag is used.
+	SourceImageTag *string `json:"sourceImageTag,omitempty"`
 }
 
 // ImageBuildRefSource ImageBuildRefSource specifies a source image from an ImageBuild resource.
@@ -349,6 +440,122 @@ type ImageExportStatus struct {
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
 
+// ImagePromotion ImagePromotion tracks a single publish attempt from an ImageBuild to a CatalogItem.
+type ImagePromotion struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata externalRef0.ObjectMeta `json:"metadata"`
+
+	// Spec Desired state of an ImagePromotion resource.
+	Spec ImagePromotionSpec `json:"spec"`
+
+	// Status Observed state of an ImagePromotion resource.
+	Status *ImagePromotionStatus `json:"status,omitempty"`
+}
+
+// ImagePromotionCondition defines model for ImagePromotionCondition.
+type ImagePromotionCondition struct {
+	// LastTransitionTime The last time the condition transitioned from one status to another.
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
+
+	// Message Human readable message indicating details about last transition.
+	Message string `json:"message"`
+
+	// ObservedGeneration The .metadata.generation that the condition was set based upon.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// Reason A (brief) reason for the condition's last transition.
+	Reason string `json:"reason"`
+
+	// Status Status of the condition, one of True, False, Unknown.
+	Status externalRef0.ConditionStatus `json:"status"`
+
+	// Type Type of ImagePromotion condition.
+	Type ImagePromotionConditionType `json:"type"`
+}
+
+// ImagePromotionConditionReason Reason for the ImagePromotion Ready condition.
+type ImagePromotionConditionReason string
+
+// ImagePromotionConditionType Type of ImagePromotion condition.
+type ImagePromotionConditionType string
+
+// ImagePromotionList ImagePromotionList is a list of ImagePromotion resources.
+type ImagePromotionList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items List of ImagePromotion resources.
+	Items []ImagePromotion `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
+// ImagePromotionSource Identifies the artifact(s) to publish.
+type ImagePromotionSource struct {
+	// ExportFormats Optional list of additional artifact formats to include in the CatalogItem version entry. The promotion waits in WaitingForArtifacts until at least one successful ImageExport exists for every requested format.
+	ExportFormats *[]ExportFormatType `json:"exportFormats,omitempty"`
+
+	// ImageBuildRef Name of the ImageBuild resource this promotion is linked to. The container/bootc artifact produced by this build is always included in the CatalogItem version entry.
+	ImageBuildRef string `json:"imageBuildRef"`
+}
+
+// ImagePromotionSpec Desired state of an ImagePromotion resource.
+type ImagePromotionSpec struct {
+	// Source Identifies the artifact(s) to publish.
+	Source ImagePromotionSource `json:"source"`
+
+	// Target Specifies where and how to publish the artifact(s). The type field is the discriminator.
+	Target ImagePromotionTarget `json:"target"`
+}
+
+// ImagePromotionStatus Observed state of an ImagePromotion resource.
+type ImagePromotionStatus struct {
+	// ArtifactStatuses Per-artifact readiness summary. One entry for the ImageBuild (container artifact) and one entry per requested exportFormat. Updated as artifacts become available or as new formats are added via PATCH/PUT.
+	ArtifactStatuses *[]ArtifactPromotionStatus `json:"artifactStatuses,omitempty"`
+
+	// Conditions Conditions describing the current state of the promotion lifecycle.
+	Conditions *[]ImagePromotionCondition `json:"conditions,omitempty"`
+
+	// LastAmendedAt Timestamp of the most recent successful amendment (i.e., when the last additional export format was written to the CatalogItemVersion). Absent if the promotion has never been amended.
+	LastAmendedAt *time.Time `json:"lastAmendedAt,omitempty"`
+
+	// PublishedAt Timestamp of the initial successful promotion. Set once when the promotion first reaches Completed state. Not updated by subsequent amendments.
+	PublishedAt *time.Time `json:"publishedAt,omitempty"`
+}
+
+// ImagePromotionTarget Specifies where and how to publish the artifact(s). The type field is the discriminator.
+type ImagePromotionTarget struct {
+	union json.RawMessage
+}
+
+// ImagePromotionTargetBase Common fields shared by all ImagePromotionTarget variants.
+type ImagePromotionTargetBase struct {
+	// CatalogItemName Name of the CatalogItem to create or update.
+	CatalogItemName string `json:"catalogItemName"`
+
+	// CatalogName Name of the parent Catalog resource.
+	CatalogName string `json:"catalogName"`
+
+	// Type Discriminator for the target type.
+	Type string `json:"type"`
+
+	// Version Semver version string for the new CatalogItem version entry.
+	Version string `json:"version"`
+}
+
+// ImagePromotionTargetType Discriminator for the promotion target type.
+type ImagePromotionTargetType string
+
 // LateBinding Late binding configuration - device binds at first boot.
 type LateBinding struct {
 	// Type The type of binding.
@@ -357,6 +564,27 @@ type LateBinding struct {
 
 // LateBindingType The type of binding.
 type LateBindingType string
+
+// NewCatalogItemTarget defines model for NewCatalogItemTarget.
+type NewCatalogItemTarget struct {
+	// CatalogItemName Name of the CatalogItem to create.
+	CatalogItemName string `json:"catalogItemName"`
+
+	// CatalogName Name of the parent Catalog resource.
+	CatalogName string `json:"catalogName"`
+
+	// Readme Optional item-level readme for the new CatalogItem. Markdown is supported.
+	Readme *string `json:"readme,omitempty"`
+
+	// Type Discriminator for the target type.
+	Type NewCatalogItemTargetType `json:"type"`
+
+	// Version Semver version string for the new CatalogItem version entry.
+	Version string `json:"version"`
+}
+
+// NewCatalogItemTargetType Discriminator for the target type.
+type NewCatalogItemTargetType string
 
 // ResourceKind Resource types exposed via the ImageBuilder API.
 type ResourceKind string
@@ -433,11 +661,38 @@ type GetImageExportLogParams struct {
 	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
 }
 
+// ListImagePromotionsParams defines parameters for ListImagePromotions.
+type ListImagePromotionsParams struct {
+	// LabelSelector A selector to restrict the list of returned objects by their labels.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
 // CreateImageBuildJSONRequestBody defines body for CreateImageBuild for application/json ContentType.
 type CreateImageBuildJSONRequestBody = ImageBuild
 
+// CreateImageBuildNewVersionJSONRequestBody defines body for CreateImageBuildNewVersion for application/json ContentType.
+type CreateImageBuildNewVersionJSONRequestBody = ImageBuildNewVersionRequest
+
 // CreateImageExportJSONRequestBody defines body for CreateImageExport for application/json ContentType.
 type CreateImageExportJSONRequestBody = ImageExport
+
+// CreateImagePromotionJSONRequestBody defines body for CreateImagePromotion for application/json ContentType.
+type CreateImagePromotionJSONRequestBody = ImagePromotion
+
+// PatchImagePromotionApplicationJSONPatchPlusJSONRequestBody defines body for PatchImagePromotion for application/json-patch+json ContentType.
+type PatchImagePromotionApplicationJSONPatchPlusJSONRequestBody = externalRef0.PatchRequest
+
+// ReplaceImagePromotionJSONRequestBody defines body for ReplaceImagePromotion for application/json ContentType.
+type ReplaceImagePromotionJSONRequestBody = ImagePromotion
 
 // AsEarlyBinding returns the union data inside the ImageBuildBinding as a EarlyBinding
 func (t ImageBuildBinding) AsEarlyBinding() (EarlyBinding, error) {
@@ -583,6 +838,95 @@ func (t ImageExportSource) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ImageExportSource) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsNewCatalogItemTarget returns the union data inside the ImagePromotionTarget as a NewCatalogItemTarget
+func (t ImagePromotionTarget) AsNewCatalogItemTarget() (NewCatalogItemTarget, error) {
+	var body NewCatalogItemTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromNewCatalogItemTarget overwrites any union data inside the ImagePromotionTarget as the provided NewCatalogItemTarget
+func (t *ImagePromotionTarget) FromNewCatalogItemTarget(v NewCatalogItemTarget) error {
+	v.Type = "NewCatalogItem"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeNewCatalogItemTarget performs a merge with any union data inside the ImagePromotionTarget, using the provided NewCatalogItemTarget
+func (t *ImagePromotionTarget) MergeNewCatalogItemTarget(v NewCatalogItemTarget) error {
+	v.Type = "NewCatalogItem"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsExistingCatalogItemTarget returns the union data inside the ImagePromotionTarget as a ExistingCatalogItemTarget
+func (t ImagePromotionTarget) AsExistingCatalogItemTarget() (ExistingCatalogItemTarget, error) {
+	var body ExistingCatalogItemTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromExistingCatalogItemTarget overwrites any union data inside the ImagePromotionTarget as the provided ExistingCatalogItemTarget
+func (t *ImagePromotionTarget) FromExistingCatalogItemTarget(v ExistingCatalogItemTarget) error {
+	v.Type = "ExistingCatalogItem"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeExistingCatalogItemTarget performs a merge with any union data inside the ImagePromotionTarget, using the provided ExistingCatalogItemTarget
+func (t *ImagePromotionTarget) MergeExistingCatalogItemTarget(v ExistingCatalogItemTarget) error {
+	v.Type = "ExistingCatalogItem"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ImagePromotionTarget) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ImagePromotionTarget) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "ExistingCatalogItem":
+		return t.AsExistingCatalogItemTarget()
+	case "NewCatalogItem":
+		return t.AsNewCatalogItemTarget()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ImagePromotionTarget) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ImagePromotionTarget) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

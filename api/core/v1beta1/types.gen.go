@@ -101,6 +101,16 @@ const (
 	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
 )
 
+// Defines values for DependencyChangeDetectedDetailsDetailType.
+const (
+	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
+)
+
+// Defines values for DependencySyncProbeFailedDetailsDetailType.
+const (
+	DependencySyncProbeFailed DependencySyncProbeFailedDetailsDetailType = "DependencySyncProbeFailed"
+)
+
 // Defines values for DeviceDecommissionTargetType.
 const (
 	DeviceDecommissionTargetTypeFactoryReset DeviceDecommissionTargetType = "FactoryReset"
@@ -190,6 +200,11 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for DeviceVulnerabilityCveDetailsDetailType.
+const (
+	DeviceVulnerabilityCVE DeviceVulnerabilityCveDetailsDetailType = "DeviceVulnerabilityCVE"
+)
+
 // Defines values for EncodingType.
 const (
 	EncodingBase64 EncodingType = "base64"
@@ -198,6 +213,8 @@ const (
 
 // Defines values for EventReason.
 const (
+	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
+	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
 	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
 	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
@@ -222,9 +239,13 @@ const (
 	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
 	EventReasonDeviceMultipleOwnersDetected    EventReason = "DeviceMultipleOwnersDetected"
 	EventReasonDeviceMultipleOwnersResolved    EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceOSImageChanged            EventReason = "DeviceOSImageChanged"
 	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
 	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
 	EventReasonDeviceUpdateFailed              EventReason = "DeviceUpdateFailed"
+	EventReasonDeviceVulnerabilityCVECritical  EventReason = "DeviceVulnerabilityCVECritical"
+	EventReasonDeviceVulnerabilityCVEResolved  EventReason = "DeviceVulnerabilityCVEResolved"
+	EventReasonDeviceVulnerabilityCVEWarning   EventReason = "DeviceVulnerabilityCVEWarning"
 	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
 	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
 	EventReasonFleetInvalid                    EventReason = "FleetInvalid"
@@ -545,13 +566,16 @@ type AapProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
 
 	// Enabled Whether this AAP provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
+
+	// OrganizationNamePrefix Optional prefix for AAP organization names. Incoming names are exposed as prefix + name.
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType AapProviderSpecProviderType `json:"providerType"`
@@ -798,6 +822,18 @@ type AuthStaticRoleAssignment struct {
 // AuthStaticRoleAssignmentType The type of role assignment.
 type AuthStaticRoleAssignmentType string
 
+// BaseImageEntry A curated base image entry available in an OCI registry.
+type BaseImageEntry struct {
+	// DisplayName Human-readable label shown in the UI (e.g., "CentOS").
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// ImageName Image path within the registry (e.g., "centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+
+	// Tags Selectable tags for this image (e.g., ["stream9", "stream10"]).
+	Tags []string `json:"tags"`
+}
+
 // Batch Batch is an element in batch sequence.
 type Batch struct {
 	// Limit The maximum number or percentage of devices to update in the batch.
@@ -891,6 +927,33 @@ type CertificateSigningRequestStatus struct {
 
 	// Conditions Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
 	Conditions []Condition `json:"conditions"`
+}
+
+// CheckRepositoryOciImageRequest Request to check if a specific OCI image is accessible in a registry.
+type CheckRepositoryOciImageRequest struct {
+	// ImageName The image name/path within the registry (e.g. "centos-bootc/centos-bootc"). Combined with the registry host from the Repository resource, this forms the full image reference (e.g. "quay.io/centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+}
+
+// CheckRepositoryOciResult Result of an OCI registry check (tag existence or image accessibility).
+type CheckRepositoryOciResult struct {
+	// Accessible Whether the image or tag is accessible in the registry.
+	Accessible bool `json:"accessible"`
+
+	// ErrorCode HTTP status code returned by the OCI registry when accessible is false. Absent when the failure is not an HTTP-level error (e.g. network timeout).
+	ErrorCode *int `json:"errorCode,omitempty"`
+
+	// ErrorMessage Error message describing why the image or tag is not accessible.
+	ErrorMessage *string `json:"errorMessage,omitempty"`
+}
+
+// CheckRepositoryOciTagRequest Request to check if a specific image tag exists in an OCI registry.
+type CheckRepositoryOciTagRequest struct {
+	// ImageName The image name/path within the registry (e.g. "centos-bootc/centos-bootc"). Combined with the registry host from the Repository resource, this forms the full repository reference (e.g. "quay.io/centos-bootc/centos-bootc").
+	ImageName string `json:"imageName"`
+
+	// Tag The image tag to check for existence (e.g. "9.5").
+	Tag string `json:"tag"`
 }
 
 // ComposeApplication defines model for ComposeApplication.
@@ -1015,6 +1078,54 @@ type CronExpression = string
 
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
+
+// DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
+type DependencyChangeDetectedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DependencyChangeDetectedDetailsDetailType `json:"detailType"`
+
+	// Fingerprint The new fingerprint (e.g. commit SHA) of the changed dependency.
+	Fingerprint string `json:"fingerprint"`
+
+	// ResourceKey The resource key identifying the dependency that changed (e.g. "git:my-repo/main").
+	ResourceKey string `json:"resourceKey"`
+}
+
+// DependencyChangeDetectedDetailsDetailType The type of detail for discriminator purposes.
+type DependencyChangeDetectedDetailsDetailType string
+
+// DependencySyncConfigRefStatus DependencySyncConfigRefStatus represents the rendered fingerprint for a single config provider's external dependency.
+type DependencySyncConfigRefStatus struct {
+	// ConfigProviderName The name of the config provider (e.g. the git or HTTP config source name).
+	ConfigProviderName string `json:"configProviderName"`
+
+	// Fingerprint The fingerprint of the rendered content (e.g. git commit SHA, sha256 of HTTP body, K8s secret ResourceVersion).
+	Fingerprint *string `json:"fingerprint,omitempty"`
+
+	// LastUpdatedAt The last time the fingerprint changed (i.e. the dependency content was updated).
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
+}
+
+// DependencySyncProbeFailedDetails defines model for DependencySyncProbeFailedDetails.
+type DependencySyncProbeFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DependencySyncProbeFailedDetailsDetailType `json:"detailType"`
+
+	// Error The error message from the failed probe.
+	Error string `json:"error"`
+
+	// ResourceKey The resource key identifying the dependency that failed (e.g. "git:my-repo/main").
+	ResourceKey string `json:"resourceKey"`
+}
+
+// DependencySyncProbeFailedDetailsDetailType The type of detail for discriminator purposes.
+type DependencySyncProbeFailedDetailsDetailType string
+
+// DependencySyncStatus DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
+type DependencySyncStatus struct {
+	// ConfigRefs Per-config-provider fingerprint and last update time, set when the device renders.
+	ConfigRefs *[]DependencySyncConfigRefStatus `json:"configRefs,omitempty"`
+}
 
 // Device Device represents a physical device.
 type Device struct {
@@ -1310,6 +1421,9 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
+	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
+	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
+
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
@@ -1389,6 +1503,24 @@ type DeviceUpdatedStatus struct {
 
 // DeviceUpdatedStatusType Status type of the device update.
 type DeviceUpdatedStatusType string
+
+// DeviceVulnerabilityCveDetails Structured details for per-device CVE vulnerability events.
+type DeviceVulnerabilityCveDetails struct {
+	// CveId CVE identifier (e.g. CVE-2024-1234). MITRE-style CVE-YYYY-sequence identifier, matching device list filter validation.
+	CveId string `json:"cveId"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceVulnerabilityCveDetailsDetailType `json:"detailType"`
+
+	// FirstImageDigest Image digest when the CVE was first detected on this device (historical/audit field, e.g. sha256:...).
+	FirstImageDigest *string `json:"firstImageDigest,omitempty"`
+
+	// FirstImageRef Human-readable OS image reference when the CVE was first detected on this device (historical/audit field).
+	FirstImageRef *string `json:"firstImageRef,omitempty"`
+}
+
+// DeviceVulnerabilityCveDetailsDetailType The type of detail for discriminator purposes.
+type DeviceVulnerabilityCveDetailsDetailType string
 
 // DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 type DevicesSummary struct {
@@ -1479,8 +1611,11 @@ type EnrollmentRequestApproval struct {
 	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
-	// Labels A set of labels to apply to the device.
+	// Labels Labels to set on the device. If replaceLabels is false (default), labels are merged with agent-provided labels from the enrollment request. If replaceLabels is true, labels are used as the complete final set ignoring agent-provided labels.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// ReplaceLabels Controls whether labels are merged or replaced during approval. If false (default), labels are merged with agent-provided labels from the enrollment request. If true, labels are used as the complete final set and agent-provided labels are ignored.
+	ReplaceLabels *bool `json:"replaceLabels,omitempty"`
 }
 
 // EnrollmentRequestApprovalStatus defines model for EnrollmentRequestApprovalStatus.
@@ -1494,8 +1629,11 @@ type EnrollmentRequestApprovalStatus struct {
 	// ApprovedBy The name of the approver.
 	ApprovedBy string `json:"approvedBy"`
 
-	// Labels A set of labels to apply to the device.
+	// Labels Labels to set on the device. If replaceLabels is false (default), labels are merged with agent-provided labels from the enrollment request. If replaceLabels is true, labels are used as the complete final set ignoring agent-provided labels.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// ReplaceLabels Controls whether labels are merged or replaced during approval. If false (default), labels are merged with agent-provided labels from the enrollment request. If true, labels are used as the complete final set and agent-provided labels are ignored.
+	ReplaceLabels *bool `json:"replaceLabels,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
@@ -2133,7 +2271,10 @@ type K8sProviderSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
+
+	// OrganizationNamePrefix Optional prefix for the organization name. The default org name is exposed as prefix + 'default' when set.
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
@@ -2142,7 +2283,7 @@ type K8sProviderSpec struct {
 	RbacNs *string `json:"rbacNs,omitempty"`
 
 	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+	RoleAssignment *AuthRoleAssignment `json:"roleAssignment,omitempty"`
 
 	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
 	RoleSuffix *string `json:"roleSuffix,omitempty"`
@@ -2246,7 +2387,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2291,7 +2432,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2370,6 +2511,9 @@ type OciRepoSpec struct {
 	// AccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
 	AccessMode *OciRepoSpecAccessMode `json:"accessMode,omitempty"`
 
+	// BaseImages Curated list of trusted base images available in this registry. When present, the Image Builder source picker surfaces these entries as selectable options.
+	BaseImages *[]BaseImageEntry `json:"baseImages,omitempty"`
+
 	// CaCrt Base64 encoded root CA.
 	CaCrt *string `json:"ca.crt,omitempty"`
 
@@ -2420,6 +2564,9 @@ type OpenShiftProviderSpec struct {
 
 	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer *string `json:"issuer,omitempty"`
+
+	// OrganizationNamePrefix Optional prefix for organization (project) names. Incoming names are exposed as prefix + name (e.g. 'ocp-' + project).
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
 	// ProjectLabelFilter If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
 	ProjectLabelFilter *string `json:"projectLabelFilter,omitempty"`
@@ -3060,6 +3207,9 @@ type ListDevicesParams struct {
 
 	// SummaryOnly A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
+
+	// CveId Filter devices by CVE ID. Only returns devices whose OS image digest has the specified vulnerability. Must be a MITRE-style identifier (CVE-YYYY-sequence, e.g. CVE-2024-12345).
+	CveId *string `form:"cveId,omitempty" json:"cveId,omitempty"`
 }
 
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
@@ -3289,6 +3439,12 @@ type PatchRepositoryApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceRepositoryJSONRequestBody defines body for ReplaceRepository for application/json ContentType.
 type ReplaceRepositoryJSONRequestBody = Repository
+
+// CheckRepositoryOciImageJSONRequestBody defines body for CheckRepositoryOciImage for application/json ContentType.
+type CheckRepositoryOciImageJSONRequestBody = CheckRepositoryOciImageRequest
+
+// CheckRepositoryOciTagJSONRequestBody defines body for CheckRepositoryOciTag for application/json ContentType.
+type CheckRepositoryOciTagJSONRequestBody = CheckRepositoryOciTagRequest
 
 // CreateResourceSyncJSONRequestBody defines body for CreateResourceSync for application/json ContentType.
 type CreateResourceSyncJSONRequestBody = ResourceSync
@@ -4903,6 +5059,90 @@ func (t *EventDetails) MergeFleetRolloutDeviceSelectedDetails(v FleetRolloutDevi
 	return err
 }
 
+// AsDeviceVulnerabilityCveDetails returns the union data inside the EventDetails as a DeviceVulnerabilityCveDetails
+func (t EventDetails) AsDeviceVulnerabilityCveDetails() (DeviceVulnerabilityCveDetails, error) {
+	var body DeviceVulnerabilityCveDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceVulnerabilityCveDetails overwrites any union data inside the EventDetails as the provided DeviceVulnerabilityCveDetails
+func (t *EventDetails) FromDeviceVulnerabilityCveDetails(v DeviceVulnerabilityCveDetails) error {
+	v.DetailType = "DeviceVulnerabilityCVE"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceVulnerabilityCveDetails performs a merge with any union data inside the EventDetails, using the provided DeviceVulnerabilityCveDetails
+func (t *EventDetails) MergeDeviceVulnerabilityCveDetails(v DeviceVulnerabilityCveDetails) error {
+	v.DetailType = "DeviceVulnerabilityCVE"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDependencyChangeDetectedDetails returns the union data inside the EventDetails as a DependencyChangeDetectedDetails
+func (t EventDetails) AsDependencyChangeDetectedDetails() (DependencyChangeDetectedDetails, error) {
+	var body DependencyChangeDetectedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDependencyChangeDetectedDetails overwrites any union data inside the EventDetails as the provided DependencyChangeDetectedDetails
+func (t *EventDetails) FromDependencyChangeDetectedDetails(v DependencyChangeDetectedDetails) error {
+	v.DetailType = "DependencyChangeDetected"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDependencyChangeDetectedDetails performs a merge with any union data inside the EventDetails, using the provided DependencyChangeDetectedDetails
+func (t *EventDetails) MergeDependencyChangeDetectedDetails(v DependencyChangeDetectedDetails) error {
+	v.DetailType = "DependencyChangeDetected"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDependencySyncProbeFailedDetails returns the union data inside the EventDetails as a DependencySyncProbeFailedDetails
+func (t EventDetails) AsDependencySyncProbeFailedDetails() (DependencySyncProbeFailedDetails, error) {
+	var body DependencySyncProbeFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDependencySyncProbeFailedDetails overwrites any union data inside the EventDetails as the provided DependencySyncProbeFailedDetails
+func (t *EventDetails) FromDependencySyncProbeFailedDetails(v DependencySyncProbeFailedDetails) error {
+	v.DetailType = "DependencySyncProbeFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDependencySyncProbeFailedDetails performs a merge with any union data inside the EventDetails, using the provided DependencySyncProbeFailedDetails
+func (t *EventDetails) MergeDependencySyncProbeFailedDetails(v DependencySyncProbeFailedDetails) error {
+	v.DetailType = "DependencySyncProbeFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -4917,12 +5157,18 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return nil, err
 	}
 	switch discriminator {
+	case "DependencyChangeDetected":
+		return t.AsDependencyChangeDetectedDetails()
+	case "DependencySyncProbeFailed":
+		return t.AsDependencySyncProbeFailedDetails()
 	case "DeviceMultipleOwnersDetected":
 		return t.AsDeviceMultipleOwnersDetectedDetails()
 	case "DeviceMultipleOwnersResolved":
 		return t.AsDeviceMultipleOwnersResolvedDetails()
 	case "DeviceOwnershipChanged":
 		return t.AsDeviceOwnershipChangedDetails()
+	case "DeviceVulnerabilityCVE":
+		return t.AsDeviceVulnerabilityCveDetails()
 	case "FleetRolloutBatchCompleted":
 		return t.AsFleetRolloutBatchCompletedDetails()
 	case "FleetRolloutBatchDispatched":

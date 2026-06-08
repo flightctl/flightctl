@@ -65,6 +65,27 @@ type ServerInterface interface {
 
 	// (PUT /catalogs/{name}/status)
 	ReplaceCatalogStatus(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /vulnerabilities)
+	ListVulnerabilities(w http.ResponseWriter, r *http.Request, params ListVulnerabilitiesParams)
+
+	// (GET /vulnerabilities/cves/{cveId}/impact)
+	GetVulnerabilityImpact(w http.ResponseWriter, r *http.Request, cveId string, params GetVulnerabilityImpactParams)
+
+	// (GET /vulnerabilities/devices/{name})
+	GetDeviceVulnerabilities(w http.ResponseWriter, r *http.Request, name string, params GetDeviceVulnerabilitiesParams)
+
+	// (GET /vulnerabilities/devices/{name}/summary)
+	GetDeviceVulnerabilitySummary(w http.ResponseWriter, r *http.Request, name string, params GetDeviceVulnerabilitySummaryParams)
+
+	// (GET /vulnerabilities/fleets/{name})
+	GetFleetVulnerabilities(w http.ResponseWriter, r *http.Request, name string, params GetFleetVulnerabilitiesParams)
+
+	// (GET /vulnerabilities/fleets/{name}/summary)
+	GetFleetVulnerabilitySummary(w http.ResponseWriter, r *http.Request, name string, params GetFleetVulnerabilitySummaryParams)
+
+	// (GET /vulnerabilities/summary)
+	GetVulnerabilitySummary(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -148,6 +169,41 @@ func (_ Unimplemented) PatchCatalogStatus(w http.ResponseWriter, r *http.Request
 
 // (PUT /catalogs/{name}/status)
 func (_ Unimplemented) ReplaceCatalogStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities)
+func (_ Unimplemented) ListVulnerabilities(w http.ResponseWriter, r *http.Request, params ListVulnerabilitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/cves/{cveId}/impact)
+func (_ Unimplemented) GetVulnerabilityImpact(w http.ResponseWriter, r *http.Request, cveId string, params GetVulnerabilityImpactParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/devices/{name})
+func (_ Unimplemented) GetDeviceVulnerabilities(w http.ResponseWriter, r *http.Request, name string, params GetDeviceVulnerabilitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/devices/{name}/summary)
+func (_ Unimplemented) GetDeviceVulnerabilitySummary(w http.ResponseWriter, r *http.Request, name string, params GetDeviceVulnerabilitySummaryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/fleets/{name})
+func (_ Unimplemented) GetFleetVulnerabilities(w http.ResponseWriter, r *http.Request, name string, params GetFleetVulnerabilitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/fleets/{name}/summary)
+func (_ Unimplemented) GetFleetVulnerabilitySummary(w http.ResponseWriter, r *http.Request, name string, params GetFleetVulnerabilitySummaryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /vulnerabilities/summary)
+func (_ Unimplemented) GetVulnerabilitySummary(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -664,6 +720,355 @@ func (siw *ServerInterfaceWrapper) ReplaceCatalogStatus(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListVulnerabilities operation middleware
+func (siw *ServerInterfaceWrapper) ListVulnerabilities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListVulnerabilitiesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "sortBy" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sortBy", r.URL.Query(), &params.SortBy)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sortBy", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "order", r.URL.Query(), &params.Order)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVulnerabilities(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVulnerabilityImpact operation middleware
+func (siw *ServerInterfaceWrapper) GetVulnerabilityImpact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "cveId" -------------
+	var cveId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cveId", chi.URLParam(r, "cveId"), &cveId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cveId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetVulnerabilityImpactParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "sortBy" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sortBy", r.URL.Query(), &params.SortBy)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sortBy", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "order", r.URL.Query(), &params.Order)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVulnerabilityImpact(w, r, cveId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDeviceVulnerabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceVulnerabilities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDeviceVulnerabilitiesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "sortBy" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sortBy", r.URL.Query(), &params.SortBy)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sortBy", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "order", r.URL.Query(), &params.Order)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceVulnerabilities(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDeviceVulnerabilitySummary operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceVulnerabilitySummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDeviceVulnerabilitySummaryParams
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceVulnerabilitySummary(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFleetVulnerabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetFleetVulnerabilities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFleetVulnerabilitiesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "sortBy" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sortBy", r.URL.Query(), &params.SortBy)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sortBy", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "order", r.URL.Query(), &params.Order)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFleetVulnerabilities(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFleetVulnerabilitySummary operation middleware
+func (siw *ServerInterfaceWrapper) GetFleetVulnerabilitySummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFleetVulnerabilitySummaryParams
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFleetVulnerabilitySummary(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVulnerabilitySummary operation middleware
+func (siw *ServerInterfaceWrapper) GetVulnerabilitySummary(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVulnerabilitySummary(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -824,6 +1229,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/catalogs/{name}/status", wrapper.ReplaceCatalogStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities", wrapper.ListVulnerabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/cves/{cveId}/impact", wrapper.GetVulnerabilityImpact)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/devices/{name}", wrapper.GetDeviceVulnerabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/devices/{name}/summary", wrapper.GetDeviceVulnerabilitySummary)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/fleets/{name}", wrapper.GetFleetVulnerabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/fleets/{name}/summary", wrapper.GetFleetVulnerabilitySummary)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/vulnerabilities/summary", wrapper.GetVulnerabilitySummary)
 	})
 
 	return r

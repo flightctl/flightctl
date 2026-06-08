@@ -11,15 +11,16 @@ import (
 
 // Defines values for CatalogItemArtifactType.
 const (
-	CatalogItemArtifactTypeAmi         CatalogItemArtifactType = "ami"
-	CatalogItemArtifactTypeAnacondaIso CatalogItemArtifactType = "anaconda-iso"
-	CatalogItemArtifactTypeContainer   CatalogItemArtifactType = "container"
-	CatalogItemArtifactTypeGce         CatalogItemArtifactType = "gce"
-	CatalogItemArtifactTypeIso         CatalogItemArtifactType = "iso"
-	CatalogItemArtifactTypeQcow2       CatalogItemArtifactType = "qcow2"
-	CatalogItemArtifactTypeRaw         CatalogItemArtifactType = "raw"
-	CatalogItemArtifactTypeVhd         CatalogItemArtifactType = "vhd"
-	CatalogItemArtifactTypeVmdk        CatalogItemArtifactType = "vmdk"
+	CatalogItemArtifactTypeAmi                CatalogItemArtifactType = "ami"
+	CatalogItemArtifactTypeAnacondaIso        CatalogItemArtifactType = "anaconda-iso"
+	CatalogItemArtifactTypeContainer          CatalogItemArtifactType = "container"
+	CatalogItemArtifactTypeGce                CatalogItemArtifactType = "gce"
+	CatalogItemArtifactTypeIso                CatalogItemArtifactType = "iso"
+	CatalogItemArtifactTypeQcow2              CatalogItemArtifactType = "qcow2"
+	CatalogItemArtifactTypeQcow2DiskContainer CatalogItemArtifactType = "qcow2-disk-container"
+	CatalogItemArtifactTypeRaw                CatalogItemArtifactType = "raw"
+	CatalogItemArtifactTypeVhd                CatalogItemArtifactType = "vhd"
+	CatalogItemArtifactTypeVmdk               CatalogItemArtifactType = "vmdk"
 )
 
 // Defines values for CatalogItemCategory.
@@ -39,6 +40,115 @@ const (
 	CatalogItemTypeOS        CatalogItemType = "os"
 	CatalogItemTypeQuadlet   CatalogItemType = "quadlet"
 )
+
+// Defines values for VulnerabilitySeverity.
+const (
+	VulnerabilitySeverityCritical VulnerabilitySeverity = "Critical"
+	VulnerabilitySeverityHigh     VulnerabilitySeverity = "High"
+	VulnerabilitySeverityLow      VulnerabilitySeverity = "Low"
+	VulnerabilitySeverityMedium   VulnerabilitySeverity = "Medium"
+	VulnerabilitySeverityNone     VulnerabilitySeverity = "None"
+	VulnerabilitySeverityUnknown  VulnerabilitySeverity = "Unknown"
+)
+
+// Defines values for VulnerabilityGroupSeverity.
+const (
+	VulnerabilityGroupSeverityCritical VulnerabilityGroupSeverity = "Critical"
+	VulnerabilityGroupSeverityHigh     VulnerabilityGroupSeverity = "High"
+	VulnerabilityGroupSeverityLow      VulnerabilityGroupSeverity = "Low"
+	VulnerabilityGroupSeverityMedium   VulnerabilityGroupSeverity = "Medium"
+	VulnerabilityGroupSeverityNone     VulnerabilityGroupSeverity = "None"
+	VulnerabilityGroupSeverityUnknown  VulnerabilityGroupSeverity = "Unknown"
+)
+
+// Defines values for VulnerabilityGroupItemSeverity.
+const (
+	VulnerabilityGroupItemSeverityCritical VulnerabilityGroupItemSeverity = "Critical"
+	VulnerabilityGroupItemSeverityHigh     VulnerabilityGroupItemSeverity = "High"
+	VulnerabilityGroupItemSeverityLow      VulnerabilityGroupItemSeverity = "Low"
+	VulnerabilityGroupItemSeverityMedium   VulnerabilityGroupItemSeverity = "Medium"
+	VulnerabilityGroupItemSeverityNone     VulnerabilityGroupItemSeverity = "None"
+	VulnerabilityGroupItemSeverityUnknown  VulnerabilityGroupItemSeverity = "Unknown"
+)
+
+// Defines values for VulnerabilityImpactSeverity.
+const (
+	VulnerabilityImpactSeverityCritical VulnerabilityImpactSeverity = "Critical"
+	VulnerabilityImpactSeverityHigh     VulnerabilityImpactSeverity = "High"
+	VulnerabilityImpactSeverityLow      VulnerabilityImpactSeverity = "Low"
+	VulnerabilityImpactSeverityMedium   VulnerabilityImpactSeverity = "Medium"
+	VulnerabilityImpactSeverityNone     VulnerabilityImpactSeverity = "None"
+	VulnerabilityImpactSeverityUnknown  VulnerabilityImpactSeverity = "Unknown"
+)
+
+// Defines values for ListVulnerabilitiesParamsSortBy.
+const (
+	ListVulnerabilitiesParamsSortByCveId       ListVulnerabilitiesParamsSortBy = "cveId"
+	ListVulnerabilitiesParamsSortByCvssScore   ListVulnerabilitiesParamsSortBy = "cvssScore"
+	ListVulnerabilitiesParamsSortByPublishedAt ListVulnerabilitiesParamsSortBy = "publishedAt"
+	ListVulnerabilitiesParamsSortBySeverity    ListVulnerabilitiesParamsSortBy = "severity"
+)
+
+// Defines values for ListVulnerabilitiesParamsOrder.
+const (
+	ListVulnerabilitiesParamsOrderAsc  ListVulnerabilitiesParamsOrder = "asc"
+	ListVulnerabilitiesParamsOrderDesc ListVulnerabilitiesParamsOrder = "desc"
+)
+
+// Defines values for GetVulnerabilityImpactParamsSortBy.
+const (
+	AffectedDevices GetVulnerabilityImpactParamsSortBy = "affectedDevices"
+	FleetName       GetVulnerabilityImpactParamsSortBy = "fleetName"
+)
+
+// Defines values for GetVulnerabilityImpactParamsOrder.
+const (
+	GetVulnerabilityImpactParamsOrderAsc  GetVulnerabilityImpactParamsOrder = "asc"
+	GetVulnerabilityImpactParamsOrderDesc GetVulnerabilityImpactParamsOrder = "desc"
+)
+
+// Defines values for GetDeviceVulnerabilitiesParamsSortBy.
+const (
+	GetDeviceVulnerabilitiesParamsSortByCveId       GetDeviceVulnerabilitiesParamsSortBy = "cveId"
+	GetDeviceVulnerabilitiesParamsSortByCvssScore   GetDeviceVulnerabilitiesParamsSortBy = "cvssScore"
+	GetDeviceVulnerabilitiesParamsSortByPublishedAt GetDeviceVulnerabilitiesParamsSortBy = "publishedAt"
+	GetDeviceVulnerabilitiesParamsSortBySeverity    GetDeviceVulnerabilitiesParamsSortBy = "severity"
+)
+
+// Defines values for GetDeviceVulnerabilitiesParamsOrder.
+const (
+	GetDeviceVulnerabilitiesParamsOrderAsc  GetDeviceVulnerabilitiesParamsOrder = "asc"
+	GetDeviceVulnerabilitiesParamsOrderDesc GetDeviceVulnerabilitiesParamsOrder = "desc"
+)
+
+// Defines values for GetFleetVulnerabilitiesParamsSortBy.
+const (
+	CveId       GetFleetVulnerabilitiesParamsSortBy = "cveId"
+	CvssScore   GetFleetVulnerabilitiesParamsSortBy = "cvssScore"
+	PublishedAt GetFleetVulnerabilitiesParamsSortBy = "publishedAt"
+	Severity    GetFleetVulnerabilitiesParamsSortBy = "severity"
+)
+
+// Defines values for GetFleetVulnerabilitiesParamsOrder.
+const (
+	GetFleetVulnerabilitiesParamsOrderAsc  GetFleetVulnerabilitiesParamsOrder = "asc"
+	GetFleetVulnerabilitiesParamsOrderDesc GetFleetVulnerabilitiesParamsOrder = "desc"
+)
+
+// AffectedFleet One fleet or the fleetless aggregate with device and image counts for a CVE.
+type AffectedFleet struct {
+	// AffectedDevices Devices in this fleet or fleetless group affected by the CVE.
+	AffectedDevices int64 `json:"affectedDevices"`
+
+	// Findings Per-digest findings within this fleet or fleetless group.
+	Findings []VulnerabilityGroupItem `json:"findings"`
+
+	// FleetName Fleet metadata.name, empty for the fleetless aggregate.
+	FleetName string `json:"fleetName"`
+
+	// Fleetless True when this row represents devices not owned by a fleet.
+	Fleetless bool `json:"fleetless"`
+}
 
 // ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 type ApiVersion = string
@@ -226,16 +336,16 @@ type CatalogItemVersion struct {
 	References map[string]string `json:"references"`
 
 	// Replaces The single version this one replaces, defining the primary upgrade edge.
-	Replaces *string `json:"replaces,omitempty"`
+	Replaces *SemVer `json:"replaces,omitempty"`
 
 	// SkipRange Semver range of versions that can upgrade directly to this one. Use for z-stream updates or hotfixes.
-	SkipRange *string `json:"skipRange,omitempty"`
+	SkipRange *SemVerRange `json:"skipRange,omitempty"`
 
 	// Skips Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.
-	Skips *[]string `json:"skips,omitempty"`
+	Skips *[]SemVer `json:"skips,omitempty"`
 
-	// Version Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.
-	Version string `json:"version"`
+	// Version Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1). Required for version ordering and upgrade graph.
+	Version SemVer `json:"version"`
 }
 
 // CatalogList CatalogList is a list of Catalogs.
@@ -277,6 +387,117 @@ type CatalogStatus struct {
 	Conditions []externalRef0.Condition `json:"conditions"`
 }
 
+// CveCountsBySeverity Counts of distinct CVEs in the organization by highest severity.
+type CveCountsBySeverity struct {
+	// Critical Count of distinct Critical CVEs.
+	Critical int64 `json:"critical"`
+
+	// High Count of distinct High CVEs.
+	High int64 `json:"high"`
+
+	// Low Count of distinct Low CVEs.
+	Low int64 `json:"low"`
+
+	// Medium Count of distinct Medium CVEs.
+	Medium int64 `json:"medium"`
+
+	// None Count of distinct CVEs with no exploitable impact (CVSS score 0).
+	None int64 `json:"none"`
+
+	// Total Total distinct CVEs across the organization.
+	Total int64 `json:"total"`
+
+	// Unknown Count of distinct CVEs with unknown or unscored severity.
+	Unknown int64 `json:"unknown"`
+}
+
+// DeviceCountsBySeverity Counts of distinct devices affected in the organization, grouped by vulnerability severity.
+type DeviceCountsBySeverity struct {
+	// Critical Number of devices whose highest severity finding is critical.
+	Critical int64 `json:"critical"`
+
+	// High Number of devices whose highest severity finding is high.
+	High int64 `json:"high"`
+
+	// Low Number of devices whose highest severity finding is low.
+	Low int64 `json:"low"`
+
+	// Medium Number of devices whose highest severity finding is medium.
+	Medium int64 `json:"medium"`
+
+	// None Number of devices whose highest severity finding is none.
+	None int64 `json:"none"`
+
+	// Total Number of distinct devices with at least one vulnerability finding in the organization.
+	Total int64 `json:"total"`
+
+	// Unknown Number of devices whose highest severity finding is unknown.
+	Unknown int64 `json:"unknown"`
+}
+
+// DeviceVulnerabilitySummaryResponse Severity summary for a single device.
+type DeviceVulnerabilitySummaryResponse struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Image Image reference from device status. Absent when the device has no rendered OS image.
+	Image *string `json:"image,omitempty"`
+
+	// ImageDigest Image digest from device status. Absent when the device has no rendered OS image.
+	ImageDigest *string `json:"imageDigest,omitempty"`
+
+	// Kind Resource kind; always DeviceVulnerabilitySummary.
+	Kind string `json:"kind"`
+
+	// Summary Total vulnerability counts by severity for the full result set (not only the current page).
+	Summary VulnerabilitySeveritySummary `json:"summary"`
+}
+
+// FleetVulnerabilitySummary defines model for FleetVulnerabilitySummary.
+type FleetVulnerabilitySummary struct {
+	// Critical Count of Critical severity findings in the full result set.
+	Critical int64 `json:"critical"`
+
+	// High Count of High severity findings in the full result set.
+	High int64 `json:"high"`
+
+	// Low Count of Low severity findings in the full result set.
+	Low int64 `json:"low"`
+
+	// Medium Count of Medium severity findings in the full result set.
+	Medium int64 `json:"medium"`
+
+	// None Count of findings with no exploitable impact (CVSS score 0).
+	None int64 `json:"none"`
+
+	// Total Total vulnerabilities across all severities for the full result set.
+	Total int64 `json:"total"`
+
+	// UniqueDigests Distinct image digests observed in the fleet.
+	UniqueDigests int64 `json:"uniqueDigests"`
+
+	// Unknown Count of findings with unknown or unscored severity.
+	Unknown int64 `json:"unknown"`
+}
+
+// FleetVulnerabilitySummaryResponse Severity summary for a single fleet.
+type FleetVulnerabilitySummaryResponse struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Kind Resource kind; always FleetVulnerabilitySummary.
+	Kind string `json:"kind"`
+
+	// Summary Fleet vulnerability totals including unique digest count.
+	Summary FleetVulnerabilitySummary `json:"summary"`
+}
+
+// SemVer Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1)
+type SemVer = string
+
+// SemVerRange Semver range constraint (e.g., >=1.0.0 <2.0.0). Space-separated terms, each with optional operator (>=, <=, >, <, =, ~, ^) followed by a version.
+type SemVerRange = string
+
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -296,6 +517,234 @@ type Status struct {
 
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status string `json:"status"`
+}
+
+// Vulnerability A single vulnerability (CVE) finding. Vulnerabilities are global CVE records from Trustify; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
+type Vulnerability struct {
+	// AdvisoryId Vendor advisory identifier when available.
+	AdvisoryId *string `json:"advisoryId,omitempty"`
+
+	// AffectedDevices Distinct devices affected by this CVE. For device context this is always 1; for fleet context it is the number of devices in the fleet running an image with this CVE; for organization-wide context it is the count across the whole organization.
+	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// CveId CVE identifier (e.g. CVE-2024-1234).
+	CveId string `json:"cveId"`
+
+	// CvssScore CVSS base score when available.
+	CvssScore *float32 `json:"cvssScore,omitempty"`
+
+	// Description Short summary of the vulnerability.
+	Description *string `json:"description,omitempty"`
+
+	// Image Image reference (name or URL) from the device context.
+	Image *string `json:"image,omitempty"`
+
+	// ImageDigest Immutable image digest from the device context.
+	ImageDigest *string `json:"imageDigest,omitempty"`
+
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Always Vulnerability.
+	Kind string `json:"kind"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
+
+	// PublishedAt Advisory publish time when known.
+	PublishedAt *time.Time `json:"publishedAt,omitempty"`
+
+	// Severity Normalized severity label.
+	Severity VulnerabilitySeverity `json:"severity"`
+}
+
+// VulnerabilitySeverity Normalized severity label.
+type VulnerabilitySeverity string
+
+// VulnerabilityGroup A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide vulnerability list endpoints. Each finding represents one image in which the CVE was detected.
+type VulnerabilityGroup struct {
+	// AffectedDevices Total distinct devices affected by this CVE within scope.
+	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// CveId CVE identifier (e.g. CVE-2024-1234).
+	CveId string `json:"cveId"`
+
+	// Findings Per-digest findings for this CVE within the query scope.
+	Findings []VulnerabilityGroupItem `json:"findings"`
+
+	// Kind Kind is a string value representing the REST resource. Always VulnerabilityGroup.
+	Kind string `json:"kind"`
+
+	// MaxCvssScore Highest CVSS base score across all findings.
+	MaxCvssScore *float32 `json:"maxCvssScore,omitempty"`
+
+	// MaxPublishedAt Latest advisory publish time across all findings.
+	MaxPublishedAt *time.Time `json:"maxPublishedAt,omitempty"`
+
+	// Severity Worst severity across all findings in this group.
+	Severity VulnerabilityGroupSeverity `json:"severity"`
+}
+
+// VulnerabilityGroupSeverity Worst severity across all findings in this group.
+type VulnerabilityGroupSeverity string
+
+// VulnerabilityGroupItem A single CVE finding for a specific image digest, including all image refs that resolve to that digest.
+type VulnerabilityGroupItem struct {
+	// AdvisoryId Vendor advisory identifier when available.
+	AdvisoryId *string `json:"advisoryId,omitempty"`
+
+	// AffectedDevices Number of devices in scope running this digest.
+	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
+
+	// CvssScore CVSS base score when available.
+	CvssScore *float32 `json:"cvssScore,omitempty"`
+
+	// Description Short summary of the vulnerability.
+	Description *string `json:"description,omitempty"`
+
+	// FirstSeenAt When this CVE was first observed in this digest.
+	FirstSeenAt *time.Time `json:"firstSeenAt,omitempty"`
+
+	// ImageDigest Immutable image digest.
+	ImageDigest string `json:"imageDigest"`
+
+	// ImageRefs Image references observed for this digest within the query scope.
+	ImageRefs []string `json:"imageRefs"`
+
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
+
+	// PublishedAt Advisory publish time when known.
+	PublishedAt *time.Time `json:"publishedAt,omitempty"`
+
+	// Severity Severity of this CVE for this digest.
+	Severity VulnerabilityGroupItemSeverity `json:"severity"`
+}
+
+// VulnerabilityGroupItemSeverity Severity of this CVE for this digest.
+type VulnerabilityGroupItemSeverity string
+
+// VulnerabilityGroupList Paginated list of VulnerabilityGroup resources (fleet-scoped or organization-wide).
+type VulnerabilityGroupList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items Paginated VulnerabilityGroup resources for this page.
+	Items []VulnerabilityGroup `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource. Always VulnerabilityGroupList.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
+// VulnerabilityImageRef Reference to an OS or workload image by name and digest.
+type VulnerabilityImageRef struct {
+	// AffectedDevices Devices running this exact image digest within the parent scope (fleet or blast radius row).
+	AffectedDevices *int64 `json:"affectedDevices,omitempty"`
+
+	// Image Image reference (name or URL).
+	Image string `json:"image"`
+
+	// ImageDigest Immutable image digest.
+	ImageDigest string `json:"imageDigest"`
+}
+
+// VulnerabilityImpact Blast radius for a single CVE across fleets and fleetless devices.
+type VulnerabilityImpact struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// CveId CVE identifier for this blast radius response.
+	CveId string `json:"cveId"`
+
+	// Issuer Name of the advisory issuer (e.g. Red Hat, NVD) when known.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Items Per-fleet or fleetless rows with device and image counts.
+	Items []AffectedFleet `json:"items"`
+
+	// Kind Resource kind; always VulnerabilityImpact.
+	Kind string `json:"kind"`
+
+	// Link URL to the CVE details page. Points to Red Hat Security portal for Red Hat advisories, otherwise to NVD.
+	Link *string `json:"link,omitempty"`
+
+	// MaxCvssScore Highest CVSS base score for this CVE in the fleet or fleetless group.
+	MaxCvssScore *float32 `json:"maxCvssScore,omitempty"`
+
+	// MaxPublishedAt When this CVE was first observed in the fleet or fleetless group.
+	MaxPublishedAt *time.Time `json:"maxPublishedAt,omitempty"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+
+	// Severity Worst severity for this CVE in the fleet or fleetless group.
+	Severity VulnerabilityImpactSeverity `json:"severity"`
+}
+
+// VulnerabilityImpactSeverity Worst severity for this CVE in the fleet or fleetless group.
+type VulnerabilityImpactSeverity string
+
+// VulnerabilityList Paginated list of Vulnerability resources.
+type VulnerabilityList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items Paginated Vulnerability resources for this page.
+	Items []Vulnerability `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Always VulnerabilityList.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
+// VulnerabilitySeveritySummary Total vulnerability counts by severity for the full result set (not only the current page).
+type VulnerabilitySeveritySummary struct {
+	// Critical Count of Critical severity findings in the full result set.
+	Critical int64 `json:"critical"`
+
+	// High Count of High severity findings in the full result set.
+	High int64 `json:"high"`
+
+	// Low Count of Low severity findings in the full result set.
+	Low int64 `json:"low"`
+
+	// Medium Count of Medium severity findings in the full result set.
+	Medium int64 `json:"medium"`
+
+	// None Count of findings with no exploitable impact (CVSS score 0).
+	None int64 `json:"none"`
+
+	// Total Total vulnerabilities across all severities for the full result set.
+	Total int64 `json:"total"`
+
+	// Unknown Count of findings with unknown or unscored severity.
+	Unknown int64 `json:"unknown"`
+}
+
+// VulnerabilitySummaryResponse Estate-wide vulnerability summary counts.
+type VulnerabilitySummaryResponse struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// CvesBySeverity Counts of distinct CVEs in the organization by highest severity.
+	CvesBySeverity CveCountsBySeverity `json:"cvesBySeverity"`
+
+	// Kind Resource kind; always VulnerabilitySummary.
+	Kind string `json:"kind"`
 }
 
 // ListAllCatalogItemsParams defines parameters for ListAllCatalogItems.
@@ -338,6 +787,114 @@ type ListCatalogItemsParams struct {
 
 	// Limit The maximum number of results returned in the list response.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListVulnerabilitiesParams defines parameters for ListVulnerabilities.
+type ListVulnerabilitiesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// SortBy Field to sort vulnerability list results by.
+	SortBy *ListVulnerabilitiesParamsSortBy `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// Order Sort order for the results.
+	Order *ListVulnerabilitiesParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListVulnerabilitiesParamsSortBy defines parameters for ListVulnerabilities.
+type ListVulnerabilitiesParamsSortBy string
+
+// ListVulnerabilitiesParamsOrder defines parameters for ListVulnerabilities.
+type ListVulnerabilitiesParamsOrder string
+
+// GetVulnerabilityImpactParams defines parameters for GetVulnerabilityImpact.
+type GetVulnerabilityImpactParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// FieldSelector Restricts blast-radius rows by device owner before aggregation. Supported key is `owner` (device owner string, for example `owner=Fleet/my-fleet`). Operators include `=`, `==`, `!=`, and set-style `in` / `notin` where applicable.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// SortBy Field to sort blast radius rows by.
+	SortBy *GetVulnerabilityImpactParamsSortBy `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// Order Sort order for the results.
+	Order *GetVulnerabilityImpactParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetVulnerabilityImpactParamsSortBy defines parameters for GetVulnerabilityImpact.
+type GetVulnerabilityImpactParamsSortBy string
+
+// GetVulnerabilityImpactParamsOrder defines parameters for GetVulnerabilityImpact.
+type GetVulnerabilityImpactParamsOrder string
+
+// GetDeviceVulnerabilitiesParams defines parameters for GetDeviceVulnerabilities.
+type GetDeviceVulnerabilitiesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// SortBy Field to sort vulnerability list results by.
+	SortBy *GetDeviceVulnerabilitiesParamsSortBy `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// Order Sort order for the results.
+	Order *GetDeviceVulnerabilitiesParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetDeviceVulnerabilitiesParamsSortBy defines parameters for GetDeviceVulnerabilities.
+type GetDeviceVulnerabilitiesParamsSortBy string
+
+// GetDeviceVulnerabilitiesParamsOrder defines parameters for GetDeviceVulnerabilities.
+type GetDeviceVulnerabilitiesParamsOrder string
+
+// GetDeviceVulnerabilitySummaryParams defines parameters for GetDeviceVulnerabilitySummary.
+type GetDeviceVulnerabilitySummaryParams struct {
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+}
+
+// GetFleetVulnerabilitiesParams defines parameters for GetFleetVulnerabilities.
+type GetFleetVulnerabilitiesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// SortBy Field to sort vulnerability list results by.
+	SortBy *GetFleetVulnerabilitiesParamsSortBy `form:"sortBy,omitempty" json:"sortBy,omitempty"`
+
+	// Order Sort order for the results.
+	Order *GetFleetVulnerabilitiesParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetFleetVulnerabilitiesParamsSortBy defines parameters for GetFleetVulnerabilities.
+type GetFleetVulnerabilitiesParamsSortBy string
+
+// GetFleetVulnerabilitiesParamsOrder defines parameters for GetFleetVulnerabilities.
+type GetFleetVulnerabilitiesParamsOrder string
+
+// GetFleetVulnerabilitySummaryParams defines parameters for GetFleetVulnerabilitySummary.
+type GetFleetVulnerabilitySummaryParams struct {
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 }
 
 // CreateCatalogJSONRequestBody defines body for CreateCatalog for application/json ContentType.

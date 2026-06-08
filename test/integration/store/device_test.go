@@ -15,7 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,6 +37,7 @@ func TestStore(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Store Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
 
 var _ = Describe("DeviceStore create", func() {
@@ -56,7 +59,10 @@ var _ = Describe("DeviceStore create", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		devStore = storeInst.Device()
 		called = false
 		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -64,14 +70,15 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		orgId = uuid.New()
-		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	It("CreateOrUpdateDevice create mode race", func() {
@@ -192,7 +199,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with summary", func() {
-			allDevices, err := devStore.List(ctx, orgId, store.ListParams{})
+			allDevices, err := devStore.List(ctx, orgId, store.DeviceListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
 			expectedApplicationMap := make(map[string]int64)
@@ -212,7 +219,7 @@ var _ = Describe("DeviceStore create", func() {
 				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
-			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
+			allDevices, err = devStore.List(ctx, orgId, store.DeviceListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
 			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
@@ -229,7 +236,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with paging", func() {
-			listParams := store.ListParams{Limit: 1000}
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
 			allDevices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(numDevices))
@@ -271,9 +278,12 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with paging", func() {
-			listParams := store.ListParams{
-				Limit:         1000,
-				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
+			listParams := store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}),
+				},
+			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
@@ -281,9 +291,11 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with status field filter paging", func() {
-			listParams := store.ListParams{
-				Limit:         1000,
-				FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status in (Unknown, Updating)", selector.WithPrivateSelectors()),
+			listParams := store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status in (Unknown, Updating)", selector.WithPrivateSelectors()),
+				},
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
@@ -293,31 +305,162 @@ var _ = Describe("DeviceStore create", func() {
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)
-			listParams := store.ListParams{
-				Limit: 1000,
-				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"metadata.owner": "Fleet/fleet-a"}, selector.WithPrivateSelectors()),
+			listParams := store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit: 1000,
+					FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+						map[string]string{"metadata.owner": "Fleet/fleet-a"}, selector.WithPrivateSelectors()),
+				},
 			}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
-			listParams = store.ListParams{
-				Limit: 1000,
-				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"metadata.owner": "Fleet/fleet-b"}, selector.WithPrivateSelectors()),
+			listParams = store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit: 1000,
+					FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+						map[string]string{"metadata.owner": "Fleet/fleet-b"}, selector.WithPrivateSelectors()),
+				},
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
-			listParams = store.ListParams{
-				Limit:         1000,
-				FieldSelector: selector.NewFieldSelectorOrDie("metadata.owner in (Fleet/fleet-a, Fleet/fleet-b)", selector.WithPrivateSelectors()),
+			listParams = store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("metadata.owner in (Fleet/fleet-a, Fleet/fleet-b)", selector.WithPrivateSelectors()),
+				},
 			}
 			devices, err = devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(2))
+		})
+
+		It("List with CVE ID filter", func() {
+			findingStore := storeInst.VulnerabilityFinding()
+
+			// Create devices with OS image digests
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-with-cve", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-without-cve", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-no-digest", nil, nil, nil)
+
+			// Set OS digests for two devices
+			digest1 := "sha256:aaaa1111"
+			digest2 := "sha256:bbbb2222"
+			setDeviceOsDigest(ctx, devStore, orgId, "device-with-cve", digest1)
+			setDeviceOsDigest(ctx, devStore, orgId, "device-without-cve", digest2)
+
+			// Create vulnerability findings - only digest1 has CVE-2024-1234
+			findings := []model.VulnerabilityFinding{
+				{
+					ImageDigest: digest1,
+					CveID:       "CVE-2024-1234",
+					Status:      model.VulnerabilityStatusAffected,
+					Severity:    model.VulnerabilitySeverityCritical,
+				},
+				{
+					ImageDigest: digest1,
+					CveID:       "CVE-2024-5678",
+					Status:      model.VulnerabilityStatusAffected,
+					Severity:    model.VulnerabilitySeverityHigh,
+				},
+				{
+					ImageDigest: digest2,
+					CveID:       "CVE-2024-9999",
+					Status:      model.VulnerabilityStatusAffected,
+					Severity:    model.VulnerabilitySeverityMedium,
+				},
+			}
+			_, err := findingStore.UpsertFindings(ctx, findings)
+			Expect(err).ToNot(HaveOccurred())
+
+			// List without CVE filter - should return all devices with spec
+			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(BeNumerically(">=", 3))
+
+			// List with CVE filter for CVE-2024-1234 - should return only device-with-cve
+			cveID := "CVE-2024-1234"
+			listParams = store.DeviceListParams{
+				ListParams: store.ListParams{Limit: 1000},
+				CveID:      &cveID,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+			Expect(*devices.Items[0].Metadata.Name).To(Equal("device-with-cve"))
+
+			// List with CVE filter for CVE-2024-9999 - should return only device-without-cve
+			cveID = "CVE-2024-9999"
+			listParams = store.DeviceListParams{
+				ListParams: store.ListParams{Limit: 1000},
+				CveID:      &cveID,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(1))
+			Expect(*devices.Items[0].Metadata.Name).To(Equal("device-without-cve"))
+
+			// List with CVE filter for non-existent CVE - should return empty
+			cveID = "CVE-9999-9999"
+			listParams = store.DeviceListParams{
+				ListParams: store.ListParams{Limit: 1000},
+				CveID:      &cveID,
+			}
+			devices, err = devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(devices.Items)).To(Equal(0))
+		})
+
+		It("List with CVE ID and device status lifecycle field selector (no ambiguous SQL status column)", func() {
+			findingStore := storeInst.VulnerabilityFinding()
+			digest := "sha256:cve-fs-digest"
+
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-enrolled", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-not-enrolled", nil, nil, nil)
+
+			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-enrolled", digest)
+			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-not-enrolled", digest)
+
+			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
+			Expect(err).ToNot(HaveOccurred())
+			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
+			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notEnrolledDev.Status.Lifecycle.Status).ToNot(Equal(api.DeviceLifecycleStatusEnrolled))
+
+			cveForTest := "CVE-2099-9901"
+			_, err = findingStore.UpsertFindings(ctx, []model.VulnerabilityFinding{
+				{
+					ImageDigest: digest,
+					CveID:       cveForTest,
+					Status:      model.VulnerabilityStatusAffected,
+					Severity:    model.VulnerabilitySeverityHigh,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fs, err := selector.NewFieldSelector("status.lifecycle.status in (Enrolled)", selector.WithPrivateSelectors())
+			Expect(err).ToNot(HaveOccurred())
+
+			cveID := cveForTest
+			listParams := store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: fs,
+				},
+				CveID: &cveID,
+			}
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devices.Items).To(HaveLen(1))
+			Expect(*devices.Items[0].Metadata.Name).To(Equal("device-cve-fs-enrolled"))
 		})
 
 		It("CreateOrUpdateDevice create mode", func() {
@@ -894,7 +1037,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -917,7 +1060,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion

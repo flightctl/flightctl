@@ -80,7 +80,8 @@ type DeviceLabel struct {
 }
 
 type ServiceConditions struct {
-	Conditions *[]domain.Condition `json:"conditions,omitempty"`
+	Conditions     *[]domain.Condition          `json:"conditions,omitempty"`
+	DependencySync *domain.DependencySyncStatus `json:"dependencySync,omitempty"`
 }
 
 func (d Device) String() string {
@@ -113,6 +114,11 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	status.Conditions = lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
 		return !c.Type.IsServiceConditionType()
 	})
+
+	if status.DependencySync != nil {
+		serviceConditions.DependencySync = status.DependencySync
+		status.DependencySync = nil
+	}
 
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
@@ -170,7 +176,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		if !ok {
 			return nil, flterrors.ErrNoRenderedVersion
 		}
-		var consoles []domain.DeviceConsole
+		consoles := []domain.DeviceConsole{}
 
 		if val, ok := d.Annotations[domain.DeviceAnnotationConsole]; ok && val != "" {
 			if err := json.Unmarshal([]byte(val), &consoles); err != nil {
@@ -208,11 +214,16 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		status = d.Status.Data
 	}
 
-	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
-		if status.Conditions == nil {
-			status.Conditions = []domain.Condition{}
+	if d.ServiceConditions != nil {
+		if d.ServiceConditions.Data.Conditions != nil {
+			if status.Conditions == nil {
+				status.Conditions = []domain.Condition{}
+			}
+			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 		}
-		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
+		if d.ServiceConditions.Data.DependencySync != nil {
+			status.DependencySync = d.ServiceConditions.Data.DependencySync
+		}
 	}
 
 	var resourceVersion *string

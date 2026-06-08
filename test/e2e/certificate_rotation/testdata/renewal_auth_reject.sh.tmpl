@@ -1,0 +1,32 @@
+set -uo pipefail
+tmpcsr=$(mktemp)
+trap 'rm -f "$tmpcsr" /tmp/renewal-auth-body.txt /tmp/renewal-auth-stderr.txt' EXIT
+if ! openssl req -new -key /var/lib/flightctl/certs/agent.key -subj "/CN={{ .MismatchedCN }}" -out "$tmpcsr" >/dev/null 2>&1; then
+  printf '000\n__BODY__\nopenssl_csr_generation_failed'
+  exit 0
+fi
+csr=$(base64 < "$tmpcsr" | tr -d '\n')
+payload='{"apiVersion":"flightctl.io/v1beta1","kind":"CertificateSigningRequest","metadata":{"name":"{{ .DeviceID }}-auth-reject"},"spec":{"request":"'"$csr"'","signerName":"flightctl.io/device-management-renewal","usages":["clientAuth","CA:false"]}}'
+set +e
+code=$(curl -sS -o /tmp/renewal-auth-body.txt -w "%{http_code}" -k \
+  --cert /var/lib/flightctl/certs/agent.crt \
+  --key /var/lib/flightctl/certs/agent.key \
+  --resolve {{ .APIHost }}:{{ .APIPort }}:{{ .APIIP }} \
+  -H 'Content-Type: application/json' \
+  -X POST \
+  -d "$payload" \
+  https://{{ .APIHost }}:{{ .APIPort }}/api/v1/certificatesigningrequests 2>/tmp/renewal-auth-stderr.txt)
+curl_rc=$?
+set -e
+body=$(cat /tmp/renewal-auth-body.txt 2>/dev/null || true)
+stderr=$(cat /tmp/renewal-auth-stderr.txt 2>/dev/null || true)
+if [ -z "$code" ]; then
+  code="000"
+fi
+if [ "$curl_rc" != "0" ] && [ -z "$body" ]; then
+  body="curl_failed rc=$curl_rc stderr=$stderr"
+fi
+if [ -z "$body" ]; then
+  body="empty_body rc=$curl_rc stderr=$stderr"
+fi
+printf '%s\n__BODY__\n%s' "$code" "$body"

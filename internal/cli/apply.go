@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/api/versioning"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	apiclientv1alpha1 "github.com/flightctl/flightctl/internal/api/client/v1alpha1"
@@ -190,7 +191,7 @@ type genericResource map[string]interface{}
 // applyResult holds the result of applying a single resource
 type applyResult struct {
 	httpResponse *http.Response
-	message      string
+	status       *api.Status
 	err          error
 }
 
@@ -278,10 +279,11 @@ func applySingleResource(ctx context.Context, c *client.Client, ibClient *client
 	}
 
 	if result.httpResponse != nil {
-		fmt.Printf("%s\n", result.httpResponse.Status)
-		if result.httpResponse.StatusCode != http.StatusOK && result.httpResponse.StatusCode != http.StatusCreated {
-			errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %s", strings.ToLower(kindLike), filename, resourceName, result.httpResponse.Status))
-			fmt.Printf("%s\n", result.message)
+		if result.httpResponse.StatusCode == http.StatusOK || result.httpResponse.StatusCode == http.StatusCreated {
+			fmt.Printf("%s\n", result.httpResponse.Status)
+		} else {
+			fmt.Printf("failed\n")
+			errs = append(errs, &APIError{Status: result.status})
 		}
 	}
 
@@ -323,6 +325,21 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 		}
 		response, err := ibClient.CreateImageExportWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case ImagePromotionKind:
+		if ibClient == nil {
+			return applyResult{err: fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")}
+		}
+		// Try POST (create) first. On 409 Conflict (promotion already exists), fall back to
+		// PUT (replace) which amends the promotion with additional export formats.
+		createResp, err := ibClient.CreateImagePromotionWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+		if err != nil {
+			return applyResult{err: err}
+		}
+		if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict {
+			replaceResp, err := ibClient.ReplaceImagePromotionWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+			return extractApplyResult(replaceResp, err)
+		}
+		return extractApplyResult(createResp, err)
 	case CatalogKind:
 		response, err := c.V1Alpha1().ReplaceCatalogWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
@@ -350,30 +367,41 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	// Use type switch to extract fields from different response types
 	switch r := response.(type) {
 	case *apiclient.ReplaceDeviceResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceEnrollmentRequestResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceFleetResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceRepositoryResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceResourceSyncResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceCertificateSigningRequestResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceAuthProviderResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclientv1alpha1.ReplaceCatalogResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclientv1alpha1.ReplaceCatalogItemResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.CreateImageBuildResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *imagebuilderclient.CreateImageExportResponse:
-		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *imagebuilderclient.CreateImagePromotionResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *imagebuilderclient.ReplaceImagePromotionResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
 	default:
 		return applyResult{}
 	}
+}
+
+func buildApplyResult(httpResponse *http.Response, body []byte) applyResult {
+	if httpResponse != nil && (httpResponse.StatusCode == http.StatusOK || httpResponse.StatusCode == http.StatusCreated) {
+		return applyResult{httpResponse: httpResponse}
+	}
+	return applyResult{httpResponse: httpResponse, status: ParseStatusFromBody(body)}
 }
 
 func expandIfFilePattern(pattern string) ([]string, error) {

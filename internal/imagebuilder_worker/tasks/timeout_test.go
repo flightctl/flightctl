@@ -44,6 +44,10 @@ func (m *mockImageBuilderService) ImageExport() imagebuilderapi.ImageExportServi
 	return &mockImageExportService{parent: m}
 }
 
+func (m *mockImageBuilderService) ImagePromotion() imagebuilderapi.ImagePromotionService {
+	return nil
+}
+
 type mockImageBuildService struct {
 	parent *mockImageBuilderService
 }
@@ -128,8 +132,8 @@ func (m *mockImageBuildService) UpdateLogs(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
-func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, error) {
@@ -155,6 +159,10 @@ func (m *mockImageBuildService) CancelWithReason(ctx context.Context, orgId uuid
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (m *mockImageBuildService) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req apiimagebuilder.ImageBuildNewVersionRequest) (*apiimagebuilder.ImageBuild, v1beta1.Status) {
+	return nil, v1beta1.StatusOK()
 }
 
 type mockImageExportService struct {
@@ -232,8 +240,8 @@ func (m *mockImageExportService) UpdateLastSeen(ctx context.Context, orgId uuid.
 	return nil
 }
 
-func (m *mockImageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageExport, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageExportService) Download(ctx context.Context, orgId uuid.UUID, name string) (*imagebuilderapi.ImageExportDownload, error) {
@@ -271,6 +279,10 @@ func (m *mockImageExportService) CancelWithReason(ctx context.Context, orgId uui
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (m *mockImageExportService) ListCompletedForBuild(_ context.Context, _ uuid.UUID, _ string, _ apiimagebuilder.ExportFormatType) (*apiimagebuilder.ImageExport, error) {
+	return nil, nil
 }
 
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {

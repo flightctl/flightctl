@@ -6,13 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+)
+
+const (
+	// logStreamMaxRetries is the number of times to retry a log stream connection on transient errors.
+	logStreamMaxRetries = 3
+	// logStreamRetryDelay is the delay between log stream retry attempts.
+	logStreamRetryDelay = 2 * time.Second
 )
 
 type LogsOptions struct {
@@ -113,9 +124,37 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 		follow = &f
 	}
 
-	// Make the request based on resource kind
-	// Use the raw HTTP response methods (not WithResponse) to allow streaming
+	var lastErr error
+
+	for attempt := 0; attempt < logStreamMaxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Fprintf(os.Stderr, "Connection lost, reconnecting (attempt %d/%d)...\n", attempt+1, logStreamMaxRetries)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(logStreamRetryDelay):
+			}
+		}
+
+		err = o.streamLogs(ctx, ibClient, kind, name, follow)
+		if err == nil {
+			return nil
+		}
+
+		if !isTransientStreamError(err) {
+			return err
+		}
+
+		lastErr = err
+	}
+
+	return fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+func (o *LogsOptions) streamLogs(ctx context.Context, ibClient *client.ImageBuilderClient, kind ResourceKind, name string, follow *bool) error {
 	var resp *http.Response
+	var err error
+
 	switch kind {
 	case ImageBuildKind:
 		params := &imagebuilderapi.GetImageBuildLogParams{Follow: follow}
@@ -132,22 +171,37 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return validateHttpResponse(body, resp.StatusCode, http.StatusOK)
 	}
 
-	// Handle streaming vs non-streaming
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
-		// SSE streaming
 		return o.handleSSEStream(resp.Body)
-	} else {
-		// Plain text
-		_, err := io.Copy(os.Stdout, resp.Body)
-		return err
 	}
+
+	_, err = io.Copy(os.Stdout, resp.Body)
+	return err
+}
+
+// isTransientStreamError returns true if the error is a transient network/TLS error
+// that is likely to succeed on retry (e.g. tls: bad record MAC on long-lived connections).
+func isTransientStreamError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	// tls.alert is unexported so there is no sentinel to use with errors.Is.
+	// Only match the specific transient TLS error, not certificate/handshake errors.
+	// Also check for unexpected stream close which we generate ourselves.
+	errStr := err.Error()
+	return strings.Contains(errStr, "tls: bad record MAC") ||
+		strings.Contains(errStr, "stream closed unexpectedly")
 }
 
 // handleSSEStream processes Server-Sent Events stream

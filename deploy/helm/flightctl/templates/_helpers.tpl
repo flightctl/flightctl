@@ -261,6 +261,10 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getInternalAlertManagerProxyUrl" }}
+  {{- print "https://flightctl-alertmanager-proxy:8443"}}
+{{- end }}
+
 {{- define "flightctl.getAlertManagerProxyUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
@@ -740,6 +744,9 @@ auth:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
         rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
         roleSuffix: {{ .Release.Namespace }}
+        {{- if .Values.global.auth.k8s.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.k8s.organizationNamePrefix }}
+        {{- end }}
     {{- else if eq $effectiveAuthType "openshift" }}
     openshift:
         clusterControlPlaneUrl: {{ default "https://kubernetes.default.svc" .Values.global.auth.openshift.clusterControlPlaneUrl }}
@@ -750,6 +757,9 @@ auth:
         clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
         projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
         roleSuffix: {{ .Release.Namespace }}
+        {{- if .Values.global.auth.openshift.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.openshift.organizationNamePrefix }}
+        {{- end }}
     {{- else if eq $effectiveAuthType "aap" }}
     aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
@@ -769,6 +779,9 @@ auth:
         enabled: {{ .Values.global.auth.aap.enabled }}
         {{- if .Values.global.auth.aap.scopes }}
         scopes: {{ .Values.global.auth.aap.scopes | toYaml | nindent 12 }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.aap.organizationNamePrefix }}
         {{- end }}
     {{- else }}
     oidc:
@@ -828,7 +841,7 @@ Usage: {{ include "flightctl.ensureOsQualifiedImage" .Values.api.image.image }}
 {{- define "flightctl.ensureOsQualifiedImage" -}}
   {{- $imageName := . -}}
   {{- /* Check if image already has OS suffix (-el9, -el10, -cs9, -cs10) */ -}}
-  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) -}}
+  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) (hasSuffix "-rhel9" $imageName) (hasSuffix "-rhel10" $imageName) -}}
     {{- /* Image already has OS suffix, use as-is */ -}}
     {{- $imageName -}}
   {{- else -}}

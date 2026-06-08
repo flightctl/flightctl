@@ -19,6 +19,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,19 +29,46 @@ import (
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Simple mock K8s client for testing path validation
+// Simple mock K8s client for testing path validation and fingerprinting
 type mockK8sClient struct{}
 
 func (m *mockK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
-	// Return a fake secret with dummy data
 	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			ResourceVersion: "42",
+		},
 		Data: map[string][]byte{
 			"key1": []byte("value1"),
 			"key2": []byte("value2"),
 		},
 	}, nil
+}
+
+type failingK8sClient struct{}
+
+func (m *failingK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+	return nil, fmt.Errorf("secret %s/%s not found", namespace, name)
+}
+
+func (m *failingK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListProjects(ctx context.Context, token string, opts ...k8sclient.ListProjectsOption) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *failingK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
@@ -91,7 +119,10 @@ var _ = Describe("DeviceRender", func() {
 		fleetName = "myfleet"
 		deviceName = "mydevice"
 		repoName = "contents"
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -100,16 +131,15 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
-		var err error
-		kvStoreInst, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
 
 		// Initialize queues provider and rendered.Bus for successful device rendering
 		// Only initialize once (singleton pattern), subsequent calls are no-ops
 		if queuesProvider == nil {
 			processID := fmt.Sprintf("device-render-test-%s", uuid.New().String())
-			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 			Expect(err).ToNot(HaveOccurred())
 			err = rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)
 			Expect(err).ToNot(HaveOccurred())
@@ -117,14 +147,8 @@ var _ = Describe("DeviceRender", func() {
 	})
 
 	AfterEach(func() {
-		// Clean up Redis keys but keep connections open
-		// The queuesProvider and rendered.Bus singleton persist across all tests in this suite
-		// since singletons are meant to live for the process lifetime
-		if kvStoreInst != nil {
-			_ = kvStoreInst.DeleteAllKeys(ctx)
-		}
-
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 
@@ -534,6 +558,289 @@ var _ = Describe("DeviceRender", func() {
 			inlineConfigSpec, err := (*device.Spec.Config)[0].AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inlineConfigSpec.Name).To(Equal("motd"), "Device spec should remain unchanged when labels don't change")
+		})
+	})
+
+	Context("dependency sync fingerprinting", func() {
+		It("When a standalone device has a K8s secret config it should capture ResourceVersion as fingerprint", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "app-secrets"}
+			k8sConfig.SecretRef.Name = "my-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fingerprint-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil())
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("app-secrets"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
+			Expect(ref.LastUpdatedAt).ToNot(BeNil())
+		})
+
+		It("When a device has only inline config it should have no dependencySync entries", func() {
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name: "motd",
+				Inline: []api.FileSpec{
+					{Path: "/etc/motd", Content: "Hello", Mode: lo.ToPtr(420)},
+				},
+			}
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-inline-only-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			if device.Status.DependencySync != nil && device.Status.DependencySync.ConfigRefs != nil {
+				Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(0))
+			}
+		})
+
+		It("When a device has mixed config providers it should only fingerprint external deps", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "db-creds"}
+			k8sConfig.SecretRef.Name = "db-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/db"
+
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name: "banner",
+				Inline: []api.FileSpec{
+					{Path: "/etc/motd", Content: "Welcome", Mode: lo.ToPtr(420)},
+				},
+			}
+
+			k8sProvider := api.ConfigProviderSpec{}
+			err := k8sProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineProvider := api.ConfigProviderSpec{}
+			err = inlineProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-mixed-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{k8sProvider, inlineProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil())
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("db-creds"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
+		})
+
+		It("When render fails it should not populate dependencySync", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "missing-secret"}
+			k8sConfig.SecretRef.Name = "nonexistent"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fail-render-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &failingK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = logic.RenderDevice(ctx)
+			Expect(err).To(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Status).ToNot(BeNil())
+			if device.Status.DependencySync != nil && device.Status.DependencySync.ConfigRefs != nil {
+				Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(0))
+			}
+		})
+	})
+
+	Context("spec-hash bypass for fleet rollout events", func() {
+		// The spec-hash optimization at device_render.go:116 fires before config
+		// rendering begins, so it blocks ALL config provider types (git, HTTP, and
+		// K8s secrets) equally. We use K8s secrets here because mockK8sClient is
+		// available without needing external infrastructure.
+		It("When a fleet-owned device receives FleetRolloutDeviceSelected after initial render it should re-render", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "fleet-secret"}
+			k8sConfig.SecretRef.Name = "my-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := &api.Fleet{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
+					Template: struct {
+						Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+						Spec     api.DeviceSpec  `json:"spec"`
+					}{
+						Spec: api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+					},
+				},
+			}
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "v1", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "v1-abc12345", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fleet-rollout-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name:  lo.ToPtr(testDeviceName),
+					Owner: lo.ToPtr("Fleet/" + fleetName),
+				},
+				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			// First render: ResourceCreated — should succeed (no hash stored yet)
+			firstEvent := api.Event{
+				Reason:         api.EventReasonResourceCreated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			annotations := map[string]string{
+				api.DeviceAnnotationTemplateVersion: "v1",
+			}
+			status := serviceHandler.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify renderedVersion was set (render completed)
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			firstRenderedVersion := ""
+			if device.Metadata.Annotations != nil {
+				firstRenderedVersion = (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]
+			}
+			Expect(firstRenderedVersion).To(Equal("1"), "First render should set renderedVersion to 1")
+
+			// Verify the spec hash is now stored
+			specHash := (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedSpecHash]
+			Expect(specHash).ToNot(BeEmpty(), "Spec hash should be stored after first render")
+
+			// Simulate dependency-change rollout: update templateVersion annotation
+			// to a new version (as fleet_rollout.go would do)
+			annotations = map[string]string{
+				api.DeviceAnnotationTemplateVersion: "v1-abc12345",
+			}
+			status = serviceHandler.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			// Second render: FleetRolloutDeviceSelected — previously skipped because
+			// the spec hash hadn't changed and the bypass only covered
+			// DependencyChangeDetected.
+			secondEvent := api.Event{
+				Reason:         api.EventReasonFleetRolloutDeviceSelected,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, secondEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify rendering proceeded: renderedVersion should bump to "2" and
+			// dependencySync fingerprints should be written.
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			secondRenderedVersion := ""
+			if device.Metadata.Annotations != nil {
+				secondRenderedVersion = (*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]
+			}
+			Expect(secondRenderedVersion).To(Equal("2"),
+				"Fleet-owned device should bump renderedVersion on FleetRolloutDeviceSelected even when spec hash is unchanged")
+
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.DependencySync).ToNot(BeNil())
+			Expect(device.Status.DependencySync.ConfigRefs).ToNot(BeNil())
+			Expect(len(*device.Status.DependencySync.ConfigRefs)).To(Equal(1))
+			ref := (*device.Status.DependencySync.ConfigRefs)[0]
+			Expect(ref.ConfigProviderName).To(Equal("fleet-secret"))
+			Expect(ref.Fingerprint).ToNot(BeNil())
+			Expect(*ref.Fingerprint).To(Equal("42"))
 		})
 	})
 })

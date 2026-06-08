@@ -114,6 +114,11 @@ systemd_start_all_services(flightctl_agent_t)
 systemd_stop_systemd_services(flightctl_agent_t)
 allow flightctl_agent_t init_t:system { status stop start };
 
+# This is only available on RHEL10
+optional_policy(`
+    systemd_userdbd_stream_connect(flightctl_agent_t)
+')
+
 # sshd config/service permissions
 ssh_systemctl(flightctl_agent_t)
 

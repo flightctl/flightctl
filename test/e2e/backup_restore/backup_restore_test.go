@@ -22,17 +22,6 @@ import (
 )
 
 const (
-	// #nosec G101
-	dbSecretName  = "flightctl-db-app-secret"
-	dbUserKey     = "user"
-	dbPasswordKey = "userPassword"
-	// #nosec G101
-	adminSecretName = "flightctl-db-admin-secret"
-	adminSecretKey  = "masterPassword"
-	// #nosec G101
-	kvSecretName = "flightctl-kv-secret"
-	kvSecretKey  = "password"
-
 	// 84934: fleet and device labels
 	backupRestoreFleetName = "backup-restore-fleet"
 	devYesLabel            = "dev"
@@ -52,7 +41,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("84934", "sanity"), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("84934", "sanity", "slow"), func() {
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
 			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
@@ -64,6 +53,8 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			harness2.SetTestContext(harness.GetTestContext())
 			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
+				harness2.PrintAgentLogsIfFailed()
+				harness2.CaptureDeploymentLogsIfFailed()
 				err := harness2.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})
@@ -73,6 +64,8 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			harness3.SetTestContext(harness.GetTestContext())
 			Expect(harness3.SetupVMFromPoolAndStartAgent(workerID3)).To(Succeed())
 			DeferCleanup(func() {
+				harness3.PrintAgentLogsIfFailed()
+				harness3.CaptureDeploymentLogsIfFailed()
 				err := harness3.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness3 cleanup")
 			})
@@ -110,10 +103,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rvAtBackup).To(BeNumerically(">", 0), "step 1: RV at backup must be positive")
 
-			// --- Step 2: Create DB backup (service has rvAtBackup) ---
-			By("Step 2: Creating DB backup (service RV=rvAtBackup)")
-			backupPath, cleanup, err := br.CreateDBBackup()
-			Expect(err).ToNot(HaveOccurred(), "DB backup must succeed (kubectl, pg_dump, and cluster secrets required)")
+			// --- Step 2: Create backup archive (service has rvAtBackup) ---
+			By("Step 2: Creating backup archive (service RV=rvAtBackup)")
+			archivePath, cleanup, err := br.RunFlightCtlBackup()
+			Expect(err).ToNot(HaveOccurred(), "backup must succeed (build with: make flightctl-backup)")
 			defer cleanup()
 
 			// --- Step 3: Update fleet to OS v3 + inline config (new RV) ---
@@ -145,21 +138,13 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			}, testutil.LONGTIMEOUT)
 			Expect(rvAfterUpdate).To(BeNumerically(">", rvAtBackup), "step 4: new RV must be greater than previous")
 
-			// --- Step 5: Restore DB (do not restart device); service back to RV=N ---
-			By("Step 5: Scaling down FlightCtl services (except DB and KV)")
-			Expect(br.ScaleDownFlightCtlServices()).To(Succeed())
+			// --- Step 5: Restore from backup; flightctl-restore handles service stop/start ---
+			By("Step 5: Restoring from backup (flightctl-restore stops services, restores DB, starts services)")
 			defer func() {
-				Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
+				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
+				_ = br.ScaleUpFlightCtlServices()
 			}()
-
-			By("Step 5: Restoring database from backup (service back to RV=N)")
-			Expect(br.RestoreDBFromBackup(backupPath)).To(Succeed())
-
-			By("Running flightctl-restore (KV/checkpoint reconciliation)")
-			Expect(br.RunFlightCtlRestore()).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
-
-			By("Step 5: Scaling up FlightCtl services (do not restart device)")
-			Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
+			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
 
 			By("Waiting for API server to be responsive after scale up")
 			Eventually(func() error {
@@ -287,7 +272,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("84938", "sanity"), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("84938", "slow"), func() {
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
@@ -296,6 +281,8 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			harness2.SetTestContext(harness.GetTestContext())
 			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
+				harness2.PrintAgentLogsIfFailed()
+				harness2.CaptureDeploymentLogsIfFailed()
 				err := harness2.CleanUpAllTestResources()
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})
@@ -321,17 +308,16 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV3)).To(Succeed())
 			// Verify device is still on v2 (update not yet applied) so backup truly occurs while update is in progress.
-			backupPath, cleanup, err := br.CreateDBBackup()
-			Expect(err).ToNot(HaveOccurred(), "DB backup must succeed")
+			archivePath, cleanup, err := br.RunFlightCtlBackup()
+			Expect(err).ToNot(HaveOccurred(), "backup must succeed (build with: make flightctl-backup)")
 			defer cleanup()
 
-			By("Restore process: scale down, restore DB, flightctl-restore, scale up")
-			Expect(br.ScaleDownFlightCtlServices()).To(Succeed())
+			By("Restore process: flightctl-restore (handles service stop/start internally)")
 			defer func() {
-				Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
+				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
+				_ = br.ScaleUpFlightCtlServices()
 			}()
-			Expect(br.RestoreDBFromBackup(backupPath)).To(Succeed())
-			Expect(br.RunFlightCtlRestore()).To(Succeed(), "flightctl-restore must succeed")
+			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
 			Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
 
 			By("Waiting for API server to be responsive after scale up")
@@ -385,11 +371,7 @@ func motdInlineConfigProviderSpec() v1beta1.ConfigProviderSpec {
 	return spec
 }
 
-// newBackupRestore returns a BackupRestore by calling harness.NewBackupRestore with this package's secret constants and the given providers.
+// newBackupRestore returns a BackupRestore for running the backup/restore binaries.
 func newBackupRestore(harness *e2e.Harness, p *infra.Providers) *e2e.BackupRestore {
-	return harness.NewBackupRestore(
-		p,
-		dbSecretName, dbUserKey, dbPasswordKey,
-		adminSecretName, adminSecretKey, kvSecretName, kvSecretKey,
-	)
+	return harness.NewBackupRestore(p)
 }

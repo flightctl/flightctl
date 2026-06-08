@@ -3,7 +3,7 @@ package e2e
 import (
 	"fmt"
 	"io"
-	"time"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -12,8 +12,10 @@ import (
 
 // ConsoleSession represents a PTY console session to a device
 type ConsoleSession struct {
-	Stdin  io.WriteCloser
-	Stdout *Buffer
+	Stdin            io.WriteCloser
+	Stdout           *Buffer
+	closeOnce        sync.Once
+	skipGracefulExit bool // when true, Close only releases fds (e.g. after flightctl "~." disconnect)
 }
 
 // NewConsoleSession starts a PTY console session to the specified device.
@@ -45,17 +47,31 @@ func (cs *ConsoleSession) MustExpect(pattern string) {
 	Expect(cs.Stdout.Clear()).To(Succeed())
 }
 
-// Close terminates the console session
-func (cs *ConsoleSession) Close() {
-	cs.MustSend("exit")
-	Consistently(cs.Stdout, 2*time.Second).ShouldNot(Say(".*panic:"))
+// When called set Close function not to send the "exit" command before disconnecting the client
+// (e.g. flightctl "~." escape) and only release local PTY fds.
+func (cs *ConsoleSession) SkipGracefulExitOnClose() {
+	cs.skipGracefulExit = true
+}
 
-	if err := cs.Stdin.Close(); err != nil {
-		GinkgoWriter.Printf("failed to close console stdin: %v\n", err)
-	}
-	if err := cs.Stdout.Close(); err != nil {
-		GinkgoWriter.Printf("failed to close console stdout: %v\n", err)
-	}
+// Close terminates the console session. When SkipGracefulExitOnClose was set (e.g. after "~."),
+// it only closes stdin/stdout without sending "exit".
+func (cs *ConsoleSession) Close() {
+	cs.closeOnce.Do(func() {
+		if !cs.skipGracefulExit {
+			cs.sendExit()
+		}
+
+		if cs.Stdin != nil {
+			if err := cs.Stdin.Close(); err != nil {
+				GinkgoWriter.Printf("failed to close console stdin: %v\n", err)
+			}
+		}
+		if cs.Stdout != nil {
+			if err := cs.Stdout.Close(); err != nil {
+				GinkgoWriter.Printf("failed to close console stdout: %v\n", err)
+			}
+		}
+	})
 }
 
 // RunConsoleCommand executes the flightctl console command for the given
@@ -77,4 +93,24 @@ func (h *Harness) RunConsoleCommand(deviceID string, flags []string, cmd ...stri
 	}
 
 	return h.CLI(args...)
+}
+
+// sendExit attempts to gracefully close the remote console without failing cleanup.
+func (cs *ConsoleSession) sendExit() {
+	if cs.Stdout == nil {
+		GinkgoWriter.Printf("console stdout is nil; sending graceful exit without clearing stdout\n")
+	} else if cs.Stdout.Closed() {
+		GinkgoWriter.Printf("console stdout is already closed; sending graceful exit without clearing stdout\n")
+	} else if err := cs.Stdout.Clear(); err != nil {
+		GinkgoWriter.Printf("failed to clear console stdout before graceful exit: %v\n", err)
+	}
+	if cs.Stdin == nil {
+		GinkgoWriter.Printf("console stdin is nil; skipping graceful exit\n")
+		return
+	}
+
+	GinkgoWriter.Printf("console> exit\n")
+	if _, err := io.WriteString(cs.Stdin, "exit\n"); err != nil {
+		GinkgoWriter.Printf("failed to send graceful console exit: %v\n", err)
+	}
 }

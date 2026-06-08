@@ -740,12 +740,12 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Store, suite.Log)
 
 			var err error
-			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance; AfterEach clears keys for isolation.
+			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance.
 			if testKvStore == nil {
-				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, "localhost", 6379, "adminpass")
+				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, redisHost, redisPort, redisPassword)
 				Expect(err).ToNot(HaveOccurred())
 				processID := fmt.Sprintf("get-rendered-device-test-%s", uuid.New().String())
-				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
 				Expect(err).ToNot(HaveOccurred())
 				renderedInitErr = rendered.Bus.Initialize(suite.Ctx, testKvStore, queuesProvider, 10*time.Second, suite.Log)
 				Expect(renderedInitErr).ToNot(HaveOccurred())
@@ -753,9 +753,6 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 
 		AfterEach(func() {
-			if testKvStore != nil {
-				_ = testKvStore.DeleteAllKeys(suite.Ctx)
-			}
 			suite.Teardown()
 		})
 
@@ -789,7 +786,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Give device rendered content (version 1)
 			renderedConfig, err := createMinimalRenderedConfig("test-config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1")
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set device annotations: AwaitingReconnect and service version 1 (device 5 > service 1 -> ConflictPaused)
@@ -826,7 +823,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(result2).To(BeNil())
 		})
 
-		It("returns 204 when moved to normal (Online) and version unchanged", func() {
+		It("returns 200 when moved to normal (Online) and version unchanged", func() {
 			deviceName := "awaiting-reconnect-normal-device"
 			knownVersion := "1" // device reports "1", service has "1" -> normal, not ConflictPaused
 
@@ -840,7 +837,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			renderedConfig, err := createMinimalRenderedConfig("test-config-2")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2")
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
@@ -861,11 +858,11 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: &knownVersion}
 			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
 
-			// ProcessAwaitingReconnect runs with deviceReportedVersion from params - we pass knownVersion "1"
-			// So device version 1 <= service version 1 -> moved to normal. movedToConflictPaused=false.
-			// Version unchanged -> should return 204
-			Expect(status.Code).To(Equal(int32(204)))
-			Expect(result).To(BeNil())
+			// ProcessAwaitingReconnect runs: device version 1 <= service version 1 -> Online.
+			// WaitForNewVersion is skipped because the annotation was processed, so the agent
+			// gets a 200 with the current device and can re-push its status.
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
 		})
 	})
 

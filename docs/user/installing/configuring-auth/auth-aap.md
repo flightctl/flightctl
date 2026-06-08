@@ -200,13 +200,14 @@ Configure the OAuth application with these settings:
 - **Redirect URIs:** Set to:
 
   ```bash
-  https://your-flightctl-base-domain:443/callback http://127.0.0.1/callback
+  https://your-flightctl-base-domain:443/callback http://localhost:8080/callback http://127.0.0.1:8080/callback
   ```
 
-Note: The redirect URIs should be a space delimited list. Two URIs are required:
+Note: The redirect URIs should be a space delimited list. Three URIs are required:
 
 - A URL to your UI with a /callback path appended. The default base domain and port combo is `https://your-flightctl-base-domain:443/callback`, but if you have different routing configured you will need to update the URL accordingly. Make sure to replace your-flightctl-base-domain with your actual domain.
-- A URL to `http://127.0.0.1/callback` to ensure login sessions using the CLI work
+- A URL to `http://localhost:8080/callback` to ensure login sessions using the CLI work with the default callback port
+- A URL to `http://127.0.0.1:8080/callback` to ensure loopback-only environments using the CLI work with the default callback port
 
 #### Step 4: Obtain client credentials
 
@@ -255,8 +256,11 @@ The following parameters are supported for AAP authentication configuration:
 | `token` | Admin token for app creation | No | None |
 | `appName` | Name for the OAuth application in AAP. Must be a unique value within a given AAP organization. | No | "Flight Control" |
 | `organizationId` | AAP organization ID for the OAuth application | No | 1 |
+| `organizationNamePrefix` | Prefix for AAP organization names. When set, each AAP organization is exposed in Flight Control as prefix + organization name (e.g. `aap-` + `MyOrg` → `aap-MyOrg`). | No | None |
 
 **Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
+
+**Important:** Set `organizationNamePrefix` during initial deployment only. Adding or changing the prefix on an existing deployment changes organization names, causing users to lose access to resources created under the previous names. If you must change the prefix, plan for data migration.
 
 ### Single Provider
 
@@ -286,15 +290,8 @@ Flight Control validates these existing AAP tokens rather than providing a separ
 
 ## Multi-Organization Access
 
-Users with access to multiple AAP organizations will have access to multiple Flight Control organizations:
-
-```bash
-# User has access to org-a and org-b in AAP
-# After authentication, they can access both organizations in Flight Control
-
-flightctl get devices --org org-a
-flightctl get devices --org org-b
-```
+Users with access to multiple AAP organizations will have access to multiple Flight Control organizations.
+For CLI organization selection and `--org` usage, see [Usage with multiple organizations](organizations.md#usage-with-multiple-organizations).
 
 ## Related Documentation
 

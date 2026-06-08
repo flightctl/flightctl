@@ -28,21 +28,26 @@ var resourcePermissions = map[string]map[string][]string{
 	},
 	v1beta1.RoleOperator: {
 		// Operator has full CRUD on these resources (specific entries override wildcard)
-		"devices":               {"get", "list", "create", "update", "patch", "delete"},
-		"fleets":                {"get", "list", "create", "update", "patch", "delete"},
-		"resourcesyncs":         {"get", "list", "create", "update", "patch", "delete"},
-		"repositories":          {"get", "list", "create", "update", "patch", "delete"},
-		"catalogs":              {"get", "list", "create", "update", "patch", "delete"},
-		"catalogitems":          {"get", "list", "create", "update", "patch", "delete"},
-		"imagebuilds":           {"get", "list", "create", "update", "patch", "delete"},
-		"imagebuilds/cancel":    {"create"},
-		"imageexports":          {"get", "list", "create", "update", "patch", "delete"},
-		"imageexports/cancel":   {"create"},
-		"imageexports/download": {"get"},
-		"*":                     {"get", "list"}, // Default read access for other resources
+		"devices":                      {"get", "list", "create", "update", "patch", "delete"},
+		"fleets":                       {"get", "list", "create", "update", "patch", "delete"},
+		"resourcesyncs":                {"get", "list", "create", "update", "patch", "delete"},
+		"repositories":                 {"get", "list", "create", "update", "patch", "delete"},
+		"catalogs":                     {"get", "list"},
+		"catalogitems":                 {"get", "list"},
+		"imagebuilds":                  {"get", "list", "create", "update", "patch", "delete"},
+		"imagebuilds/cancel":           {"create"},
+		"imagebuilds/newversion":       {"create"},
+		"imageexports":                 {"get", "list", "create", "update", "patch", "delete"},
+		"imageexports/cancel":          {"create"},
+		"imageexports/download":        {"get"},
+		"imagepromotions":              {"get", "list", "create", "update", "patch", "delete"},
+		"repositories/check-oci-tag":   {"create"},
+		"repositories/check-oci-image": {"create"},
+		"*":                            {"get", "list"}, // Default read access for other resources
 	},
 	v1beta1.RoleViewer: {
 		"*":                     {"get", "list"}, // Default read access to all resources
+		"devices/console":       {},              // Explicitly denied - console access requires operator or admin role
 		"imageexports/download": {},              // Explicitly denied - empty list overrides wildcard
 	},
 	v1beta1.RoleInstaller: {

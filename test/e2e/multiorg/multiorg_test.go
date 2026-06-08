@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -20,6 +21,7 @@ const (
 	deviceEnrollPolling  = 2 * time.Second
 	simulatorStopTimeout = 10 * time.Second
 
+	// OCP-oriented defaults; on quadlet, testUserCreds() provides prefixed names.
 	adminUser     = "admin"
 	adminPass     = "admin"
 	operatorUser  = "operator"
@@ -33,34 +35,32 @@ const (
 	http403Substring   = "403"
 )
 
-var testUsers = []userCred{
-	{adminUser, adminPass},
-	{operatorUser, operatorPass},
-	{viewerUser, viewerPass},
-	{installerUser, installerPass},
-}
-
 var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 	var (
 		harness     *e2e.Harness
 		flightCtlNs string
+		users       testUserSet
 	)
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
 		flightCtlNs = os.Getenv("FLIGHTCTL_NS")
+		users = getTestUsers()
 	})
 
 	Context("Shared organization verification", func() {
 		It("all users should belong to the same flightctl organization", Label("88358"), func() {
-			orgIDs, err := collectOrgIDs(harness, testUsers)
+			if infra.IsQuadletEnvironment() {
+				Skip("Org verification not applicable on quadlet: cluster-admin defaults to system org")
+			}
+			orgIDs, err := collectOrgIDs(harness, users.all)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(orgIDs).To(HaveLen(len(testUsers)))
+			Expect(orgIDs).To(HaveLen(len(users.all)))
 
 			By("Verifying all users share the same organization")
-			Expect(orgIDs[operatorUser]).To(Equal(orgIDs[adminUser]), "Admin and operator should share the same organization")
-			Expect(orgIDs[viewerUser]).To(Equal(orgIDs[adminUser]), "Admin and viewer should share the same organization")
-			Expect(orgIDs[installerUser]).To(Equal(orgIDs[adminUser]), "Admin and installer should share the same organization")
+			Expect(orgIDs[users.operator.name]).To(Equal(orgIDs[users.admin.name]), "Admin and operator should share the same organization")
+			Expect(orgIDs[users.viewer.name]).To(Equal(orgIDs[users.admin.name]), "Admin and viewer should share the same organization")
+			Expect(orgIDs[users.installer.name]).To(Equal(orgIDs[users.admin.name]), "Admin and installer should share the same organization")
 		})
 	})
 
@@ -73,7 +73,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		AfterEach(func() {
 			By("Switching back to admin before stopping simulators")
-			_ = login.Login(harness, adminUser, adminPass)
+			_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			harness.StopAllSimulators(simulatorCmds, simulatorStopTimeout)
 			simulatorCmds = nil
 		})
@@ -82,7 +82,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			testID := harness.GetTestIDFromContext()
 
 			By("Logging in as admin to setup simulator config and create devices")
-			err := login.Login(harness, adminUser, adminPass)
+			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = harness.SetupDeviceSimulatorAgentConfig(0, 0)
@@ -91,7 +91,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By(fmt.Sprintf("Starting 3 device simulators (%d devices each) as admin", devicesPerUser))
 			for i := 0; i < 3; i++ {
 				initialIndex := i * devicesPerUser
-				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, adminUser, initialIndex, devicesPerUser)
+				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, users.admin.name, initialIndex, devicesPerUser)
 				Expect(simErr).ToNot(HaveOccurred(), fmt.Sprintf("Failed to start simulator batch %d", i))
 				simulatorCmds = append(simulatorCmds, cmd)
 				GinkgoWriter.Printf("Simulator batch %d started (devices %d-%d)\n",
@@ -105,9 +105,9 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				fmt.Sprintf("Expected %d total devices to enroll", totalDevices))
 			GinkgoWriter.Printf("All %d devices enrolled successfully as admin\n", totalDevices)
 
-			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}} {
+			for _, u := range []userCred{users.operator, users.viewer} {
 				By(fmt.Sprintf("Switching to %s and verifying all devices are visible", u.name))
-				err = login.Login(harness, u.name, u.password)
+				err = loginAndSetOrg(harness, u.name, u.password)
 				Expect(err).ToNot(HaveOccurred())
 
 				count := harness.CountDevicesByLabel(testID)
@@ -127,7 +127,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		AfterEach(func() {
 			By("Switching back to admin before cleanup")
-			_ = login.Login(harness, adminUser, adminPass)
+			_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			harness.StopAllSimulators(simulatorCmds, simulatorStopTimeout)
 			simulatorCmds = nil
 		})
@@ -136,7 +136,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			suiteCtx := e2e.GetWorkerContext()
 
 			By("Logging in as admin")
-			err := login.Login(harness, adminUser, adminPass)
+			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			adminLabels := &map[string]string{"test": "multiorg-admin"}
@@ -156,7 +156,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			suiteCtx := e2e.GetWorkerContext()
 
 			By("Logging in as operator")
-			err := login.Login(harness, operatorUser, operatorPass)
+			err := loginAndSetOrg(harness, users.operator.name, users.operator.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			operatorLabels := &map[string]string{"test": "multiorg-operator"}
@@ -178,7 +178,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			suiteCtx := e2e.GetWorkerContext()
 
 			By("Logging in as viewer")
-			err := login.Login(harness, viewerUser, viewerPass)
+			err := loginAndSetOrg(harness, users.viewer.name, users.viewer.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that viewer can list devices and fleets")
@@ -200,25 +200,25 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Creating resources as admin so viewer can attempt to delete them")
-			err = login.Login(harness, adminUser, adminPass)
+			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, deviceName, _, deviceCreateErr := harness.CreateResource(util.Device)
 			Expect(deviceCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a device for viewer delete test")
 			DeferCleanup(func() {
-				_ = login.Login(harness, adminUser, adminPass)
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 				_, _ = harness.CleanUpResource(util.Device, deviceName)
 			})
 
 			_, fleetName, _, fleetCreateErr := harness.CreateResource(util.Fleet)
 			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for viewer delete test")
 			DeferCleanup(func() {
-				_ = login.Login(harness, adminUser, adminPass)
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 				_, _ = harness.CleanUpResource(util.Fleet, fleetName)
 			})
 
 			By("Switching back to viewer and attempting to delete admin-created resources")
-			err = login.Login(harness, viewerUser, viewerPass)
+			err = loginAndSetOrg(harness, users.viewer.name, users.viewer.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that viewer cannot delete a device")
@@ -235,14 +235,14 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 		DescribeTable("decommission access control",
 			func(user, password string, shouldSucceed bool) {
 				By("Creating devices via simulator as admin")
-				loginFn := makeLoginFunc(adminUser, adminPass)
+				loginFn := makeLoginFunc(users.admin.name, users.admin.password)
 				deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
 				Expect(err).ToNot(HaveOccurred())
 				simulatorCmds = append(simulatorCmds, cmd)
 				GinkgoWriter.Printf("Device for decommission test: %s\n", deviceName)
 
 				By(fmt.Sprintf("Logging in as %s and attempting to decommission", user))
-				err = login.Login(harness, user, password)
+				err = loginAndSetOrg(harness, user, password)
 				Expect(err).ToNot(HaveOccurred())
 
 				out, decommErr := harness.DecommissionDevice(deviceName)
@@ -254,17 +254,17 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 					Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for decommission attempt")
 				}
 			},
-			Entry("admin can decommission a device", Label("88365"), adminUser, adminPass, true),
-			Entry("operator cannot decommission a device", Label("88364"), operatorUser, operatorPass, false),
-			Entry("viewer cannot decommission a device", Label("88363"), viewerUser, viewerPass, false),
-			Entry("installer cannot decommission a device", Label("88367"), installerUser, installerPass, false),
+			Entry("admin can decommission a device", Label("88365"), adminUserCred().name, adminUserCred().password, true),
+			Entry("operator cannot decommission a device", Label("88364"), operatorUserCred().name, operatorUserCred().password, false),
+			Entry("viewer cannot decommission a device", Label("88363"), viewerUserCred().name, viewerUserCred().password, false),
+			Entry("installer cannot decommission a device", Label("88367"), installerUserCred().name, installerUserCred().password, false),
 		)
 
 		It("installer can read enrollment requests but cannot create devices or fleets", Label("88366"), func() {
 			suiteCtx := e2e.GetWorkerContext()
 
 			By("Logging in as installer")
-			err := login.Login(harness, installerUser, installerPass)
+			err := loginAndSetOrg(harness, users.installer.name, users.installer.password)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that installer can read enrollment requests")
@@ -295,11 +295,51 @@ type userCred struct {
 	password string
 }
 
+type testUserSet struct {
+	admin     userCred
+	operator  userCred
+	viewer    userCred
+	installer userCred
+	all       []userCred
+}
+
 // --- Helper functions ---
+
+// getTestUsers returns the full set of test user credentials for the current environment.
+func getTestUsers() testUserSet {
+	creds := testUserCreds()
+	return testUserSet{
+		admin:     creds[0],
+		operator:  creds[1],
+		viewer:    creds[2],
+		installer: creds[3],
+		all:       creds,
+	}
+}
+
+// Individual credential accessors for use in DescribeTable Entry parameters,
+// which are evaluated at parse time (before BeforeEach).
+func adminUserCred() userCred     { return testUserCreds()[0] }
+func operatorUserCred() userCred  { return testUserCreds()[1] }
+func viewerUserCred() userCred    { return testUserCreds()[2] }
+func installerUserCred() userCred { return testUserCreds()[3] }
+
+// loginAndSetOrg logs in and ensures the user operates in the shared test org.
+// On quadlet, cluster-admin users default to the system org, so we explicitly
+// switch to the shared org. On OCP this is a no-op.
+func loginAndSetOrg(harness *e2e.Harness, user, password string) error {
+	if err := login.Login(harness, user, password); err != nil {
+		return err
+	}
+	if infra.IsQuadletEnvironment() && quadletSharedOrgID != "" {
+		return harness.SetCurrentOrganization(quadletSharedOrgID)
+	}
+	return nil
+}
 
 func makeLoginFunc(user, password string) e2e.LoginFunc {
 	return func(h *e2e.Harness) error {
-		return login.Login(h, user, password)
+		return loginAndSetOrg(h, user, password)
 	}
 }
 
@@ -323,7 +363,7 @@ func collectOrgIDs(harness *e2e.Harness, users []userCred) (map[string]string, e
 }
 
 func loginAndGetOrgID(harness *e2e.Harness, user, password string) (string, error) {
-	if err := login.Login(harness, user, password); err != nil {
+	if err := loginAndSetOrg(harness, user, password); err != nil {
 		return "", fmt.Errorf("login failed for %s: %w", user, err)
 	}
 	orgID, err := harness.GetOrganizationID()

@@ -15,14 +15,14 @@ Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
 
-PublishPort=3443:3443
-PublishPort=7443:7443
 Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+# TPM CA PEMs for enrollment (paths in service.tpmCAPaths must exist inside the container)
+Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
 Ulimit=nofile=300000:300000
@@ -34,6 +34,7 @@ LimitNOFILE=300000
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
 
 [Install]
 WantedBy=flightctl.target

@@ -115,35 +115,150 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		fleetName  string
-		generation int64
-		expected   string
+		name        string
+		fleetName   string
+		generation  int64
+		fingerprint string
+		expected    string
 	}{
 		{
-			name:       "generation 1",
-			fleetName:  "my-fleet",
-			generation: 1,
-			expected:   "v1",
+			name:        "When fingerprint is empty it should return v{generation}",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: "",
+			expected:    "v1",
 		},
 		{
-			name:       "large generation",
-			fleetName:  "my-fleet",
-			generation: 9999999999,
-			expected:   "v9999999999",
+			name:        "When fingerprint is empty with large generation it should return v{generation}",
+			fleetName:   "my-fleet",
+			generation:  9999999999,
+			fingerprint: "",
+			expected:    "v9999999999",
 		},
 		{
-			name:       "253-char fleet name",
-			fleetName:  strings.Repeat("a", 253),
-			generation: 42,
-			expected:   "v42",
+			name:        "When fingerprint is empty with 253-char fleet name it should return v{generation}",
+			fleetName:   strings.Repeat("a", 253),
+			generation:  42,
+			fingerprint: "",
+			expected:    "v42",
+		},
+		{
+			name:        "When fingerprint is a git SHA it should return v{generation}-{hash}",
+			fleetName:   "my-fleet",
+			generation:  3,
+			fingerprint: "abc123def456789",
+			expected:    "v3-eafa0cba",
+		},
+		{
+			name:        "When fingerprint is short it should still hash it",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: "abc",
+			expected:    "v1-ba7816bf",
+		},
+		{
+			name:        "When fingerprint is an HTTP ETag with quotes it should produce valid name",
+			fleetName:   "my-fleet",
+			generation:  1,
+			fingerprint: `"etag-v1"`,
+			expected:    "v1-16da6c0f",
+		},
+		{
+			name:        "When fingerprint is a Last-Modified date it should produce valid name",
+			fleetName:   "my-fleet",
+			generation:  2,
+			fingerprint: "Mon, 25 May 2026 13:30:47 GMT",
+			expected:    "v2-308b62ef",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation))
+			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation), tt.fingerprint)
 			require.Equal(tt.expected, result)
 		})
 	}
+}
+
+func TestFleetValidateLogic_GetFingerprint(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    domain.Event
+		expected string
+	}{
+		{
+			name: "When event is DependencyChangeDetected it should return the fingerprint",
+			event: func() domain.Event {
+				details := domain.EventDetails{}
+				_ = details.FromDependencyChangeDetectedDetails(domain.DependencyChangeDetectedDetails{
+					DetailType:  domain.DependencyChangeDetected,
+					ResourceKey: "git:my-repo/main",
+					Fingerprint: "abc123def456",
+				})
+				return domain.Event{
+					Reason:  domain.EventReasonDependencyChangeDetected,
+					Details: &details,
+				}
+			}(),
+			expected: "abc123def456",
+		},
+		{
+			name: "When event is ResourceUpdated it should return empty string",
+			event: domain.Event{
+				Reason: domain.EventReasonResourceUpdated,
+			},
+			expected: "",
+		},
+		{
+			name: "When event is DependencyChangeDetected with nil details it should return empty string",
+			event: domain.Event{
+				Reason: domain.EventReasonDependencyChangeDetected,
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := FleetValidateLogic{
+				log:   logrus.New(),
+				event: tt.event,
+			}
+			result := logic.getFingerprint()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func makeGitConfigItem(t *testing.T, name, repo, revision string) domain.ConfigProviderSpec {
+	t.Helper()
+	gitSpec := &domain.GitConfigProviderSpec{Name: name}
+	gitSpec.GitRef.Repository = repo
+	gitSpec.GitRef.TargetRevision = revision
+	gitSpec.GitRef.Path = "/etc/config"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromGitConfigProviderSpec(*gitSpec))
+	return item
+}
+
+func makeHttpConfigItem(t *testing.T, name, repo string, suffix *string) domain.ConfigProviderSpec {
+	t.Helper()
+	httpSpec := &domain.HttpConfigProviderSpec{Name: name}
+	httpSpec.HttpRef.Repository = repo
+	httpSpec.HttpRef.FilePath = "/etc/http-config"
+	httpSpec.HttpRef.Suffix = suffix
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromHttpConfigProviderSpec(*httpSpec))
+	return item
+}
+
+func makeSecretConfigItem(t *testing.T, name, namespace, secretName string) domain.ConfigProviderSpec {
+	t.Helper()
+	secretSpec := &domain.KubernetesSecretProviderSpec{Name: name}
+	secretSpec.SecretRef.Namespace = namespace
+	secretSpec.SecretRef.Name = secretName
+	secretSpec.SecretRef.MountPath = "/etc/secrets"
+	item := domain.ConfigProviderSpec{}
+	require.NoError(t, item.FromKubernetesSecretProviderSpec(*secretSpec))
+	return item
 }

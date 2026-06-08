@@ -44,6 +44,9 @@ community-el9:
       image: quay.io/flightctl/flightctl-db-setup-el9
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el9
+    ubiMinimal:
+      image: registry.access.redhat.com/ubi9/ubi-minimal
+      tag: "9.7-1763362218"
 redhat-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -93,6 +96,9 @@ redhat-el9:
       image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
+    ubiMinimal:
+      image: registry.redhat.io/ubi9/ubi-minimal
+      tag: "9.7-1763362218"
 community-el10:
   name: flightctl
   description: A helm chart for FlightControl
@@ -108,7 +114,7 @@ community-el10:
       tag: "20250214"
     kv:
       image: quay.io/sclorg/valkey-8-c10s
-      tag: "20250108"
+      tag: "20260121"
     alertmanager:
       image: quay.io/prometheus/alertmanager
       tag: "v0.28.1"
@@ -139,6 +145,9 @@ community-el10:
       image: quay.io/flightctl/flightctl-db-setup-el10
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el10
+    ubiMinimal:
+      image: registry.access.redhat.com/ubi10/ubi-minimal
+      tag: "10.1-1769677092"
 redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -154,10 +163,10 @@ redhat-el10:
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: 10.7-1766414426
+      tag: 10.1-1776906601
     kv:
       image: registry.redhat.io/rhel10/valkey-8
-      tag: 10.7-1766414358
+      tag: 10.1-1776907598
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
       tag: v2.15.0-1
@@ -188,3 +197,6 @@ redhat-el10:
       image: registry.redhat.io/rhem/flightctl-db-setup-rhel10
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel10
+    ubiMinimal:
+      image: registry.redhat.io/ubi10/ubi-minimal
+      tag: "10.1-1769677092"

@@ -38,8 +38,15 @@ case $IMAGE in
        exit 1
 esac
 
-podman tag flightctl-${IMAGE}:latest localhost/flightctl-${IMAGE}:latest
-kind_load_image localhost/flightctl-${IMAGE}:latest
+OS="${OS:-el9}"
+SRC_IMAGE="flightctl-${IMAGE}-${OS}:latest"
+if ! podman inspect "${SRC_IMAGE}" &>/dev/null; then
+  SRC_IMAGE="flightctl-${IMAGE}:latest"
+fi
+
+DST_IMAGE="localhost/flightctl-${IMAGE}-${OS}:latest"
+podman tag "${SRC_IMAGE}" "${DST_IMAGE}"
+kind_load_image "${DST_IMAGE}"
 
 # switch for api worker and periodic handling, we need to kill the pods to reload
 ${OC} delete pod -n ${NAMESPACE} -l flightctl.service=flightctl-${IMAGE}

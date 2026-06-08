@@ -105,7 +105,15 @@ func main() {
 	}
 
 	go func() {
-		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
+		var (
+			listener net.Listener
+			err      error
+		)
+		if cfg.Service.DisableTLS {
+			listener, err = net.Listen("tcp", cfg.Service.Address)
+		} else {
+			listener, err = middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
+		}
 		if err != nil {
 			log.Fatalf("creating listener: %s", err)
 		}

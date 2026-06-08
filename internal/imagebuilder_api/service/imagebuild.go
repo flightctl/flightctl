@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -24,12 +25,35 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// NewVersionFromAnnotation is the annotation key set by the newversion endpoint to record lineage.
+const NewVersionFromAnnotation = "flightctl.io/new-version-from"
+
+// preserveAnnotationsKey is an internal context key used to pass annotations through
+// Create without having them wiped by NilOutManagedObjectMetaProperties.
+type preserveAnnotationsKeyType struct{}
+
+var preserveAnnotationsKey = preserveAnnotationsKeyType{}
+
+// withPreserveAnnotations stores annotations in the context so Create can restore
+// them after NilOutManagedObjectMetaProperties clears them.
+func withPreserveAnnotations(ctx context.Context, annotations map[string]string) context.Context {
+	return context.WithValue(ctx, preserveAnnotationsKey, annotations)
+}
+
+// preservedAnnotations retrieves annotations stored via withPreserveAnnotations.
+func preservedAnnotations(ctx context.Context) (map[string]string, bool) {
+	v, ok := ctx.Value(preserveAnnotationsKey).(map[string]string)
+	return v, ok
+}
+
 // ImageBuildService handles business logic for ImageBuild resources
 type ImageBuildService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild domain.ImageBuild) (*domain.ImageBuild, domain.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*domain.ImageBuild, domain.Status)
 	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageBuildsParams) (*domain.ImageBuildList, domain.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status
+	// NewVersion creates a new ImageBuild derived from an existing one with optional tag overrides.
+	NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req domain.ImageBuildNewVersionRequest) (*domain.ImageBuild, domain.Status)
 	// Cancel cancels an ImageBuild. Returns ErrNotCancelable if not in cancelable state.
 	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error)
 	// CancelWithReason cancels an ImageBuild with a custom reason message (e.g., for timeout).
@@ -44,27 +68,29 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store              store.ImageBuildStore
-	repositoryStore    mainstore.Repository
-	imageExportService ImageExportService
-	eventHandler       *internalservice.EventHandler
-	queueProducer      queues.QueueProducer
-	kvStore            kvstore.KVStore
-	cfg                *config.ImageBuilderServiceConfig
-	log                logrus.FieldLogger
+	store                 store.ImageBuildStore
+	repositoryStore       mainstore.Repository
+	imageExportService    ImageExportService
+	imagePromotionService ImagePromotionService
+	eventHandler          *internalservice.EventHandler
+	queueProducer         queues.QueueProducer
+	kvStore               kvstore.KVStore
+	cfg                   *config.ImageBuilderServiceConfig
+	log                   logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
-		store:              s,
-		repositoryStore:    repositoryStore,
-		imageExportService: imageExportService,
-		eventHandler:       eventHandler,
-		queueProducer:      queueProducer,
-		kvStore:            kvStore,
-		cfg:                cfg,
-		log:                log,
+		store:                 s,
+		repositoryStore:       repositoryStore,
+		imageExportService:    imageExportService,
+		imagePromotionService: imagePromotionService,
+		eventHandler:          eventHandler,
+		queueProducer:         queueProducer,
+		kvStore:               kvStore,
+		cfg:                   cfg,
+		log:                   log,
 	}
 }
 
@@ -72,6 +98,9 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	// Don't set fields that are managed by the service
 	imageBuild.Status = nil
 	NilOutManagedObjectMetaProperties(&imageBuild.Metadata)
+	if annotations, ok := preservedAnnotations(ctx); ok {
+		imageBuild.Metadata.Annotations = &annotations
+	}
 
 	// Validate input
 	if errs, internalErr := s.validate(ctx, orgId, &imageBuild); internalErr != nil {
@@ -140,15 +169,15 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params do
 	}
 }
 
-func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status) {
+func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	// First, get the ImageBuild to check its status
 	imageBuild, err := s.store.Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			// Idempotent delete - resource doesn't exist
-			return nil, StatusOK()
+			return StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
+		return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 	}
 
 	// Delete all related ImageExports first (using service which does cancel-wait-delete)
@@ -156,6 +185,13 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 		if err := s.deleteRelatedImageExports(ctx, orgId, name); err != nil {
 			s.log.WithError(err).WithField("name", name).Warn("Error deleting related ImageExports, proceeding with ImageBuild deletion")
 			// Don't fail - proceed with deleting the ImageBuild
+		}
+	}
+
+	// Delete all related ImagePromotions that reference this ImageBuild as source.
+	if s.imagePromotionService != nil {
+		if err := s.deleteRelatedImagePromotions(ctx, orgId, name); err != nil {
+			s.log.WithError(err).WithField("name", name).Warn("Error deleting related ImagePromotions, proceeding with ImageBuild deletion")
 		}
 	}
 
@@ -181,8 +217,8 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 	}
 
 	// Now delete the ImageBuild
-	result, err := s.store.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
+	_, err = s.store.Delete(ctx, orgId, name)
+	return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 }
 
 // deleteRelatedImageExports deletes all ImageExports that reference the given ImageBuild
@@ -201,9 +237,30 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 	for _, export := range exports.Items {
 		exportName := lo.FromPtr(export.Metadata.Name)
 		s.log.WithField("imageBuild", imageBuildName).WithField("imageExport", exportName).Info("Deleting related ImageExport")
-		if _, delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
+		if delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
 			s.log.WithField("imageExport", exportName).WithField("status", delStatus.Message).Warn("Failed to delete related ImageExport")
 			// Continue deleting other exports
+		}
+	}
+
+	return nil
+}
+
+// deleteRelatedImagePromotions deletes all ImagePromotions whose source references the given ImageBuild.
+func (s *imageBuildService) deleteRelatedImagePromotions(ctx context.Context, orgId uuid.UUID, imageBuildName string) error {
+	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef=%s", imageBuildName)
+	promotions, status := s.imagePromotionService.List(ctx, orgId, domain.ListImagePromotionsParams{
+		FieldSelector: lo.ToPtr(fieldSelectorStr),
+	})
+	if !IsStatusOK(status) {
+		return fmt.Errorf("failed to list ImagePromotions: %s", status.Message)
+	}
+
+	for _, promotion := range promotions.Items {
+		promotionName := lo.FromPtr(promotion.Metadata.Name)
+		s.log.WithField("imageBuild", imageBuildName).WithField("imagePromotion", promotionName).Info("Deleting related ImagePromotion")
+		if delStatus := s.imagePromotionService.Delete(ctx, orgId, promotionName); !IsStatusOK(delStatus) {
+			s.log.WithField("imagePromotion", promotionName).WithField("status", delStatus.Message).Warn("Failed to delete related ImagePromotion")
 		}
 	}
 
@@ -393,31 +450,36 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 		return result, err
 	}
 
-	// Create event for status update
-	var event *coredomain.Event
-	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
-		// Create a simple status update event since status is not in UpdatedFields enum
-		event = coredomain.GetBaseEvent(
-			ctx,
-			coredomain.ResourceKind(string(domain.ResourceKindImageBuild)),
-			*result.Metadata.Name,
-			coredomain.EventReasonResourceUpdated,
-			fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageBuild)),
-			nil,
-		)
-		if event != nil {
-			s.eventHandler.CreateEvent(ctx, orgId, event)
-		}
+	if result == nil || result.Metadata.Name == nil {
+		return nil, fmt.Errorf("invalid ImageBuild status update result")
 	}
 
-	// Enqueue event to imagebuild-queue if image is ready (Completed)
-	if result != nil && event != nil && s.queueProducer != nil {
-		// Check if Ready condition is True with reason Completed
-		if result.Status != nil && result.Status.Conditions != nil {
-			readyCondition := domain.FindImageBuildStatusCondition(*result.Status.Conditions, domain.ImageBuildConditionTypeReady)
-			if readyCondition != nil &&
-				readyCondition.Status == domain.ConditionStatusTrue &&
-				readyCondition.Reason == string(domain.ImageBuildConditionReasonCompleted) {
+	event := coredomain.GetBaseEvent(
+		ctx,
+		coredomain.ResourceKind(string(domain.ResourceKindImageBuild)),
+		*result.Metadata.Name,
+		coredomain.EventReasonResourceUpdated,
+		fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageBuild)),
+		nil,
+	)
+
+	// Publish a core event for audit/observability.
+	if s.eventHandler != nil {
+		s.eventHandler.CreateEvent(ctx, orgId, event)
+	}
+
+	// Enqueue a worker event for terminal states that require downstream action:
+	// Completed → requeue pending exports and evaluate promotions.
+	// Failed/Canceled → fail waiting promotions.
+	// This is independent of the eventHandler so it fires even when the core event system is absent.
+	if s.queueProducer != nil &&
+		result.Status != nil && result.Status.Conditions != nil {
+		readyCondition := domain.FindImageBuildStatusCondition(*result.Status.Conditions, domain.ImageBuildConditionTypeReady)
+		if readyCondition != nil {
+			switch readyCondition.Reason {
+			case string(domain.ImageBuildConditionReasonCompleted),
+				string(domain.ImageBuildConditionReasonFailed),
+				string(domain.ImageBuildConditionReasonCanceled):
 				if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
 					s.log.WithError(err).WithField("orgId", orgId).WithField("name", *result.Metadata.Name).Error("failed to enqueue imageBuild event")
 					// Don't fail the update if enqueue fails - the event can be retried later
@@ -426,7 +488,45 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 		}
 	}
 
-	return result, err
+	return result, nil
+}
+
+// NewVersion creates a new ImageBuild derived from a parent, copying its spec with optional tag overrides.
+// Sets the flightctl.io/new-version-from annotation to record lineage.
+func (s *imageBuildService) NewVersion(ctx context.Context, orgId uuid.UUID, parentName string, req domain.ImageBuildNewVersionRequest) (*domain.ImageBuild, domain.Status) {
+	// Fetch parent build.
+	parent, getErr := s.store.Get(ctx, orgId, parentName)
+	if getErr != nil {
+		return nil, StoreErrorToApiStatus(getErr, false, string(domain.ResourceKindImageBuild), &parentName)
+	}
+
+	newName := req.Name
+	if newName == "" {
+		return nil, StatusBadRequest("name is required")
+	}
+
+	// Copy spec from parent, applying tag overrides.
+	newSpec := parent.Spec
+	if req.SourceImageTag != nil {
+		newSpec.Source.ImageTag = *req.SourceImageTag
+	}
+	if req.DestinationImageTag != nil {
+		newSpec.Destination.ImageTag = *req.DestinationImageTag
+	}
+
+	newBuild := domain.ImageBuild{
+		ApiVersion: parent.ApiVersion,
+		Kind:       parent.Kind,
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(newName),
+		},
+		Spec: newSpec,
+	}
+
+	ctx = withPreserveAnnotations(ctx, map[string]string{
+		NewVersionFromAnnotation: parentName,
+	})
+	return s.Create(ctx, orgId, newBuild)
 }
 
 func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
@@ -452,7 +552,9 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 		readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 		if readyCondition != nil {
 			reason := readyCondition.Reason
-			if reason == string(domain.ImageBuildConditionReasonBuilding) || reason == string(domain.ImageBuildConditionReasonPushing) {
+			if reason == string(domain.ImageBuildConditionReasonBuilding) ||
+				reason == string(domain.ImageBuildConditionReasonPushing) ||
+				reason == string(domain.ImageBuildConditionReasonGeneratingSBOM) {
 				isActive = true
 			}
 		}
@@ -495,9 +597,9 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, imageBuild *domain.ImageBuild) ([]error, error) {
 	var errs []error
 
-	if lo.FromPtr(imageBuild.Metadata.Name) == "" {
-		errs = append(errs, errors.New("metadata.name is required"))
-	}
+	errs = append(errs, validation.ValidateResourceName(imageBuild.Metadata.Name)...)
+	errs = append(errs, validation.ValidateLabels(imageBuild.Metadata.Labels)...)
+	errs = append(errs, validation.ValidateAnnotations(imageBuild.Metadata.Annotations)...)
 
 	if imageBuild.Spec.Source.Repository == "" {
 		errs = append(errs, errors.New("spec.source.repository is required"))

@@ -13,17 +13,26 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
 
+var suiteCtx context.Context
+
 func TestAuthConfigIntegration(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Auth Integration Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = util.InitSuiteTracerForGinkgo("Auth Integration Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+})
 
 var _ = Describe("Auth Config Integration Tests", func() {
 	var (
@@ -37,7 +46,9 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		log := util.InitLogsWithDebug()
 
 		// Setup test database and service handler
-		testStore, _, _, _ := store.PrepareDBForUnitTests(ctx, log)
+		_, _, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		testStore := store.NewStore(db, log.WithField("pkg", "store"))
 
 		// Add admin identity to context for auth provider operations
 		testOrg := &model.Organization{
@@ -55,7 +66,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
 		// Create service handler (it implements AuthProviderService interface)
-		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{}, false)
 
 		// Create a config with static OIDC provider to test production initialization path
 		cfg := config.NewDefault(
@@ -64,7 +75,6 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		cfg.Service.BaseUrl = "https://localhost:3443"
 
 		// Initialize MultiAuth using production code path
-		var err error
 		authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(authN).ToNot(BeNil(), "Expected auth instance")
@@ -253,7 +263,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 				ProviderType:           api.Oauth2,
 				Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 				ClientId:               "oauth2-client-id",
-				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				ClientSecret:           "oauth2-client-secret",
 				AuthorizationUrl:       "https://oauth2.example.com/authorize",
 				TokenUrl:               "https://oauth2.example.com/token",
 				UserinfoUrl:            "https://oauth2.example.com/userinfo",

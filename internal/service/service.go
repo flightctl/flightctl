@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
@@ -38,7 +39,7 @@ type Service interface {
 
 	ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status)
 	UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status
-	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) domain.Status
+	UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status
 	SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status
 	OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status
 	GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status)
@@ -96,6 +97,8 @@ type Service interface {
 	ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository, err error) (*domain.Repository, domain.Status)
 	GetRepositoryFleetReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, domain.Status)
 	GetRepositoryDeviceReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, domain.Status)
+	CheckRepositoryOciTag(ctx context.Context, orgId uuid.UUID, repositoryName, imageName, tag string) (*domain.OciRegistryCheckResult, domain.Status)
+	CheckRepositoryOciImage(ctx context.Context, orgId uuid.UUID, repositoryName, imageName string) (*domain.OciRegistryCheckResult, domain.Status)
 
 	// AuthProvider
 	CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status)
@@ -138,6 +141,27 @@ type Service interface {
 	PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status)
 	DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status
 
+	// DependencyRef
+	DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status
+	DeleteDependencyRefsByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) domain.Status
+	ReplaceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status
+	ReplaceDeviceDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string, refs []model.DependencyRef) domain.Status
+	ReplaceFleetDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, fleetName, deviceName string, refs []model.DependencyRef) domain.Status
+	ReplaceFleetScopedDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status
+	ReplaceStandaloneDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, deviceName string, refs []model.DependencyRef) domain.Status
+	BulkUpsertDeviceDependencyRefs(ctx context.Context, orgId uuid.UUID, refs []model.DependencyRef) domain.Status
+	ListDependencyRefsByRefType(ctx context.Context, orgId uuid.UUID, refType string) ([]model.DependencyRef, domain.Status)
+	ListDueGitDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.GitDependencyProbe, domain.Status)
+	ListDueHttpDependencies(ctx context.Context, orgId uuid.UUID, pollInterval time.Duration) ([]model.HttpDependencyProbe, domain.Status)
+	ListSecretDependencyTargets(ctx context.Context, secretNamespace, secretName, newFingerprint string) ([]model.SecretDependencyRef, domain.Status)
+
+	// SyncState
+	GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status)
+	SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status
+	SetSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKey string, t time.Time) domain.Status
+	BulkUpsertSyncState(ctx context.Context, orgId uuid.UUID, states []model.SyncState) domain.Status
+	BulkUpdateSyncStateLastCheckedAt(ctx context.Context, orgId uuid.UUID, resourceKeys []string, t time.Time) domain.Status
+
 	// TemplateVersion
 	CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status)
 	ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params domain.ListTemplateVersionsParams) (*domain.TemplateVersionList, domain.Status)
@@ -157,4 +181,15 @@ type Service interface {
 
 	// Organization
 	ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status)
+
+	// Vulnerability
+	GetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID) (*domain.VulnerabilitySummaryResponse, domain.Status)
+	ListVulnerabilities(ctx context.Context, orgId uuid.UUID, params domain.ListVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status)
+	GetVulnerabilityImpact(ctx context.Context, orgId uuid.UUID, cveId string, params domain.GetVulnerabilityImpactParams) (*domain.VulnerabilityImpact, domain.Status)
+	GetDeviceVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitiesParams) (*domain.VulnerabilityList, domain.Status)
+	GetDeviceVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetDeviceVulnerabilitySummaryParams) (*domain.DeviceVulnerabilitySummaryResponse, domain.Status)
+	GetFleetVulnerabilities(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitiesParams) (*domain.VulnerabilityGroupList, domain.Status)
+	GetFleetVulnerabilitySummary(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetVulnerabilitySummaryParams) (*domain.FleetVulnerabilitySummaryResponse, domain.Status)
+
+	SyncDeviceCVELifecycleEvents(ctx context.Context) error
 }

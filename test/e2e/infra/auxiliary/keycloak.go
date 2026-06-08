@@ -3,6 +3,7 @@ package auxiliary
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -20,6 +21,8 @@ const (
 	keycloakRealmName      = "flightctl"
 	// KeycloakE2EClientSecret is the client secret for flightctl-client in the e2e realm.
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
+	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
+	KeycloakE2EOAuth2ClientSecret = "e2e-flightctl-oauth2-client-secret" //nolint:gosec // G101: e2e test client secret only
 )
 
 // Keycloak holds connection info and the container for the aux Keycloak.
@@ -77,7 +80,7 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		return fmt.Errorf("failed to get Keycloak mapped port: %w", err)
 	}
 	k.Port = port.Port()
-	k.URL = fmt.Sprintf("http://%s:%s", k.Host, k.Port)
+	k.URL = fmt.Sprintf("http://%s", net.JoinHostPort(k.Host, k.Port))
 	logrus.Infof("Keycloak container started: %s (realm: %s)", k.URL, keycloakRealmName)
 
 	// Wait until the realm is reachable from the host (same path the CLI will use).

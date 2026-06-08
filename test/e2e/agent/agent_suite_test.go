@@ -17,6 +17,8 @@ import (
 const TIMEOUT = "5m"
 const POLLING = "125ms"
 const LONGPOLLING = "500ms"
+const TENSECPOLLING = 10 * time.Second
+const MEDIUMTIMEOUT = "5m"
 const LONGTIMEOUT = "10m"
 const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
@@ -90,8 +92,9 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	// Print agent logs if test failed (logs from all boots via journalctl)
+	// Capture logs if test failed
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

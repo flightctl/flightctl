@@ -124,6 +124,10 @@ const (
 	CatalogItemListKind = v1alpha1.CatalogItemListKind
 )
 
+// DefaultCatalogName is the name of the catalog provisioned automatically for every organization.
+const DefaultCatalogName = "default"
+const DefaultCatalogDisplayName = "Default"
+
 // ========== TemplateVersion ==========
 
 const (

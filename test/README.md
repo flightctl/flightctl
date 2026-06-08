@@ -89,50 +89,52 @@ providing a test database and a mock directory for the agent to interact with.
 can be run with:
 
 ```bash
-make integration-test # or run-integration-test if you have a DB/deployment ready
+make integration-test
+```
+
+#### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INTEGRATION_PROCS` | `4` | Number of parallel test suite processes. Set to `1` to disable parallel execution. |
+| `TEST_DIR` | `./test/integration/...` | Directory to run tests from (e.g., `./test/integration/store`). |
+| `INTEGRATION_GINKGO_FOCUS` | (none) | Ginkgo focus regex to run specific tests (e.g., `"should create device"`). |
+| `TESTS` | (none) | Alternative to `INTEGRATION_GINKGO_FOCUS` for focus regex. |
+| `KEEP_INTEGRATION_STACK` | `0` | Set to `1` to keep containers running after tests (useful for debugging). |
+
+Examples:
+
+```bash
+# Run all integration tests with 8 parallel processes
+make integration-test INTEGRATION_PROCS=8
+
+# Run only store tests
+make integration-test TEST_DIR=./test/integration/store
+
+# Run a specific test by name
+make integration-test INTEGRATION_GINKGO_FOCUS="should create device"
+
+# Combine options
+make integration-test TEST_DIR=./test/integration/agent INTEGRATION_PROCS=1 INTEGRATION_GINKGO_FOCUS="enrollment"
 ```
 
 For mocking specific interfaces please refer to the unit-test mocking section.
 
-### Database Setup Strategies
+### How integration tests work
 
-Integration tests support two database setup strategies:
+Integration tests use **testcontainers** to automatically start ephemeral Postgres,
+Redis, and Alertmanager instances. No manual deployment or external containers are
+required - everything is managed by the test framework.
 
-#### Local (default)
+- **Postgres**: A shared integration container runs migrations once; each test suite
+  gets its own isolated database cloned from the migrated template for fast,
+  parallel-safe execution.
+- **Redis**: Each test suite creates its own ephemeral Redis instance via
+  `testdb.CreateTestRedis()`.
+- **Alertmanager**: Shared integration container for alert-related tests.
 
-```bash
-make integration-test
-```
-
-- Each test starts from an empty DB and runs the app’s migrations locally with GORM.
-- No external migration image is used.
-
-#### Template
-
-```bash
-FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
-```
-
-- A migration container prepares a **template database** with all migrations applied.
-- Tests then create their databases by **cloning from that template** (fast and consistent per test run).
-
-#### Environment Variables
-
-```bash
-FLIGHTCTL_TEST_DB_STRATEGY=local|template   # Default: local
-MIGRATION_IMAGE=<repo/name:tag|@digest>     # Optional; template strategy only
-```
-
-- If `MIGRATION_IMAGE` **is set**, it must exist; otherwise the run fails.
-- If `MIGRATION_IMAGE` **is not set**, a fresh `flightctl-db-setup:latest` image is built from the current source and used.
-
-### Note on coverage testing
-
-We  run all unit tests and integration testing separately, but we provide a separate
-make target that provides unified coverage results by merging coverage output
-from unit and integration tests using the go coverage tools.
-
-`make coverage`
+The test framework handles all setup, migrations, and teardown automatically.
+Requires Podman (or Docker) to be available.
 
 ## E2E testing
 

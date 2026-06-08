@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var errConfigNameMismatch = errors.New("config name mismatch")
+
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.GetDeviceResponse, error) {
 	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	if err != nil {
@@ -486,6 +488,24 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 	return currentVersion + 1, nil
 }
 
+// PrepareNextDeviceVersionFromCurrentStatus polls until Status.Config.RenderedVersion
+// becomes valid (> 0) and returns RenderedVersion+1. Unlike PrepareNextDeviceVersion it
+// does not require the device to be UpToDate, so it is safe to call after greenboot
+// rollback when the device is OutOfDate and may still be re-enrolling.
+func (h *Harness) PrepareNextDeviceVersionFromCurrentStatus(deviceID string) (int, error) {
+	var cur int
+	var lastErr error
+	h.WaitForDeviceContents(deviceID, "rendered version should be valid (> 0)",
+		func(device *v1beta1.Device) bool {
+			cur, lastErr = GetRenderedVersion(device)
+			return lastErr == nil
+		}, TIMEOUT)
+	if lastErr != nil {
+		return -1, lastErr
+	}
+	return cur + 1, nil
+}
+
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
@@ -640,41 +660,78 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	return nil
 }
 
+// deviceUpdateFailedOrRolledBack is true when the device did not successfully apply the desired
+// spec. That is either a stable Updating/Error (optional message check), or a completed OS/spec
+// rollback where the agent reports Updating/Updated, summary online, and updated OutOfDate — in
+// that case the prefetch or sync error is not always preserved on the condition after rollback.
+func deviceUpdateFailedOrRolledBack(device *v1beta1.Device, expectedMessageSubstrings []string) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+
+	if ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
+		v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
+		if len(expectedMessageSubstrings) == 0 {
+			return true
+		}
+		cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+		if cond == nil {
+			return false
+		}
+		for _, substring := range expectedMessageSubstrings {
+			if strings.Contains(cond.Message, substring) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Rollback: bootc/OS rollback or spec rollback can clear Error and leave OutOfDate + Updating/Updated.
+	if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate ||
+		device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+		return false
+	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	if cond == nil {
+		return false
+	}
+	if cond.Status == v1beta1.ConditionStatusTrue {
+		return false
+	}
+	if cond.Reason != string(v1beta1.UpdateStateUpdated) {
+		return false
+	}
+	if len(expectedMessageSubstrings) == 0 {
+		return true
+	}
+	for _, substring := range expectedMessageSubstrings {
+		if strings.Contains(cond.Message, substring) {
+			return true
+		}
+		if device.Status.Updated.Info != nil && strings.Contains(*device.Status.Updated.Info, substring) {
+			return true
+		}
+	}
+	return true
+}
+
 // UpdateDeviceAndWaitForFailure updates a device and waits for the update to fail with an error.
-// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them.
+// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them
+// (or that the update rolled back, which may not retain the same message text on the status).
 func (h *Harness) UpdateDeviceAndWaitForFailure(deviceID string, updateFunc func(device *v1beta1.Device), expectedMessageSubstrings ...string) error {
 	err := h.UpdateDeviceWithRetries(deviceID, updateFunc)
 	if err != nil {
 		return fmt.Errorf("failed to update device: %w", err)
 	}
 
-	description := "update should fail with error"
+	description := "update should fail with error or roll back"
 	if len(expectedMessageSubstrings) > 0 {
-		description = fmt.Sprintf("update should fail with error containing one of: %v", expectedMessageSubstrings)
+		description = fmt.Sprintf("update should fail with error (or roll back) matching one of: %v", expectedMessageSubstrings)
 	}
 
 	h.WaitForDeviceContents(deviceID, description,
 		func(device *v1beta1.Device) bool {
-			if device == nil || device.Status == nil {
-				return false
-			}
-			if !ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
-				v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
-				return false
-			}
-			if len(expectedMessageSubstrings) == 0 {
-				return true
-			}
-			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-			if cond == nil {
-				return false
-			}
-			for _, substring := range expectedMessageSubstrings {
-				if strings.Contains(cond.Message, substring) {
-					return true
-				}
-			}
-			return false
+			return deviceUpdateFailedOrRolledBack(device, expectedMessageSubstrings)
 		}, LONGTIMEOUT)
 
 	h.WaitForDeviceContents(deviceID, "device should be out of date but online after failed update",
@@ -734,12 +791,13 @@ func GetDeviceConfig[T any](device *v1beta1.Device, configType v1beta1.ConfigPro
 				return config, fmt.Errorf("failed to get config type: %w", err)
 			}
 			if itemType == configType {
-				// Convert to the expected config type
 				config, err := asConfig(configItem)
 				if err != nil {
+					if errors.Is(err, errConfigNameMismatch) {
+						continue
+					}
 					return config, fmt.Errorf("failed to convert config: %w", err)
 				}
-
 				return config, nil
 			}
 		}
@@ -761,7 +819,7 @@ func (h *Harness) GetDeviceInlineConfig(device *v1beta1.Device, configName strin
 				logrus.Infof("Inline configuration found %s", configName)
 				return inlineConfig, nil
 			}
-			return v1beta1.InlineConfigProviderSpec{}, fmt.Errorf("inline config not found")
+			return v1beta1.InlineConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
@@ -777,7 +835,7 @@ func (h *Harness) GetDeviceGitConfig(device *v1beta1.Device, configName string) 
 				logrus.Infof("Git configuration found %s", configName)
 				return gitConfig, nil
 			}
-			return v1beta1.GitConfigProviderSpec{}, fmt.Errorf("git config not found")
+			return v1beta1.GitConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
@@ -793,7 +851,7 @@ func (h *Harness) GetDeviceHttpConfig(device *v1beta1.Device, configName string)
 				logrus.Infof("Http configuration found %s", configName)
 				return httpConfig, nil
 			}
-			return v1beta1.HttpConfigProviderSpec{}, fmt.Errorf("http config not found")
+			return v1beta1.HttpConfigProviderSpec{}, errConfigNameMismatch
 		})
 }
 
@@ -1071,6 +1129,49 @@ func (h *Harness) GetAgentConfig() (*agentcfg.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// CheckFleetControllerErrorAnnotation verifies that the device has the fleet controller
+// error annotation set and that it contains the expected key substring. Returns an error
+// suitable for use inside Eventually blocks for retryable polling.
+func (h *Harness) CheckFleetControllerErrorAnnotation(deviceId, expectedKeySubstring string) error {
+	resp, err := h.Client.GetDeviceStatusWithResponse(h.Context, deviceId)
+	if err != nil {
+		return fmt.Errorf("GetDeviceStatusWithResponse failed: %w", err)
+	}
+	if resp.JSON200 == nil {
+		return fmt.Errorf("expected 200 response, got %d", resp.StatusCode())
+	}
+	device := resp.JSON200
+	if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate {
+		return fmt.Errorf("device status is not OutOfDate, got %s", device.Status.Updated.Status)
+	}
+	if device.Metadata.Annotations == nil {
+		return fmt.Errorf("device annotations are nil")
+	}
+	errorAnnotation, exists := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationLastRolloutError]
+	if !exists || errorAnnotation == "" {
+		return fmt.Errorf("%s annotation not set", v1beta1.DeviceAnnotationLastRolloutError)
+	}
+	if !strings.Contains(errorAnnotation, expectedKeySubstring) {
+		return fmt.Errorf("%s does not contain expected substring %q, got: %s",
+			v1beta1.DeviceAnnotationLastRolloutError, expectedKeySubstring, errorAnnotation)
+	}
+	GinkgoWriter.Printf("CheckFleetControllerErrorAnnotation: device %s has annotation with expected substring %q\n",
+		deviceId, expectedKeySubstring)
+	return nil
+}
+
+// DeleteDeviceIgnoreNotFound deletes a device, ignoring 404 errors.
+func (h *Harness) DeleteDeviceIgnoreNotFound(deviceName string) error {
+	resp, err := h.Client.DeleteDeviceWithResponse(h.Context, deviceName)
+	if err != nil {
+		return fmt.Errorf("failed to delete device %s: %w", deviceName, err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 404 {
+		return fmt.Errorf("unexpected status deleting device %s: %d", deviceName, resp.StatusCode())
+	}
+	return nil
 }
 
 // DecommissionDevice runs the CLI decommission command for the given device name.

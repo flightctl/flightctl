@@ -239,13 +239,14 @@ func (t *QueueMaintenanceTask) recoverFromMissingCheckpoint(ctx context.Context,
 			return fmt.Errorf("failed to get checkpoint from database: %s", status.Message)
 		}
 	} else {
-		// Success case - parse the database checkpoint
-		if parsedTime, err := time.Parse(time.RFC3339Nano, string(dbCheckpointBytes)); err == nil {
+		rawCheckpoint := string(dbCheckpointBytes)
+		if rawCheckpoint == "" {
+			log.Info("Database checkpoint is empty, treating as fresh system")
+		} else if parsedTime, err := time.Parse(time.RFC3339Nano, rawCheckpoint); err != nil {
+			log.WithError(err).WithField("checkpoint", rawCheckpoint).Error("Failed to parse database checkpoint, treating as fresh system")
+		} else {
 			lastCheckpointTime = parsedTime
 			log.WithField("lastCheckpoint", lastCheckpointTime.Format(time.RFC3339Nano)).Info("Found last checkpoint in database")
-		} else {
-			log.WithError(err).Warn("Failed to parse database checkpoint, treating as fresh system")
-			lastCheckpointTime = time.Time{}
 		}
 	}
 

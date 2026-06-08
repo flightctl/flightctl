@@ -25,11 +25,16 @@ ui:
 db-setup:
   image: quay.io/flightctl/flightctl-db-setup-el9
   tag: latest
+gateway:
+  image: quay.io/sclorg/nginx-124-c9s
+  tag: "20260422"
 db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
 kv:
-  image: docker.io/redis
+  # docker.io/library/ prefix is required: podman mirrors docker.io official images
+  # using the canonical library/ namespace path. Without it the local registry lookup fails.
+  image: docker.io/library/redis
   tag: "7.4.1"
 alertmanager:
   image: quay.io/prometheus/alertmanager
@@ -40,6 +45,14 @@ imagebuilder-api:
 imagebuilder-worker:
   image: quay.io/flightctl/flightctl-imagebuilder-worker-el9
   tag: latest
+# grafana and prometheus MUST remain here: packaging/rpm/flightctl.spec invokes
+# `flightctl-standalone render quadlets` with this file to populate
+# {{ .Grafana.Image }}:{{ .Grafana.Tag }} and {{ .Prometheus.Image }}:{{ .Prometheus.Tag }}
+# in the quadlet .container templates. Removing them breaks the RPM build.
+#
+# The mirror-images tool excludes these entries at parse time (observabilityOnlyImages
+# in parser.go) because they belong to the optional flightctl-observability stack.
+# Mirror them manually for air-gapped deployments — see deploying-observability-linux.md.
 grafana:
   image: docker.io/grafana/grafana
   tag: latest

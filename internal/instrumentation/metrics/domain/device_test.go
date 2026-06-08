@@ -69,6 +69,18 @@ func (m *MockStore) Catalog() store.Catalog {
 	return nil
 }
 
+func (m *MockStore) VulnerabilityFinding() store.VulnerabilityFinding {
+	return nil
+}
+
+func (m *MockStore) SyncState() store.SyncState {
+	return nil
+}
+
+func (m *MockStore) DependencyRef() store.DependencyRef {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }
@@ -120,7 +132,7 @@ func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.DeviceList, error) {
+func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.DeviceListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
 func (m *MockDevice) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
@@ -144,7 +156,7 @@ func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name stri
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return nil
 }
-func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
+func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error) {
 	return "", nil
 }
 func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback store.ServiceConditionsCallback) error {

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,14 +48,17 @@ var _ = Describe("RepositoryStore create", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		eventCallbackCalled = false
 		eventCallback = store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 			eventCallbackCalled = true
 		})
 
 		orgId = uuid.New()
-		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = testutil.CreateRepositories(ctx, 3, storeInst, orgId)
@@ -66,7 +70,8 @@ var _ = Describe("RepositoryStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Repository store", func() {

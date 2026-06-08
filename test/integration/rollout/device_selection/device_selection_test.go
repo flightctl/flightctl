@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/service"
@@ -21,7 +22,9 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	chi "github.com/go-chi/chi/v5/middleware"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,7 +35,11 @@ import (
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
 )
 
 func TestDeviceSelection(t *testing.T) {
@@ -42,6 +49,18 @@ func TestDeviceSelection(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Device selection suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Rollout batch sequence test", func() {
@@ -301,7 +320,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -339,17 +358,21 @@ var _ = Describe("Rollout batch sequence test", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
 		publisher := queues.NewMockQueueProducer(ctrl)
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
 	})
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 	Context("device selection", func() {
@@ -359,7 +382,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					device := &devices.Items[i]
@@ -570,7 +593,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			}
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, name), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]
@@ -582,12 +605,14 @@ var _ = Describe("Rollout batch sequence test", func() {
 		}
 
 		setDevicesComplete := func(fleetName, tvName string) {
-			devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{
-				AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
-					Key:      api.DeviceAnnotationSelectedForRollout,
-					Operator: api.Exists,
-				}.String()),
-				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, fleetName)}),
+			devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{
+				ListParams: store.ListParams{
+					AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
+						Key:      api.DeviceAnnotationSelectedForRollout,
+						Operator: api.Exists,
+					}.String()),
+					FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, fleetName)}),
+				},
 			})
 			Expect(err).ToNot(HaveOccurred())
 			for i := range devices.Items {

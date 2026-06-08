@@ -36,6 +36,8 @@ Configure how users are assigned to organizations via `organizationAssignment` i
   - `organizationNamePrefix`: Prefix for user-specific org name (default: `"user-org-"`)
   - `organizationNameSuffix`: Optional suffix for org name
 
+**Important:** Set `organizationNamePrefix` and `organizationNameSuffix` during initial deployment only. Adding or changing these values on an existing deployment changes organization names, causing users to lose access to resources created under the previous names. If you must change these settings, plan for data migration.
+
   **Important:** When choosing `organizationAssignment=perUser`, it's recommended to use `roleAssignment=static` with the `flightctl-org-admin` role. Since each user manages their own organization, `flightctl-org-admin` provides the appropriate permissions for managing organization resources. See below for details on role assignment.
 
 ### Role Assignment

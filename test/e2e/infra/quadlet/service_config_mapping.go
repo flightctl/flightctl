@@ -15,6 +15,11 @@ import (
 // service-config.yaml (e.g. imagebuilderWorker). If Transform is non-nil, it
 // converts the rendered subtree into service-config shape; otherwise the subtree
 // is copied as-is (use when structure is 1:1, with key normalization).
+//
+// Key behavior:
+//   - Key missing from config: left unchanged in service-config.yaml
+//   - Key present with value: merged into service-config.yaml
+//   - Key present with null: deleted from service-config.yaml
 type SectionMapping struct {
 	RenderedKey      string
 	ServiceConfigKey string
@@ -37,6 +42,26 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 		{
 			RenderedKey:      "telemetryGateway",
 			ServiceConfigKey: "telemetryGateway",
+			Transform:        nil,
+		},
+	},
+	// API and Periodic services need vulnerabilityReporting mapped to service-config.yaml
+	// so the templates can render the config on service restart (ExecStartPre re-renders).
+	// Three-state semantics (see applyServiceConfigMappings):
+	//   - Key missing: left unchanged in service-config.yaml
+	//   - Key set to null: deleted from service-config.yaml
+	//   - Key with value: written/updated in service-config.yaml
+	infra.ServiceAPI: {
+		{
+			RenderedKey:      "vulnerabilityReporting",
+			ServiceConfigKey: "vulnerabilityReporting",
+			Transform:        nil,
+		},
+	},
+	infra.ServicePeriodic: {
+		{
+			RenderedKey:      "vulnerabilityReporting",
+			ServiceConfigKey: "vulnerabilityReporting",
 			Transform:        nil,
 		},
 	},
@@ -73,8 +98,14 @@ func applyServiceConfigMappings(service infra.ServiceName, perServiceContent str
 
 	updates := make(map[string]interface{})
 	for _, m := range mappings {
-		subtree := getSubtreeWithKeyNormalization(perService, m.RenderedKey)
+		subtree, found := getSubtreeWithKeyNormalization(perService, m.RenderedKey)
+		if !found {
+			// Key not present in config - leave existing value unchanged
+			continue
+		}
 		if subtree == nil {
+			// Key explicitly set to null - signal deletion
+			updates[m.ServiceConfigKey] = nil
 			continue
 		}
 		var value interface{}
@@ -94,18 +125,19 @@ func applyServiceConfigMappings(service infra.ServiceName, perServiceContent str
 
 // getSubtreeWithKeyNormalization returns perService[key] or perService[altKey] for
 // common casing variants (e.g. imageBuilderWorker vs imagebuilderWorker).
-func getSubtreeWithKeyNormalization(perService map[string]interface{}, key string) interface{} {
+// Returns (value, true) if key found, (nil, false) if not found.
+func getSubtreeWithKeyNormalization(perService map[string]interface{}, key string) (interface{}, bool) {
 	if v, ok := perService[key]; ok {
-		return v
+		return v, true
 	}
 	if v, ok := perService[lowerFirst(key)]; ok {
-		return v
+		return v, true
 	}
 	// Try first uppercase letter lowercased (e.g. imageBuilderWorker -> imagebuilderWorker)
 	if v, ok := perService[firstUpperToLower(key)]; ok {
-		return v
+		return v, true
 	}
-	return nil
+	return nil, false
 }
 
 func lowerFirst(s string) string {

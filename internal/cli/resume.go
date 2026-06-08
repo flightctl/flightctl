@@ -184,7 +184,10 @@ func (o *ResumeOptions) runSingleResume(ctx context.Context, c *apiclient.Client
 		case http.StatusBadRequest:
 			return fmt.Errorf("invalid request for device %s", name)
 		default:
-			return fmt.Errorf("unsuccessful resume request for device %s: %s", name, string(response.Body))
+			return &CLIError{
+				Context: fmt.Sprintf("resuming device %s: failed", name),
+				Err:     &APIError{Status: ParseStatusFromBody(response.Body)},
+			}
 		}
 	}
 
@@ -239,7 +242,10 @@ func (o *ResumeOptions) runBulkResume(ctx context.Context, c *apiclient.ClientWi
 		case http.StatusBadRequest:
 			return fmt.Errorf("invalid selector: %s", selectorDesc)
 		default:
-			return fmt.Errorf("unsuccessful bulk resume request: %s", string(response.Body))
+			return &CLIError{
+				Context: fmt.Sprintf("bulk resuming devices with %s: failed", selectorDesc),
+				Err:     &APIError{Status: ParseStatusFromBody(response.Body)},
+			}
 		}
 	}
 

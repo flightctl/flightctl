@@ -17,12 +17,14 @@ import (
 type Service interface {
 	ImageBuild() ImageBuildService
 	ImageExport() ImageExportService
+	ImagePromotion() ImagePromotionService
 }
 
 // service is the concrete implementation of Service
 type service struct {
-	imageBuild  ImageBuildService
-	imageExport ImageExportService
+	imageBuild     ImageBuildService
+	imageExport    ImageExportService
+	imagePromotion ImagePromotionService
 }
 
 // NewService creates a new aggregate Service with all sub-services
@@ -30,10 +32,7 @@ func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Sto
 	// Create event handler for ImageBuild events
 	// Note: We pass nil for workerClient so events are stored in DB for audit/logging
 	// but are not pushed to TaskQueue. Events are manually enqueued to ImageBuildTaskQueue instead.
-	var eventHandler *internalservice.EventHandler
-	if mainStore != nil {
-		eventHandler = internalservice.NewEventHandler(mainStore, nil, log)
-	}
+	eventHandler := internalservice.NewEventHandler(mainStore, nil, log)
 
 	// Get ImageBuilderService config (nil-safe)
 	var imageBuilderServiceCfg *config.ImageBuilderServiceConfig
@@ -41,13 +40,19 @@ func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Sto
 		imageBuilderServiceCfg = cfg.ImageBuilderService
 	}
 
+	// Create ImagePromotionService
+	imagePromotionSvc := NewImagePromotionService(s.ImagePromotion(), s.ImageBuild(), mainStore, queueProducer, log)
+
 	// Create ImageExportService first (ImageBuildService depends on it for delete flow)
 	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, kvStore, imageBuilderServiceCfg, log)
-	// Create ImageBuildService with ImageExportService dependency
-	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), imageExportSvc, eventHandler, queueProducer, kvStore, imageBuilderServiceCfg, log)
+
+	// Create ImageBuildService with ImageExportService and ImagePromotionService dependencies
+	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), imageExportSvc, imagePromotionSvc, eventHandler, queueProducer, kvStore, imageBuilderServiceCfg, log)
+
 	return &service{
-		imageBuild:  imageBuildSvc,
-		imageExport: imageExportSvc,
+		imageBuild:     imageBuildSvc,
+		imageExport:    imageExportSvc,
+		imagePromotion: imagePromotionSvc,
 	}
 }
 
@@ -59,4 +64,9 @@ func (s *service) ImageBuild() ImageBuildService {
 // ImageExport returns the ImageExportService
 func (s *service) ImageExport() ImageExportService {
 	return s.imageExport
+}
+
+// ImagePromotion returns the ImagePromotionService
+func (s *service) ImagePromotion() ImagePromotionService {
+	return s.imagePromotion
 }

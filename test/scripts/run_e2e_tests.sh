@@ -19,6 +19,9 @@ GINKGO_OUTPUT_INTERCEPTOR_MODE=${GINKGO_OUTPUT_INTERCEPTOR_MODE:-"dup"}
 # Manual test splitting variables
 GINKGO_TOTAL_NODES=${GINKGO_TOTAL_NODES:-1}
 GINKGO_NODE=${GINKGO_NODE:-1}
+# Pre-computed LPT shard assignment file produced by go run ./compute_test_assignments.
+# When set and the file exists, used instead of round-robin splitting.
+ASSIGNMENTS_PATH=${ASSIGNMENTS_PATH:-""}
 # Discovery control variables
 DISCOVERY_PATH=${DISCOVERY_PATH:-"discovery.json"}
 DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
@@ -72,7 +75,14 @@ E2E_ENVIRONMENT=${E2E_ENVIRONMENT:-""}
 # Auto-detect environment if not set
 if [[ -z "${E2E_ENVIRONMENT}" ]]; then
     if kubectl config current-context &>/dev/null; then
-        E2E_ENVIRONMENT="k8s"
+        context=$(kubectl config current-context 2>/dev/null || true)
+        if [[ "$context" == *kind* ]]; then
+            E2E_ENVIRONMENT="kind"
+        elif kubectl api-resources --api-group=route.openshift.io &>/dev/null; then
+            E2E_ENVIRONMENT="ocp"
+        else
+            E2E_ENVIRONMENT="k8s"
+        fi
     elif systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null; then
         E2E_ENVIRONMENT="quadlet"
     else
@@ -119,6 +129,12 @@ else
     fi
 fi
 
+# Export E2E_AUX_HOST for Go tests to use correct host IP (IPv6-aware)
+# This overrides GetHostIP() which otherwise dials 1.1.1.1 (IPv4-only)
+E2E_AUX_HOST="${E2E_AUX_HOST:-$(get_ext_ip)}"
+export E2E_AUX_HOST
+echo "E2E_AUX_HOST: ${E2E_AUX_HOST}"
+
 # Set PAM authentication credentials for Quadlet environments
 if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
     # Default PAM admin user credentials for E2E tests
@@ -128,72 +144,69 @@ if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
     echo "PAM credentials configured for user: ${E2E_PAM_USER}"
 fi
 
-# Handle manual test splitting if enabled
+# Handle test splitting if enabled
 if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
-    echo "Manual test splitting enabled: Node ${GINKGO_NODE} of ${GINKGO_TOTAL_NODES}"
+    echo "Test splitting enabled: Node ${GINKGO_NODE} of ${GINKGO_TOTAL_NODES}"
 
-    TEMP_TEST_LIST=$(mktemp)
-    DISCOVERY_GENERATED=false
-
-    # Use existing discovery file or run discovery
-    if [[ -f "${DISCOVERY_PATH}" ]]; then
-        echo "Loading discovery from existing file: ${DISCOVERY_PATH}"
-    else
-        echo "Discovery file not found, running discovery..."
-        run_discovery
-        DISCOVERY_GENERATED=true
-    fi
-
-    # Parse the JSON report to extract test names that would actually run
-    # Use jq to extract just the LeafNodeText (test description) for focus patterns
-    # Sort and deduplicate to ensure consistent distribution
-    # Filter for tests that would run (not skipped) and are actual test specs (LeafNodeType == "It")
-    jq -r '
-        .[] |
-        .SpecReports[]? |
-        select(.LeafNodeType == "It" and .State != "skipped") |
-        .LeafNodeText
-    ' "${DISCOVERY_PATH}" | LC_ALL=C sort -u > "${TEMP_TEST_LIST}"
-
-    # Clean up the discovery file only if we generated it
-    if [[ "${DISCOVERY_GENERATED}" == "true" ]]; then
-        rm -f "${DISCOVERY_PATH}"
-    fi
-
-    # Count total tests
-    TOTAL_TESTS=$(wc -l < "${TEMP_TEST_LIST}")
-    echo "Total tests found: ${TOTAL_TESTS}"
-
-    # Extract tests for this specific node using awk
     NODE_TESTS=$(mktemp)
-    awk -v node="${GINKGO_NODE}" -v total="${GINKGO_TOTAL_NODES}" 'NR % total == node - 1' "${TEMP_TEST_LIST}" > "${NODE_TESTS}"
 
-    # Count tests for this node
+    if [[ -n "${ASSIGNMENTS_PATH}" && -f "${ASSIGNMENTS_PATH}" ]]; then
+        # Use pre-computed LPT assignments produced by compute_test_assignments.py.
+        echo "Using pre-computed LPT assignment from: ${ASSIGNMENTS_PATH}"
+        jq -r --arg node "${GINKGO_NODE}" '.[$node][]' "${ASSIGNMENTS_PATH}" > "${NODE_TESTS}"
+    else
+        # Fallback: round-robin over alphabetically sorted spec names.
+        [[ -z "${ASSIGNMENTS_PATH}" ]] && echo "ASSIGNMENTS_PATH not set; falling back to round-robin splitting" \
+            || echo "Assignment file not found (${ASSIGNMENTS_PATH}); falling back to round-robin splitting"
+
+        TEMP_TEST_LIST=$(mktemp)
+        DISCOVERY_GENERATED=false
+
+        if [[ -f "${DISCOVERY_PATH}" ]]; then
+            echo "Loading discovery from existing file: ${DISCOVERY_PATH}"
+        else
+            echo "Discovery file not found, running discovery..."
+            run_discovery
+            DISCOVERY_GENERATED=true
+        fi
+
+        jq -r '
+            .[] |
+            .SpecReports[]? |
+            select(.LeafNodeType == "It" and .State != "skipped") |
+            .LeafNodeText
+        ' "${DISCOVERY_PATH}" | LC_ALL=C sort -u > "${TEMP_TEST_LIST}"
+
+        if [[ "${DISCOVERY_GENERATED}" == "true" ]]; then
+            rm -f "${DISCOVERY_PATH}"
+        fi
+
+        TOTAL_TESTS=$(wc -l < "${TEMP_TEST_LIST}")
+        echo "Total tests found: ${TOTAL_TESTS}"
+
+        awk -v node="${GINKGO_NODE}" -v total="${GINKGO_TOTAL_NODES}" \
+            'NR % total == node - 1' "${TEMP_TEST_LIST}" > "${NODE_TESTS}"
+
+        rm -f "${TEMP_TEST_LIST}"
+    fi
+
     NODE_TEST_COUNT=$(wc -l < "${NODE_TESTS}")
     echo "Tests for node ${GINKGO_NODE}: ${NODE_TEST_COUNT}"
 
-    # Check if this node has any tests to run
     if [[ "${NODE_TEST_COUNT}" -eq 0 ]]; then
         echo "No tests assigned to node ${GINKGO_NODE}. Skipping execution."
-        rm -f "${TEMP_TEST_LIST}" "${NODE_TESTS}"
+        rm -f "${NODE_TESTS}"
         exit 0
     fi
 
-    # Display which tests this node will run
     echo "Node ${GINKGO_NODE} will run the following tests:"
     cat "${NODE_TESTS}"
 
-    # Combine all tests for this node into a single focus pattern
-    # Use regex OR (|) to match any of the tests
-    if [[ -s "${NODE_TESTS}" ]]; then
-        # Read all tests, escape regex metacharacters, and join them with | for regex OR
-        FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | paste -sd '|')
-        echo "Focus pattern for node ${GINKGO_NODE}: ${FOCUS_PATTERN}"
-        GINKGO_FOCUS="${FOCUS_PATTERN}"
-    fi
+    FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | paste -sd '|')
+    echo "Focus pattern for node ${GINKGO_NODE}: ${FOCUS_PATTERN}"
+    GINKGO_FOCUS="${FOCUS_PATTERN}"
 
-    # Clean up temporary files
-    rm -f "${TEMP_TEST_LIST}" "${NODE_TESTS}"
+    rm -f "${NODE_TESTS}"
 fi
 
 # Build the ginkgo command using guard patterns for each flag

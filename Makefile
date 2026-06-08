@@ -95,7 +95,9 @@ help:
 	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
 	@echo "    fix-spelling:    run markdown-spellcheck interactively to fix spelling issues"
 	@echo "    build:           run all builds"
-	@echo "    integration-test: run integration tests"
+	@echo "    integration-test: run integration tests (starts testcontainers, stops them on exit)"
+	@echo "    start-integration-services: start Postgres/Redis/Alertmanager for integration tests"
+	@echo "    stop-integration-services: stop those containers and remove the env file"
 	@echo "    unit-test:       run unit tests"
 	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
@@ -107,10 +109,11 @@ help:
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    clean-e2e-images: clean up e2e test images (app and device) from both regular and root podman"
-	@echo "    clean-aux: remove E2E aux containers (registry, git server, prometheus) for fresh e2e runs"
+	@echo "    clean-aux: remove E2E aux containers (registry, git server, prometheus, trustify) for fresh e2e runs"
 	@echo "    start-registry:  start E2E registry container (reuse=true)"
 	@echo "    start-git-server: start E2E git server container (reuse=true)"
 	@echo "    start-prometheus: start E2E prometheus container (reuse=true)"
+	@echo "    start-trustify:  start E2E Trustify (vulnerability scanner) containers"
 	@echo "    start-aux: start all E2E aux containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
@@ -159,6 +162,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
+		./cmd/flightctl-backup \
 		./cmd/flightctl-restore \
 		./cmd/flightctl-telemetry-gateway \
 		./cmd/flightctl-standalone
@@ -181,11 +185,19 @@ build-api: bin
 build-pam-issuer: bin
 	$(GOENV) GOOS=linux GOARCH=$(GOARCH) CGO_ENABLED=1 CGO_CFLAGS="$$CGO_CFLAGS -D_GNU_SOURCE" CGO_LDFLAGS="-ldl" go build -tags linux -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-pam-issuer
 
+DEV_VM_SRC := $(wildcard $(ROOT_DIR)/test/cmd/dev-vm/*.go)
+
+bin/flightctl-dev-vm: bin $(DEV_VM_SRC)
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build -buildvcs=false -o $@ ./test/cmd/dev-vm/
+
 build-db-migrate: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
 
 build-restore: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-restore
+
+build-backup: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-backup
 
 build-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
@@ -216,6 +228,9 @@ build-devicesimulator: bin
 
 build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
+
+build-mirror-images: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./scripts/air-gap/mirror-images
 
 # Container builds - Environment-aware caching
 flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum $(GO_FILES)
@@ -372,7 +387,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
@@ -412,9 +427,10 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs cl
 clean-all: clean clean-containers
 	- rm -rf bin
 
-# Remove E2E aux testcontainers (registry, git server, prometheus, jaeger) and their anonymous volumes so next e2e run starts fresh
+# Remove E2E aux testcontainers (registry, git server, prometheus, jaeger, trustify) and their anonymous volumes so next e2e run starts fresh
 clean-aux:
-	- podman rm -f -v e2e-registry e2e-registry-auth e2e-gitserver e2e-prometheus e2e-jaeger 2>/dev/null || true
+	- podman rm -f -v e2e-registry e2e-registry-auth e2e-gitserver e2e-prometheus e2e-jaeger e2e-trustify-api e2e-trustify-db e2e-trustify-importer 2>/dev/null || true
+	- podman network rm e2e-trustify-net 2>/dev/null || true
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh

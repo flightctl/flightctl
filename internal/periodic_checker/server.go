@@ -11,17 +11,23 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 type Server struct {
@@ -43,7 +49,6 @@ func New(
 	}
 }
 
-// TODO: expose metrics
 func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
@@ -82,10 +87,43 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache.Start()
 	defer orgCache.Stop()
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
+
+	var secretInformerClientset kubernetes.Interface
+	if s.cfg.Periodic != nil && s.cfg.Periodic.ClusterLevelSecretAccess {
+		if restConfig, err := rest.InClusterConfig(); err != nil {
+			s.log.WithError(err).Warn("Secret informer enabled but in-cluster config is unavailable")
+		} else {
+			clientset, err := kubernetes.NewForConfig(restConfig)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to create K8s clientset for secret informer")
+			} else {
+				secretInformerClientset = clientset
+			}
+		}
+	} else {
+		s.log.Debug("Secret informer disabled by configuration")
+	}
+
+	var vulnClient trustifyv2.VulnerabilityClient
+	if s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled {
+		if s.cfg.VulnerabilityReporting.Trustify == nil {
+			s.log.Warn("Vulnerability syncing is enabled but Trustify config is missing; vulnerability-sync executor will be skipped")
+		} else {
+			var err error
+			vulnClient, err = trustifyv2.NewVulnerabilityClient(ctx, s.cfg.VulnerabilityReporting.Trustify)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to initialize Trustify client, vulnerability sync will be disabled")
+			}
+		}
+	} else {
+		s.log.Debug("Vulnerability syncing is disabled")
+	}
+
+	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -144,6 +182,27 @@ func (s *Server) Run(ctx context.Context) error {
 		defer wg.Done()
 		periodicTaskPublisher.Run(ctx)
 	}()
+
+	if s.cfg.Metrics != nil && s.cfg.Metrics.Enabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := tracing.RunMetricsServer(ctx, s.log, s.cfg.Metrics.Address, depSyncMetrics); err != nil {
+				s.log.WithError(err).Error("Metrics server failed")
+				cancel()
+			}
+		}()
+	}
+
+	if secretInformerClientset != nil {
+		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			secretSync.Run(ctx, secretInformerClientset)
+		}()
+		s.log.Info("Secret change detection informer started")
+	}
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)

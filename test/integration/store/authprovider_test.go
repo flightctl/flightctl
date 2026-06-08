@@ -11,11 +11,13 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("AuthProviderStore", func() {
@@ -27,6 +29,7 @@ var _ = Describe("AuthProviderStore", func() {
 		authStore store.AuthProvider
 		cfg       *config.Config
 		dbName    string
+		db        *gorm.DB
 		called    bool
 		callback  store.EventCallback
 	)
@@ -34,7 +37,10 @@ var _ = Describe("AuthProviderStore", func() {
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		authStore = storeInst.AuthProvider()
 		called = false
 		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -42,12 +48,13 @@ var _ = Describe("AuthProviderStore", func() {
 		})
 
 		orgId = uuid.New()
-		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	// Helper function to create a test auth provider
@@ -72,7 +79,7 @@ var _ = Describe("AuthProviderStore", func() {
 			ProviderType:           api.Oidc,
 			Issuer:                 fmt.Sprintf("https://issuer.example.com/%s", name), // Make issuer unique per provider
 			ClientId:               fmt.Sprintf("client-id-%s", name),                  // Make clientId unique per provider
-			ClientSecret:           lo.ToPtr("test-client-secret"),
+			ClientSecret:           "test-client-secret",
 			Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 			Enabled:                lo.ToPtr(true),
 			UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
@@ -364,7 +371,7 @@ var _ = Describe("AuthProviderStore", func() {
 				ProviderType:           api.Oidc,
 				Issuer:                 "https://issuer.example.com/static-org-provider",
 				ClientId:               "client-id-static-org-provider",
-				ClientSecret:           lo.ToPtr("test-client-secret"),
+				ClientSecret:           "test-client-secret",
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
 				UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
@@ -406,7 +413,7 @@ var _ = Describe("AuthProviderStore", func() {
 				ProviderType:           api.Oidc,
 				Issuer:                 "https://issuer.example.com/dynamic-org-provider",
 				ClientId:               "client-id-dynamic-org-provider",
-				ClientSecret:           lo.ToPtr("test-client-secret"),
+				ClientSecret:           "test-client-secret",
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
 				UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
@@ -449,7 +456,7 @@ var _ = Describe("AuthProviderStore", func() {
 				ProviderType:           api.Oidc,
 				Issuer:                 "https://issuer.example.com/per-user-org-provider",
 				ClientId:               "client-id-per-user-org-provider",
-				ClientSecret:           lo.ToPtr("test-client-secret"),
+				ClientSecret:           "test-client-secret",
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
 				UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
@@ -468,6 +475,105 @@ var _ = Describe("AuthProviderStore", func() {
 			result, err := authStore.Create(ctx, orgId, &provider, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
+		})
+	})
+
+	Context("AuthProvider with organizationNamePrefix (K8s, AAP, OpenShift)", func() {
+		It("should round-trip K8sProviderSpec with organizationNamePrefix", func() {
+			assignment := api.AuthOrganizationAssignment{}
+			err := assignment.FromAuthStaticOrganizationAssignment(api.AuthStaticOrganizationAssignment{
+				Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+				OrganizationName: "default",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			roleAssignment := api.AuthRoleAssignment{}
+			err = roleAssignment.FromAuthStaticRoleAssignment(api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{api.ExternalRoleViewer},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			k8sSpec := api.K8sProviderSpec{
+				ProviderType:           api.K8s,
+				ApiUrl:                 "https://api.k8s.example.com",
+				OrganizationAssignment: &assignment,
+				RoleAssignment:         &roleAssignment,
+				OrganizationNamePrefix: lo.ToPtr("k8s-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("k8s-prefix-provider")},
+			}
+			err = provider.Spec.FromK8sProviderSpec(k8sSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "k8s-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsK8sProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("k8s-"))
+		})
+
+		It("should round-trip AapProviderSpec with organizationNamePrefix", func() {
+			aapSpec := api.AapProviderSpec{
+				ProviderType:           api.Aap,
+				ApiUrl:                 "https://aap.example.com",
+				AuthorizationUrl:       "https://aap.example.com/o/authorize/",
+				TokenUrl:               "https://aap.example.com/o/token/",
+				ClientId:               "client",
+				ClientSecret:           "secret",
+				Scopes:                 []string{"read"},
+				OrganizationNamePrefix: lo.ToPtr("aap-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("aap-prefix-provider")},
+			}
+			err := provider.Spec.FromAapProviderSpec(aapSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "aap-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsAapProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("aap-"))
+		})
+
+		It("should round-trip OpenShiftProviderSpec with organizationNamePrefix", func() {
+			openshiftSpec := api.OpenShiftProviderSpec{
+				ProviderType:           api.Openshift,
+				AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
+				TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
+				ClientId:               lo.ToPtr("flightctl"),
+				ClientSecret:           lo.ToPtr("secret"),
+				ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
+				Issuer:                 lo.ToPtr("https://oauth.example.com"),
+				OrganizationNamePrefix: lo.ToPtr("ocp-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("openshift-prefix-provider")},
+			}
+			err := provider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "openshift-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsOpenShiftProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("ocp-"))
 		})
 	})
 })

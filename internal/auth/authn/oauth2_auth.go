@@ -57,7 +57,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	if spec.ClientId == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
+	if spec.ClientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
@@ -424,7 +424,7 @@ func (o *OAuth2Auth) introspectRFC7662(ctx context.Context, token string, spec a
 	}
 
 	// RFC 7662 requires client authentication via Basic Auth
-	req.SetBasicAuth(o.spec.ClientId, *o.spec.ClientSecret)
+	req.SetBasicAuth(o.spec.ClientId, o.spec.ClientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
@@ -478,7 +478,7 @@ func (o *OAuth2Auth) introspectGitHub(ctx context.Context, token string, spec ap
 	}
 
 	// GitHub requires Basic Auth with client ID and secret
-	req.SetBasicAuth(o.spec.ClientId, *o.spec.ClientSecret)
+	req.SetBasicAuth(o.spec.ClientId, o.spec.ClientSecret)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 

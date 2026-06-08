@@ -82,6 +82,8 @@ type JournalOpts struct {
 	Unit     string
 	Since    string // time string like "20 minutes ago" or empty for all logs
 	LastBoot bool   // false by default, when true restricts logs to current boot
+	// Lines, if > 0, passes journalctl -n Lines (most recent N entries matching other filters).
+	Lines int
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
@@ -192,7 +194,7 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
-	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
+	args := []string{"sudo", "TZ=UTC", "journalctl", "--no-pager", "--no-hostname"}
 
 	if opts.Unit != "" {
 		args = append(args, "-u", opts.Unit)
@@ -205,7 +207,14 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 	}
 
 	if opts.Since != "" {
-		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
+		since := opts.Since
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			since = t.UTC().Format("2006-01-02 15:04:05")
+		}
+		args = append(args, "--since", fmt.Sprintf("%q", since))
+	}
+	if opts.Lines > 0 {
+		args = append(args, "-n", strconv.Itoa(opts.Lines))
 	}
 
 	logrus.Debugf("Reading journal logs with command: %s", strings.Join(args, " "))

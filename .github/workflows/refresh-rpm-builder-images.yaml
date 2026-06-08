@@ -7,6 +7,10 @@ on:
   workflow_dispatch:
     # Allow manual trigger for testing
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   QUAY_TESTS_ORG: quay.io/flightctl-tests
   QUAY: quay.io

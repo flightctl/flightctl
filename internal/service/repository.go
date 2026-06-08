@@ -3,11 +3,21 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
@@ -146,4 +156,114 @@ func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resource
 // callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events
 func (h *ServiceHandler) callbackRepositoryDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+func (h *ServiceHandler) CheckRepositoryOciTag(ctx context.Context, orgId uuid.UUID, repositoryName, imageName, tag string) (*domain.OciRegistryCheckResult, domain.Status) {
+	if !validation.OciImageNameRegexp.MatchString(imageName) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid imageName %q: must not include a tag or digest and must match %s", imageName, validation.OciImageNameFmt))
+	}
+	if !validation.OciImageTagRegexp.MatchString(tag) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid tag %q: must match %s", tag, validation.OciImageTagFmt))
+	}
+
+	repoRef, status := h.resolveOciRepoRef(ctx, orgId, repositoryName, imageName)
+	if repoRef == nil {
+		return nil, status
+	}
+
+	h.log.WithField("repository", repositoryName).
+		WithField("imageName", imageName).
+		WithField("tag", tag).
+		Debug("checking tag in OCI registry")
+
+	resolveCtx, resolveCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer resolveCancel()
+	_, err := repoRef.Resolve(resolveCtx, tag)
+	if err != nil {
+		code, msg := extractOciError(err)
+		h.log.WithField("repository", repositoryName).WithError(err).Debug("tag not accessible in registry")
+		return &domain.OciRegistryCheckResult{Accessible: false, ErrorCode: code, ErrorMessage: msg}, domain.StatusOK()
+	}
+
+	return &domain.OciRegistryCheckResult{Accessible: true}, domain.StatusOK()
+}
+
+// errStopTagList is a sentinel used to stop ORAS tag-list pagination after the first page.
+var errStopTagList = errors.New("stop tag list")
+
+func (h *ServiceHandler) CheckRepositoryOciImage(ctx context.Context, orgId uuid.UUID, repositoryName, imageName string) (*domain.OciRegistryCheckResult, domain.Status) {
+	if !validation.OciImageNameRegexp.MatchString(imageName) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid imageName %q: must not include a tag or digest and must match %s", imageName, validation.OciImageNameFmt))
+	}
+
+	repoRef, status := h.resolveOciRepoRef(ctx, orgId, repositoryName, imageName)
+	if repoRef == nil {
+		return nil, status
+	}
+
+	h.log.WithField("repository", repositoryName).
+		WithField("imageName", imageName).
+		Debug("checking OCI image repository accessibility")
+
+	// Request at most one page to confirm the repository is accessible without fetching all tags.
+	repoRef.TagListPageSize = 1
+	tagsCtx, tagsCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer tagsCancel()
+	err := repoRef.Tags(tagsCtx, "", func(_ []string) error { return errStopTagList })
+	if err != nil && !errors.Is(err, errStopTagList) {
+		code, msg := extractOciError(err)
+		h.log.WithField("repository", repositoryName).WithError(err).Debug("OCI image repository not accessible")
+		return &domain.OciRegistryCheckResult{Accessible: false, ErrorCode: code, ErrorMessage: msg}, domain.StatusOK()
+	}
+
+	return &domain.OciRegistryCheckResult{Accessible: true}, domain.StatusOK()
+}
+
+// extractOciError extracts the HTTP status code and human-readable message from an OCI registry error.
+// Returns (0, err.Error()) when the error is not an HTTP-level response (e.g. network timeout).
+func extractOciError(err error) (int, string) {
+	var errResp *errcode.ErrorResponse
+	if errors.As(err, &errResp) {
+		msg := errResp.Errors.Error()
+		if msg == "<nil>" || msg == "" {
+			msg = http.StatusText(errResp.StatusCode)
+		}
+		return errResp.StatusCode, msg
+	}
+	if errors.Is(err, errdef.ErrNotFound) {
+		return http.StatusNotFound, "not found"
+	}
+	return 0, err.Error()
+}
+
+// resolveOciRepoRef fetches the Repository resource and builds a configured ORAS remote.Repository.
+func (h *ServiceHandler) resolveOciRepoRef(ctx context.Context, orgId uuid.UUID, repositoryName, imageName string) (*remote.Repository, domain.Status) {
+	repo, err := h.store.Repository().Get(ctx, orgId, repositoryName)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, domain.StatusResourceNotFound(domain.RepositoryKind, repositoryName)
+		}
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("failed to get Repository %q: %v", repositoryName, err))
+	}
+
+	repoType, err := repo.Spec.Discriminator()
+	if err != nil {
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("failed to determine repository type for %q: %v", repositoryName, err))
+	}
+	if repoType != string(domain.OciRepoSpecTypeOci) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("repository %q is of type %q, not OCI", repositoryName, repoType))
+	}
+
+	ociSpecVal, err := repo.Spec.AsOciRepoSpec()
+	if err != nil {
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("failed to decode OCI spec for repository %q: %v", repositoryName, err))
+	}
+	ociSpec := &ociSpecVal
+
+	fullRef := strings.TrimRight(ociSpec.Registry, "/") + "/" + strings.TrimLeft(imageName, "/")
+	repoRef, err := oci.BuildOciRepoRef(ociSpec, fullRef)
+	if err != nil {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid repository reference %q: %v", fullRef, err))
+	}
+	return repoRef, domain.StatusOK()
 }

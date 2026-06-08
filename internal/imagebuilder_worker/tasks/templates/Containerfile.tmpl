@@ -14,21 +14,31 @@ ARG AGENT_CONFIG_DEST_PATH=/etc/flightctl/config.yaml
 ARG RPM_REPO_ADD
 ARG RPM_REPO_ADD_URL
 ARG RPM_REPO_ENABLE
+ARG DNF_TIMEOUT=5
+ARG DNF_RETRIES=0
+ARG DNF_SKIP_UNAVAILABLE=True
 RUN if [ "${RPM_REPO_ADD}" = "true" ]; then \
         dnf -y config-manager --add-repo ${RPM_REPO_ADD_URL}; \
     fi && \
-    dnf install -y ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} flightctl-agent && \
+    dnf install -y \
+        --setopt=timeout=${DNF_TIMEOUT} \
+        --setopt=retries=${DNF_RETRIES} \
+        --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
+        ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} \
+        flightctl-agent && \
     dnf clean all
 
 # Enable Flight Control agent service
 RUN systemctl enable flightctl-agent.service
 
-# Disable automatic bootc updates (flightctl manages updates)
-RUN systemctl mask bootc-fetch-apply-updates.timer || true
-
 # Install VM and cloud tools (needed for both early and late binding)
 # afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
-RUN dnf install -y open-vm-tools && dnf clean all
+RUN dnf install -y \
+        --setopt=timeout=${DNF_TIMEOUT} \
+        --setopt=retries=${DNF_RETRIES} \
+        --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
+        open-vm-tools && \
+    dnf clean all
 
 RUN systemctl enable vmtoolsd.service
 
@@ -46,7 +56,12 @@ RUN if [ "${EARLY_BINDING}" = "true" ]; then \
         cp /tmp/agent-config.yaml ${AGENT_CONFIG_DEST_PATH} && \
         chmod 600 ${AGENT_CONFIG_DEST_PATH}; \
     else \
-        dnf install -y ignition afterburn cloud-init && dnf clean all; \
+        dnf install -y \
+            --setopt=timeout=${DNF_TIMEOUT} \
+            --setopt=retries=${DNF_RETRIES} \
+            --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
+            ignition afterburn cloud-init && \
+        dnf clean all; \
     fi
 
 # Create user and configure SSH access (conditional on HAS_USER_CONFIG)

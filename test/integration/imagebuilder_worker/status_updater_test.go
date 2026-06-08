@@ -3,7 +3,6 @@ package imagebuilder_worker_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -15,10 +14,10 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/testutil"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -55,22 +54,18 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		sourceRepoName = fmt.Sprintf("source-repo-%s", testID)
 		outputRepoName = fmt.Sprintf("output-repo-%s", testID)
 
-		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStore, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		// Use testdb.CreateTestDB which includes organizations table
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		mainStore = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
-		// Run imagebuilder-specific migrations only for local strategy
-		strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
-		if strategy != testutil.StrategyTemplate {
-			err := imageBuilderStore.RunMigrations(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		}
-
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err := testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories
@@ -91,7 +86,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 
 		// Setup Redis KVStore (skip test if Redis not available)
 		var kvErr error
-		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, "localhost", 6379, domain.SecureString("adminpass"))
+		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		if kvErr != nil {
 			Skip(fmt.Sprintf("Redis not available, skipping test: %v", kvErr))
 		}
@@ -102,11 +97,10 @@ var _ = Describe("Status Updater Integration Tests", func() {
 
 	AfterEach(func() {
 		if kvStoreInst != nil {
-			// Clean up Redis keys
-			_ = kvStoreInst.DeleteAllKeys(ctx)
 			kvStoreInst.Close()
 		}
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStore, dbName)
+		_ = mainStore.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Log persistence to Redis and DB", func() {

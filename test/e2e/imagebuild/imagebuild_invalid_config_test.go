@@ -166,10 +166,10 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				Expect(apiErr.StatusCode).To(Equal(http.StatusBadRequest), "should be a 400 Bad Request")
 				Expect(apiErr.Status).ToNot(BeNil(), "API status body should be present")
 				Expect(apiErr.Status.Message).To(And(
-					ContainSubstring("spec.destination.imageName"),
-					ContainSubstring("must match OCI repository name format"),
-					ContainSubstring("spec.destination.imageTag"),
-					ContainSubstring("must match OCI tag format"),
+					ContainSubstring("API Error"),
+					ContainSubstring("doesn't match schema"),
+					ContainSubstring("/spec/destination/imageTag"),
+					ContainSubstring("string doesn't match the regular expression"),
 				), "API error message should indicate invalid image name and tag format")
 			} else {
 				defer func() {
@@ -201,19 +201,19 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				expectedMsg                        string
 			}{
 				{"all fields empty", "", "", "", "", "", "",
-					"spec.source.repository is required"},
+					"Error at \"/spec/destination/imageName\": minimum string length is 1"},
 				{"empty source repository", "", sourceImageName, sourceImageTag, "dest-repo", destImageName, testID,
-					"spec.source.repository is required"},
+					"Error at \"/spec/source/repository\": minimum string length is 1"},
 				{"empty source image name", "src-repo", "", sourceImageTag, "dest-repo", destImageName, testID,
-					"spec.source.imageName: Required value"},
+					"Error at \"/spec/source/imageName\": minimum string length is 1"},
 				{"empty source tag", "src-repo", sourceImageName, "", "dest-repo", destImageName, testID,
-					"spec.source.imageTag: Required value"},
+					"Error at \"/spec/source/imageTag\": minimum string length is 1"},
 				{"empty destination repository", "src-repo", sourceImageName, sourceImageTag, "", destImageName, testID,
-					"spec.destination.repository is required"},
+					"Error at \"/spec/destination/repository\": minimum string length is 1"},
 				{"empty destination image name", "src-repo", sourceImageName, sourceImageTag, "dest-repo", "", testID,
-					"spec.destination.imageName: Required value"},
+					"Error at \"/spec/destination/imageName\": minimum string length is 1"},
 				{"empty destination tag", "src-repo", sourceImageName, sourceImageTag, "dest-repo", destImageName, "",
-					"spec.destination.imageTag: Required value"},
+					"Error at \"/spec/destination/imageTag\": minimum string length is 1"},
 			}
 			for i, tc := range emptyFieldCases {
 				By(tc.desc)

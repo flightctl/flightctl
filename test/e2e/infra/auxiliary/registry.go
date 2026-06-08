@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -25,7 +26,7 @@ import (
 )
 
 const (
-	registryImage         = "registry:2"
+	registryImage         = "quay.io/flightctl/e2eregistry:2"
 	registryContainerName = "e2e-registry"
 	registryPort          = "5000/tcp"
 	registryHostPort      = "5000"
@@ -50,22 +51,15 @@ type AuthenticatedEndpoint struct {
 
 // Registry holds connection info and the container for the aux registry.
 type Registry struct {
-	URL           string
-	Host          string
-	Port          string
-	Reused        bool // true when the container was already running (reuse=true)
+	URL  string
+	Host string
+	Port string
+	// Reused is true when reuse=true and registryContainerName is already running (not merely
+	// present or stopped); auxiliary.Get skips artifact upload when Reused (see containers.ContainerRunningByName).
+	Reused        bool
 	Authenticated AuthenticatedEndpoint
 
 	container testcontainers.Container
-}
-
-// containerExistsByName returns true if a container with the given name exists (running or stopped).
-func containerExistsByName(name string) bool {
-	cli := containerRuntimeCLIName()
-	filter := containerNamePSFilter(cli, name)
-	cmd := exec.Command(cli, "ps", "-a", "--filter", filter, "-q")
-	out, err := cmd.CombinedOutput()
-	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
 func getContainerLogs(name string) (string, error) {
@@ -85,7 +79,7 @@ func getContainerLogs(name string) (string, error) {
 // Start starts the TLS registry container, then the authenticated (nginx + basic auth) endpoint, and sets URL, Host, Port, Reused, Authenticated.
 func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
 	logrus.Infof("Starting registry container (reuse=%v)", reuse)
-	r.Reused = reuse && containerExistsByName(registryContainerName)
+	r.Reused = reuse && containers.ContainerRunningByName(registryContainerName)
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)
@@ -112,9 +106,19 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 		return fmt.Errorf("failed to start registry container: %w", err)
 	}
 	r.container = container
-	r.Host = GetHostIP()
+	hostIP := GetHostIP()
 	r.Port = registryHostPort
-	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	// For IPv6: use localhost for host-side podman and container name for container-to-container DNS.
+	// IPv6 addresses in image names are parsed as transport prefixes (e.g., "fd2e:" looks like "docker:")
+	if strings.Contains(hostIP, ":") {
+		r.URL = fmt.Sprintf("localhost:%s", r.Port)
+		r.Host = registryContainerName
+		logrus.Infof("IPv6 detected (%s) - using localhost:%s for host, %s for containers",
+			hostIP, r.Port, r.Host)
+	} else {
+		r.Host = hostIP
+		r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	}
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
@@ -176,7 +180,7 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 	}
 
 	r.Authenticated = AuthenticatedEndpoint{
-		HostPort: fmt.Sprintf("%s:%s", r.Host, privateRegistryHostPort),
+		HostPort: net.JoinHostPort(r.Host, privateRegistryHostPort),
 		Port:     privateRegistryHostPort,
 		Username: defaultAuthUsername,
 		Password: defaultAuthPassword,
@@ -187,6 +191,7 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 }
 
 func generateNginxConf(registryHost, registryPort string) string {
+	upstreamAddr := net.JoinHostPort(registryHost, registryPort)
 	return fmt.Sprintf(`error_log /dev/stderr warn;
 
 events {
@@ -195,7 +200,7 @@ events {
 
 http {
   upstream registry {
-    server %s:%s;
+    server %s;
   }
 
   server {
@@ -219,7 +224,7 @@ http {
     }
   }
 }
-`, registryHost, registryPort)
+`, upstreamAddr)
 }
 
 // generateHtpasswd creates an Apache-style htpasswd entry using SHA1.

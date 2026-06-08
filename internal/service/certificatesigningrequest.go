@@ -185,6 +185,10 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		return nil, StoreErrorToApiStatus(err, true, domain.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
 
+	if result.Status == nil {
+		result.Status = &domain.CertificateSigningRequestStatus{}
+	}
+
 	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}

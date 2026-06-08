@@ -25,6 +25,7 @@ import (
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -56,7 +57,7 @@ type ImageExportService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageExport domain.ImageExport) (*domain.ImageExport, domain.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
 	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageExportsParams) (*domain.ImageExportList, domain.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	// Cancel cancels an ImageExport. Returns ErrNotCancelable if not in cancelable state.
 	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error)
 	// CancelWithReason cancels an ImageExport with a custom reason message (e.g., for timeout).
@@ -68,14 +69,17 @@ type ImageExportService interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
+	// ListCompletedForBuild returns the most recently completed ImageExport for the given
+	// imageBuildRef and export format, or nil if none exists yet.
+	ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error)
 }
 
 // ImageExportDownload contains information for downloading an ImageExport artifact
 type ImageExportDownload struct {
-	RedirectURL string
-	BlobReader  io.ReadCloser
-	Headers     http.Header
-	StatusCode  int
+	BlobReader io.ReadCloser
+	Headers    http.Header
+	StatusCode int
+	Filename   string
 }
 
 // imageExportService is the concrete implementation of ImageExportService
@@ -185,15 +189,15 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params d
 	}
 }
 
-func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status) {
+func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	// First, check if the export exists and is in a cancelable state
 	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
 	if err != nil {
 		// If not found, return success (idempotent delete)
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil, StatusOK()
+			return StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
+		return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 	}
 
 	// Check if the export is in a cancelable state
@@ -216,8 +220,8 @@ func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name s
 	}
 
 	// Proceed with delete
-	result, err := s.imageExportStore.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
+	_, err = s.imageExportStore.Delete(ctx, orgId, name)
+	return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 }
 
 func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error) {
@@ -531,7 +535,13 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 
 	log.WithFields(logrus.Fields{"blobURL": blobURLStr, "statusCode": getResp.StatusCode}).Debug("Received GET response")
 
-	return s.handleBlobResponse(getResp, blobURLStr, log)
+	download, err := s.handleBlobResponse(ctx, getResp, httpClient, blobURLStr, log)
+	if err != nil {
+		return nil, err
+	}
+
+	download.Filename = getDownloadFilename(*imageBuild.Metadata.Name, imageExport.Spec.Format)
+	return download, nil
 }
 
 // setupRepositoryReference creates a repository reference and configures authentication
@@ -672,9 +682,11 @@ func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (
 	}
 
 	return &http.Client{
-		Timeout: 30 * time.Second,
+		// No client-level timeout - we're streaming potentially large files (GB-sized)
+		// Connection timeouts are handled at the transport level
 		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
+			TLSClientConfig:       tlsConfig,
+			ResponseHeaderTimeout: 30 * time.Second, // Timeout for response headers only, not body
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -708,19 +720,67 @@ func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req
 }
 
 // handleBlobResponse handles the HTTP response from the blob endpoint
-func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL string, log logrus.FieldLogger) (*ImageExportDownload, error) {
-	// Handle redirect (3xx)
+// If the response is a redirect, it follows the redirect and returns the actual blob content
+func (s *imageExportService) handleBlobResponse(ctx context.Context, resp *http.Response, httpClient *http.Client, blobURL string, log logrus.FieldLogger) (*ImageExportDownload, error) {
+	// Handle redirect (3xx) - follow it to get the actual blob content
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		resp.Body.Close()
-		redirectURL := resp.Header.Get("Location")
-		if redirectURL == "" {
+		locationHeader := resp.Header.Get("Location")
+		if locationHeader == "" {
 			log.WithField("statusCode", resp.StatusCode).Error("Redirect response missing Location header")
 			return nil, errors.New("redirect response missing Location header")
 		}
-		log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "redirectURL": redirectURL}).Info("Returning redirect response")
+
+		// Parse and resolve the redirect URL (handles relative redirects)
+		redirectURL, err := url.Parse(locationHeader)
+		if err != nil {
+			log.WithError(err).WithField("statusCode", resp.StatusCode).Error("Failed to parse redirect Location header")
+			return nil, fmt.Errorf("failed to parse redirect Location: %w", err)
+		}
+
+		// Resolve relative URLs against the original request URL
+		if !redirectURL.IsAbs() {
+			redirectURL = resp.Request.URL.ResolveReference(redirectURL)
+		}
+
+		// Validate scheme (only allow http/https)
+		if redirectURL.Scheme != "http" && redirectURL.Scheme != "https" {
+			log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "scheme": redirectURL.Scheme}).Error("Redirect URL has invalid scheme")
+			return nil, fmt.Errorf("redirect URL has invalid scheme: %s", redirectURL.Scheme)
+		}
+
+		// Log only safe parts of the URL (no query params which may contain presigned tokens)
+		redirectLogFields := logrus.Fields{
+			"statusCode":   resp.StatusCode,
+			"redirectHost": redirectURL.Host,
+			"redirectPath": redirectURL.Path,
+		}
+		log.WithFields(redirectLogFields).Info("Following redirect to fetch blob")
+
+		redirectReq, err := http.NewRequestWithContext(ctx, "GET", redirectURL.String(), nil)
+		if err != nil {
+			log.WithError(err).WithFields(redirectLogFields).Error("Failed to create redirect request")
+			return nil, fmt.Errorf("failed to create redirect request: %w", err)
+		}
+
+		redirectResp, err := httpClient.Do(redirectReq)
+		if err != nil {
+			log.WithError(err).WithFields(redirectLogFields).Error("Failed to follow redirect")
+			return nil, fmt.Errorf("%w: failed to follow redirect: %w", ErrExternalServiceUnavailable, err)
+		}
+
+		if redirectResp.StatusCode != http.StatusOK {
+			redirectResp.Body.Close()
+			log.WithFields(logrus.Fields{"redirectHost": redirectURL.Host, "redirectPath": redirectURL.Path, "statusCode": redirectResp.StatusCode}).Error("Unexpected status code from redirect")
+			return nil, fmt.Errorf("%w: unexpected status code from redirect: %d", ErrExternalServiceUnavailable, redirectResp.StatusCode)
+		}
+
+		contentLength := redirectResp.Header.Get("Content-Length")
+		log.WithFields(logrus.Fields{"redirectHost": redirectURL.Host, "statusCode": redirectResp.StatusCode, "contentLength": contentLength}).Info("Successfully fetched blob from redirect")
 		return &ImageExportDownload{
-			RedirectURL: redirectURL,
-			StatusCode:  resp.StatusCode,
+			BlobReader: redirectResp.Body,
+			Headers:    redirectResp.Header,
+			StatusCode: redirectResp.StatusCode,
 		}, nil
 	}
 
@@ -820,6 +880,20 @@ func (s *imageExportService) getRegistryToken(ctx context.Context, client *http.
 	}
 
 	return "", fmt.Errorf("empty token received")
+}
+
+// getDownloadFilename returns the suggested download filename based on the base name and export format
+func getDownloadFilename(baseName string, format domain.ExportFormatType) string {
+	ext := ".bin"
+	switch format {
+	case domain.ExportFormatTypeISO:
+		ext = ".iso"
+	case domain.ExportFormatTypeQCOW2, domain.ExportFormatTypeQCOW2DiskContainer:
+		ext = ".qcow2"
+	case domain.ExportFormatTypeVMDK:
+		ext = ".vmdk"
+	}
+	return baseName + ext
 }
 
 // validateImageExportForDownload validates that an ImageExport is ready for download.
@@ -936,9 +1010,9 @@ func parseWwwAuthenticate(header string) (realm, service string, err error) {
 func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) ([]error, error) {
 	var errs []error
 
-	if lo.FromPtr(imageExport.Metadata.Name) == "" {
-		errs = append(errs, errors.New("metadata.name is required"))
-	}
+	errs = append(errs, validation.ValidateResourceName(imageExport.Metadata.Name)...)
+	errs = append(errs, validation.ValidateLabels(imageExport.Metadata.Labels)...)
+	errs = append(errs, validation.ValidateAnnotations(imageExport.Metadata.Annotations)...)
 
 	// Validate source - uses discriminator pattern
 	sourceType, err := imageExport.Spec.Source.Discriminator()
@@ -1020,6 +1094,25 @@ func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId 
 
 func (s *imageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
 	return s.imageExportStore.UpdateLogs(ctx, orgId, name, logs)
+}
+
+func (s *imageExportService) ListCompletedForBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
+	fs, err := selector.NewFieldSelectorFromMap(map[string]string{
+		"spec.source.imageBuildRef":      imageBuildRef,
+		"spec.format":                    string(format),
+		"status.conditions.ready.reason": string(domain.ImageExportConditionReasonCompleted),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build field selector: %w", err)
+	}
+	exports, err := s.imageExportStore.List(ctx, orgId, mainstore.ListParams{FieldSelector: fs, Limit: 1})
+	if err != nil {
+		return nil, err
+	}
+	if len(exports.Items) == 0 {
+		return nil, nil
+	}
+	return &exports.Items[0], nil
 }
 
 // GetLogs retrieves logs for an ImageExport

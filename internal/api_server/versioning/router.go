@@ -1,10 +1,12 @@
 package versioning
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -90,7 +92,9 @@ func (d *dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Version in context but no router - this should never happen if the
 		// negotiation middleware and router configuration are consistent.
 		// Return 500 rather than silently falling back to a different version.
-		http.Error(w, "internal server error: no router for negotiated version", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(api.StatusInternalServerError("no router for negotiated version"))
 		return
 	}
 

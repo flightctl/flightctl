@@ -22,8 +22,12 @@ pam-issuer:
 db-setup:
   image: flightctl-db-setup-el10
   tag: latest
+gateway:
+  image: quay.io/sclorg/nginx-126-c10s
+  tag: "20260421"
 ui:
-  image: flightctl-ui-el10
+  # UI images are built from flightctl-ui repo
+  image: quay.io/flightctl/flightctl-ui-el10
   tag: latest
 db:
   # Using CentOS Stream 10 PostgreSQL for EL10 flavor
@@ -32,7 +36,7 @@ db:
 kv:
   # Using Valkey (Redis replacement) for EL10 flavor
   image: quay.io/sclorg/valkey-8-c10s
-  tag: "20250108"
+  tag: "20260121"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1

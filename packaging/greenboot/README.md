@@ -18,13 +18,17 @@ Create an agent VM with greenboot installed:
 make agent-vm
 ```
 
-Connect to the VM console:
+Connect to the VM serial console (exit with Ctrl+]):
 
 ```bash
-sudo virsh console flightctl-device-default
+make agent-vm-console
 ```
 
-To exit the console, press `Ctrl + ]`.
+Or connect via SSH (password: `user`):
+
+```bash
+ssh -p 2222 -o StrictHostKeyChecking=no user@127.0.0.1
+```
 
 ## Health Check Implementation
 

@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/service"
@@ -13,16 +14,23 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
 )
 
 func TestDisruptionBudget(t *testing.T) {
@@ -32,6 +40,18 @@ func TestDisruptionBudget(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Disruption budget suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Rollout disruption budget test", func() {
@@ -42,6 +62,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		ctx              context.Context
 		log              *logrus.Logger
 		dbName           string
+		db               *gorm.DB
 		cfg              *config.Config
 		storeInst        store.Store
 		serviceHandler   service.Service
@@ -111,7 +132,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -196,17 +217,21 @@ var _ = Describe("Rollout disruption budget test", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
 		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 	Context("Query fleets", func() {
@@ -215,7 +240,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.ListParams{})
+				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]

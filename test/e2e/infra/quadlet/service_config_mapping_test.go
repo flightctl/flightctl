@@ -41,6 +41,9 @@ imageBuilderWorker:
     bootcImageBuilder:
       image: quay.io/org/bootc:latest
       skipTlsVerify: false
+    syft:
+      image: quay.io/org/syft:latest
+      skipTlsVerify: false
 `
 
 // findRepoRoot returns the repository root (directory containing go.mod).
@@ -98,9 +101,15 @@ func TestSetServiceConfigPersistsAfterRerender(t *testing.T) {
 global:
   baseDomain: test.example.com
   generateCertificates: builtin
+  auth:
+    type: none
+    insecureSkipTlsVerify: true
 db:
   name: flightctl
   type: builtin
+service:
+  rateLimit:
+    enabled: false
 imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
@@ -108,6 +117,8 @@ imagebuilderWorker:
 telemetryGateway:
   forward:
     endpoint:
+vulnerabilityReporting:
+  enabled: false
 `
 
 	for _, service := range ServicesWithServiceConfigMappings() {
@@ -155,6 +166,32 @@ telemetryGateway:
 					require.True(t, ok)
 					assert.Equal(t, "https://otel.example.com:4317", forward["endpoint"])
 				}
+			case infra.ServiceAPI, infra.ServicePeriodic:
+				// vulnerabilityReporting is conditional in templates - only rendered when enabled.
+				// Test by enabling it (section doesn't exist initially when disabled).
+				getSection = func(m map[string]interface{}) interface{} { return m["vulnerabilityReporting"] }
+				assertValue = func(t *testing.T, section interface{}) {
+					s, ok := section.(map[string]interface{})
+					require.True(t, ok)
+					assert.Equal(t, true, s["enabled"])
+				}
+				// For API/Periodic, the section doesn't exist initially (conditional template).
+				// Create it with enabled=true and set directly, then verify after re-render.
+				cfg["vulnerabilityReporting"] = map[string]interface{}{"enabled": true}
+				updated, err := yaml.Marshal(cfg)
+				require.NoError(t, err)
+				require.NoError(t, p.SetServiceConfig(service, "config.yaml", string(updated)))
+
+				// Re-render and verify
+				renderAllMappedServices(t, tmpDir)
+				content2, err := p.GetServiceConfig(service)
+				require.NoError(t, err)
+				var cfg2 map[string]interface{}
+				require.NoError(t, yaml.Unmarshal([]byte(content2), &cfg2))
+				section2 := getSection(cfg2)
+				require.NotNil(t, section2, "vulnerabilityReporting should be present after enabling")
+				assertValue(t, section2)
+				return // Early return - we handled the full test flow for API/Periodic
 			default:
 				t.Skip("no test case for service")
 				return
@@ -162,10 +199,11 @@ telemetryGateway:
 
 			section, _ := getSection(cfg).(map[string]interface{})
 			require.NotNil(t, section, "section %q not found in config", sectionKey)
-			// Set the field we care about (maxConcurrentBuilds or forward)
-			if service == infra.ServiceImageBuilderWorker {
+			// Set the field we care about based on service type
+			switch service {
+			case infra.ServiceImageBuilderWorker:
 				section["maxConcurrentBuilds"] = setValue
-			} else {
+			case infra.ServiceTelemetryGateway:
 				section["forward"] = setValue
 			}
 			updated, err := yaml.Marshal(cfg)
@@ -234,7 +272,8 @@ imagebuilderWorker:
 }
 
 func TestApplyServiceConfigMappings_NoMappingReturnsNil(t *testing.T) {
-	updates, err := applyServiceConfigMappings(infra.ServiceAPI, exampleImageBuilderWorkerPerServiceYAML)
+	// Use a service without mappings (ServiceWorker has none)
+	updates, err := applyServiceConfigMappings(infra.ServiceWorker, exampleImageBuilderWorkerPerServiceYAML)
 	require.NoError(t, err)
 	assert.Nil(t, updates)
 }
@@ -243,6 +282,86 @@ func TestApplyServiceConfigMappings_InvalidYAML(t *testing.T) {
 	_, err := applyServiceConfigMappings(infra.ServiceImageBuilderWorker, "not: valid: yaml: [")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parse per-service config")
+}
+
+func TestApplyServiceConfigMappings_VulnerabilityReporting(t *testing.T) {
+	// Verify the full vulnerabilityReporting structure is preserved for API/Periodic
+	vulnConfigYAML := `
+vulnerabilityReporting:
+  enabled: true
+  syncInterval: 10s
+  trustify:
+    endpoint: http://trustify:8080
+    auth:
+      mode: none
+`
+	for _, service := range []infra.ServiceName{infra.ServiceAPI, infra.ServicePeriodic} {
+		t.Run(string(service), func(t *testing.T) {
+			updates, err := applyServiceConfigMappings(service, vulnConfigYAML)
+			require.NoError(t, err)
+			require.NotNil(t, updates)
+
+			// Should have vulnerabilityReporting key
+			vulnSection, ok := updates["vulnerabilityReporting"].(map[string]interface{})
+			require.True(t, ok, "updates should contain vulnerabilityReporting")
+
+			// Verify all fields are preserved
+			assert.Equal(t, true, vulnSection["enabled"])
+			assert.Equal(t, "10s", vulnSection["syncInterval"])
+
+			trustify, ok := vulnSection["trustify"].(map[string]interface{})
+			require.True(t, ok, "trustify section should exist")
+			assert.Equal(t, "http://trustify:8080", trustify["endpoint"])
+
+			auth, ok := trustify["auth"].(map[string]interface{})
+			require.True(t, ok, "auth section should exist")
+			assert.Equal(t, "none", auth["mode"])
+		})
+	}
+}
+
+func TestApplyServiceConfigMappings_VulnerabilityReportingDeletion(t *testing.T) {
+	// When vulnerabilityReporting key is explicitly set to null, the mapping
+	// should return nil for that key to signal deletion from service-config.yaml.
+	configWithNullVuln := `
+database: {}
+kv: {}
+service: {}
+vulnerabilityReporting: null
+`
+	for _, service := range []infra.ServiceName{infra.ServiceAPI, infra.ServicePeriodic} {
+		t.Run(string(service), func(t *testing.T) {
+			updates, err := applyServiceConfigMappings(service, configWithNullVuln)
+			require.NoError(t, err)
+			require.NotNil(t, updates, "should return updates map")
+
+			// Should have vulnerabilityReporting key with nil value (signals deletion)
+			value, exists := updates["vulnerabilityReporting"]
+			require.True(t, exists, "updates should contain vulnerabilityReporting key")
+			assert.Nil(t, value, "value should be nil to signal deletion")
+		})
+	}
+}
+
+func TestApplyServiceConfigMappings_VulnerabilityReportingMissing(t *testing.T) {
+	// When vulnerabilityReporting key is missing (not present at all), the mapping
+	// should NOT include it in updates, leaving existing value unchanged.
+	configWithoutVuln := `
+database: {}
+kv: {}
+service: {}
+`
+	for _, service := range []infra.ServiceName{infra.ServiceAPI, infra.ServicePeriodic} {
+		t.Run(string(service), func(t *testing.T) {
+			updates, err := applyServiceConfigMappings(service, configWithoutVuln)
+			require.NoError(t, err)
+			require.NotNil(t, updates, "should return updates map (possibly empty)")
+
+			// Should NOT have vulnerabilityReporting key - missing means "leave unchanged"
+			_, exists := updates["vulnerabilityReporting"]
+			assert.False(t, exists, "missing key should not be in updates")
+		})
+	}
 }
 
 func TestApplyServiceConfigMappings_DeepCopy(t *testing.T) {
@@ -269,19 +388,29 @@ func TestGetSubtreeWithKeyNormalization(t *testing.T) {
 		"imageBuilderWorker": map[string]interface{}{"logLevel": "info"},
 		"other":              "x",
 	}
-	assert.Equal(t, map[string]interface{}{"logLevel": "info"}, getSubtreeWithKeyNormalization(m, "imageBuilderWorker"))
-	assert.Nil(t, getSubtreeWithKeyNormalization(m, "missing"))
-	// lowerFirst("imageBuilderWorker") = "imagebuilderWorker" - not in m, but we have imageBuilderWorker
-	// so first key wins
-	assert.NotNil(t, getSubtreeWithKeyNormalization(m, "imageBuilderWorker"))
+	val, found := getSubtreeWithKeyNormalization(m, "imageBuilderWorker")
+	assert.True(t, found)
+	assert.Equal(t, map[string]interface{}{"logLevel": "info"}, val)
+
+	val, found = getSubtreeWithKeyNormalization(m, "missing")
+	assert.False(t, found)
+	assert.Nil(t, val)
 
 	// Key in map uses lowercase 'b' (as in service-config.yaml); lookup uses camelCase.
 	m2 := map[string]interface{}{
 		"imagebuilderWorker": map[string]interface{}{"logLevel": "debug"},
 	}
-	got := getSubtreeWithKeyNormalization(m2, "imageBuilderWorker")
-	require.NotNil(t, got)
+	got, found := getSubtreeWithKeyNormalization(m2, "imageBuilderWorker")
+	assert.True(t, found)
 	assert.Equal(t, map[string]interface{}{"logLevel": "debug"}, got)
+
+	// Key exists but value is nil (explicit null in YAML)
+	m3 := map[string]interface{}{
+		"vulnerabilityReporting": nil,
+	}
+	val, found = getSubtreeWithKeyNormalization(m3, "vulnerabilityReporting")
+	assert.True(t, found, "key exists even if value is nil")
+	assert.Nil(t, val, "value should be nil")
 }
 
 func TestLowerFirst(t *testing.T) {

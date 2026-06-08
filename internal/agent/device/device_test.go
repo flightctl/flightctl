@@ -121,7 +121,8 @@ func TestSync(t *testing.T) {
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
-				// Mock systemctl for boot success check (via systemd client)
+				// Mock systemctl for greenboot presence and boot success check
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("enabled\n", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
 				// OnAfterUpdating is called twice - once with error, once without during rollback
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError).AnyTimes()
@@ -132,6 +133,124 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				// Upgrade should NOT be called when sync fails, but allow it for flexibility
 				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).AnyTimes()
+			},
+		},
+		{
+			name:    "When greenboot is not installed it should complete the OS update",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
+				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPruningManager.EXPECT().RecordReferences(ctx, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
+				mockHookManager.EXPECT().OnAfterUpdating(gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+				mockPruningManager.EXPECT().RequestPrune().AnyTimes()
+				mockPruningManager.EXPECT().PrunePending().Return(false).AnyTimes()
+
+				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
+
+				// greenboot-healthcheck.service is not enabled (exit 1) — greenboot not installed
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("not-found\n", "", 1).AnyTimes()
+
+				// Upgrade() must be called — greenboot is not installed, so boot is considered successful
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).MinTimes(1)
+			},
+		},
+		{
+			name:    "When greenboot is installed but boot-complete.target is inactive it should wait",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
+				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPruningManager.EXPECT().RecordReferences(ctx, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
+				mockHookManager.EXPECT().OnAfterUpdating(gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+
+				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
+
+				// greenboot IS installed and enabled
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("enabled\n", "", 0).AnyTimes()
+				// boot-complete.target is inactive — greenboot hasn't validated yet
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-active", "boot-complete.target").Return("inactive\n", "", 3).AnyTimes()
+
+				// Upgrade() must NOT be called — greenboot is pending
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Times(0)
 			},
 		},
 		{
@@ -455,7 +574,9 @@ func TestRollbackDevice(t *testing.T) {
 			require.NoError(err)
 			require.Equal(tc.desired.Version(), desiredVersionOnDisk.Version())
 
-			err = agent.rollbackDevice(ctx, tc.current, tc.desired, mockSync.sync)
+			// Pass a non-retryable error to trigger rollback logic
+			syncErr := errors.New("non-retryable sync error")
+			err = agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSync.sync)
 			if tc.wantSyncErr != nil {
 				require.Error(err)
 				require.Equal(tc.wantSyncErr.Error(), err.Error())
@@ -481,6 +602,155 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
+func TestOSRollback(t *testing.T) {
+	deviceName := "test-device"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testCases := []struct {
+		name       string
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
+		syncFnErr  error
+		setupMocks func(
+			mockSpecManager *spec.MockManager,
+			mockManagementClient *client.MockManagement,
+			mockHookManager *hook.MockManager,
+			mockOSManager *os.MockManager,
+		)
+		wantReboot bool
+		wantErr    error
+	}{
+		{
+			name:    "When OS rollback is needed and syncFn succeeds it should reboot",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+				}, nil)
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil)
+				mockOSManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantReboot: true,
+		},
+		{
+			name:      "When OS rollback is needed and syncFn fails it should still reboot",
+			current:   newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired:   newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			syncFnErr: errors.New("helm deps missing"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+				}, nil)
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil)
+				mockOSManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantReboot: true,
+		},
+		{
+			name:    "When OS is not reconciled it should not trigger OS rollback",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v1", false, nil)
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
+			},
+			wantReboot: false,
+		},
+		{
+			name:    "When there is no OS update it should not trigger OS rollback",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v1"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
+			},
+			wantReboot: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSpecManager := spec.NewMockManager(ctrl)
+			mockManagementClient := client.NewMockManagement(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
+			mockOSManager := os.NewMockManager(ctrl)
+			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
+			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+
+			mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+			mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+
+			tc.setupMocks(mockSpecManager, mockManagementClient, mockHookManager, mockOSManager)
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+			statusManager := status.NewManager(deviceName, log)
+			statusManager.SetClient(mockManagementClient)
+
+			agent := Agent{
+				log:                log,
+				specManager:        mockSpecManager,
+				statusManager:      statusManager,
+				hookManager:        mockHookManager,
+				osManager:          mockOSManager,
+				prefetchManager:    mockPrefetchManager,
+				pullConfigResolver: mockPullConfigResolver,
+			}
+
+			syncFnCalled := false
+			mockSyncFn := func(ctx context.Context, c, d *v1beta1.Device) error {
+				syncFnCalled = true
+				return tc.syncFnErr
+			}
+
+			syncErr := errors.New("non-retryable sync error")
+			err := agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSyncFn)
+
+			if tc.wantReboot {
+				require.NoError(err)
+				require.True(syncFnCalled, "syncFn should be called before OS rollback")
+			} else {
+				require.True(syncFnCalled, "syncFn should be called for non-OS rollback")
+			}
+		})
+	}
+}
+
 func newVersionedDevice(version string) *v1beta1.Device {
 	device := &v1beta1.Device{
 		Metadata: v1beta1.ObjectMeta{
@@ -490,6 +760,12 @@ func newVersionedDevice(version string) *v1beta1.Device {
 		},
 	}
 	device.Spec = &v1beta1.DeviceSpec{}
+	return device
+}
+
+func newVersionedDeviceWithOS(version, osImage string) *v1beta1.Device {
+	device := newVersionedDevice(version)
+	device.Spec.Os = &v1beta1.DeviceOsSpec{Image: osImage}
 	return device
 }
 

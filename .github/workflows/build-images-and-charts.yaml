@@ -39,6 +39,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
+          echo "Started background removal of /usr/local/lib/android (PID: $!)"
+          df -h
 
       - name: Compute tag
         id: compute-tag

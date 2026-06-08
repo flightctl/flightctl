@@ -150,7 +150,7 @@ Certificates used for device services and issued using the `Device Services` sig
 > [!NOTE]
 > CA private keys (`ca.key`, `client-signer.key`) are critical for disaster recovery. If lost, all issued certificates become unverifiable and devices must be re-enrolled. Include certificate directories in your backup strategy alongside database backups.
 
-For database backup procedures, see [Performing Database Backup](../installing/performing-database-backup.md).
+For backup and restore procedures, see [Backup and Restore](../installing/backup-restore.md).
 
 ## See Also
 

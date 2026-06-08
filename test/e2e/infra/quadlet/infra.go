@@ -105,6 +105,31 @@ func (p *InfraProvider) RunCommand(command ...string) (string, error) {
 	return p.runCommand(command...)
 }
 
+// ReadHostFile reads a raw file from the quadlet host.
+func (p *InfraProvider) ReadHostFile(path string) (string, error) {
+	output, err := p.runCommand("cat", path)
+	if err != nil {
+		return "", fmt.Errorf("read host file %s: %w", path, err)
+	}
+	return output, nil
+}
+
+// WriteHostFile writes raw content to a file on the quadlet host.
+func (p *InfraProvider) WriteHostFile(path string, content []byte) error {
+	if err := p.writeHostFile(path, content); err != nil {
+		return fmt.Errorf("write host file %s: %w", path, err)
+	}
+	return nil
+}
+
+// RemoveHostFile removes a file from the quadlet host.
+func (p *InfraProvider) RemoveHostFile(path string) error {
+	if _, err := p.runCommand("rm", "-f", path); err != nil {
+		return fmt.Errorf("remove host file %s: %w", path, err)
+	}
+	return nil
+}
+
 // quoteForRemoteShell returns a single-quoted string safe for the remote POSIX shell; inner single quotes are escaped as backslash-quote.
 func quoteForRemoteShell(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
@@ -232,6 +257,26 @@ func (p *InfraProvider) serviceConfigPath() string {
 	return filepath.Join(p.configDir, "service-config.yaml")
 }
 
+// GetStandaloneServiceConfig returns the raw /etc/flightctl/service-config.yaml contents.
+// This is quadlet-specific and is useful for tests that need to reconfigure
+// standalone auth or other top-level settings that are not exposed via
+// per-service config mappings.
+func (p *InfraProvider) GetStandaloneServiceConfig() (string, error) {
+	path := p.serviceConfigPath()
+	output, err := p.runCommand("cat", path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read standalone service config from %s: %w", path, err)
+	}
+	return output, nil
+}
+
+// SetStandaloneServiceConfig writes raw content to /etc/flightctl/service-config.yaml.
+// This is quadlet-specific and bypasses per-service config mappings.
+func (p *InfraProvider) SetStandaloneServiceConfig(content string) error {
+	path := p.serviceConfigPath()
+	return p.writeHostFile(path, []byte(content))
+}
+
 // GetSecretValue retrieves a secret value from secret files or environment.
 func (p *InfraProvider) GetSecretValue(name, key string) (string, error) {
 	// Try environment variable first
@@ -289,7 +334,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s://%s:%d", protocol, host, port), func() {}, nil
+		return fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(port))), func() {}, nil
 	}
 	cacheKey := string(service) + ":" + protocol
 	p.exposeCacheMu.Lock()
@@ -312,7 +357,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 		if host == "localhost" {
 			host = "127.0.0.1"
 		}
-		url := fmt.Sprintf("%s://%s:%d", protocol, host, hostPort)
+		url := fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(hostPort)))
 		p.exposeCacheMu.Lock()
 		if e, ok := p.exposeCache[cacheKey]; ok {
 			p.exposeCacheMu.Unlock()
@@ -508,6 +553,45 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// BuiltinDatabaseWorkloadAvailable reports whether service-config uses the built-in DB container.
+// When db.type is external (see deploy/podman/service-config.yaml), there is no local flightctl-db
+// workload to exec pg_dump into, matching Helm external DB behavior.
+func (p *InfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
+	data, err := p.runCommand("cat", p.serviceConfigPath())
+	if err != nil {
+		logrus.Warnf("BuiltinDatabaseWorkloadAvailable: read %s: %v (assuming builtin DB)", p.serviceConfigPath(), err)
+		return true
+	}
+	switch quadletServiceConfigDBType([]byte(data)) {
+	case "external":
+		return false
+	default:
+		// builtin, empty, or unknown — same default as yaml_helpers.py --default "builtin"
+		return true
+	}
+}
+
+// quadletServiceConfigDBType returns the lowercase db.type value from service-config.yaml, or "" if missing.
+func quadletServiceConfigDBType(serviceConfigYAML []byte) string {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(serviceConfigYAML, &root); err != nil {
+		return ""
+	}
+	dbVal, ok := root["db"]
+	if !ok || dbVal == nil {
+		return ""
+	}
+	db, ok := dbVal.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	tRaw, ok := db["type"]
+	if !ok || tRaw == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", tRaw)))
+}
+
 // SetServiceConfig writes the config content to the service's config file on the host.
 // Quadlet has a single config file per service; configKey is ignored (callers may pass
 // "" or "config.yaml" for API compatibility). For services with a section mapping
@@ -527,11 +611,7 @@ func (p *InfraProvider) SetServiceConfig(service infra.ServiceName, configKey, c
 	}
 
 	hostPath := p.serviceToHostConfigPath(service)
-	b64 := base64.StdEncoding.EncodeToString([]byte(content))
-	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
-	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, hostPath)
-	_, err = p.runCommand("sh", "-c", script)
-	if err != nil {
+	if err := p.writeHostFile(hostPath, []byte(content)); err != nil {
 		return fmt.Errorf("write config to %s: %w", hostPath, err)
 	}
 	return nil
@@ -550,17 +630,28 @@ func (p *InfraProvider) mergeAndWriteServiceConfig(updates map[string]interface{
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	for k, v := range updates {
-		serviceConfig[k] = v
+		if v == nil {
+			delete(serviceConfig, k)
+		} else {
+			serviceConfig[k] = v
+		}
 	}
 	out, err := yaml.Marshal(serviceConfig)
 	if err != nil {
 		return fmt.Errorf("marshal service-config: %w", err)
 	}
-	b64 := base64.StdEncoding.EncodeToString(out)
+	if err := p.writeHostFile(path, out); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func (p *InfraProvider) writeHostFile(path string, content []byte) error {
+	b64 := base64.StdEncoding.EncodeToString(content)
 	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
 	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, path)
 	if _, err := p.runCommand("sh", "-c", script); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+		return err
 	}
 	return nil
 }

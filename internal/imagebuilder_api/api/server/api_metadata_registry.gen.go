@@ -11,16 +11,20 @@ const (
 	API_RESOURCE_IMAGEBUILDS = "imagebuilds"
 	API_RESOURCE_IMAGEBUILDS_CANCEL = "imagebuilds/cancel"
 	API_RESOURCE_IMAGEBUILDS_LOG = "imagebuilds/log"
+	API_RESOURCE_IMAGEBUILDS_NEWVERSION = "imagebuilds/newversion"
 	API_RESOURCE_IMAGEEXPORTS = "imageexports"
 	API_RESOURCE_IMAGEEXPORTS_CANCEL = "imageexports/cancel"
 	API_RESOURCE_IMAGEEXPORTS_DOWNLOAD = "imageexports/download"
 	API_RESOURCE_IMAGEEXPORTS_LOG = "imageexports/log"
+	API_RESOURCE_IMAGEPROMOTIONS = "imagepromotions"
 )
 const (
 	API_ACTION_CREATE = "create"
 	API_ACTION_DELETE = "delete"
 	API_ACTION_GET = "get"
 	API_ACTION_LIST = "list"
+	API_ACTION_PATCH = "patch"
+	API_ACTION_UPDATE = "update"
 )
 // timePtr is a helper to create time.Time pointers
 func timePtr(year, month, day int) *time.Time {
@@ -84,6 +88,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},
 	},
+	"POST:/api/v1/imagebuilds/{name}/newversion": {
+		OperationID: "createImageBuildNewVersion",
+		Resource:    "imagebuilds/newversion",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
 	"GET:/api/v1/imageexports": {
 		OperationID: "listImageExports",
 		Resource:    "imageexports",
@@ -136,6 +148,54 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "getImageExportLog",
 		Resource:    "imageexports/log",
 		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/api/v1/imagepromotions": {
+		OperationID: "listImagePromotions",
+		Resource:    "imagepromotions",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/api/v1/imagepromotions": {
+		OperationID: "createImagePromotion",
+		Resource:    "imagepromotions",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"DELETE:/api/v1/imagepromotions/{name}": {
+		OperationID: "deleteImagePromotion",
+		Resource:    "imagepromotions",
+		Action:      "delete",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/api/v1/imagepromotions/{name}": {
+		OperationID: "getImagePromotion",
+		Resource:    "imagepromotions",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"PATCH:/api/v1/imagepromotions/{name}": {
+		OperationID: "patchImagePromotion",
+		Resource:    "imagepromotions",
+		Action:      "patch",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"PUT:/api/v1/imagepromotions/{name}": {
+		OperationID: "replaceImagePromotion",
+		Resource:    "imagepromotions",
+		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},

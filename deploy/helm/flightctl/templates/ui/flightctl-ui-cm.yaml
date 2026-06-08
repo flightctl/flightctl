@@ -14,7 +14,7 @@ data:
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}
   {{- if .Values.alertmanagerProxy.enabled }}
-  FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getAlertManagerProxyUrl" . }}
+  FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getInternalAlertManagerProxyUrl" . }}
   {{- end }}
   {{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
   FLIGHTCTL_IMAGEBUILDER_SERVER: {{ include "flightctl.getInternalImagebuilderApiUrl" . }}

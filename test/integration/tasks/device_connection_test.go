@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -46,14 +47,16 @@ var _ = Describe("DeviceConnection", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		deviceStore = storeInst.Device()
 		ctrl = gomock.NewController(GinkgoT())
-		var err error
-		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		connectionTask = tasks.NewDeviceConnection(log, serviceHandler)
 	})
 
@@ -69,7 +72,8 @@ var _ = Describe("DeviceConnection", func() {
 		if kvStore != nil {
 			kvStore.Close()
 		}
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 

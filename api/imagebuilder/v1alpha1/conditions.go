@@ -126,3 +126,53 @@ func SetImageExportStatusCondition(conditions *[]ImageExportCondition, newCondit
 
 	return changed
 }
+
+// FindImagePromotionStatusCondition finds the conditionType in conditions.
+func FindImagePromotionStatusCondition(conditions []ImagePromotionCondition, conditionType ImagePromotionConditionType) *ImagePromotionCondition {
+	for i := range conditions {
+		if conditions[i].Type == conditionType {
+			return &conditions[i]
+		}
+	}
+	return nil
+}
+
+func SetImagePromotionStatusCondition(conditions *[]ImagePromotionCondition, newCondition ImagePromotionCondition) (changed bool) {
+	if conditions == nil {
+		return false
+	}
+	existingCondition := FindImagePromotionStatusCondition(*conditions, newCondition.Type)
+	if existingCondition == nil {
+		if newCondition.LastTransitionTime.IsZero() {
+			newCondition.LastTransitionTime = time.Now()
+		}
+		*conditions = append(*conditions, newCondition)
+		return true
+	}
+
+	if existingCondition.Status != newCondition.Status {
+		existingCondition.Status = newCondition.Status
+		if !newCondition.LastTransitionTime.IsZero() {
+			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
+		} else {
+			existingCondition.LastTransitionTime = time.Now()
+		}
+		changed = true
+	}
+
+	if existingCondition.Reason != newCondition.Reason {
+		existingCondition.Reason = newCondition.Reason
+		changed = true
+	}
+	if existingCondition.Message != newCondition.Message {
+		existingCondition.Message = newCondition.Message
+		changed = true
+	}
+	// Compare ObservedGeneration values, not pointer addresses
+	if !int64PtrEqual(existingCondition.ObservedGeneration, newCondition.ObservedGeneration) {
+		existingCondition.ObservedGeneration = newCondition.ObservedGeneration
+		changed = true
+	}
+
+	return changed
+}

@@ -3,6 +3,7 @@ package backup_restore
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,8 +23,11 @@ const (
 )
 
 // Service backup and restore tests (section 4 of the Recover and restore Test Plan, EDM-415).
-// Require in-cluster FlightCtl (kind: flightctl-external + flightctl-internal; OCP: single flightctl namespace) and kubectl.
-// Namespaces are detected at runtime. Run with: make in-cluster-e2e-test GO_E2E_DIRS=test/e2e/backup_restore
+// Runs on both K8s (kind/OCP) and Quadlet deployments; environment is auto-detected via the infra abstraction.
+//
+// Skipped when PostgreSQL is external: the backup binary requires a built-in DB workload to run pg_dump via pod exec
+// (K8s: no flightctl-db pod; Quadlet: db.type=external in /etc/flightctl/service-config.yaml).
+// Override: set E2E_EXTERNAL_DATABASE=true to force skip. EDM-3213.
 
 func TestBackupRestore(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -31,11 +35,11 @@ func TestBackupRestore(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	if os.Getenv("FLIGHTCTL_NS") == "" {
-		Skip("Backup/restore e2e requires FLIGHTCTL_NS (e.g. flightctl-external); run with in-cluster e2e")
-	}
 	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	if reason := backupRestoreExternalDBSkipReason(); reason != "" {
+		Skip(reason)
+	}
 	_, _, err := e2e.SetupWorkerHarness()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -64,6 +68,7 @@ var _ = AfterEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 	err := harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())
 	harness.SetTestContext(suiteCtx)
@@ -80,4 +85,20 @@ var _ = AfterSuite(func() {
 func init() {
 	SetDefaultEventuallyTimeout(defaultEventuallyTimeout)
 	SetDefaultEventuallyPollingInterval(defaultEventuallyPollingInterval)
+}
+
+// backupRestoreExternalDBSkipReason returns a non-empty skip message when this suite cannot run
+// (external PostgreSQL or explicit E2E_EXTERNAL_DATABASE).
+func backupRestoreExternalDBSkipReason() string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("E2E_EXTERNAL_DATABASE"))) {
+	case "1", "true", "yes":
+		return "Backup/restore e2e skipped: E2E_EXTERNAL_DATABASE set (external DB profile / forced skip). " +
+			"These tests require pg_dump via the built-in flightctl-db pod; external DB coverage is tracked under EDM-3213."
+	}
+	p := setup.GetDefaultProviders()
+	if p != nil && p.Infra != nil && !p.Infra.BuiltinDatabaseWorkloadAvailable() {
+		return "Backup/restore e2e skipped: no flightctl-db pod (external PostgreSQL / Helm db.type=external). " +
+			"Builtin DB uses deploy/helm chart db.type=builtin; external DB guidance: docs/user/installing/configuring-external-database.md. EDM-3213."
+	}
+	return ""
 }

@@ -387,10 +387,8 @@ func TestDeleteImageExport_Pending_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-pending-success")
+	status = svc.Delete(ctx, orgId, "delete-pending-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
-	require.Equal("delete-pending-success", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-pending-success")
@@ -414,9 +412,8 @@ func TestDeleteImageExport_Converting_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-converting-success")
+	status := svc.Delete(ctx, orgId, "delete-converting-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-converting-success")
@@ -440,9 +437,8 @@ func TestDeleteImageExport_Pushing_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-pushing-success")
+	status := svc.Delete(ctx, orgId, "delete-pushing-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-pushing-success")
@@ -466,12 +462,10 @@ func TestDeleteImageExport_CancelTimeout(t *testing.T) {
 
 	// Delete it - should cancel, timeout waiting, then delete anyway
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-timeout")
+	status = svc.Delete(ctx, orgId, "delete-timeout")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
-	require.Equal("delete-timeout", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify timeout happened (should take at least 100ms but not too long)
 	require.GreaterOrEqual(elapsed.Milliseconds(), int64(100), "Should have waited for timeout")
@@ -513,11 +507,10 @@ func TestDeleteImageExport_Completed_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (not cancelable)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-completed")
+	status := svc.Delete(ctx, orgId, "delete-completed")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on completed export")
@@ -542,11 +535,10 @@ func TestDeleteImageExport_Failed_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (not cancelable)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-failed")
+	status := svc.Delete(ctx, orgId, "delete-failed")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on failed export")
@@ -570,11 +562,10 @@ func TestDeleteImageExport_Canceled_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (already canceled)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-canceled")
+	status := svc.Delete(ctx, orgId, "delete-canceled")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceled export")
@@ -598,11 +589,10 @@ func TestDeleteImageExport_Canceling_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (already canceling)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-canceling")
+	status := svc.Delete(ctx, orgId, "delete-canceling")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceling export")
@@ -621,9 +611,8 @@ func TestDeleteImageExportNotFound(t *testing.T) {
 	svc, _, _ := setupDeleteTestService(ctx, orgId, kvStore)
 
 	// Delete is idempotent - deleting non-existent resource returns success
-	deleted, status := svc.Delete(ctx, orgId, "nonexistent")
+	status := svc.Delete(ctx, orgId, "nonexistent")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.Nil(deleted)
 }
 
 func TestUpdateImageExportStatus(t *testing.T) {
@@ -978,6 +967,7 @@ func newOciRepositoryWithRegistry(name string, accessMode v1beta1.OciRepoSpecAcc
 }
 
 // TestDownloadImageExportWithRedirect tests successful download with redirect response.
+// The service follows redirects and returns the blob content.
 func TestDownloadImageExportWithRedirect(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -986,7 +976,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	// Create a test HTTP server that mocks an OCI registry
 	manifestDigest := "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	layerDigest := "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
-	presignedURL := "https://storage.example.com/presigned-blob-url"
+	blobContent := []byte("test blob content from redirect")
 
 	// Create manifest JSON
 	manifest := ocispec.Manifest{
@@ -1019,9 +1009,16 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(manifestBytes)
 		case "/v2/test-image/blobs/" + layerDigest:
-			// Blob fetch - return redirect
-			w.Header().Set("Location", presignedURL)
+			// Blob fetch - return redirect to internal presigned URL
+			redirectURL := "https://" + r.Host + "/presigned-blob"
+			w.Header().Set("Location", redirectURL)
 			w.WriteHeader(http.StatusTemporaryRedirect)
+		case "/presigned-blob":
+			// Presigned URL serves the actual blob content
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(blobContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1055,13 +1052,19 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
-	// Download
+	// Download - now follows redirects and returns blob content
 	result, err := svc.Download(ctx, orgId, "test-export")
 	require.NoError(err)
 	require.NotNil(result)
-	require.Equal(presignedURL, result.RedirectURL)
-	require.Equal(http.StatusTemporaryRedirect, result.StatusCode)
-	require.Nil(result.BlobReader)
+	require.NotNil(result.BlobReader)
+	require.Equal(http.StatusOK, result.StatusCode)
+	require.NotEmpty(result.Filename)
+
+	// Read blob content
+	defer result.BlobReader.Close()
+	readContent, err := io.ReadAll(result.BlobReader)
+	require.NoError(err)
+	require.Equal(blobContent, readContent)
 }
 
 // TestDownloadImageExportWithBlobReader tests successful download with direct blob stream.
@@ -1148,18 +1151,16 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	result, err := svc.Download(ctx, orgId, "test-export")
 	require.NoError(err)
 	require.NotNil(result)
-	require.Empty(result.RedirectURL)
 	require.NotNil(result.BlobReader)
 	require.Equal(http.StatusOK, result.StatusCode)
 	require.NotNil(result.Headers)
+	require.NotEmpty(result.Filename)
 
 	// Read blob content
-	if result.BlobReader != nil {
-		defer result.BlobReader.Close()
-		readContent, err := io.ReadAll(result.BlobReader)
-		require.NoError(err)
-		require.Equal(blobContent, readContent)
-	}
+	defer result.BlobReader.Close()
+	readContent, err := io.ReadAll(result.BlobReader)
+	require.NoError(err)
+	require.Equal(blobContent, readContent)
 }
 
 // TestDownloadImageExportManifestWrongLayerCount tests validation of manifest layer count.
@@ -1612,4 +1613,72 @@ func TestCreateTLSConfig_InvalidPEM(t *testing.T) {
 	_, err := createTLSConfig(ociSpec)
 	require.Error(err)
 	require.Contains(err.Error(), "failed to append CA certificates")
+}
+
+func TestListCompletedForBuild_NoExports(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _, _ := newTestImageExportService()
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "my-build", api.ExportFormatTypeQCOW2)
+	require.NoError(err)
+	require.Nil(result)
+}
+
+func TestListCompletedForBuild_ReturnsFirstExport(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportService()
+
+	// Store two matching exports; the service should return the first one.
+	// NOTE: field-selector filtering is a store concern tested in integration tests.
+	// The dummy store returns all items regardless of the selector.
+	export1 := newValidImageExport("export-one")
+	export1.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:   api.ImageExportConditionTypeReady,
+				Status: v1beta1.ConditionStatusTrue,
+				Reason: string(api.ImageExportConditionReasonCompleted),
+			},
+		},
+	}
+	_, err := imageExportStore.Create(ctx, orgId, &export1)
+	require.NoError(err)
+
+	export2 := newValidImageExport("export-two")
+	export2.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:   api.ImageExportConditionTypeReady,
+				Status: v1beta1.ConditionStatusTrue,
+				Reason: string(api.ImageExportConditionReasonCompleted),
+			},
+		},
+	}
+	_, err = imageExportStore.Create(ctx, orgId, &export2)
+	require.NoError(err)
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "test-image-build", api.ExportFormatTypeQCOW2)
+	require.NoError(err)
+	require.NotNil(result)
+	require.Equal("export-one", lo.FromPtr(result.Metadata.Name))
+}
+
+func TestListCompletedForBuild_StoreError(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportService()
+	imageExportStore.listErr = errors.New("database unavailable")
+
+	result, err := svc.ListCompletedForBuild(ctx, orgId, "my-build", api.ExportFormatTypeQCOW2)
+	require.Error(err)
+	require.Contains(err.Error(), "database unavailable")
+	require.Nil(result)
 }

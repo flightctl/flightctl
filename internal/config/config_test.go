@@ -67,7 +67,7 @@ func TestConfig_String_RedactsAuthClientSecrets(t *testing.T) {
 				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
-				ClientSecret: &oidcSecret,
+				ClientSecret: oidcSecret,
 			},
 			OAuth2: &domain.OAuth2ProviderSpec{
 				ProviderType:     domain.Oauth2,
@@ -75,7 +75,7 @@ func TestConfig_String_RedactsAuthClientSecrets(t *testing.T) {
 				TokenUrl:         "https://example.com/token",
 				UserinfoUrl:      "https://example.com/userinfo",
 				ClientId:         "test-client-id",
-				ClientSecret:     &oauth2Secret,
+				ClientSecret:     oauth2Secret,
 			},
 			OpenShift: &domain.OpenShiftProviderSpec{
 				ProviderType:           domain.Openshift,
@@ -89,7 +89,7 @@ func TestConfig_String_RedactsAuthClientSecrets(t *testing.T) {
 				ApiUrl:           "https://aap.example.com",
 				AuthorizationUrl: "https://aap.example.com/auth",
 				ClientId:         "test-client-id",
-				ClientSecret:     &aapSecret,
+				ClientSecret:     aapSecret,
 			},
 			PAMOIDCIssuer: &PAMOIDCIssuer{
 				Issuer:       "https://pam.example.com",
@@ -141,7 +141,7 @@ func TestConfig_String_DoesNotMutateOriginal(t *testing.T) {
 				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
-				ClientSecret: &oidcSecret,
+				ClientSecret: oidcSecret,
 			},
 		},
 	}
@@ -151,11 +151,8 @@ func TestConfig_String_DoesNotMutateOriginal(t *testing.T) {
 	_ = cfg.String()
 
 	// Verify original config is not mutated
-	if cfg.Auth.OIDC.ClientSecret == nil {
-		t.Fatal("Original client secret pointer should not be nil")
-	}
-	if *cfg.Auth.OIDC.ClientSecret != oidcSecret {
-		t.Errorf("Original client secret should not be mutated, got: %s, want: %s", *cfg.Auth.OIDC.ClientSecret, oidcSecret)
+	if cfg.Auth.OIDC.ClientSecret != oidcSecret {
+		t.Errorf("Original client secret should not be mutated, got: %s, want: %s", cfg.Auth.OIDC.ClientSecret, oidcSecret)
 	}
 }
 
@@ -176,14 +173,14 @@ func TestConfig_String_HandlesNilAuthConfig(t *testing.T) {
 	}
 }
 
-func TestConfig_String_HandlesNilClientSecrets(t *testing.T) {
+func TestConfig_String_HandlesEmptyClientSecrets(t *testing.T) {
 	cfg := &Config{
 		Auth: &authConfig{
 			OIDC: &domain.OIDCProviderSpec{
 				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
-				ClientSecret: nil, // No secret configured
+				ClientSecret: "", // No secret configured
 			},
 			OAuth2: &domain.OAuth2ProviderSpec{
 				ProviderType:     domain.Oauth2,
@@ -191,15 +188,15 @@ func TestConfig_String_HandlesNilClientSecrets(t *testing.T) {
 				TokenUrl:         "https://example.com/token",
 				UserinfoUrl:      "https://example.com/userinfo",
 				ClientId:         "test-client-id",
-				ClientSecret:     nil, // No secret configured
+				ClientSecret:     "", // No secret configured
 			},
 		},
 	}
 
 	result := cfg.String()
 
-	// Should not panic with nil secrets
+	// Should not panic with empty secrets
 	if !strings.Contains(result, "test-client-id") {
-		t.Error("Should handle nil client secrets gracefully")
+		t.Error("Should handle empty client secrets gracefully")
 	}
 }

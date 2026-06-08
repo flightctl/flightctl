@@ -14,13 +14,16 @@ import (
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/testdb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -31,7 +34,11 @@ import (
 )
 
 var (
-	suiteCtx context.Context
+	suiteCtx      context.Context
+	redisHost     string
+	redisPort     uint
+	redisPassword domain.SecureString
+	redisCleanup  func()
 )
 
 func TestExporterIntegration(t *testing.T) {
@@ -41,6 +48,18 @@ func TestExporterIntegration(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Tasks Suite")
+	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
+
+	var err error
+	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
+		suiteCtx, flightlog.InitLogs())
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if redisCleanup != nil {
+		redisCleanup()
+	}
 })
 
 var _ = Describe("Alert Exporter", func() {
@@ -64,14 +83,17 @@ var _ = Describe("Alert Exporter", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockProducer = queues.NewMockQueueProducer(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockProducer, log)
 		mockProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)
@@ -85,7 +107,8 @@ var _ = Describe("Alert Exporter", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		_ = storeInst.Close()
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
 

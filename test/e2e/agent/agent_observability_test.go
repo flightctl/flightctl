@@ -3,6 +3,7 @@ package agent_test
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
 	"strings"
 
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
@@ -141,6 +142,62 @@ var _ = Describe("Agent observability and diagnostics", func() {
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
 		})
 
+		It("should expose metrics and pprof only on loopback", Label("88811", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-observability-loopback-only")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("enabling metrics and profiling in the agent config")
+			cfg, err := harness.GetAgentConfig()
+			Expect(err).ToNot(HaveOccurred())
+
+			cfg.MetricsEnabled = true
+			cfg.ProfilingEnabled = true
+
+			err = harness.SetAgentConfig(cfg)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for the loopback endpoints to become ready")
+			Expect(waitForEndpoint(harness, metricsEndpoint)).To(Succeed())
+			Expect(waitForEndpoint(harness, pprofEndpoint)).To(Succeed())
+
+			By("discovering a device non-loopback global IP address")
+			vmIPOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_primary_non_loopback_ip.txt",
+				buildPrimaryNonLoopbackIPCommand(),
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			vmIP := strings.TrimSpace(vmIPOut)
+			Expect(vmIP).ToNot(BeEmpty())
+			Expect(vmIP).ToNot(Equal("127.0.0.1"))
+			Expect(vmIP).ToNot(Equal("::1"))
+
+			By("verifying the metrics endpoint is unreachable via the non-loopback interface")
+			metricsNonLoopbackOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_metrics_non_loopback.txt",
+				buildCurlReachabilityCommand(buildNonLoopbackURL(vmIP, 15690, "/metrics")),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(metricsNonLoopbackOut)).To(Equal("unreachable"))
+
+			By("verifying the pprof endpoint is unreachable via the non-loopback interface")
+			pprofNonLoopbackOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_non_loopback.txt",
+				buildCurlReachabilityCommand(buildNonLoopbackURL(vmIP, 15689, "/debug/pprof/")),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(pprofNonLoopbackOut)).To(Equal("unreachable"))
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
+
 		It("86340 should write bootstrap and sync audit log entries in JSONL format", Label("86340", "sanity", "agent"), func() {
 			artifactDir, err := harness.SetupScenario(deviceID, "agent-audit-log")
 			Expect(err).ToNot(HaveOccurred())
@@ -253,6 +310,118 @@ var _ = Describe("Agent observability and diagnostics", func() {
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
 		})
 	})
+
+	Context("when local observability endpoints are disabled", func() {
+		It("should not expose agent metrics when metrics are disabled", Label("88808", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-metrics-disabled")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("disabling metrics in the agent config")
+			cfg, err := harness.GetAgentConfig()
+			Expect(err).ToNot(HaveOccurred())
+
+			cfg.MetricsEnabled = false
+
+			err = harness.SetAgentConfig(cfg)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying the metrics endpoint remains unreachable")
+			Consistently(
+				harness.VMCommandOutputFunc(buildCurlReachabilityCommand(metricsEndpoint), true),
+				"30s",
+				e2e.POLLING,
+			).Should(Equal("unreachable"))
+
+			_, err = harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_metrics_endpoint_disabled.txt",
+				buildCurlReachabilityCommand(metricsEndpoint),
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
+
+		It("should not expose agent pprof when profiling is disabled", Label("88809", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-pprof-disabled")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("disabling profiling in the agent config")
+			cfg, err := harness.GetAgentConfig()
+			Expect(err).ToNot(HaveOccurred())
+
+			cfg.ProfilingEnabled = false
+
+			err = harness.SetAgentConfig(cfg)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying the pprof endpoint remains unreachable")
+			Consistently(
+				harness.VMCommandOutputFunc(buildCurlReachabilityCommand(pprofEndpoint), true),
+				"30s",
+				e2e.POLLING,
+			).Should(Equal("unreachable"))
+
+			_, err = harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_endpoint_disabled.txt",
+				buildCurlReachabilityCommand(pprofEndpoint),
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
+
+		It("should not write audit log entries when audit logging is disabled", Label("88810", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-audit-log-disabled")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("disabling audit logging in the agent config")
+			cfg, err := harness.GetAgentConfig()
+			Expect(err).ToNot(HaveOccurred())
+
+			disabled := false
+			cfg.AuditLog.Enabled = &disabled
+
+			err = harness.SetAgentConfig(cfg)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("removing any existing audit log and agent state")
+			_, err = harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_remove_audit_log_and_state.txt",
+				"sudo rm -f /var/log/flightctl/audit.log /var/log/flightctl/audit.log.* && sudo rm -rf /var/lib/flightctl/* /var/lib/flightctl/certs/*",
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for the device to re-enroll and become online")
+			deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
+			Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
+
+			By("verifying the audit log file was not recreated")
+			auditLogStatusOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_audit_log_disabled_status.txt",
+				"sudo test -e /var/log/flightctl/audit.log && echo present || echo missing",
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(auditLogStatusOut)).To(Equal("missing"))
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
+	})
 })
 
 func waitForAuditEntryWithEvidence(harness *e2e.Harness, artifactDir, filename, command string) {
@@ -317,7 +486,22 @@ func restartFlightctlAgentAndWait(harness *e2e.Harness) error {
 }
 
 func buildCurlCommand(url string) string {
-	return "curl -sS --fail " + url
+	return fmt.Sprintf("curl -sS --fail %q", url)
+}
+
+func buildCurlReachabilityCommand(url string) string {
+	return fmt.Sprintf("if curl -sS --fail --connect-timeout 2 %q >/dev/null 2>&1; then echo reachable; else echo unreachable; fi", url)
+}
+
+func buildPrimaryNonLoopbackIPCommand() string {
+	return `hostname -I 2>/dev/null | tr ' ' '\n' | grep -m1 -vE '^(127\.|::1$|fe80:|$)' || ip route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n1 || ip -6 route get 2606:4700:4700::1111 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n1`
+}
+
+func buildNonLoopbackURL(host string, port int, path string) string {
+	if ip := net.ParseIP(host); ip != nil && strings.Contains(host, ":") {
+		return fmt.Sprintf("http://[%s]:%d%s", host, port, path)
+	}
+	return fmt.Sprintf("http://%s:%d%s", host, port, path)
 }
 
 func waitForEndpoint(harness *e2e.Harness, url string) error {

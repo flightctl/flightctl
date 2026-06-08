@@ -15,6 +15,7 @@ import (
 	pam "github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
@@ -51,7 +52,7 @@ func New(
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	transport.WriteJSONError(w, nil, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
 // installOAuth2RateLimiter installs a rate limiter that returns OAuth2-compliant error responses
@@ -178,7 +179,12 @@ func (s *Server) Run(ctx context.Context) error {
 	// API routes with OpenAPI validation
 	router.Group(func(r chi.Router) {
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		pamapi.HandlerFromMux(handler, r)
+		pamapi.HandlerWithOptions(handler, pamapi.ChiServerOptions{
+			BaseRouter: r,
+			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+				oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+			},
+		})
 	})
 
 	// Wrap with OpenTelemetry

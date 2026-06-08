@@ -23,6 +23,7 @@ import (
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -32,6 +33,11 @@ import (
 const (
 	// agentConfigPath is the destination path for the agent config in the image
 	agentConfigPath = "/etc/flightctl/config.yaml"
+
+	// buildStorageBaseDir is the base directory for temporary container storage used
+	// during image builds. A unique subdirectory is created per job and removed when
+	// the job completes. Any leftovers from a crash are swept on worker startup.
+	buildStorageBaseDir = "/var/tmp/flightctl-builds"
 )
 
 // containerfileTemplate is embedded from the templates directory for easier editing
@@ -78,6 +84,10 @@ func (c *Consumer) shouldProcessImageBuild(ctx context.Context, orgID uuid.UUID,
 
 	case string(domain.ImageBuildConditionReasonPushing):
 		log.Infof("ImageBuild %q is already being processed (Pushing), skipping", name)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonGeneratingSBOM):
+		log.Infof("ImageBuild %q is already being processed (GeneratingSBOM), skipping", name)
 		return false, nil
 
 	case string(domain.ImageBuildConditionReasonCanceling):
@@ -224,7 +234,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	}
 
 	// Step 4: Push image to registry
-	imageRef, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
+	imageRef, manifestDigest, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
 		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
 			return nil // Cancellation handled
@@ -232,8 +242,18 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
-	// Update ImageBuild status with the pushed image reference and mark as Completed
-	statusUpdater.UpdateImageReference(imageRef)
+	if manifestDigest == "" {
+		log.Error("Push succeeded but manifest digest is empty")
+		return fmt.Errorf("push succeeded but manifest digest is empty")
+	}
+
+	// Update ImageBuild status with the pushed image reference and manifest digest
+	statusUpdater.UpdateImageReference(imageRef, manifestDigest)
+
+	// Step 5: Generate and distribute SBOM when enabled and a destination is configured
+	if c.shouldRunSBOMPipeline() {
+		c.processSBOM(buildCtx, ctx, orgID, imageBuild, imageRef, manifestDigest, podmanWorker, statusUpdater, log)
+	}
 
 	// Mark as Completed
 	now = time.Now().UTC()
@@ -248,6 +268,67 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	log.Info("ImageBuild marked as Completed")
 	return nil
+}
+
+// processSBOM handles SBOM generation and distribution.
+// SBOM failures are non-fatal - the build succeeds even if SBOM generation fails.
+func (c *Consumer) processSBOM(
+	buildCtx context.Context,
+	ctx context.Context,
+	orgID uuid.UUID,
+	imageBuild *domain.ImageBuild,
+	imageRef string,
+	manifestDigest string,
+	podmanWorker *podmanWorker,
+	statusUpdater *statusUpdater,
+	log logrus.FieldLogger,
+) {
+	// Update status to GeneratingSBOM
+	now := time.Now().UTC()
+	sbomCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonGeneratingSBOM),
+		Message:            "Scanning for vulnerabilities",
+		LastTransitionTime: now,
+	}
+	statusUpdater.UpdateCondition(sbomCondition)
+
+	log.Info("Phase: SBOM Generation Started")
+
+	// Generate SBOM
+	sbomResult, err := c.generateSBOM(buildCtx, imageRef, manifestDigest, podmanWorker, log)
+	if err != nil {
+		log.WithError(err).Warn("SBOM generation failed (non-fatal)")
+		return
+	}
+
+	log.WithFields(logrus.Fields{
+		"sbomPath":    sbomResult.SBOMPath,
+		"imageDigest": sbomResult.ImageDigest,
+	}).Info("SBOM generated successfully")
+
+	// Push SBOM to OCI registry as referrer (if enabled)
+	if c.shouldPushSBOMToRegistry() {
+		if err := c.pushSBOMAsReferrer(buildCtx, orgID, imageBuild, sbomResult, statusUpdater, log); err != nil {
+			log.WithError(err).Warn("SBOM push to registry failed (non-fatal)")
+		}
+	}
+
+	// Upload SBOM to Trustify (if enabled and configured)
+	if c.shouldUploadSBOMToTrustify() && c.cfg.VulnerabilityReporting != nil &&
+		c.cfg.VulnerabilityReporting.Enabled && c.cfg.VulnerabilityReporting.Trustify != nil {
+		trustifyClient, err := trustifyv2.NewVulnerabilityClient(ctx, c.cfg.VulnerabilityReporting.Trustify)
+		if err != nil {
+			log.WithError(err).Warn("Failed to create Trustify client for SBOM upload (non-fatal)")
+		} else if trustifyClient != nil {
+			if err := c.uploadSBOMToTrustify(buildCtx, trustifyClient, sbomResult, log); err != nil {
+				log.WithError(err).Warn("SBOM upload to Trustify failed (non-fatal)")
+			}
+		}
+	}
+
+	log.Info("Phase: SBOM Generation Completed")
 }
 
 // handleBuildError handles errors during the build process.
@@ -322,6 +403,9 @@ type containerfileBuildArgs struct {
 	RPMRepoAdd          bool
 	RPMRepoAddURL       string
 	RPMRepoEnable       string
+	DNFTimeout          int
+	DNFRetries          int
+	DNFSkipUnavailable  bool
 }
 
 // getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager --add-repo.
@@ -347,6 +431,30 @@ func (c *Consumer) getRPMRepoEnable() string {
 		return c.cfg.ImageBuilderWorker.RPMRepoEnable
 	}
 	return ""
+}
+
+// getDNFTimeout returns the DNF timeout in seconds, defaulting to 5
+func (c *Consumer) getDNFTimeout() int {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFTimeout != nil {
+		return *c.cfg.ImageBuilderWorker.DNFTimeout
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFTimeout
+}
+
+// getDNFRetries returns the DNF retry count, defaulting to 0
+func (c *Consumer) getDNFRetries() int {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFRetries != nil {
+		return *c.cfg.ImageBuilderWorker.DNFRetries
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFRetries
+}
+
+// getDNFSkipUnavailable returns whether to skip unavailable packages, defaulting to true
+func (c *Consumer) getDNFSkipUnavailable() bool {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.DNFSkipUnavailable != nil {
+		return *c.cfg.ImageBuilderWorker.DNFSkipUnavailable
+	}
+	return *config.NewDefaultImageBuilderWorkerConfig().DNFSkipUnavailable
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -458,6 +566,9 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		RPMRepoAdd:          c.getRPMRepoAdd(),
 		RPMRepoAddURL:       c.getRPMRepoAddURL(),
 		RPMRepoEnable:       c.getRPMRepoEnable(),
+		DNFTimeout:          c.getDNFTimeout(),
+		DNFRetries:          c.getDNFRetries(),
+		DNFSkipUnavailable:  c.getDNFSkipUnavailable(),
 	}
 
 	result := &ContainerfileResult{
@@ -633,11 +744,9 @@ func (c *Consumer) startPodmanWorker(
 		return nil, fmt.Errorf("failed to create temporary output directory: %w", err)
 	}
 
-	baseStorageDir := "/var/tmp/flightctl-builds"
-
 	// This creates a unique, throw-away directory for THIS specific build.
 	// It ensures no caching between jobs.
-	tmpContainerStorage, err := os.MkdirTemp(baseStorageDir, "storage-*")
+	tmpContainerStorage, err := os.MkdirTemp(buildStorageBaseDir, "storage-*")
 	if err != nil {
 		return nil, err
 	}
@@ -728,9 +837,15 @@ ignore_chown_errors = "true"
 		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
 			log.WithError(err).Warn("Failed to kill worker container during cleanup")
 		}
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(tmpOutDir)
-		os.RemoveAll(tmpContainerStorage)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.WithError(err).WithField("path", tmpDir).Warn("Failed to remove temporary directory")
+		}
+		if err := os.RemoveAll(tmpOutDir); err != nil {
+			log.WithError(err).WithField("path", tmpOutDir).Warn("Failed to remove temporary output directory")
+		}
+		if err := os.RemoveAll(tmpContainerStorage); err != nil {
+			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
+		}
 	}
 
 	return &podmanWorker{
@@ -1016,6 +1131,9 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),
+		"--build-arg", fmt.Sprintf("DNF_TIMEOUT=%d", args.DNFTimeout),
+		"--build-arg", fmt.Sprintf("DNF_RETRIES=%d", args.DNFRetries),
+		"--build-arg", fmt.Sprintf("DNF_SKIP_UNAVAILABLE=%t", args.DNFSkipUnavailable),
 	)
 
 	// Mount entitlement certs into the build if available (for RHEL subscription repos)
@@ -1038,17 +1156,17 @@ func (c *Consumer) buildImageWithPodman(
 }
 
 // pushImageWithPodman pushes the built image to the destination registry.
-// It returns the image reference that was pushed.
+// It returns the image reference and manifest digest of the pushed image.
 func (c *Consumer) pushImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
-) (string, error) {
+) (string, string, error) {
 	// Check context before starting work
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	spec := imageBuild.Spec
@@ -1056,12 +1174,12 @@ func (c *Consumer) pushImageWithPodman(
 	// Get and validate destination repository
 	ociSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Destination.Repository, "destination")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Validate image reference components (defense-in-depth)
 	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
-		return "", fmt.Errorf("invalid image reference components: %w", err)
+		return "", "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
@@ -1074,7 +1192,7 @@ func (c *Consumer) pushImageWithPodman(
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
 			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
-				return "", fmt.Errorf("failed to login to destination registry: %w", err)
+				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
 	}
@@ -1084,10 +1202,12 @@ func (c *Consumer) pushImageWithPodman(
 	// ---------------------------------------------------------
 	log.Info("Phase: Push Started")
 
-	// Push
+	// Push with --digestfile to capture the manifest digest
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
 	// Authentication is handled via podman login above
-	pushArgs := []string{"push"}
+	const digestFileName = "push-digest.txt"
+	workerDigestPath := filepath.Join("/output", digestFileName)
+	pushArgs := []string{"push", "--digestfile", workerDigestPath}
 
 	// Disable TLS verification for HTTP registries or when explicitly requested
 	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
@@ -1100,10 +1220,21 @@ func (c *Consumer) pushImageWithPodman(
 
 	pushArgs = append(pushArgs, imageRef)
 	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	log.WithField("imageRef", imageRef).Info("Phase: Push Completed - Image pushed successfully")
+	// Read the manifest digest from the digest file (host path maps to /output in worker)
+	hostDigestPath := filepath.Join(podmanWorker.TmpOutDir, digestFileName)
+	digestBytes, err := os.ReadFile(hostDigestPath)
+	if err != nil {
+		return "", "", fmt.Errorf("reading manifest digest file: %w", err)
+	}
+	manifestDigest := strings.TrimSpace(string(digestBytes))
 
-	return imageRef, nil
+	log.WithFields(logrus.Fields{
+		"imageRef":       imageRef,
+		"manifestDigest": manifestDigest,
+	}).Info("Phase: Push Completed - Image pushed successfully")
+
+	return imageRef, manifestDigest, nil
 }

@@ -18,7 +18,6 @@ const FASTPOLLING = "100ms" // Fast polling for catching quick batch transitions
 const POLLINGINTERVAL = "10s"
 const MEDIUMTIMEOUT = "10m"
 const LONGTIMEOUT = "15m"
-const DEVICEWAITTIME = "30s"
 const DEFAULTUPDATETIMEOUT = "90s"
 
 var auxSvcs *auxiliary.Services
@@ -67,6 +66,10 @@ var _ = AfterEach(func() {
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	// Capture logs if test failed
+	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

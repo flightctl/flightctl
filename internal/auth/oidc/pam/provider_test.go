@@ -938,16 +938,16 @@ var _ = Describe("Login Form Branding", func() {
 
 			faviconLink := findNodeByAttr(doc, "link", "rel", "icon")
 			Expect(faviconLink).ToNot(BeNil(), "expected <link rel=\"icon\"> element")
-			Expect(getAttr(faviconLink, "href")).To(Equal("/auth/assets/favicon.png"))
+			Expect(getAttr(faviconLink, "href")).To(Equal("../../../auth/assets/favicon.png"))
 
 			lightLogo := findNodeByID(doc, "brand-logo-light")
 			Expect(lightLogo).ToNot(BeNil(), "expected #brand-logo-light element")
-			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+			Expect(getAttr(lightLogo, "src")).To(Equal("../../../auth/assets/flight-control-logo.svg"))
 			Expect(getAttr(lightLogo, "alt")).To(Equal("Flight Control"))
 
 			darkLogo := findNodeByID(doc, "brand-logo-dark")
 			Expect(darkLogo).ToNot(BeNil(), "expected #brand-logo-dark element")
-			Expect(getAttr(darkLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+			Expect(getAttr(darkLogo, "src")).To(Equal("../../../auth/assets/flight-control-logo.svg"))
 
 			Expect(rawHTML).NotTo(ContainSubstring("--pf-t--global--color--brand--default"))
 		})
@@ -1022,7 +1022,7 @@ var _ = Describe("Login Form Branding", func() {
 
 			lightLogo := findNodeByID(doc, "brand-logo-light")
 			Expect(lightLogo).ToNot(BeNil())
-			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+			Expect(getAttr(lightLogo, "src")).To(Equal("../../../auth/assets/flight-control-logo.svg"))
 
 			darkLogo := findNodeByID(doc, "brand-logo-dark")
 			Expect(darkLogo).ToNot(BeNil())

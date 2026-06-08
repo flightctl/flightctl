@@ -34,6 +34,8 @@ rules:
       - imageexports
       - catalogs
       - catalogitems
+      - vulnerabilities
+      - imagepromotions
   # Viewer can view logs but NOT download
   - verbs:
       - get
@@ -68,6 +70,14 @@ rules:
       - repositories
       - imagebuilds
       - imageexports
+      - imagepromotions
+  # Operator has read-only access to catalog resources; promotion auto-manages catalog items
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
       - catalogs
       - catalogitems
   - verbs:
@@ -80,13 +90,14 @@ rules:
       - imagebuilds/log
       - imageexports/log
       - imageexports/download
-  # Cancel operations for image builds/exports (PUT maps to update verb)
+  # Cancel and newversion operations for image builds/exports (PUT maps to update verb)
   - verbs:
       - create
     apiGroups:
       - flightctl.io
     resources:
       - imagebuilds/cancel
+      - imagebuilds/newversion
       - imageexports/cancel
   - verbs:
       - get
@@ -97,6 +108,7 @@ rules:
       - fleets/templateversions
       - alerts
       - organizations
+      - vulnerabilities
   # Device lifecycle actions (granular subresource approach)
   - verbs:
       - update  # Standard Kubernetes verb for resume action

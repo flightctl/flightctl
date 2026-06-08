@@ -21,6 +21,16 @@ import (
 
 var _ Manager = (*manager)(nil)
 
+const (
+	// annotationDesiredVersion stores the version we're upgrading to in rollback.json.
+	// If a rollback occurs, this version is marked as failed.
+	annotationDesiredVersion = "agent/desiredVersion"
+	// annotationDesiredSpecHash stores the spec hash we're upgrading to in rollback.json.
+	// If a rollback occurs, this spec hash is marked as failed to prevent
+	// re-applying the same spec content even if the rendered version changes.
+	annotationDesiredSpecHash = "agent/desiredSpecHash"
+)
+
 // manager is responsible for managing the rendered device spec.
 type manager struct {
 	currentPath  string
@@ -294,6 +304,24 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
 	}
 
+	// Store the desired version and spec hash so we know which version/content
+	// failed if rollback occurs. This persists across reboots and agent restarts.
+	desiredVersion := s.cache.getRenderedVersion(Desired)
+	desiredSpecHash := s.cache.getSpecHash(Desired)
+	if desiredVersion != "" || desiredSpecHash != "" {
+		annotations := rollback.Metadata.Annotations
+		if annotations == nil {
+			annotations = &map[string]string{}
+			rollback.Metadata.Annotations = annotations
+		}
+		if desiredVersion != "" {
+			(*annotations)[annotationDesiredVersion] = desiredVersion
+		}
+		if desiredSpecHash != "" {
+			(*annotations)[annotationDesiredSpecHash] = desiredSpecHash
+		}
+	}
+
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
 		return err
 	}
@@ -303,6 +331,22 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 func (s *manager) ClearRollback() error {
 	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
 }
+
+func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		if errors.Is(err, errors.ErrMissingRenderedSpec) {
+			return RollbackInfo{}, nil
+		}
+		return RollbackInfo{}, fmt.Errorf("reading rollback spec: %w", err)
+	}
+	annotations := *rollback.Metadata.Annotations
+	return RollbackInfo{
+		Version:  annotations[annotationDesiredVersion],
+		SpecHash: annotations[annotationDesiredSpecHash],
+	}, nil
+}
+
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	cfg := &rollbackConfig{}
 

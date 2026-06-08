@@ -56,6 +56,20 @@ func (mr *MockClientMockRecorder) Apply(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockClient)(nil).Apply), ctx)
 }
 
+// Rollback mocks base method.
+func (m *MockClient) Rollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rollback indicates an expected call of Rollback.
+func (mr *MockClientMockRecorder) Rollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockClient)(nil).Rollback), ctx)
+}
+
 // Status mocks base method.
 func (m *MockClient) Status(ctx context.Context) (*Status, error) {
 	m.ctrl.T.Helper()
@@ -168,6 +182,20 @@ func (m *MockManager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) e
 func (mr *MockManagerMockRecorder) Reboot(ctx, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reboot", reflect.TypeOf((*MockManager)(nil).Reboot), ctx, desired)
+}
+
+// Rollback mocks base method.
+func (m *MockManager) Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rollback", ctx, desired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rollback indicates an expected call of Rollback.
+func (mr *MockManagerMockRecorder) Rollback(ctx, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), ctx, desired)
 }
 
 // Status mocks base method.

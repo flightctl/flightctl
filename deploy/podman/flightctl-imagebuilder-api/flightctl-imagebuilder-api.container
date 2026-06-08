@@ -14,10 +14,7 @@ Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-PublishPort=8445:8445
 Volume=/etc/flightctl/flightctl-imagebuilder-api/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/pki/flightctl-imagebuilder-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-imagebuilder-api/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
@@ -26,6 +23,8 @@ Restart=always
 RestartSec=30
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-api/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-api/config.yaml
+
+ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
 
 [Install]
 WantedBy=flightctl.target

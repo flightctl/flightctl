@@ -19,6 +19,8 @@ tags:
     description: Operations on ImageBuild resources.
   - name: imageexport
     description: Operations on ImageExport resources.
+  - name: imagepromotion
+    description: Operations on ImagePromotion resources.
 # Note: Security is handled by Chi middleware (auth.CreateAuthNMiddleware), not OpenAPI validation
 # The securitySchemes are defined in components for documentation purposes
 paths:
@@ -46,6 +48,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
         - name: continue
           in: query
           description: An optional parameter to query more results from the server.
@@ -112,6 +116,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageBuild'
+          links:
+            GetImageBuild:
+              operationId: getImageBuild
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteImageBuild:
+              operationId: deleteImageBuild
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetImageBuildLog:
+              operationId: getImageBuildLog
+              parameters:
+                name: '$response.body#/metadata/name'
+            CancelImageBuild:
+              operationId: cancelImageBuild
+              parameters:
+                name: '$response.body#/metadata/name'
+            CreateImageExport:
+              operationId: createImageExport
+              requestBody:
+                apiVersion: flightctl.io/v1alpha1
+                kind: ImageExport
+                metadata:
+                  name: '$response.body#/metadata/name'
+                spec:
+                  source:
+                    type: imageBuild
+                    imageBuildRef: '$response.body#/metadata/name'
+                  format: qcow2
         "400":
           description: Bad Request
           content:
@@ -175,6 +208,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageBuild'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -223,7 +262,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ImageBuild'
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -286,6 +331,12 @@ paths:
               schema:
                 type: string
                 description: Log output as Server-Sent Events stream (when follow=true for active builds)
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -379,6 +430,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/newversion:
+    x-resource: imagebuilds/newversion
+    post:
+      tags:
+        - imagebuild
+      description: Create a new ImageBuild derived from an existing one, copying its spec with optional tag overrides. Sets flightctl.io/new-version-from annotation to record lineage.
+      operationId: createImageBuildNewVersion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the parent ImageBuild resource.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageBuildNewVersionRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageBuild'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found - parent ImageBuild does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict - ImageBuild with given name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports:
     x-resource: imageexports
     get:
@@ -403,6 +523,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
         - name: continue
           in: query
           description: An optional parameter to query more results from the server.
@@ -463,6 +585,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageExport'
+          links:
+            GetImageExport:
+              operationId: getImageExport
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteImageExport:
+              operationId: deleteImageExport
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetImageExportLog:
+              operationId: getImageExportLog
+              parameters:
+                name: '$response.body#/metadata/name'
+            CancelImageExport:
+              operationId: cancelImageExport
+              parameters:
+                name: '$response.body#/metadata/name'
+            DownloadImageExport:
+              operationId: downloadImageExport
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -520,6 +663,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageExport'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -568,7 +717,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ImageExport'
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -770,6 +925,12 @@ paths:
               schema:
                 type: string
                 description: Log output as Server-Sent Events stream (when follow=true for active exports)
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -784,6 +945,394 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/imagepromotions:
+    x-resource: imagepromotions
+    get:
+      tags:
+        - imagepromotion
+      description: List ImagePromotion resources.
+      operationId: listImagePromotions
+      parameters:
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotionList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - imagepromotion
+      description: Create an ImagePromotion resource to publish a completed image build to the software catalog.
+      operationId: createImagePromotion
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImagePromotion'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotion'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict - an ImagePromotion with the given name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/imagepromotions/{name}:
+    x-resource: imagepromotions
+    get:
+      tags:
+        - imagepromotion
+      description: Get an ImagePromotion resource.
+      operationId: getImagePromotion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImagePromotion resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotion'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - imagepromotion
+      description: >
+        Replace an ImagePromotion resource. Only spec.source.exportFormats (append-only —
+        the submitted list must be a superset of the current list) and metadata.labels may be
+        changed. All other spec fields must be identical to the stored values or a 400 is returned.
+        The promotion must not be in Failed or Publishing state.
+      operationId: replaceImagePromotion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImagePromotion resource.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImagePromotion'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotion'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotion'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict - concurrent update conflict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - imagepromotion
+      description: >
+        Patch an ImagePromotion resource using RFC 6902 JSON Patch. Only operations targeting
+        /spec/source/exportFormats (or its children) and /metadata/labels are accepted.
+        Export formats may only be added (append-only). The promotion must not be in Failed
+        or Publishing state.
+      operationId: patchImagePromotion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImagePromotion resource.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePromotion'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - imagepromotion
+      description: Delete an ImagePromotion resource.
+      operationId: deleteImagePromotion
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImagePromotion resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -819,7 +1368,7 @@ components:
         - ApiVersionFlightctlIoV1alpha1
     ResourceKind:
       type: string
-      enum: [ImageBuild, ImageExport]
+      enum: [ImageBuild, ImageExport, ImagePromotion]
       description: Resource types exposed via the ImageBuilder API.
     ImageBuild:
       type: object
@@ -846,6 +1395,23 @@ components:
         - kind
         - metadata
         - spec
+      example:
+        apiVersion: flightctl.io/v1alpha1
+        kind: ImageBuild
+        metadata:
+          name: centos-bootc-stream9-build
+        spec:
+          source:
+            repository: quay-io
+            imageName: centos-bootc/centos-bootc
+            imageTag: stream9
+          destination:
+            repository: my-registry
+            imageName: my-user/centos-bootc-custom
+            imageTag: v1.0.0
+          binding:
+            type: late
+      additionalProperties: false
 
     ImageBuildList:
       type: object
@@ -885,6 +1451,7 @@ components:
         - source
         - destination
         - binding
+      additionalProperties: false
 
     ImageBuildSource:
       type: object
@@ -892,12 +1459,18 @@ components:
       properties:
         repository:
           type: string
+          minLength: 1
           description: The name of the Repository resource of type OCI containing the source image.
         imageName:
           type: string
+          minLength: 1
+          maxLength: 255
           description: The name of the source image.
         imageTag:
           type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
           description: The tag of the source image.
       required:
         - repository
@@ -910,12 +1483,18 @@ components:
       properties:
         repository:
           type: string
+          minLength: 1
           description: The name of the Repository resource of type OCI to push the built image to.
         imageName:
           type: string
+          minLength: 1
+          maxLength: 255
           description: The name of the output image.
         imageTag:
           type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
           description: The tag of the output image.
       required:
         - repository
@@ -1026,6 +1605,7 @@ components:
         - Pending
         - Building
         - Pushing
+        - GeneratingSBOM
         - Completed
         - Failed
         - Canceling
@@ -1034,6 +1614,7 @@ components:
         - ImageBuildConditionReasonPending
         - ImageBuildConditionReasonBuilding
         - ImageBuildConditionReasonPushing
+        - ImageBuildConditionReasonGeneratingSBOM
         - ImageBuildConditionReasonCompleted
         - ImageBuildConditionReasonFailed
         - ImageBuildConditionReasonCanceling
@@ -1059,6 +1640,17 @@ components:
         - kind
         - metadata
         - spec
+      example:
+        apiVersion: flightctl.io/v1alpha1
+        kind: ImageExport
+        metadata:
+          name: my-edge-export-from-build
+        spec:
+          source:
+            type: imageBuild
+            imageBuildRef: centos-bootc-stream9-build
+          format: qcow2
+      additionalProperties: false
 
     ImageExportList:
       type: object
@@ -1093,6 +1685,7 @@ components:
       required:
         - source
         - format
+      additionalProperties: false
 
     ImageExportSource:
       description: ImageExportSource specifies the source image for the export.
@@ -1116,6 +1709,7 @@ components:
           description: The type of source.
         imageBuildRef:
           type: string
+          minLength: 1
           description: The name of the ImageBuild resource to use as source.
 
     ImageExportSourceType:
@@ -1238,3 +1832,303 @@ components:
         - code
         - reason
         - message
+
+    ImageBuildNewVersionRequest:
+      type: object
+      description: Request body for the newversion subresource endpoint.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Name for the new ImageBuild resource.
+        sourceImageTag:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
+          description: Override for spec.source.imageTag. If omitted, the parent's tag is used.
+        destinationImageTag:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\w][\w.-]{0,127}$'
+          description: Override for spec.destination.imageTag. If omitted, the parent's tag is used.
+      required:
+        - name
+      additionalProperties: false
+
+    ImagePromotion:
+      type: object
+      description: ImagePromotion tracks a single publish attempt from an ImageBuild to a CatalogItem.
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/ImagePromotionSpec'
+        status:
+          $ref: '#/components/schemas/ImagePromotionStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      additionalProperties: false
+
+    ImagePromotionList:
+      type: object
+      description: ImagePromotionList is a list of ImagePromotion resources.
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: List of ImagePromotion resources.
+          items:
+            $ref: '#/components/schemas/ImagePromotion'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+
+    ImagePromotionSpec:
+      type: object
+      description: Desired state of an ImagePromotion resource.
+      properties:
+        source:
+          $ref: '#/components/schemas/ImagePromotionSource'
+        target:
+          $ref: '#/components/schemas/ImagePromotionTarget'
+      required:
+        - source
+        - target
+      additionalProperties: false
+
+    ImagePromotionSource:
+      type: object
+      description: Identifies the artifact(s) to publish.
+      properties:
+        imageBuildRef:
+          type: string
+          minLength: 1
+          description: Name of the ImageBuild resource this promotion is linked to. The container/bootc artifact produced by this build is always included in the CatalogItem version entry.
+        exportFormats:
+          type: array
+          description: Optional list of additional artifact formats to include in the CatalogItem version entry. The promotion waits in WaitingForArtifacts until at least one successful ImageExport exists for every requested format.
+          items:
+            $ref: '#/components/schemas/ExportFormatType'
+      required:
+        - imageBuildRef
+      additionalProperties: false
+
+    ImagePromotionTarget:
+      description: Specifies where and how to publish the artifact(s). The type field is the discriminator.
+      oneOf:
+        - $ref: '#/components/schemas/NewCatalogItemTarget'
+        - $ref: '#/components/schemas/ExistingCatalogItemTarget'
+      discriminator:
+        propertyName: type
+        mapping:
+          NewCatalogItem: '#/components/schemas/NewCatalogItemTarget'
+          ExistingCatalogItem: '#/components/schemas/ExistingCatalogItemTarget'
+
+    ImagePromotionTargetBase:
+      type: object
+      description: Common fields shared by all ImagePromotionTarget variants.
+      properties:
+        type:
+          type: string
+          description: Discriminator for the target type.
+        catalogName:
+          type: string
+          minLength: 1
+          description: Name of the parent Catalog resource.
+        catalogItemName:
+          type: string
+          minLength: 1
+          description: Name of the CatalogItem to create or update.
+        version:
+          type: string
+          description: Semver version string for the new CatalogItem version entry.
+      required:
+        - type
+        - catalogName
+        - catalogItemName
+        - version
+
+    NewCatalogItemTarget:
+      description: Publish target that creates a new CatalogItem. Rejected immediately if a CatalogItem with the given catalogItemName already exists.
+      allOf:
+        - $ref: '#/components/schemas/ImagePromotionTargetBase'
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              enum: [NewCatalogItem]
+              description: Discriminator for the target type.
+            catalogName:
+              type: string
+              description: Name of the parent Catalog resource.
+            catalogItemName:
+              type: string
+              description: Name of the CatalogItem to create.
+            version:
+              type: string
+              description: Semver version string for the new CatalogItem version entry.
+            readme:
+              type: string
+              description: Optional item-level readme for the new CatalogItem. Markdown is supported.
+
+    ExistingCatalogItemTarget:
+      description: Publish target that appends a version to an existing CatalogItem. Rejected immediately if the CatalogItem does not exist.
+      allOf:
+        - $ref: '#/components/schemas/ImagePromotionTargetBase'
+        - type: object
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              enum: [ExistingCatalogItem]
+              description: Discriminator for the target type.
+            catalogName:
+              type: string
+              description: Name of the parent Catalog resource.
+            catalogItemName:
+              type: string
+              description: Name of the CatalogItem to update.
+            version:
+              type: string
+              description: Semver version string for the new CatalogItem version entry.
+            readme:
+              type: string
+              description: Optional version-level readme for this version entry. Markdown is supported.
+            replaces:
+              type: string
+              description: The single version this one replaces, defining the primary upgrade edge.
+            skips:
+              type: array
+              items:
+                type: string
+              description: Additional versions that can upgrade directly to this one.
+            skipRange:
+              type: string
+              description: Semver range of versions that can upgrade directly to this one (e.g. ">=1.0.0 <1.3.0").
+
+    ImagePromotionStatus:
+      type: object
+      description: Observed state of an ImagePromotion resource.
+      properties:
+        conditions:
+          type: array
+          description: Conditions describing the current state of the promotion lifecycle.
+          items:
+            $ref: '#/components/schemas/ImagePromotionCondition'
+        publishedAt:
+          type: string
+          format: date-time
+          description: >-
+            Timestamp of the initial successful promotion. Set once when the promotion first
+            reaches Completed state. Not updated by subsequent amendments.
+        lastAmendedAt:
+          type: string
+          format: date-time
+          description: >-
+            Timestamp of the most recent successful amendment (i.e., when the last additional
+            export format was written to the CatalogItemVersion). Absent if the promotion has
+            never been amended.
+        artifactStatuses:
+          type: array
+          description: >-
+            Per-artifact readiness summary. One entry for the ImageBuild (container artifact)
+            and one entry per requested exportFormat. Updated as artifacts become available
+            or as new formats are added via PATCH/PUT.
+          items:
+            $ref: '#/components/schemas/ArtifactPromotionStatus'
+
+    ArtifactPromotionStatus:
+      type: object
+      properties:
+        format:
+          type: string
+          description: Artifact format. "container" for the ImageBuild artifact; one of the exportFormats values for additional artifacts.
+        ready:
+          type: boolean
+          description: True when at least one successful artifact of this format is available.
+        published:
+          type: boolean
+          description: >-
+            True when this format's artifact reference has been successfully written to the
+            CatalogItemVersion. For the initial publish, all formats are published atomically.
+            For amendments, formats added via PATCH/PUT start as published=false and transition to
+            published=true when their CatalogItem patch succeeds.
+        resolvedExport:
+          type: string
+          description: Name of the ImageExport resource that will be (or was) used for this format. Absent for the container artifact and for formats not yet ready.
+      required:
+        - format
+        - ready
+        - published
+      additionalProperties: false
+
+    ImagePromotionCondition:
+      description: Condition for ImagePromotion resources.
+      allOf:
+        - $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/ConditionBase'
+        - type: object
+          required:
+            - type
+          properties:
+            type:
+              $ref: '#/components/schemas/ImagePromotionConditionType'
+
+    ImagePromotionConditionType:
+      type: string
+      description: Type of ImagePromotion condition.
+      enum:
+        - Ready
+      x-enum-varnames:
+        - ImagePromotionConditionTypeReady
+
+    ImagePromotionConditionReason:
+      type: string
+      description: Reason for the ImagePromotion Ready condition.
+      enum:
+        - WaitingForArtifacts
+        - Publishing
+        - Completed
+        - Failed
+        - BuildFailed
+        - BuildCanceled
+        - AmendmentFailed
+      x-enum-varnames:
+        - ImagePromotionConditionReasonWaitingForArtifacts
+        - ImagePromotionConditionReasonPublishing
+        - ImagePromotionConditionReasonCompleted
+        - ImagePromotionConditionReasonFailed
+        - ImagePromotionConditionReasonBuildFailed
+        - ImagePromotionConditionReasonBuildCanceled
+        - ImagePromotionConditionReasonAmendmentFailed
+
+    ImagePromotionTargetType:
+      type: string
+      description: Discriminator for the promotion target type.
+      enum:
+        - NewCatalogItem
+        - ExistingCatalogItem
+      x-enum-varnames:
+        - ImagePromotionTargetTypeNewCatalogItem
+        - ImagePromotionTargetTypeExistingCatalogItem
+
+

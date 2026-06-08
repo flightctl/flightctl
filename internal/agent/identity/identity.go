@@ -150,6 +150,62 @@ func StoreCSR(rw fileio.ReadWriter, csrPath string, csr []byte) error {
 	return rw.WriteFile(csrPath, csr, 0600)
 }
 
+var errCSRIdentityMismatch = errors.New("CSR identity mismatch")
+
+// ResolveCSR loads a persisted CSR or generates a new one. If a persisted CSR
+// exists but its Subject CN does not match the current device name, the stale
+// CSR is deleted and a new one is generated. Parse or read failures are
+// returned as-is without regeneration.
+func ResolveCSR(rw fileio.ReadWriter, dataDir string, provider Provider, deviceName string, log *log.PrefixLogger) ([]byte, error) {
+	csrPath := GetCSRPath(dataDir)
+	csr, found, err := LoadCSR(rw, csrPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading CSR: %w", err)
+	}
+
+	if found {
+		err := validateCSRIdentity(csr, deviceName)
+		if err == nil {
+			log.Infof("Using persisted CSR for enrollment")
+			return csr, nil
+		}
+		if !errors.Is(err, errCSRIdentityMismatch) {
+			return nil, fmt.Errorf("validating persisted CSR: %w", err)
+		}
+		log.Warnf("Persisted CSR identity mismatch: %v — regenerating", err)
+	} else {
+		log.Infof("No persisted CSR found, generating new CSR for enrollment")
+	}
+
+	csr, err = provider.GenerateCSR(deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("generating CSR: %w", err)
+	}
+	if err := StoreCSR(rw, csrPath, csr); err != nil {
+		return nil, fmt.Errorf("storing CSR: %w", err)
+	}
+	log.Infof("CSR generated and persisted successfully")
+	return csr, nil
+}
+
+func validateCSRIdentity(csrBytes []byte, deviceName string) error {
+	standardCSR, _, err := tpm.NormalizeEnrollmentCSR(string(csrBytes))
+	if err != nil {
+		return fmt.Errorf("extracting standard CSR: %w", err)
+	}
+
+	parsed, err := fccrypto.ParseCSR(standardCSR)
+	if err != nil {
+		return fmt.Errorf("parsing CSR: %w", err)
+	}
+
+	if parsed.Subject.CommonName != deviceName {
+		return fmt.Errorf("%w: persisted CSR CN %q does not match device name %q", errCSRIdentityMismatch, parsed.Subject.CommonName, deviceName)
+	}
+
+	return nil
+}
+
 func LoadCSR(rw fileio.ReadWriter, csrPath string) ([]byte, bool, error) {
 	exists, err := rw.PathExists(csrPath)
 	if err != nil {

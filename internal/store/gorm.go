@@ -227,10 +227,13 @@ type constraintAwareDialector struct {
 // Verify at compile-time that constraintAwareDialector implements gorm.Dialector
 var _ gorm.Dialector = (*constraintAwareDialector)(nil)
 
-// Translate intercepts PostgreSQL errors to check for specific authprovider constraints
+// Translate intercepts PostgreSQL errors to check for specific error codes and constraints
 func (d *constraintAwareDialector) Translate(err error) error {
-	// Check for PostgreSQL-specific constraint violations first
 	if pgErr, ok := err.(*pgconn.PgError); ok {
+		// Check for unsupported Unicode escape sequence (e.g., null bytes in JSONB)
+		if pgErr.Code == "22P05" {
+			return flterrors.ErrUnsupportedUnicode
+		}
 
 		// Check for specific authprovider constraints BEFORE default translation
 		switch pgErr.ConstraintName {

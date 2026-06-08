@@ -6,6 +6,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 func TestValidateRelativePath(t *testing.T) {
@@ -106,6 +107,200 @@ func TestDenyForbiddenDevicePath(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateLabelKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		key       string
+		wantValid bool
+	}{
+		{
+			name:      "valid simple key",
+			key:       "environment",
+			wantValid: true,
+		},
+		{
+			name:      "valid key with hyphens",
+			key:       "my-label-key",
+			wantValid: true,
+		},
+		{
+			name:      "valid key with dots",
+			key:       "example.com/my-key",
+			wantValid: true,
+		},
+		{
+			name:      "valid key with underscores",
+			key:       "my_key",
+			wantValid: true,
+		},
+		{
+			name:      "invalid key with spaces",
+			key:       "bad key",
+			wantValid: false,
+		},
+		{
+			name:      "invalid key with special chars",
+			key:       "key@value",
+			wantValid: false,
+		},
+		{
+			name:      "invalid key starting with hyphen",
+			key:       "-badkey",
+			wantValid: false,
+		},
+		{
+			name:      "invalid key ending with hyphen",
+			key:       "badkey-",
+			wantValid: false,
+		},
+		{
+			name:      "empty key",
+			key:       "",
+			wantValid: false, // K8s does not allow empty keys
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateLabelKey(tt.key)
+			isValid := len(errs) == 0
+			require.Equal(t, tt.wantValid, isValid, "key %q validation mismatch. Errors: %v", tt.key, errs)
+		})
+	}
+}
+
+func TestSanitizeLabelValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "valid label unchanged",
+			input:    "valid-label",
+			expected: "valid-label",
+		},
+		{
+			name:     "valid with underscores and dots",
+			input:    "test_value.123",
+			expected: "test_value.123",
+		},
+		{
+			name:     "spaces replaced with hyphens",
+			input:    "CentOS Stream",
+			expected: "CentOS-Stream",
+		},
+		{
+			name:     "multiple spaces",
+			input:    "Red Hat Enterprise Linux",
+			expected: "Red-Hat-Enterprise-Linux",
+		},
+		{
+			name:     "special characters replaced",
+			input:    "version@2.0!test",
+			expected: "version-2.0-test",
+		},
+		{
+			name:     "leading special chars trimmed",
+			input:    "!!!valid-label",
+			expected: "valid-label",
+		},
+		{
+			name:     "trailing special chars trimmed",
+			input:    "valid-label!!!",
+			expected: "valid-label",
+		},
+		{
+			name:     "leading and trailing special chars trimmed",
+			input:    "---valid-label---",
+			expected: "valid-label",
+		},
+		{
+			name:     "only special characters",
+			input:    "!!!",
+			expected: "",
+		},
+		{
+			name:     "only hyphens",
+			input:    "---",
+			expected: "",
+		},
+		{
+			name:     "IP address is valid",
+			input:    "127.0.0.1",
+			expected: "127.0.0.1",
+		},
+		{
+			name:     "IPv6 colons replaced",
+			input:    "::1",
+			expected: "1",
+		},
+		{
+			name:     "single character",
+			input:    "a",
+			expected: "a",
+		},
+		{
+			name:     "truncate long value",
+			input:    strings.Repeat("a", 100),
+			expected: strings.Repeat("a", 63),
+		},
+		{
+			name:     "truncate and trim trailing hyphens",
+			input:    strings.Repeat("a", 60) + "---" + strings.Repeat("b", 10),
+			expected: strings.Repeat("a", 60), // trailing hyphens are trimmed
+		},
+		{
+			name:     "parentheses replaced",
+			input:    "version(1.2.3)",
+			expected: "version-1.2.3",
+		},
+		{
+			name:     "mixed valid and invalid chars",
+			input:    "Test_Label-123.v2",
+			expected: "Test_Label-123.v2",
+		},
+		{
+			name:     "unicode replaced",
+			input:    "label™",
+			expected: "label",
+		},
+		{
+			name:     "slashes replaced",
+			input:    "path/to/value",
+			expected: "path-to-value",
+		},
+		{
+			name:     "realistic distro name",
+			input:    "Red Hat Enterprise Linux 9.5 (Plow)",
+			expected: "Red-Hat-Enterprise-Linux-9.5--Plow",
+		},
+		{
+			name:     "realistic product name",
+			input:    "Dell PowerEdge R640",
+			expected: "Dell-PowerEdge-R640",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SanitizeLabelValue(tt.input)
+			require.Equal(t, tt.expected, result)
+
+			// Verify result is valid if non-empty
+			if result != "" {
+				errs := k8sutilvalidation.IsValidLabelValue(result)
+				require.Empty(t, errs, "sanitized value should be valid: %q produced %v", result, errs)
 			}
 		})
 	}

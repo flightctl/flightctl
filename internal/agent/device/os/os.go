@@ -22,6 +22,8 @@ type Client interface {
 	Status(ctx context.Context) (*Status, error)
 	// Switch prepares the system to switch to the specified OS image
 	Switch(ctx context.Context, image string) error
+	// Rollback stages the previous deployment and reboots into it
+	Rollback(ctx context.Context) error
 	// Apply applies the OS changes, potentially triggering a reboot
 	Apply(ctx context.Context) error
 }
@@ -29,6 +31,9 @@ type Client interface {
 type Manager interface {
 	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error
 	AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
+	// Rollback validates that the rollback deployment matches the expected image
+	// from the spec, then stages the previous deployment and reboots into it.
+	Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error
 
 	dependency.OCICollector
@@ -132,6 +137,35 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) 
 	}
 	osImage := desired.Os.Image
 	return m.client.Switch(ctx, osImage)
+}
+
+func (m *manager) Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	if desired == nil || desired.Os == nil || desired.Os.Image == "" {
+		return fmt.Errorf("rollback spec has no OS image")
+	}
+
+	expectedImage := desired.Os.Image
+	status, err := m.client.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("getting OS status: %w", err)
+	}
+
+	rollbackImage := status.GetRollbackImage()
+	if rollbackImage == "" {
+		return fmt.Errorf("no rollback deployment available")
+	}
+
+	expectedTarget, err := container.ImageToBootcTarget(expectedImage)
+	if err != nil {
+		return fmt.Errorf("parsing expected image: %w", err)
+	}
+
+	if rollbackImage != expectedTarget {
+		return fmt.Errorf("rollback deployment mismatch: bootc has %q, expected %q", rollbackImage, expectedTarget)
+	}
+
+	m.log.Infof("Validated rollback deployment matches expected image: %s", rollbackImage)
+	return m.client.Rollback(ctx)
 }
 
 func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error {

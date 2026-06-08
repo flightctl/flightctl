@@ -6,16 +6,25 @@ import (
 	"time"
 
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/go-chi/chi/v5"
 )
 
 // GracefulShutdownTimeout is the duration to wait for graceful shutdown
 const GracefulShutdownTimeout = 5 * time.Second
 
-// OapiErrorHandler is a shared error handler for OpenAPI validation errors
+// OapiErrorHandlerForVersion returns an OAPI error handler bound to a specific API version.
+func OapiErrorHandlerForVersion(version versioning.Version) func(http.ResponseWriter, string, int) {
+	return func(w http.ResponseWriter, message string, statusCode int) {
+		transport.WriteJSONErrorForVersion(w, version, fmt.Sprintf("API Error: %s", message), statusCode)
+	}
+}
+
+// OapiErrorHandler is a shared error handler for OpenAPI validation errors (defaults to v1beta1).
 func OapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	OapiErrorHandlerForVersion(versioning.V1Beta1)(w, message, statusCode)
 }
 
 // RateLimitConfig holds rate limiting parameters

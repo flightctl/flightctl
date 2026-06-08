@@ -23,5 +23,24 @@ database:
 kv:
   hostname: flightctl-kv
   port: 6379
+metrics:
+  enabled: true
+  address: ":15690"
 service: {}
+{{- if eq .vulnerabilityReporting.enabled true}}
+vulnerabilityReporting:
+  enabled: true
+  syncInterval: {{if .vulnerabilityReporting.syncInterval}}{{.vulnerabilityReporting.syncInterval}}{{else}}15m{{end}}
+  {{- if .vulnerabilityReporting.trustify}}
+  trustify:
+    endpoint: {{.vulnerabilityReporting.trustify.endpoint}}
+    {{- if .vulnerabilityReporting.trustify.auth}}
+    auth:
+      mode: {{if .vulnerabilityReporting.trustify.auth.mode}}{{.vulnerabilityReporting.trustify.auth.mode}}{{else}}none{{end}}
+      {{- if .vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
+      oidcIssuerUrl: {{.vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
+      {{- end}}
+    {{- end}}
+  {{- end}}
+{{- end}}
 

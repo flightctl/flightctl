@@ -43,6 +43,12 @@ func (d DeviceStatusType) Validate() error {
 	}
 }
 
+// DeviceListParams extends ListParams with device-specific filter options.
+type DeviceListParams struct {
+	ListParams
+	CveID *string // Filter devices by CVE ID (join vulnerability_findings; selectors use devices.*)
+}
+
 type Device interface {
 	InitialMigration(ctx context.Context) error
 
@@ -51,7 +57,7 @@ type Device interface {
 	Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*domain.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*domain.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback EventCallback) (*domain.Device, error)
@@ -62,7 +68,7 @@ type Device interface {
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -179,6 +185,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceOsImageDigestIndex(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -271,6 +281,21 @@ func (s *DeviceStore) createServiceConditionsIndex(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// createDeviceOsImageDigestIndex creates a partial expression index on
+// devices(status->'os'->>'imageDigest') so queries that look up deployed OS
+// image digests (e.g. for vulnerability scanning) can use an index scan instead
+// of a full sequential scan as the devices table grows.
+func (s *DeviceStore) createDeviceOsImageDigestIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_os_image_digest
+		ON devices ((status->'os'->>'imageDigest'))
+		WHERE deleted_at IS NULL
+		  AND status->'os'->>'imageDigest' IS NOT NULL
+		  AND status->'os'->>'imageDigest' <> ''`).Error
 }
 
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
@@ -401,8 +426,95 @@ func (s *DeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, nam
 	return s.getWithTimestamp(ctx, orgId, name)
 }
 
-func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error) {
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	listQueryOpts := []ListQueryOption(nil)
+	if listParams.CveID != nil {
+		// Joining vulnerability_findings exposes its "status" column alongside devices.status JSON.
+		// CompositeSelectorResolver qualifies selector SQL as devices.* so it is unambiguous.
+		r, err := selector.NewCompositeSelectorResolver(&model.Device{})
+		if err != nil {
+			return nil, err
+		}
+		listQueryOpts = append(listQueryOpts, WithSelectorResolver(r))
+	}
+
+	// Build base query with selectors
+	baseQuery, err := ListQuery(&model.Device{}, listQueryOpts...).Build(ctx, s.getDB(ctx), orgId, listParams.ListParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply CVE filter if specified
+	if listParams.CveID != nil {
+		baseQuery = s.applyCveFilter(baseQuery, *listParams.CveID)
+	}
+
+	// Device model has a spec column
+	baseQuery = baseQuery.Where("spec IS NOT NULL")
+
+	// Create query for fetching with pagination
+	query := baseQuery.Session(&gorm.Session{})
+	if listParams.Limit > 0 {
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue, listParams.ListParams)
+	}
+
+	// Execute query
+	result := query.Find(&devices)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	// Handle continue token if we got more than requested
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		lastIndex := len(devices) - 1
+		lastItem := devices[lastIndex]
+		columns, _, _ := getSortColumns(listParams.ListParams)
+
+		// Build values for continue token
+		continueValues := make([]string, len(columns))
+		for i, col := range columns {
+			switch col {
+			case SortByName:
+				continueValues[i] = lastItem.Name
+			case SortByCreatedAt:
+				continueValues[i] = lastItem.CreatedAt.Format(time.RFC3339Nano)
+			default:
+				continueValues[i] = ""
+			}
+		}
+
+		devices = devices[:lastIndex]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = CountRemainingItems(baseQuery, continueValues, listParams.ListParams)
+		}
+
+		nextContinue = BuildContinueString(continueValues, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	ret, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
+// applyCveFilter adds a join with vulnerability_findings to filter devices by CVE ID.
+func (s *DeviceStore) applyCveFilter(query *gorm.DB, cveID string) *gorm.DB {
+	return query.Joins(
+		"JOIN vulnerability_findings ON devices.status->'os'->>'imageDigest' = vulnerability_findings.image_digest",
+	).Where("vulnerability_findings.cve_id = ?", strings.ToUpper(cveID))
 }
 
 func (s *DeviceStore) ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
@@ -959,7 +1071,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -983,13 +1095,21 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
 	}
-	// Check if the rendered content has changed by comparing hashes
+
+	specUnchanged := false
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
-		// if the hash is the same, we shouldn't update the rendered version
 		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
-			return false, "", nil
+			specUnchanged = true
 		}
 	}
+
+	// Build dependency sync status from fingerprints, preserving lastUpdatedAt for unchanged entries
+	updatedServiceConditions := buildDependencySyncStatus(existingRecord.ServiceConditions, configFingerprints)
+
+	if specUnchanged && len(configFingerprints) == 0 {
+		return false, "", nil
+	}
+
 	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
@@ -997,13 +1117,18 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		renderedApplicationsJSON = "[]"
 	}
 
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"annotations":           model.MakeJSONMap(existingAnnotations),
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
 		"resource_version":      gorm.Expr("resource_version + 1"),
 		"render_timestamp":      time.Now(),
-	})
+	}
+	if updatedServiceConditions != nil {
+		updates["service_conditions"] = updatedServiceConditions
+	}
+
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(updates)
 
 	err = ErrorFromGormError(result.Error)
 	if err != nil {
@@ -1015,13 +1140,57 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	return false, nextRenderedVersion, nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
+// buildDependencySyncStatus merges new fingerprints with existing service conditions,
+// preserving lastUpdatedAt for entries whose fingerprint hasn't changed.
+func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions], fingerprints []domain.DependencySyncConfigRefStatus) *model.JSONField[model.ServiceConditions] {
+	if len(fingerprints) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+
+	// Build lookup of previous fingerprints by config provider name
+	prevByName := map[string]domain.DependencySyncConfigRefStatus{}
+	if existing != nil && existing.Data.DependencySync != nil && existing.Data.DependencySync.ConfigRefs != nil {
+		for _, ref := range *existing.Data.DependencySync.ConfigRefs {
+			prevByName[ref.ConfigProviderName] = ref
+		}
+	}
+
+	refs := make([]domain.DependencySyncConfigRefStatus, 0, len(fingerprints))
+	for _, fp := range fingerprints {
+		ref := domain.DependencySyncConfigRefStatus{
+			ConfigProviderName: fp.ConfigProviderName,
+			Fingerprint:        fp.Fingerprint,
+		}
+		if prev, ok := prevByName[fp.ConfigProviderName]; ok && prev.Fingerprint != nil && *prev.Fingerprint == lo.FromPtr(fp.Fingerprint) {
+			ref.LastUpdatedAt = prev.LastUpdatedAt
+		} else {
+			ref.LastUpdatedAt = &now
+		}
+		refs = append(refs, ref)
+	}
+
+	sc := model.ServiceConditions{
+		DependencySync: &domain.DependencySyncStatus{
+			ConfigRefs: &refs,
+		},
+	}
+	// Preserve existing conditions
+	if existing != nil {
+		sc.Conditions = existing.Data.Conditions
+	}
+
+	return model.MakeJSONField(sc)
+}
+
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 		return retry, err
 	}
 

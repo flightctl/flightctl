@@ -92,6 +92,7 @@ var _ = AfterEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	harness.PrintAgentLogsIfFailed()
+	harness.CaptureDeploymentLogsIfFailed()
 
 	err := harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())

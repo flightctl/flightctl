@@ -1,0 +1,74 @@
+name: Weekly E2E Health Report
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 09:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/e2e-health-report.yml'
+      - '.github/actions/setup-dependencies/**'
+      - 'test/scripts/analyze_e2e_health/**'
+      - 'test/scripts/pkg/e2etestutils/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read  # jobs API + artifact download
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Generate health report
+        working-directory: test/scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./analyze_e2e_health
+
+      - name: Upload HTML report and JSON summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-health-report
+          path: |
+            test/scripts/e2e-health/e2e-health-report.html
+            test/scripts/e2e-health/e2e-health-summary.json
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SUMMARY_FILE="test/scripts/e2e-health/e2e-health-summary.json"
+          if [ -f "$SUMMARY_FILE" ]; then
+            MSG=$(jq -r '
+              def mins: (. / 60 + 0.5 | floor | tostring) + "m";
+              "E2E Health Report  (\(.analyzed_runs) runs, \(.inferred_shards) shards)\n" +
+              "• Pipeline:  wall \(.wall_time_seconds | mins)  =  prepare \(.prepare_time_seconds | mins)  +  tests \(.testing_time_seconds | mins)\n" +
+              "• Specs:  \(.total_specs_tracked) tracked  ·  \(.flaky_tests) flaky  ·  \(.consistently_failing) always failing  ·  \(.never_failed) clean" +
+              (if .infra_instability_events > 0 then "  (\(.infra_instability_events) infra events excluded)" else "" end) +
+              (if .optimization_savings_seconds > 60 then
+                "\n• Potential saving: \(.optimization_savings_seconds | mins)" else "" end)
+            ' "$SUMMARY_FILE")
+          else
+            MSG="E2E Health Report — report generation failed; see run for details."
+          fi
+          [ -z "$SLACK_WEBHOOK_URL" ] && { echo "SLACK_WEBHOOK_URL not set, skipping."; exit 0; }
+          curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg text "$MSG" \
+              --arg url "$RUN_URL" \
+              '{text: ($text + "\nFull report: <" + $url + "|view run artifacts>")}')"
+        shell: bash

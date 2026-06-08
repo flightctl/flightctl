@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"net/url"
 
-	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/jsonpatch"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
@@ -95,25 +95,17 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getS
 		Request:    httpReq,
 		PathParams: pathParams,
 		Route:      route,
+		Options:    &openapi3filter.Options{ExcludeReadOnlyValidations: true},
 	}
 	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }
 
 func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest domain.PatchRequest, objPath string, getSwagger ...SwaggerGetter) error {
-	patch, err := json.Marshal(patchRequest)
-	if err != nil {
-		return err
-	}
-	jsonPatch, err := jsonpatch.DecodePatch(patch)
-	if err != nil {
+	if err := jsonpatch.Apply(obj, &newObj, patchRequest); err != nil {
 		return err
 	}
 
-	objJSON, err := json.Marshal(obj)
-	if err != nil {
-		return err
-	}
-	newJSON, err := jsonPatch.Apply(objJSON)
+	newJSON, err := json.Marshal(newObj)
 	if err != nil {
 		return err
 	}
@@ -143,6 +135,7 @@ var badRequestErrors = map[error]bool{
 	flterrors.ErrLabelSelectorParseFailed:      true,
 	flterrors.ErrAnnotationSelectorSyntax:      true,
 	flterrors.ErrAnnotationSelectorParseFailed: true,
+	flterrors.ErrUnsupportedUnicode:            true,
 }
 
 var conflictErrors = map[error]bool{
