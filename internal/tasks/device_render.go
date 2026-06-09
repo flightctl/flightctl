@@ -384,8 +384,13 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *dom
 		}
 		commitHash = hash
 	} else {
+		depFingerprint, depResourceKey := t.getDepChangeDetails()
+		expectedResourceKey := fmt.Sprintf("git:%s/%s", gitSpec.GitRef.Repository, gitSpec.GitRef.TargetRevision)
+		if depResourceKey != expectedResourceKey {
+			depFingerprint = ""
+		}
 		var hash string
-		ignition, hash, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
+		ignition, hash, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, depFingerprint)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, nil, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
@@ -439,6 +444,11 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 	var key kvstore.K8sSecretKey
 	needToStoreData := false
 
+	depFingerprint, depResourceKey := t.getDepChangeDetails()
+	if depResourceKey != fmt.Sprintf("secret:%s/%s", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name) {
+		depFingerprint = ""
+	}
+
 	if t.ownerFleet != nil {
 		key = kvstore.K8sSecretKey{
 			OrgID:           t.orgId,
@@ -456,8 +466,19 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 			if err = json.Unmarshal(data, &cached); err != nil {
 				return &k8sSpec.Name, nil, nil, fmt.Errorf("failed parsing cached secret data: %w", err)
 			}
-			secretData = cached.Data
-			resourceVersion = cached.ResourceVersion
+			// For parameterized secret name/namespace the template version never
+			// bumps, so the cache key is unchanged across re-renders. The cached
+			// ResourceVersion acts as the freshness signal: if it differs from the
+			// event fingerprint the secret content has changed and we must re-fetch.
+			if depFingerprint != "" && cached.ResourceVersion != depFingerprint {
+				if err := t.kvStore.Delete(ctx, key.ComposeKey()); err != nil {
+					return &k8sSpec.Name, nil, nil, fmt.Errorf("failed invalidating secret cache: %w", err)
+				}
+				needToStoreData = true
+			} else {
+				secretData = cached.Data
+				resourceVersion = cached.ResourceVersion
+			}
 		} else {
 			needToStoreData = true
 		}
@@ -481,12 +502,8 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if err != nil {
 			return &k8sSpec.Name, nil, nil, fmt.Errorf("failed marshalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
-		updated, err := t.kvStore.SetNX(ctx, key.ComposeKey(), secretDataToStore)
-		if err != nil {
+		if _, err := t.kvStore.SetNX(ctx, key.ComposeKey(), secretDataToStore); err != nil {
 			return &k8sSpec.Name, nil, nil, fmt.Errorf("failed storing secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
-		}
-		if !updated {
-			return &k8sSpec.Name, nil, nil, fmt.Errorf("failed freezing secret %s/%s: unexpectedly changed", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 		}
 	}
 
@@ -563,12 +580,20 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil, err
 	}
 
+	suffix := ""
 	if httpConfigProviderSpec.HttpRef.Suffix != nil {
-		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+		suffix = *httpConfigProviderSpec.HttpRef.Suffix
+	}
+	repoURL = repoURL + suffix
+
+	depFingerprint, depResourceKey := t.getDepChangeDetails()
+	if depResourceKey != httpResourceKey(httpConfigProviderSpec.HttpRef.Repository, suffix) {
+		depFingerprint = ""
 	}
 
 	var httpData []byte
 	var httpKey kvstore.HttpKey
+	var httpFingerprintKey kvstore.HttpFingerprintKey
 	needToStoreData := false
 
 	if t.ownerFleet != nil {
@@ -578,14 +603,38 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 			TemplateVersion: *t.templateVersion,
 			URL:             repoURL,
 		}
+		httpFingerprintKey = kvstore.HttpFingerprintKey{
+			OrgID:           t.orgId,
+			Fleet:           *t.ownerFleet,
+			TemplateVersion: *t.templateVersion,
+			URL:             repoURL,
+		}
 		data, err := t.kvStore.Get(ctx, httpKey.ComposeKey())
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed fetching cached data: %w", err)
 		}
-		if data != nil {
+
+		// For parameterized HTTP suffix the template version never bumps, so
+		// the cache key is unchanged across re-renders. Compare the stored
+		// fingerprint against the event's fingerprint to detect staleness.
+		needToStoreData = data == nil
+		if !needToStoreData && depFingerprint != "" {
+			cachedFP, err := t.kvStore.Get(ctx, httpFingerprintKey.ComposeKey())
+			if err != nil {
+				return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed fetching cached http fingerprint: %w", err)
+			}
+			if string(cachedFP) != depFingerprint {
+				if err := t.kvStore.Delete(ctx, httpKey.ComposeKey()); err != nil {
+					return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed invalidating http cache: %w", err)
+				}
+				if err := t.kvStore.Delete(ctx, httpFingerprintKey.ComposeKey()); err != nil {
+					return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed invalidating http fingerprint cache: %w", err)
+				}
+				needToStoreData = true
+			}
+		}
+		if !needToStoreData {
 			httpData = data
-		} else {
-			needToStoreData = true
 		}
 	}
 
@@ -597,12 +646,14 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if needToStoreData {
-		updated, err := t.kvStore.SetNX(ctx, httpKey.ComposeKey(), httpData)
-		if err != nil {
+		if _, err := t.kvStore.SetNX(ctx, httpKey.ComposeKey(), httpData); err != nil {
 			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed storing data: %w", err)
 		}
-		if !updated {
-			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed storing data: unexpectedly changed")
+		// Store the fingerprint alongside the body. depFingerprint may be empty
+		// for non-dependency-triggered renders; a subsequent DependencyChangeDetected
+		// event with a non-empty fingerprint will still detect staleness correctly.
+		if _, err := t.kvStore.SetNX(ctx, httpFingerprintKey.ComposeKey(), []byte(depFingerprint)); err != nil {
+			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed storing http fingerprint: %w", err)
 		}
 	}
 
@@ -616,6 +667,21 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 
 	bodyHash := fmt.Sprintf("sha256:%x", sha256.Sum256(httpData))
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, &bodyHash, nil
+}
+
+// getDepChangeDetails returns the fingerprint and resourceKey from a
+// DependencyChangeDetected event. Both values are empty when the event is of a
+// different type or carries no details.
+func (t *DeviceRenderLogic) getDepChangeDetails() (fingerprint, resourceKey string) {
+	if t.event.Reason != domain.EventReasonDependencyChangeDetected || t.event.Details == nil {
+		return "", ""
+	}
+	details, err := t.event.Details.AsDependencyChangeDetectedDetails()
+	if err != nil {
+		t.log.WithError(err).Warn("failed extracting details from DependencyChangeDetected event")
+		return "", ""
+	}
+	return details.Fingerprint, details.ResourceKey
 }
 
 func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *domain.Repository) error {
@@ -645,7 +711,16 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *do
 	return nil
 }
 
-func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *domain.Repository, targetRevision string, path string) (*config_latest_types.Config, string, error) {
+// cloneCachedGitRepoToIgnition fetches git content for a fleet-owned device,
+// using a per-(fleet, templateVersion, repo, revision) KV cache to ensure all
+// devices in a fleet see identical content for a given template version.
+//
+// newFingerprint is the commit SHA from a DependencyChangeDetected event.
+// When it is set and differs from the currently frozen hash, the stale cache
+// entries are deleted so this call (or a concurrent one) re-fetches and
+// re-freezes with the new commit. Subsequent callers that find the updated hash
+// already matching newFingerprint skip the clone entirely.
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *domain.Repository, targetRevision string, path string, newFingerprint string) (*config_latest_types.Config, string, error) {
 	err := t.getFrozenRepositoryURL(ctx, repo)
 	if err != nil {
 		return nil, "", err
@@ -670,6 +745,22 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		Repository:      *repo.Metadata.Name,
 		TargetRevision:  targetRevision,
 		Path:            path,
+	}
+
+	// For parameterized targetRevision the template version never bumps, so the
+	// cache key is identical across re-renders even when the remote content
+	// changes. When a DependencyChangeDetected event carries a newer fingerprint,
+	// invalidate the stale entries so this call re-fetches. Callers that run
+	// after the cache is refreshed will find the new hash matching newFingerprint
+	// and return without cloning.
+	if newFingerprint != "" && frozenHashBytes != nil && string(frozenHashBytes) != newFingerprint {
+		if err := t.kvStore.Delete(ctx, gitRevisionKey.ComposeKey()); err != nil {
+			return nil, "", fmt.Errorf("failed invalidating git revision cache: %w", err)
+		}
+		if err := t.kvStore.Delete(ctx, gitContentsKey.ComposeKey()); err != nil {
+			return nil, "", fmt.Errorf("failed invalidating git contents cache: %w", err)
+		}
+		frozenHashBytes = nil
 	}
 
 	if frozenHashBytes != nil {
