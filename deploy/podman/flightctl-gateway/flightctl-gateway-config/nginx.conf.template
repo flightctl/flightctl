@@ -14,6 +14,11 @@ http {
 
   server_tokens off;
 
+  upstream api {
+    server flightctl-api:3080;
+    keepalive 128;
+  }
+
   server {
     server_name {{.global.baseDomain}};
     listen 8443 ssl;
@@ -33,10 +38,11 @@ http {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
 
-        proxy_pass http://flightctl-api:3080/ws/;
+        proxy_pass http://api/ws/;
       }
 
-      proxy_pass http://flightctl-api:3080/;
+      proxy_http_version 1.1;
+      proxy_pass http://api/;
     }
 
     location /_/cli-artifacts/ {
@@ -89,11 +95,12 @@ http {
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
 
-      proxy_pass http://flightctl-api:3080/ws/;
+      proxy_pass http://api/ws/;
     }
 
     location / {
-      proxy_pass http://flightctl-api:3080/;
+      proxy_http_version 1.1;
+      proxy_pass http://api/;
     }
   }
 
