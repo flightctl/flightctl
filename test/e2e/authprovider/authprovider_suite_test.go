@@ -64,12 +64,12 @@ var _ = BeforeSuite(func() {
 		true,
 	)
 	authProviderPath := filepath.Join(os.TempDir(), "authprovider-keycloak-e2e.yaml")
-	defer cleanupAuthProviderManifest(harness, keycloakAuthProviderName, authProviderPath)
+	DeferCleanup(os.Remove, authProviderPath)
 
 	Eventually(func() error {
 		_, applyErr := writeAndApplyAuthProviderManifest(harness, authProviderPath, authProviderYAML)
 		return applyErr
-	}).WithTimeout(authProviderApplyTimeout).WithPolling(2*time.Second).Should(Succeed(), "apply AuthProvider CR")
+	}).WithTimeout(authProviderApplyTimeout).WithPolling(authProviderPollingInterval).Should(Succeed(), "apply AuthProvider CR")
 
 	// Wait until the API's loader has picked up the new provider with the current issuer
 	// (auth config is served from cache; without this the CLI would get a stale issuer from a previous run)
@@ -83,7 +83,7 @@ var _ = BeforeSuite(func() {
 			return false
 		}
 		return strings.Contains(out, auxSvcs.Keycloak.IssuerURL())
-	}).WithTimeout(15*time.Second).WithPolling(2*time.Second).Should(BeTrue(), "provider %q with issuer %q must appear in login --show-providers", keycloakAuthProviderName, auxSvcs.Keycloak.IssuerURL())
+	}).WithTimeout(authProviderApplyTimeout).WithPolling(authProviderPollingInterval).Should(BeTrue(), "provider %q with issuer %q must appear in login --show-providers", keycloakAuthProviderName, auxSvcs.Keycloak.IssuerURL())
 })
 
 var _ = BeforeEach(func() {
@@ -91,6 +91,9 @@ var _ = BeforeEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
+
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred(), "restore admin login before spec")
 })
 
 var _ = AfterEach(func() {
