@@ -1,7 +1,7 @@
 # Installing the Flight Control service offline on Linux
 
 This document describes how to install the Flight Control server on a RHEL machine
-that has no internet access. The `mirror-images` tool running on a connected prep
+that has no internet access. The `flightctl-mirror-images` tool running on a connected prep
 machine creates a single portable archive containing all required container images
 and optionally the `flightctl-services` RPM. You then transfer the archive to the
 air-gapped target and use the included scripts to complete the installation.
@@ -14,7 +14,7 @@ For the connected (online) installation procedure, see
 On the **prep machine** (internet-connected):
 
 - RHEL 9 or RHEL 10 with `skopeo` and `createrepo_c` installed (`sudo dnf install -y skopeo createrepo_c`)
-- The `mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
+- The `flightctl-mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
 - Sufficient disk space for the bundle (~5–10 GB depending on the variant)
 
 On the **target machine** (air-gapped):
@@ -28,7 +28,7 @@ On the **target machine** (air-gapped):
 
 ## Step 1: Create the offline bundle on the prep machine
 
-Run `mirror-images` with the `--bundle` flag. The command downloads all container
+Run `flightctl-mirror-images` with the `--bundle` flag. The command downloads all container
 images required for your chosen deployment variant and packages them into a single
 `.tar.gz` archive. The `--bundle-rpms` flag includes the `flightctl-services` RPM
 and its dependencies so you can complete the installation without any network access.
@@ -44,7 +44,7 @@ install script on the target can install packages by name rather than by file gl
 > [Pinning to a specific release version](#pinning-to-a-specific-release-version) below.
 
 ```bash
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant community-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms \
@@ -68,7 +68,7 @@ Replace `community-el9` with your target variant:
 
 ### Pinning to a specific release version
 
-By default, `mirror-images` reads the `appVersion` field from `Chart.yaml` in your
+By default, `flightctl-mirror-images` reads the `appVersion` field from `Chart.yaml` in your
 current checkout to determine which image tags to pull. The RPM download fetches the
 latest version available in the FlightCtl repository. To produce a bundle for a
 specific stable release, use one of the following approaches.
@@ -81,7 +81,7 @@ automatically sets `appVersion` to the release version so no extra flags are nee
 ```bash
 git checkout v1.1.2
 make build-mirror-images
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant community-el9 \
     --bundle ~/flightctl-bundle-1.1.2.tar.gz \
     --bundle-rpms
@@ -93,7 +93,7 @@ If you cannot check out the release tag, pass `--tag-override` to pin the contai
 image tags and include the version in `--rpm-packages` to pin the RPM:
 
 ```bash
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant community-el9 \
     --bundle ~/flightctl-bundle-1.1.2.tar.gz \
     --bundle-rpms \

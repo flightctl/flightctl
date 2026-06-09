@@ -9,7 +9,7 @@ describes additional options for specific scenarios.
 
 ## Tar archives
 
-A tar archive is the simplest and most universal transfer format. The `mirror-images --bundle`
+A tar archive is the simplest and most universal transfer format. The `flightctl-mirror-images --bundle`
 command produces a `.tar.gz` archive directly. For RPM packages or other files, you
 create the archive manually.
 

@@ -371,10 +371,10 @@ registry is reachable from both the prep machine and the cluster.
 
 ### Step 1: Mirror images on the prep machine
 
-Run `mirror-images` to copy all FlightCtl service images to the internal registry:
+Run `flightctl-mirror-images` to copy all FlightCtl service images to the internal registry:
 
 ```bash
-./bin/mirror-images --variant community-el9 \
+./bin/flightctl-flightctl-mirror-images --variant community-el9 \
     --dest-registry my-internal.registry.example.com:5000 \
     --execute
 ```

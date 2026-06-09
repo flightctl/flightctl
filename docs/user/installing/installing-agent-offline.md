@@ -200,16 +200,16 @@ Flight Control points at the local registry instead of an internet-accessible re
    insecure = true
    ```
 
-3. On the prep machine, use `mirror-images` to create a bundle of the required workload
+3. On the prep machine, use `flightctl-mirror-images` to create a bundle of the required workload
    images and transfer it to the target:
 
    ```bash
-   ./bin/mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
+   ./bin/flightctl-flightctl-mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
    scp ~/workload-images.tar.gz <user>@<target_host>:~/
    ```
 
    See the [air-gap mirroring guide](../../../scripts/air-gap/README.md) for full
-   `mirror-images` options and bundle transfer steps.
+   `flightctl-mirror-images` options and bundle transfer steps.
 
 4. On the target machine, extract the bundle and run `import.sh` to push the images
    into the local registry:

@@ -28,7 +28,7 @@ To store and visualize this telemetry data, you can deploy an observability stac
 
 ## Air-gapped installation
 
-The standard `mirror-images` bundle excludes Prometheus and Grafana because
+The standard `flightctl-mirror-images` bundle excludes Prometheus and Grafana because
 `flightctl-observability` is optional. If you plan to run the observability stack
 on an air-gapped target, you must mirror those images manually before or alongside
 the main bundle transfer.
@@ -46,11 +46,11 @@ the main bundle transfer.
 
 ### Include the observability RPM in the bundle
 
-When running `mirror-images`, add `flightctl-observability` to `--rpm-packages` so
+When running `flightctl-mirror-images`, add `flightctl-observability` to `--rpm-packages` so
 that the RPM and its dependencies are bundled alongside the core service packages:
 
 ```bash
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant community-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms \
