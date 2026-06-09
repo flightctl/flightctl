@@ -32,10 +32,10 @@ db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
 kv:
-  # docker.io/library/ prefix is required: podman mirrors docker.io official images
-  # using the canonical library/ namespace path. Without it the local registry lookup fails.
-  image: docker.io/library/redis
-  tag: "7.4.1"
+  # Must match helm-chart-opts.yaml community-el9 kv image so the bundle and
+  # the rendered quadlet reference the same image and tag.
+  image: quay.io/sclorg/redis-7-c9s
+  tag: "20250108"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
