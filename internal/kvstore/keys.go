@@ -77,6 +77,21 @@ func (k *HttpKey) ComposeKey() string {
 	return fmt.Sprintf("v1/%s/%s/%s/http-data/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
 }
 
+// HttpFingerprintKey stores the ETag/Last-Modified fingerprint alongside the
+// cached HTTP body so stale entries can be detected on DependencyChangeDetected
+// without changing the HttpKey format.
+type HttpFingerprintKey struct {
+	OrgID           uuid.UUID
+	Fleet           string
+	TemplateVersion string
+	URL             string
+}
+
+func (k *HttpFingerprintKey) ComposeKey() string {
+	md5sum := md5.Sum([]byte(k.URL)) //nolint: gosec
+	return fmt.Sprintf("v1/%s/%s/%s/http-fingerprint/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
+}
+
 type DeviceKey struct {
 	OrgID      uuid.UUID
 	DeviceName string
