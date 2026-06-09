@@ -36,6 +36,11 @@ kv:
   # Using Valkey (Redis replacement) for EL10 flavor
   image: quay.io/sclorg/valkey-8-c10s
   tag: "20260121"
+kv-standalone:
+  # docker.io/library/ prefix is required for podman mirror resolution.
+  # Used by flightctl-kv-standalone.container (installed by the RPM).
+  image: docker.io/library/redis
+  tag: "7.4.1"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
