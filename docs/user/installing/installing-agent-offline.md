@@ -204,7 +204,7 @@ Flight Control points at the local registry instead of an internet-accessible re
    images and transfer it to the target:
 
    ```bash
-   ./bin/flightctl-flightctl-mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
+   ./bin/flightctl-mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
    scp ~/workload-images.tar.gz <user>@<target_host>:~/
    ```
 

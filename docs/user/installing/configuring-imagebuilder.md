@@ -374,7 +374,7 @@ registry is reachable from both the prep machine and the cluster.
 Run `flightctl-mirror-images` to copy all FlightCtl service images to the internal registry:
 
 ```bash
-./bin/flightctl-flightctl-mirror-images --variant community-el9 \
+./bin/flightctl-mirror-images --variant community-el9 \
     --dest-registry my-internal.registry.example.com:5000 \
     --execute
 ```

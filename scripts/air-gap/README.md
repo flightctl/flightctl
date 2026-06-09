@@ -20,21 +20,21 @@ For **user-facing installation documentation** see:
 make build-mirror-images
 
 # Bundle: create a self-contained offline archive with all images + RPMs
-./bin/flightctl-flightctl-mirror-images --variant community-el9 \
+./bin/flightctl-mirror-images --variant community-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms
 
 # Dry-run: print all skopeo commands for review
-./bin/flightctl-flightctl-mirror-images --variant community-el9 \
+./bin/flightctl-mirror-images --variant community-el9 \
     --dest-registry local-registry.example.com:5000
 
 # Execute: mirror images directly to a running registry
-./bin/flightctl-flightctl-mirror-images --variant community-el9 \
+./bin/flightctl-mirror-images --variant community-el9 \
     --dest-registry local-registry.example.com:5000 \
     --execute
 
 # Agent-only bundle (no variant required)
-./bin/flightctl-flightctl-mirror-images --agent-only --bundle ~/flightctl-agent-bundle.tar.gz
+./bin/flightctl-mirror-images --agent-only --bundle ~/flightctl-agent-bundle.tar.gz
 ```
 
 ---
@@ -101,7 +101,7 @@ Pass multiple packages as a comma-separated list or by repeating the flag — bo
 
 ```bash
 # Server with observability RPM (Prometheus + Grafana images must be mirrored separately)
-./bin/flightctl-flightctl-mirror-images --variant community-el9 \
+./bin/flightctl-mirror-images --variant community-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms \
     --tag-override 1.2.0-rc1 \
@@ -173,15 +173,15 @@ scripts/air-gap/mirror-images/
 make build-mirror-images
 
 # Mutually exclusive flags
-./bin/flightctl-flightctl-mirror-images --variant community-el9 --bundle /tmp/x.tar.gz --execute 2>&1
-./bin/flightctl-flightctl-mirror-images --rpm-reposync --rpm-createrepo --agent-only --bundle /tmp/x.tar.gz 2>&1
-./bin/flightctl-flightctl-mirror-images --agent-only --execute --bundle /tmp/x.tar.gz 2>&1
-./bin/flightctl-flightctl-mirror-images --agent-only 2>&1
-./bin/flightctl-flightctl-mirror-images --rpm-reposync --variant community-el9 --bundle /tmp/x.tar.gz 2>&1
+./bin/flightctl-mirror-images --variant community-el9 --bundle /tmp/x.tar.gz --execute 2>&1
+./bin/flightctl-mirror-images --rpm-reposync --rpm-createrepo --agent-only --bundle /tmp/x.tar.gz 2>&1
+./bin/flightctl-mirror-images --agent-only --execute --bundle /tmp/x.tar.gz 2>&1
+./bin/flightctl-mirror-images --agent-only 2>&1
+./bin/flightctl-mirror-images --rpm-reposync --variant community-el9 --bundle /tmp/x.tar.gz 2>&1
 
 # Invalid variant / URL scheme
-./bin/flightctl-flightctl-mirror-images --variant bad --dest-registry localhost:5000 2>&1
-./bin/flightctl-flightctl-mirror-images --variant community-el9 --dest-registry https://localhost:5000 2>&1
+./bin/flightctl-mirror-images --variant bad --dest-registry localhost:5000 2>&1
+./bin/flightctl-mirror-images --variant community-el9 --dest-registry https://localhost:5000 2>&1
 ```
 
 ### Output correctness
@@ -189,24 +189,24 @@ make build-mirror-images
 ```bash
 # Image counts per variant
 for v in community-el9 community-el10 rhem-el9 rhem-el10; do
-    n=$(./bin/flightctl-flightctl-mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null | wc -l)
+    n=$(./bin/flightctl-mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null | wc -l)
     echo "$v: $n images"
 done
 
 # Community variants must not include registry.redhat.io
 for v in community-el9 community-el10; do
-    hits=$(./bin/flightctl-flightctl-mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
+    hits=$(./bin/flightctl-mirror-images --variant "$v" --dest-registry localhost:5000 2>/dev/null \
            | grep -c "registry.redhat.io" || true)
     echo "$v: $hits registry.redhat.io sources (expect 0)"
 done
 
 # Docker Hub official images must use library/ namespace
-hits=$(./bin/flightctl-flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
+hits=$(./bin/flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
        | grep -c "library/redis" || true)
 echo "library/redis entries: $hits (expect 1)"
 
 # stdout must be clean (no log lines)
-dirty=$(./bin/flightctl-flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
+dirty=$(./bin/flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000 2>/dev/null \
         | grep -cE "^\[INFO\]|^\[WARN\]|^\[ERROR\]" || true)
 echo "dirty stdout lines: $dirty (expect 0)"
 ```
@@ -222,7 +222,7 @@ export OBS_IMAGES_RHEL9=scripts/air-gap/test/fixtures/images-rhel9.yaml
 export OBS_IMAGES_RHEL10=scripts/air-gap/test/fixtures/images-rhel10.yaml
 export RPM_SPEC=/dev/null
 
-./bin/flightctl-flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000
+./bin/flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000
 ```
 
 ---
