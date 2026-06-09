@@ -1,9 +1,9 @@
-// mirror-images enumerates all RHEM container images for a given chart variant
+// flightctl-mirror-images enumerates all RHEM container images for a given chart variant
 // and generates skopeo copy commands suitable for an air-gapped installation.
 //
 // # Usage
 //
-//	./mirror-images --variant <variant> --dest-registry <host:port> [--execute]
+//	./flightctl-mirror-images --variant <variant> --dest-registry <host:port> [--execute]
 //
 // # Stories
 //
@@ -56,13 +56,13 @@ func envOr(key, fallback string) string {
 // repoRoot attempts to resolve the flightctl repository root relative to the
 // running binary's location.
 //
-// The binary is expected to be built from scripts/air-gap/mirror-images/, so
+// The binary is expected to be built from scripts/air-gap/flightctl-mirror-images/, so
 // the repo root is three directories above the binary:
 //
-//	bin/mirror-images → bin/ → repo root      (when run via `go build -o bin/`)
+//	bin/flightctl-mirror-images → bin/ → repo root      (when run via `go build -o bin/`)
 //
 // If os.Executable() fails we fall back to the current working directory so
-// that `go run ./scripts/air-gap/mirror-images` still works from the repo root.
+// that `go run ./scripts/air-gap/flightctl-mirror-images` still works from the repo root.
 func repoRoot() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -247,7 +247,7 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 	return nil
 }
 
-// NewRootCommand builds and returns the cobra root command for mirror-images.
+// NewRootCommand builds and returns the cobra root command for flightctl-mirror-images.
 func NewRootCommand() *cobra.Command {
 	var (
 		variant       string
@@ -265,9 +265,9 @@ func NewRootCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "mirror-images --variant <variant> [--dest-registry <host:port>] [--bundle <path>] [--execute] [--insecure]",
+		Use:   "flightctl-mirror-images --variant <variant> [--dest-registry <host:port>] [--bundle <path>] [--execute] [--insecure]",
 		Short: "Enumerate RHEM artifacts and generate skopeo mirror commands for air-gapped installation.",
-		Long: `mirror-images reads the flightctl Helm chart options and observability image files,
+		Long: `flightctl-mirror-images reads the flightctl Helm chart options and observability image files,
 generates skopeo copy commands for all referenced container images, and writes a
 machine-readable artifact manifest to the current directory.
 
@@ -288,36 +288,36 @@ Output:
 
 Examples:
   # Dry-run: print all commands for the community-el9 variant
-  mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000
+  flightctl-mirror-images --variant community-el9 --dest-registry local-registry.example.com:5000
 
   # Execute: mirror images to a running local registry
-  mirror-images --variant rhem-el9 --dest-registry local-registry.example.com:5000 --execute
+  flightctl-mirror-images --variant rhem-el9 --dest-registry local-registry.example.com:5000 --execute
 
   # Bundle: create offline archive with all images
-  mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz
 
   # Bundle: include RPMs for bare-metal quadlet installation
-  mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz --bundle-rpms
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz --bundle-rpms
 
   # Bundle with custom dest registry written into import.sh
-  mirror-images --variant community-el9 --dest-registry myregistry.local:5000 --bundle ~/flightctl-bundle.tar.gz
+  flightctl-mirror-images --variant community-el9 --dest-registry myregistry.local:5000 --bundle ~/flightctl-bundle.tar.gz
 
   # Execute: mirror to an HTTP (non-TLS) local registry
-  mirror-images --variant community-el9 --dest-registry localhost:5000 --execute --insecure
+  flightctl-mirror-images --variant community-el9 --dest-registry localhost:5000 --execute --insecure
 
   # Agent/CLI bundle for edge devices (no --variant required)
-  mirror-images --agent-only --bundle ~/flightctl-agent-bundle.tar.gz
+  flightctl-mirror-images --agent-only --bundle ~/flightctl-agent-bundle.tar.gz
 
   # Server bundle with full repo mirror and metadata (requires dnf-plugins-core)
-  mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms --rpm-reposync
 
   # Server bundle with generated repo metadata after targeted download
-  mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms --rpm-createrepo
 
   # Server bundle: download agent RPM for image building but skip auto-install on server
-  mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent`,
 
 		// SilenceUsage prevents cobra from printing the full usage block on every
@@ -407,11 +407,11 @@ Examples:
 				logWarn("Find the target RPM version: rpm -q --qf '%%{VERSION}' flightctl-agent")
 				logWarn("Then re-run with --tag-override, or from a release-tagged checkout:")
 				if bundle != "" {
-					logWarn("  ./bin/mirror-images --variant %s --bundle %s --tag-override <version>", variant, bundle)
-					logWarn("  OR: git checkout v<version> && ./bin/mirror-images --variant %s --bundle %s", variant, bundle)
+					logWarn("  ./bin/flightctl-mirror-images --variant %s --bundle %s --tag-override <version>", variant, bundle)
+					logWarn("  OR: git checkout v<version> && ./bin/flightctl-mirror-images --variant %s --bundle %s", variant, bundle)
 				} else {
-					logWarn("  ./bin/mirror-images --variant %s --dest-registry %s --tag-override <version>", variant, destRegistry)
-					logWarn("  OR: git checkout v<version> && ./bin/mirror-images --variant %s --dest-registry %s", variant, destRegistry)
+					logWarn("  ./bin/flightctl-mirror-images --variant %s --dest-registry %s --tag-override <version>", variant, destRegistry)
+					logWarn("  OR: git checkout v<version> && ./bin/flightctl-mirror-images --variant %s --dest-registry %s", variant, destRegistry)
 				}
 			} else {
 				logInfo("  Effective tag:    %s (for untagged images)", effectiveTag)
