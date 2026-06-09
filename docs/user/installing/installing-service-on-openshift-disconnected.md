@@ -1,7 +1,7 @@
 # Installing Flight Control in a Disconnected OpenShift Cluster
 
 This document describes how to install the Flight Control service on an OpenShift
-cluster that has no direct internet access. A `mirror-images` tool running on a
+cluster that has no direct internet access. A `flightctl-mirror-images` tool running on a
 connected prep machine mirrors all required container images to your internal
 registry. You then configure OpenShift to redirect image pulls to that registry
 and install Flight Control using Helm.
@@ -14,7 +14,7 @@ For the connected (online) installation procedure, see
 On the **prep machine** (internet-connected):
 
 - RHEL 9 or RHEL 10 with `skopeo` installed (`sudo dnf install -y skopeo`)
-- The `mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
+- The `flightctl-mirror-images` binary built from the flightctl repository (`make build-mirror-images`)
 - `helm` CLI installed
 - For `rhem-el9` or `rhem-el10` variants: credentials for `registry.redhat.io`
   (`podman login registry.redhat.io`)
@@ -39,11 +39,11 @@ Choose the variant that matches your deployment:
 
 ### Option A: Direct push (prep machine can reach the internal registry)
 
-Run `mirror-images` with `--execute` to copy all images directly to your mirror
+Run `flightctl-mirror-images` with `--execute` to copy all images directly to your mirror
 registry in a single step:
 
 ```bash
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant rhem-el9 \
     --dest-registry <mirror-registry-host>:<port> \
     --execute \
@@ -66,7 +66,7 @@ disconnected environment, then push from there:
 
 ```bash
 # On the prep machine (internet-connected)
-./bin/mirror-images \
+./bin/flightctl-mirror-images \
     --variant rhem-el9 \
     --bundle ~/flightctl-bundle.tar.gz \
     --tag-override <version>

@@ -230,7 +230,7 @@ build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
 build-mirror-images: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./scripts/air-gap/mirror-images
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN)/flightctl-mirror-images ./scripts/air-gap/mirror-images
 
 # Container builds - Environment-aware caching
 flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum $(GO_FILES)
