@@ -351,6 +351,8 @@ multicluster
 ImagePromotion
 semver
 dropdown
+ClusterIssuer
+Issuer
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
