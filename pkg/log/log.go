@@ -4,7 +4,9 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/coreos/go-systemd/v22/journal"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
@@ -71,11 +73,58 @@ func (p *PrefixLogger) Level(level string) {
 type PrefixFormatter struct {
 	Prefix     string
 	CallLevels int
+	// journaldDetected is cached to avoid repeated syscalls
+	journaldDetected     bool
+	journaldDetectedOnce sync.Once
+}
+
+// isJournaldConnected checks if stderr is connected to systemd journald.
+// The result is cached after the first check.
+func (f *PrefixFormatter) isJournaldConnected() bool {
+	f.journaldDetectedOnce.Do(func() {
+		// Check if stderr is connected to journald's stream transport
+		connected, err := journal.StderrIsJournalStream()
+		if err == nil && connected {
+			f.journaldDetected = true
+		}
+	})
+	return f.journaldDetected
+}
+
+// logrusLevelToSyslogPriority maps logrus log levels to syslog priority values
+// per RFC 5424. These priorities are used in the sd-daemon protocol for journald.
+// See: https://man7.org/linux/man-pages/man3/sd-daemon.3.html
+func logrusLevelToSyslogPriority(level logrus.Level) int {
+	switch level {
+	case logrus.PanicLevel:
+		return 0 // Emergency
+	case logrus.FatalLevel:
+		return 2 // Critical
+	case logrus.ErrorLevel:
+		return 3 // Error
+	case logrus.WarnLevel:
+		return 4 // Warning
+	case logrus.InfoLevel:
+		return 6 // Informational
+	case logrus.DebugLevel, logrus.TraceLevel:
+		return 7 // Debug
+	default:
+		return 6 // Default to Info
+	}
 }
 
 func (f *PrefixFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	// ref. https://stackoverflow.com/questions/1760757/how-to-efficiently-concatenate-strings-in-go
 	var sb strings.Builder
+
+	// Add syslog priority prefix if connected to systemd journald (EDM-4119)
+	// This allows journalctl to filter logs by priority correctly
+	if f.isJournaldConnected() {
+		priority := logrusLevelToSyslogPriority(entry.Level)
+		sb.WriteString("<")
+		sb.WriteString(strconv.Itoa(priority))
+		sb.WriteString(">")
+	}
 
 	// timestamp (RFC3339)
 	sb.WriteString(`time="`)
