@@ -36,11 +36,6 @@ kv:
   # the rendered quadlet reference the same image and tag.
   image: quay.io/sclorg/redis-7-c9s
   tag: "20250108"
-kv-standalone:
-  # docker.io/library/ prefix is required for podman mirror resolution.
-  # Used by flightctl-kv-standalone.container (installed by the RPM).
-  image: docker.io/library/redis
-  tag: "7.4.1"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
