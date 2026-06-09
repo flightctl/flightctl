@@ -6,6 +6,48 @@ You can install the Flight Control Service on any certified Kubernetes distribut
 
 It is recommended to install `cert-manager` before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using Helm's built-in functions once, but does not manage them.
 
+### Using a custom CA
+
+If you have an existing certificate authority (CA) and want Flight Control to use it instead of generating a self-signed CA, provide a `flightctl-ca` secret in the installation namespace **before** running `helm install`.
+
+Flight Control checks for an existing `flightctl-ca` secret during installation. If found, it will use that CA to sign all service certificates (API, UI, telemetry, imagebuilder). If not found, it creates a self-signed CA automatically.
+
+**For cert-manager users:**
+
+Create a Certificate resource named `flightctl-ca` with `isCA: true` before installing Flight Control. You can reference any cert-manager issuer (ClusterIssuer or Issuer):
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-ca
+  namespace: flightctl  # Must match your installation namespace
+spec:
+  isCA: true
+  commonName: flightctl-ca
+  secretName: flightctl-ca
+  duration: 87600h  # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: your-issuer-name
+    kind: ClusterIssuer  # or Issuer
+    group: cert-manager.io
+```
+
+**For users not using cert-manager:**
+
+Create a Kubernetes secret named `flightctl-ca` containing your CA certificate and private key in the installation namespace:
+
+```console
+kubectl create secret tls flightctl-ca -n flightctl \
+  --cert=/path/to/ca.crt \
+  --key=/path/to/ca.key
+```
+
+Your CA must be capable of signing other certificates (a CA certificate, not a leaf certificate).
+
 ### (Optional) Installing a `kind` cluster
 
 If you do not have a Kubernetes cluster available and are not running RHEL, you can use the [installation on Linux](installing-service-on-linux.md) or create a local test cluster using `kind` (Kubernetes in Docker). This section guides you through setting up a `kind` cluster with Gateway API support for use with Flight Control.
@@ -244,6 +286,8 @@ To use the `flightctl` CLI with your service:
 When you install the Flight Control Service on the OpenShift Kubernetes distribution, the installer automatically leverages OpenShift's built-in features like an OAuth2 authentication server and multi-tenancy support.
 
 It is recommended to install the `cert-manager` Operator from the OpenShift Software Catalog before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using `openssl` once, but does not manage them.
+
+To use a custom CA instead of Flight Control's self-signed CA, see [Using a custom CA](#using-a-custom-ca) in the Kubernetes installation section above.
 
 ### Installing using the CLI
 
