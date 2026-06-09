@@ -34,6 +34,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# redact_credentials removes username/password-looking values from command output before logs are printed.
+redact_credentials() {
+  sed -E \
+    -e 's/((USERNAME|PASSWORD|CYPRESS_AUTHPROVIDER_USERNAME|CYPRESS_AUTHPROVIDER_PASSWORD|authProviderUsername|authProviderPassword)[[:space:]]*[:=][[:space:]]*)("[^"]*"|'\''[^'\'']*'\''|[^[:space:]]+)/\1<REDACTED>/Ig' \
+    -e 's/([[:space:]]-[up][[:space:]]+)[^[:space:]]+/\1<REDACTED>/g' \
+    -e 's/(--(username|password)(=|[[:space:]]+))[^[:space:]]+/\1<REDACTED>/Ig'
+}
+
+# print_sanitized_log prints captured flightctl output without leaking test credentials.
+print_sanitized_log() {
+  redact_credentials < "$LOG" >&2 || true
+}
+
+# ensure_cypress_installed installs the suite-local Cypress dependencies when they are missing.
 ensure_cypress_installed() {
   if [[ -x "$CYPRESS_BIN" ]]; then
     return 0
@@ -53,6 +67,7 @@ ensure_cypress_installed() {
   fi
 }
 
+# resolve_openshift_oauth_client_id returns the single Flight Control OAuthClient name to patch.
 resolve_openshift_oauth_client_id() {
   if [[ -n "${OPENSHIFT_OAUTH_CLIENT_ID:-}" ]]; then
     echo "$OPENSHIFT_OAUTH_CLIENT_ID"
@@ -63,7 +78,8 @@ resolve_openshift_oauth_client_id() {
   client_ids="$(oc get oauthclient \
     -l flightctl.service=flightctl,component=oauth-client \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
-  client_count="$(grep -cve '^[[:space:]]*$' <<< "$client_ids")"
+  client_count="$(grep -cve '^[[:space:]]*$' <<< "$client_ids" || true)"
+  client_count="${client_count:-0}"
 
   case "$client_count" in
     0)
@@ -117,10 +133,16 @@ if [[ "$PROVIDER_UI" == "openshift" ]] && command -v oc >/dev/null 2>&1; then
           PATCH_OPS+=("{\"op\":\"add\",\"path\":\"/redirectURIs/-\",\"value\":\"${uri}\"}")
         done
         PATCH_PAYLOAD="[$(IFS=,; echo "${PATCH_OPS[*]}")]"
-        oc patch oauthclient "$OPENSHIFT_OAUTH_CLIENT_ID" --type=json -p "$PATCH_PAYLOAD" >/dev/null
+        if ! oc patch oauthclient "$OPENSHIFT_OAUTH_CLIENT_ID" --type=json -p "$PATCH_PAYLOAD" >/dev/null; then
+          echo "Failed to patch OAuth client ${OPENSHIFT_OAUTH_CLIENT_ID} with callback redirectURIs." >&2
+          exit 1
+        fi
       else
         PATCH_PAYLOAD="{\"redirectURIs\":[\"$LOCALHOST_CALLBACK_URI\",\"$LOOPBACK_CALLBACK_URI\"]}"
-        oc patch oauthclient "$OPENSHIFT_OAUTH_CLIENT_ID" --type=merge -p "$PATCH_PAYLOAD" >/dev/null
+        if ! oc patch oauthclient "$OPENSHIFT_OAUTH_CLIENT_ID" --type=merge -p "$PATCH_PAYLOAD" >/dev/null; then
+          echo "Failed to initialize OAuth client ${OPENSHIFT_OAUTH_CLIENT_ID} callback redirectURIs." >&2
+          exit 1
+        fi
       fi
     fi
   else
@@ -149,7 +171,7 @@ for _ in $(seq 1 240); do
 
   if ! kill -0 "$FLT_PID" 2>/dev/null; then
     echo "flightctl exited before printing an authorization URL. Output:" >&2
-    cat "$LOG" >&2
+    print_sanitized_log
     wait "$FLT_PID" || true
     exit 1
   fi
@@ -157,7 +179,7 @@ done
 
 if [[ -z "$AUTHORIZE_URL" ]]; then
   echo "Timed out waiting for authorization URL in flightctl output." >&2
-  cat "$LOG" >&2
+  print_sanitized_log
   kill "$FLT_PID" 2>/dev/null || true
   wait "$FLT_PID" 2>/dev/null || true
   exit 1
@@ -170,11 +192,11 @@ export CYPRESS_AUTHPROVIDER_USERNAME="$USERNAME"
 export CYPRESS_AUTHPROVIDER_PASSWORD="$PASSWORD"
 
 set +e
-"$CYPRESS_BIN" run --config-file cypress.config.js --spec e2e/provider-login.cy.js
-CYPRESS_EXIT=$?
+"$CYPRESS_BIN" run --config-file cypress.config.js --spec e2e/provider-login.cy.js 2>&1 | redact_credentials
+CYPRESS_EXIT=${PIPESTATUS[0]}
 set -e
 if [[ "$CYPRESS_EXIT" -ne 0 ]]; then
-  cat "$LOG" >&2 || true
+  print_sanitized_log
   kill "$FLT_PID" 2>/dev/null || true
   wait "$FLT_PID" 2>/dev/null || true
   exit "$CYPRESS_EXIT"
