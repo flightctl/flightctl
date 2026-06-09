@@ -461,7 +461,7 @@ before installation begins. The specific steps depend on what you are installing
   repo using `dnf reposync`. See
   [Setting up a local RPM repository](offline-rpm-repository.md).
 
-- **Container images for server or workloads** — Use the `mirror-images --bundle`
+- **Container images for server or workloads** — Use the `flightctl-mirror-images --bundle`
   command to create a portable archive of all required images. The archive includes
   an `import.sh` script that pushes images into a local container registry on the
   target. See the [air-gap mirroring guide](../../../scripts/air-gap/README.md).
