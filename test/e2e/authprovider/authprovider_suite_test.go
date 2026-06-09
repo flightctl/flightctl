@@ -59,7 +59,7 @@ var _ = BeforeSuite(func() {
 	authProviderYAML := buildOIDCAuthProviderYAML(
 		keycloakAuthProviderName,
 		auxSvcs.Keycloak.IssuerURL(),
-		"flightctl-client",
+		keycloakClientID,
 		auxiliary.KeycloakE2EClientSecret,
 		true,
 	)
