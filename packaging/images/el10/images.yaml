@@ -50,7 +50,7 @@ imagebuilder-worker:
 # {{ .Grafana.Image }}:{{ .Grafana.Tag }} and {{ .Prometheus.Image }}:{{ .Prometheus.Tag }}
 # in the quadlet .container templates. Removing them breaks the RPM build.
 #
-# The mirror-images tool excludes these entries at parse time (observabilityOnlyImages
+# The flightctl-mirror-images tool excludes these entries at parse time (observabilityOnlyImages
 # in parser.go) because they belong to the optional flightctl-observability stack.
 # Mirror them manually for air-gapped deployments — see deploying-observability-linux.md.
 grafana:

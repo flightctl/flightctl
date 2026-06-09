@@ -397,7 +397,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
-| ubiMinimal | object | `{"image":"registry.access.redhat.com/ubi9/ubi-minimal","tag":"9.7-1763362218"}` | UBI Minimal base image used by init containers (cert setup, etc.) Override this when deploying in an air-gapped environment where registry.access.redhat.com is unreachable — set image and tag to the mirrored location produced by the mirror-images tool. |
+| ubiMinimal | object | `{"image":"registry.access.redhat.com/ubi9/ubi-minimal","tag":"9.7-1763362218"}` | UBI Minimal base image used by init containers (cert setup, etc.) Override this when deploying in an air-gapped environment where registry.access.redhat.com is unreachable — set image and tag to the mirrored location produced by the flightctl-flightctl-mirror-images tool. |
 | ubiMinimal.image | string | `"registry.access.redhat.com/ubi9/ubi-minimal"` | UBI minimal image repository |
 | ubiMinimal.tag | string | `"9.7-1763362218"` | UBI minimal image tag (pinned to avoid unexpected updates) |
 | ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui-el9","pluginImage":"quay.io/flightctl/flightctl-ocp-ui-el9","pullPolicy":"","tag":""},"trustXForwardedHeaders":true,"trustedProxyCidrs":""}` | UI Configuration |
