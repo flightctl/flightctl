@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 
-# Fix git ownership issue in CI environments
-git config --global --add safe.directory /__w/flightctl/flightctl 2>/dev/null || true
-git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+# Fix git ownership issue in CI environments (idempotent — do not append duplicates).
+ensure_safe_directory() {
+  local dir="$1"
+  git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$dir" || \
+    git config --global --add safe.directory "$dir" 2>/dev/null || true
+}
+ensure_safe_directory /__w/flightctl/flightctl
+ensure_safe_directory "$(pwd)"
 
 # Prefer proper release tags pointing at this exact commit first, prioritizing the highest version
 # tag. If there is no tag at this commit, then fallback to 'git describe' which will construct a
