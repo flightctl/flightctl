@@ -457,7 +457,7 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 
 	// Sync restored database passwords with current deployment secrets
 	p.log.Info("Synchronizing database passwords with current deployment")
-	if err := p.syncDatabasePasswords(ctx, cfg); err != nil {
+	if err := p.syncDatabasePasswords(ctx); err != nil {
 		return fmt.Errorf("failed to sync database passwords: %w", err)
 	}
 
@@ -474,21 +474,28 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 	return nil
 }
 
-// syncDatabasePasswords updates the restored database user passwords to match current deployment secrets
-func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context, cfg *config.Config) error {
-	// Update flightctl_app user password to match current secret
-	appPasswordSQL := fmt.Sprintf(`ALTER USER flightctl_app WITH PASSWORD '%s'`, strings.ReplaceAll(string(cfg.Database.Password), "'", "''"))
-	if err := p.execDBCommand(ctx, "postgres", appPasswordSQL); err != nil {
-		return fmt.Errorf("failed to update flightctl_app password: %w", err)
+// syncDatabasePasswords updates the restored database user passwords to match current deployment secrets.
+// Passwords are read directly from Podman secrets, not from the config file (which redacts them).
+// If a secret cannot be read the corresponding user's password is left as-is and the sync is skipped
+// for that user — this allows integration tests (which have no Podman secrets) to run unaffected.
+func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context) error {
+	if p.dbSecretName != "" {
+		if appPass, ok := readPodmanSecret(ctx, p.containerCLI, p.dbSecretName); ok {
+			sql := fmt.Sprintf(`ALTER USER flightctl_app WITH PASSWORD '%s'`, strings.ReplaceAll(appPass, "'", "''"))
+			if err := p.execDBCommand(ctx, "postgres", sql); err != nil {
+				return fmt.Errorf("failed to update flightctl_app password: %w", err)
+			}
+		} else {
+			p.log.Debugf("Could not read DB password from Podman secret %q; skipping flightctl_app password sync", p.dbSecretName)
+		}
 	}
 
-	// Read master password from secret and update admin user
 	masterPassword, err := p.readSecret(ctx, "flightctl-postgresql-master-password")
 	if err != nil {
 		p.log.Warnf("Failed to read master password secret: %v (skipping admin password sync)", err)
 	} else {
-		adminPasswordSQL := fmt.Sprintf(`ALTER USER admin WITH PASSWORD '%s'`, strings.ReplaceAll(masterPassword, "'", "''"))
-		if err := p.execDBCommand(ctx, "postgres", adminPasswordSQL); err != nil {
+		sql := fmt.Sprintf(`ALTER USER admin WITH PASSWORD '%s'`, strings.ReplaceAll(masterPassword, "'", "''"))
+		if err := p.execDBCommand(ctx, "postgres", sql); err != nil {
 			return fmt.Errorf("failed to update admin password: %w", err)
 		}
 	}
