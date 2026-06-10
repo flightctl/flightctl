@@ -349,7 +349,7 @@ alertmanagerProxy:
 # -- UBI Minimal base image used by init containers (cert setup, etc.)
 # Override this when deploying in an air-gapped environment where
 # registry.access.redhat.com is unreachable — set image and tag to the
-# mirrored location produced by the mirror-images tool.
+# mirrored location produced by the flightctl-mirror-images tool.
 ubiMinimal:
   # -- UBI minimal image repository
   image: registry.access.redhat.com/ubi9/ubi-minimal

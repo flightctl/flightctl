@@ -286,7 +286,7 @@ fi
         fi;
         echo "${commit:-unknown}";
     )" \
-    %{?disable_fips} %make_build build-cli build-agent build-restore build-standalone
+    %{?disable_fips} %make_build build-cli build-agent build-restore build-standalone build-mirror-images
 
     # SELinux modules build
     %make_build --directory packaging/selinux
@@ -301,6 +301,7 @@ fi
     mkdir -p %{buildroot}/etc/flightctl
     cp bin/flightctl %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
+    cp bin/flightctl-mirror-images %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
@@ -465,6 +466,7 @@ fi
     %dir %{_datadir}/licenses/%{NAME}
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
+    %{_bindir}/flightctl-mirror-images
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
