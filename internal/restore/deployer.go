@@ -81,10 +81,17 @@ func (s *SystemctlServiceHandler) Start(ctx context.Context) error {
 	return nil
 }
 
-// defaultPodmanServiceNames lists every FlightCtl systemd unit that holds a
-// database connection. They must all be stopped before the restore and started
-// again afterwards. Units that do not connect to the DB (e.g. flightctl-db,
-// flightctl-kv, flightctl-ui, flightctl-cli-artifacts) are intentionally omitted.
+// defaultPodmanServiceNames lists the FlightCtl systemd units that must be
+// stopped before restore and started again afterwards.
+//
+// The list includes flightctl-gateway because it declares
+// Requires=flightctl-api.service in its unit file: systemd propagates the stop
+// to the gateway when the API is stopped, but does NOT propagate the start back
+// when the API is restarted. Without an explicit start the gateway remains down
+// and port 3443 stays closed after restore.
+//
+// Units that are never stopped by the restore (e.g. flightctl-db, flightctl-kv,
+// flightctl-ui, flightctl-cli-artifacts) are intentionally omitted.
 var defaultPodmanServiceNames = []string{
 	"flightctl-api",
 	"flightctl-worker",
@@ -93,6 +100,7 @@ var defaultPodmanServiceNames = []string{
 	"flightctl-imagebuilder-worker",
 	"flightctl-alert-exporter",
 	"flightctl-alertmanager-proxy",
+	"flightctl-gateway",
 }
 
 // deploymentInfo holds per-deployment metadata for Kubernetes stop/start operations.
