@@ -66,7 +66,7 @@ func main() {
 		}
 
 		if !pr.GetMerged() {
-			log.Panic("PR is not merged, cannot backport yet.")
+			log.Panicf("PR %d is not merged, cannot backport yet.", pr.GetNumber())
 		}
 
 		if pr.Base.GetRef() != "main" {
