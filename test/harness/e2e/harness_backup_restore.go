@@ -114,9 +114,10 @@ func (br *BackupRestore) RunFlightCtlBackup() (archivePath string, cleanup func(
 			workDirCleanup()
 			return "", func() {}, fmt.Errorf("failed to read backup binary: %w", err)
 		}
+		// Use stdin to pipe binary data (too large for command args)
 		encodedBinary := base64.StdEncoding.EncodeToString(backupBinaryData)
-		copyCmd := fmt.Sprintf("echo %s | base64 -d > %s && chmod +x %s", encodedBinary, vmBackupBinary, vmBackupBinary)
-		if _, err := quadletProvider.RunCommandContext(ctx, "sh", "-c", copyCmd); err != nil {
+		copyCmd := fmt.Sprintf("base64 -d > %s && chmod +x %s", vmBackupBinary, vmBackupBinary)
+		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedBinary), "sh", "-c", copyCmd); err != nil {
 			workDirCleanup()
 			return "", func() {}, fmt.Errorf("failed to copy backup binary to VM: %w", err)
 		}
@@ -169,6 +170,24 @@ func (br *BackupRestore) RunFlightCtlBackup() (archivePath string, cleanup func(
 		if err := os.WriteFile(hostArchivePath, archiveBytes, 0600); err != nil {
 			workDirCleanup()
 			return "", func() {}, fmt.Errorf("failed to write backup archive: %w", err)
+		}
+
+		// Copy checksum file (.sha256) from VM to host
+		vmChecksumPath := vmArchive + ".sha256"
+		checksumOutput, err := quadletProvider.RunCommandContext(ctx, "base64", vmChecksumPath)
+		if err != nil {
+			workDirCleanup()
+			return "", func() {}, fmt.Errorf("failed to encode checksum from VM: %w", err)
+		}
+		checksumBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(checksumOutput))
+		if err != nil {
+			workDirCleanup()
+			return "", func() {}, fmt.Errorf("failed to decode checksum: %w", err)
+		}
+		hostChecksumPath := hostArchivePath + ".sha256"
+		if err := os.WriteFile(hostChecksumPath, checksumBytes, 0600); err != nil {
+			workDirCleanup()
+			return "", func() {}, fmt.Errorf("failed to write checksum file: %w", err)
 		}
 
 		return hostArchivePath, workDirCleanup, nil
@@ -235,18 +254,30 @@ func (br *BackupRestore) RunFlightCtlRestore(archivePath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read restore binary: %w", err)
 		}
+		// Use stdin to pipe binary data (too large for command args)
 		encodedRestoreBinary := base64.StdEncoding.EncodeToString(restoreBinaryData)
-		copyRestoreCmd := fmt.Sprintf("echo %s | base64 -d > %s && chmod +x %s", encodedRestoreBinary, vmRestoreBinary, vmRestoreBinary)
-		if _, err := quadletProvider.RunCommandContext(ctx, "sh", "-c", copyRestoreCmd); err != nil {
+		copyRestoreCmd := fmt.Sprintf("base64 -d > %s && chmod +x %s", vmRestoreBinary, vmRestoreBinary)
+		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedRestoreBinary), "sh", "-c", copyRestoreCmd); err != nil {
 			return fmt.Errorf("failed to copy restore binary to VM: %w", err)
 		}
 
-		// Write archive to VM using base64 encoding for safe binary transfer
-		// Use context-aware RunCommand for proper timeout/cancellation handling
+		// Write archive to VM using stdin for safe binary transfer
 		encoded := base64.StdEncoding.EncodeToString(archiveContent)
-		decodeCmd := fmt.Sprintf("echo %s | base64 -d > %s", encoded, vmArchivePath)
-		if _, err := quadletProvider.RunCommandContext(ctx, "sh", "-c", decodeCmd); err != nil {
+		decodeCmd := fmt.Sprintf("base64 -d > %s", vmArchivePath)
+		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encoded), "sh", "-c", decodeCmd); err != nil {
 			return fmt.Errorf("failed to copy backup to VM: %w", err)
+		}
+
+		// Copy checksum file (.sha256) to VM
+		checksumPath := archivePath + ".sha256"
+		checksumContent, err := os.ReadFile(checksumPath)
+		if err != nil {
+			return fmt.Errorf("failed to read checksum file: %w", err)
+		}
+		encodedChecksum := base64.StdEncoding.EncodeToString(checksumContent)
+		checksumCmd := fmt.Sprintf("base64 -d > %s", vmArchivePath+".sha256")
+		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedChecksum), "sh", "-c", checksumCmd); err != nil {
+			return fmt.Errorf("failed to copy checksum to VM: %w", err)
 		}
 
 		// Run restore inside the VM using the binary we copied
