@@ -112,6 +112,12 @@ func (p *InfraProvider) RunCommandContext(ctx context.Context, command ...string
 	return p.runCommandWithOptionalStdinContext(ctx, nil, command...)
 }
 
+// RunCommandWithStdinContext runs a command with stdin data and context cancellation support.
+// Useful for piping large data that would exceed command argument length limits.
+func (p *InfraProvider) RunCommandWithStdinContext(ctx context.Context, stdin io.Reader, command ...string) (string, error) {
+	return p.runCommandWithOptionalStdinContext(ctx, stdin, command...)
+}
+
 // ReadHostFile reads a raw file from the quadlet host.
 func (p *InfraProvider) ReadHostFile(path string) (string, error) {
 	output, err := p.runCommand("cat", path)
