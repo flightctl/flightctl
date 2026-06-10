@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -384,8 +385,9 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 		return fmt.Errorf("failed to restore dump into %q: %w", tempDBName, err)
 	}
 
+	// Terminate active connections to the target database (use $1 placeholder to prevent SQL injection)
 	if err := p.execDBCommand(ctx, "postgres",
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName),
+		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
 	); err != nil {
 		p.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, err)
 	}
@@ -450,23 +452,93 @@ func (p *PodmanRestoreDeployer) execRestoreDump(ctx context.Context, dbName, dum
 	return nil
 }
 
-// ExposeService returns the original host and port from the service config for the named service.
-// For flightctl-kv, when a published port is available on kvContainerName, that is used instead.
+// ExposeService dynamically exposes the named service via localhost port-forwarding.
+// Returns host, port, cleanup function. Cleanup must be called to stop the port-forward.
+// Tries published ports first; if none, creates TCP forward to container IP.
 func (p *PodmanRestoreDeployer) ExposeService(ctx context.Context, serviceName string) (string, int, func(), error) {
-	cfg, err := p.GetConfig(ctx)
-	if err != nil {
-		return "", 0, func() {}, err
-	}
+	var containerName string
+	var targetPort int
+
 	switch serviceName {
 	case "flightctl-db":
-		return cfg.Database.Hostname, int(cfg.Database.Port), func() {}, nil
+		containerName = p.containerName
+		targetPort = dbInternalPort
 	case "flightctl-kv":
-		if host, port, ok := containerPublishedTCPPort(ctx, p.containerCLI, p.kvContainerName, kvInternalPort); ok {
-			return host, port, func() {}, nil
-		}
-		return cfg.KV.Hostname, int(cfg.KV.Port), func() {}, nil
+		containerName = p.kvContainerName
+		targetPort = kvInternalPort
 	default:
 		return "", 0, func() {}, fmt.Errorf("unknown service %q: must be flightctl-db or flightctl-kv", serviceName)
+	}
+
+	// First, check if port is already published
+	if host, port, ok := containerPublishedTCPPort(ctx, p.containerCLI, containerName, targetPort); ok {
+		return host, port, func() {}, nil
+	}
+
+	// Port not published - create dynamic TCP forward to container IP
+	containerIP, err := getContainerIP(ctx, p.containerCLI, containerName)
+	if err != nil {
+		return "", 0, func() {}, fmt.Errorf("failed to get container IP for %s: %w", serviceName, err)
+	}
+
+	localPort, err := getFreePort()
+	if err != nil {
+		return "", 0, func() {}, fmt.Errorf("failed to get free local port: %w", err)
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+	if err != nil {
+		return "", 0, func() {}, fmt.Errorf("failed to listen on 127.0.0.1:%d: %w", localPort, err)
+	}
+
+	target := net.JoinHostPort(containerIP, strconv.Itoa(targetPort))
+	go runTCPForward(listener, target, serviceName)
+
+	cleanup := func() {
+		_ = listener.Close()
+	}
+
+	return "127.0.0.1", localPort, cleanup, nil
+}
+
+// getContainerIP returns the first container IP (Podman bridge network).
+func getContainerIP(ctx context.Context, cli, containerName string) (string, error) {
+	if containerName == "" {
+		return "", fmt.Errorf("container name is empty")
+	}
+	format := "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"
+	cmd := exec.CommandContext(ctx, cli, "inspect", "-f", format, containerName)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect container %s: %w", containerName, err)
+	}
+	ip := strings.TrimSpace(string(out))
+	if ip == "" {
+		return "", fmt.Errorf("container %s has no network IP", containerName)
+	}
+	return ip, nil
+}
+
+// runTCPForward accepts connections on listener and forwards each to target (host:port).
+func runTCPForward(listener net.Listener, target string, serviceName string) {
+	for {
+		client, err := listener.Accept()
+		if err != nil {
+			// Listener closed, exit goroutine
+			return
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			backend, err := net.Dial("tcp", target)
+			if err != nil {
+				logrus.Warnf("Restore port-forward %s: dial %s: %v", serviceName, target, err)
+				return
+			}
+			defer backend.Close()
+			// Bidirectional copy
+			go func() { _, _ = io.Copy(backend, c) }()
+			_, _ = io.Copy(c, backend)
+		}(client)
 	}
 }
 
@@ -1009,8 +1081,9 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		return fmt.Errorf("failed to restore dump into %q: %w", tempDBName, err)
 	}
 
+	// Terminate active connections to the target database (escape single quotes to prevent SQL injection)
 	if err := k.execDBCommand(ctx, "postgres",
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName),
+		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
 	); err != nil {
 		k.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, err)
 	}
