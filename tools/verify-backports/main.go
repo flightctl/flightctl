@@ -70,7 +70,7 @@ func main() {
 
 		if pr.GetState() == "open" {
 			openPRs = append(openPRs, pr)
-		} else if pr.GetMergeCommitSHA() != "" && pr.GetState() == "closed" {
+		} else if pr.GetMergeCommitSHA() != "" && !pr.GetMergedAt().IsZero() && pr.GetState() == "closed" {
 			mergedPRs = append(mergedPRs, pr)
 		}
 	}
