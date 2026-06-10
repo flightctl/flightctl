@@ -79,7 +79,7 @@ func main() {
 		log.Printf("Open PRs for %s", release)
 		log.Printf("===============")
 		for _, pr := range openPRs {
-			log.Printf("#%5d | %25s | %s", pr.GetNumber(), pr.GetTitle(), pr.GetHTMLURL())
+			log.Printf("#%5d | %25s | %s | %s", pr.GetNumber(), pr.GetTitle(), pr.GetHTMLURL(), pr.GetUser().GetLogin())
 		}
 		log.Print("")
 	}
@@ -120,7 +120,7 @@ func main() {
 		log.Printf("PRs missing from %s", release)
 		log.Printf("===================")
 		for _, pr := range missingPRs {
-			log.Printf("#%5d | %25s | %s", pr.GetNumber(), pr.GetTitle(), pr.GetHTMLURL())
+			log.Printf("#%5d | %25s | %s | %s", pr.GetNumber(), pr.GetTitle(), pr.GetHTMLURL(), pr.GetUser().GetLogin())
 		}
 	} else {
 		log.Print("All PRs are backported")
@@ -137,7 +137,7 @@ func main() {
 		if err != nil {
 			log.Panicf("Failed to get backport PRs: %v", err)
 		}
-		log.Printf("%30s | %s", issue.GetTitle(), issue.GetHTMLURL())
+		log.Printf("%30s | %s | %s", issue.GetTitle(), issue.GetHTMLURL(), issue.GetUser().GetLogin())
 	}
 }
 
