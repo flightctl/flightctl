@@ -426,18 +426,17 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 
 // syncDatabasePasswords updates the restored database user passwords to match current deployment secrets
 func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context, cfg *config.Config) error {
-	// Update flightctl_app user password to match current secret
-	appPasswordSQL := fmt.Sprintf(`ALTER USER flightctl_app WITH PASSWORD '%s'`, strings.ReplaceAll(string(cfg.Database.Password), "'", "''"))
+	// Update flightctl_app user password
+	appPasswordSQL := fmt.Sprintf(`ALTER USER flightctl_app WITH PASSWORD '%s'`, strings.ReplaceAll(cfg.Database.Password, "'", "''"))
 	if err := p.execDBCommand(ctx, "postgres", appPasswordSQL); err != nil {
 		return fmt.Errorf("failed to update flightctl_app password: %w", err)
 	}
 
-	// Read master password from secret and update admin user
-	masterPassword, err := p.readSecret(ctx, "flightctl-postgresql-master-password")
-	if err != nil {
-		p.log.Warnf("Failed to read master password secret: %v (skipping admin password sync)", err)
-	} else {
-		adminPasswordSQL := fmt.Sprintf(`ALTER USER admin WITH PASSWORD '%s'`, strings.ReplaceAll(masterPassword, "'", "''"))
+	// Update admin user password if different
+	if cfg.Database.MasterUser != "" && cfg.Database.MasterPassword != "" {
+		adminPasswordSQL := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s'`,
+			cfg.Database.MasterUser,
+			strings.ReplaceAll(cfg.Database.MasterPassword, "'", "''"))
 		if err := p.execDBCommand(ctx, "postgres", adminPasswordSQL); err != nil {
 			return fmt.Errorf("failed to update admin password: %w", err)
 		}
@@ -445,21 +444,6 @@ func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context, cfg *
 
 	p.log.Info("Database passwords synchronized successfully")
 	return nil
-}
-
-// readSecret reads a podman secret value
-func (p *PodmanRestoreDeployer) readSecret(ctx context.Context, secretName string) (string, error) {
-	cmd := exec.CommandContext(ctx, p.containerCLI, "secret", "inspect", "--format", "{{.Spec.Data}}", secretName)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect secret %s: %w", secretName, err)
-	}
-	// Secret data is base64 encoded
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
-	if err != nil {
-		return "", fmt.Errorf("failed to decode secret %s: %w", secretName, err)
-	}
-	return string(decoded), nil
 }
 
 // execDBCommand runs a single SQL command inside the DB container as the postgres OS user.
