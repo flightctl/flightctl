@@ -231,7 +231,7 @@ func generateBackportPRBody(prs []*github.PullRequest, release string) string {
 
 	fmt.Fprintf(&out, "*Backporting PRs for release %s:*\n\n", release)
 	for _, pr := range prs {
-		fmt.Fprintf(&out, "PR *[%s](%s)*\n", pr.GetTitle(), pr.GetHTMLURL())
+		fmt.Fprintf(&out, "PR %d *[%s](%s)*\n", pr.GetNumber(), pr.GetTitle(), pr.GetHTMLURL())
 	}
 	return out.String()
 }
