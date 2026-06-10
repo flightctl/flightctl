@@ -18,15 +18,17 @@ import (
 func main() {
 	log.SetFlags(0)
 	var (
-		release string
-		owner   string
-		repo    string
-		remote  string
+		release      string
+		owner        string
+		repo         string
+		remote       string
+		keepWorktree bool
 	)
 	flag.StringVar(&release, "release", "", "Release version")
 	flag.StringVar(&owner, "owner", "flightctl", "Github repository owner on which to operate")
 	flag.StringVar(&repo, "repo", "flightctl", "Github repository repo on which to operate")
 	flag.StringVar(&remote, "remote", "origin", "Local git remote name to pull from to access configured repo")
+	flag.BoolVar(&keepWorktree, "keepWorktree", false, "If set, the worktree used to cherry-pick will not be deleted on script exit")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [FLAGS] <pr number>\n\n", os.Args[0])
@@ -96,7 +98,9 @@ func main() {
 
 	err = exec.Command("git", "worktree", "add", worktreeDir,
 		"-B", backportBranch, fmt.Sprintf("%s/%s", remote, releaseBranch)).Run()
-	defer exec.Command("git", "worktree", "remove", worktreeDir).Run()
+	if !keepWorktree {
+		defer exec.Command("git", "worktree", "remove", "--force", worktreeDir).Run()
+	}
 	if err != nil {
 		log.Panicf("Failed to create worktree for backport: %v", err)
 	}
