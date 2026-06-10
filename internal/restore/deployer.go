@@ -176,6 +176,8 @@ type PodmanRestoreDeployer struct {
 	pamIssuerVolumeName string
 	keepOldDB           bool
 	cachedCfg           *config.Config
+	dbSecretName        string
+	kvSecretName        string
 }
 
 // PodmanRestoreOption configures a PodmanRestoreDeployer.
@@ -256,6 +258,22 @@ func WithPAMIssuerVolumeName(name string) PodmanRestoreOption {
 	}
 }
 
+// WithDBSecretName sets the Podman secret name for the database password.
+// Defaults to "flightctl-postgresql-user-password". Set to "" to skip secret lookup.
+func WithDBSecretName(name string) PodmanRestoreOption {
+	return func(d *PodmanRestoreDeployer) {
+		d.dbSecretName = name
+	}
+}
+
+// WithKVSecretName sets the Podman secret name for the KV store password.
+// Defaults to "flightctl-kv-password". Set to "" to skip secret lookup.
+func WithKVSecretName(name string) PodmanRestoreOption {
+	return func(d *PodmanRestoreDeployer) {
+		d.kvSecretName = name
+	}
+}
+
 // NewPodmanRestoreDeployer creates a PodmanRestoreDeployer.
 // Defaults: containerName "flightctl-db", containerCLI "podman",
 // kvContainerName "flightctl-kv",
@@ -292,6 +310,12 @@ func NewPodmanRestoreDeployer(
 	if d.pamIssuerVolumeName == "" {
 		d.pamIssuerVolumeName = "flightctl-pam-issuer-etc"
 	}
+	if d.dbSecretName == "" {
+		d.dbSecretName = "flightctl-postgresql-user-password"
+	}
+	if d.kvSecretName == "" {
+		d.kvSecretName = "flightctl-kv-password"
+	}
 	return d
 }
 
@@ -311,7 +335,11 @@ func (p *PodmanRestoreDeployer) StartServices(ctx context.Context) error {
 	return p.serviceHandler.Start(ctx)
 }
 
-// GetConfig loads DB and KV credentials from the service configuration file.
+// GetConfig loads DB and KV credentials from the service configuration file,
+// then overrides passwords from Podman secrets (same approach as the e2e SecretsProvider).
+// The service-config.yaml does not contain DB/KV passwords; they are injected into
+// containers via Podman secrets. The restore binary runs on the host, so credentials
+// must be read directly via `podman secret inspect --showsecret`.
 // The result is cached after the first successful load.
 func (p *PodmanRestoreDeployer) GetConfig(ctx context.Context) (*config.Config, error) {
 	if p.cachedCfg != nil {
@@ -320,6 +348,20 @@ func (p *PodmanRestoreDeployer) GetConfig(ctx context.Context) (*config.Config, 
 	cfg, err := config.Load(p.serviceConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load service configuration from %s: %w", p.serviceConfigPath, err)
+	}
+	if p.dbSecretName != "" {
+		if dbPass, ok := readPodmanSecret(ctx, p.containerCLI, p.dbSecretName); ok {
+			cfg.Database.Password = api.SecureString(dbPass)
+		} else {
+			p.log.Debugf("Could not read DB password from Podman secret %q; using config value", p.dbSecretName)
+		}
+	}
+	if p.kvSecretName != "" {
+		if kvPass, ok := readPodmanSecret(ctx, p.containerCLI, p.kvSecretName); ok {
+			cfg.KV.Password = api.SecureString(kvPass)
+		} else {
+			p.log.Debugf("Could not read KV password from Podman secret %q; using config value", p.kvSecretName)
+		}
 	}
 	p.cachedCfg = cfg
 	return cfg, nil
@@ -584,6 +626,29 @@ func runTCPForward(listener net.Listener, target string, serviceName string) {
 			_, _ = io.Copy(c, backend)
 		}(client)
 	}
+}
+
+// podmanSecretData is the minimal JSON shape returned by `podman secret inspect --showsecret`.
+type podmanSecretData []struct {
+	SecretData string `json:"SecretData"`
+}
+
+// readPodmanSecret reads a secret value via `podman secret inspect --showsecret <name>`.
+// Returns ("", false) if the secret cannot be read for any reason.
+func readPodmanSecret(ctx context.Context, cli, secretName string) (string, bool) {
+	if cli == "" || secretName == "" {
+		return "", false
+	}
+	out, err := exec.CommandContext(ctx, cli, "secret", "inspect", "--showsecret", secretName).Output()
+	if err != nil {
+		return "", false
+	}
+	var parsed podmanSecretData
+	if err := json.Unmarshal(out, &parsed); err != nil || len(parsed) == 0 {
+		return "", false
+	}
+	val := strings.TrimSpace(parsed[0].SecretData)
+	return val, val != ""
 }
 
 // containerPublishedTCPPort resolves the host-published TCP port for a named container.
