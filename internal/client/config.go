@@ -382,6 +382,15 @@ func NewTestClient(clientWithResponses *client.ClientWithResponses) *Client {
 	}
 }
 
+// NewTestClientWithV1Alpha1 creates a Client for testing purposes with both
+// v1beta1 and v1alpha1 clients pre-configured. This should only be used in tests.
+func NewTestClientWithV1Alpha1(clientWithResponses *client.ClientWithResponses, v1alpha1 *v1alpha1client.ClientWithResponses) *Client {
+	return &Client{
+		ClientWithResponses: clientWithResponses,
+		v1alpha1:            v1alpha1,
+	}
+}
+
 // ImageBuilderClient wraps the imagebuilder API client with token refresh capabilities.
 type ImageBuilderClient struct {
 	*imagebuilderclient.ClientWithResponses
