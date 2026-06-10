@@ -405,6 +405,12 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 	swapCompleted = true
 	restoreSucceeded = true
 
+	// Sync restored database passwords with current deployment secrets
+	p.log.Info("Synchronizing database passwords with current deployment")
+	if err := p.syncDatabasePasswords(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to sync database passwords: %w", err)
+	}
+
 	if p.keepOldDB {
 		p.log.Infof("Database restore completed. Pre-restore database preserved as %q", oldDBName)
 	} else {
@@ -415,6 +421,28 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 	}
 
 	p.log.Info("Database restore completed successfully")
+	return nil
+}
+
+// syncDatabasePasswords updates the restored database user passwords to match current deployment secrets
+func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context, cfg *config.Config) error {
+	// Update flightctl_app user password
+	appPasswordSQL := fmt.Sprintf(`ALTER USER flightctl_app WITH PASSWORD '%s'`, strings.ReplaceAll(cfg.Database.Password, "'", "''"))
+	if err := p.execDBCommand(ctx, "postgres", appPasswordSQL); err != nil {
+		return fmt.Errorf("failed to update flightctl_app password: %w", err)
+	}
+
+	// Update admin user password if different
+	if cfg.Database.MasterUser != "" && cfg.Database.MasterPassword != "" {
+		adminPasswordSQL := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s'`,
+			cfg.Database.MasterUser,
+			strings.ReplaceAll(cfg.Database.MasterPassword, "'", "''"))
+		if err := p.execDBCommand(ctx, "postgres", adminPasswordSQL); err != nil {
+			return fmt.Errorf("failed to update admin password: %w", err)
+		}
+	}
+
+	p.log.Info("Database passwords synchronized successfully")
 	return nil
 }
 
