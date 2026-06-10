@@ -348,6 +348,8 @@ CatalogItem
 URI
 CatalogItems
 multicluster
+ClusterIssuer
+Issuer
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
