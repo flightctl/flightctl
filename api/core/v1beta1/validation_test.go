@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1989,6 +1990,13 @@ PublishPort=8080:80`,
 			wantErrCount:  1,
 			wantErrSubstr: "badfunction",
 		},
+		{
+			name: "valid kube quadlet",
+			content: `[Kube]
+Yaml=pod.yaml`,
+			path:         "my-vm.kube",
+			wantErrCount: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2000,6 +2008,87 @@ PublishPort=8080:80`,
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)
+			}
+		})
+	}
+}
+
+func TestValidateQuadletApplication_KubeYamlValidation(t *testing.T) {
+	t.Parallel()
+
+	validPodYAML := "apiVersion: v1\nkind: Pod\nmetadata:\n  name: my-vm\n"
+	validKubeUnit := "[Kube]\nYaml=pod.yaml\n"
+
+	newQuadletInlineApp := func(t *testing.T, files map[string]string) ApplicationProviderSpec {
+		t.Helper()
+		contents := make([]ApplicationContent, 0, len(files))
+		for path, content := range files {
+			c := content
+			contents = append(contents, ApplicationContent{Path: path, Content: &c})
+		}
+		inlineSpec := InlineApplicationProviderSpec{Inline: contents}
+		app := QuadletApplication{AppType: AppTypeQuadlet, Name: lo.ToPtr("my-vm")}
+		require.NoError(t, app.FromInlineApplicationProviderSpec(inlineSpec))
+		var spec ApplicationProviderSpec
+		require.NoError(t, spec.FromQuadletApplication(app))
+		return spec
+	}
+
+	tests := []struct {
+		name     string
+		files    map[string]string
+		wantErrs []string
+		wantPass bool
+	}{
+		{
+			name: "When .kube has Yaml=pod.yaml and pod.yaml is a valid Pod manifest it should be valid",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+				"pod.yaml":   validPodYAML,
+			},
+			wantPass: true,
+		},
+		{
+			name: "When .kube has Yaml=pod.yaml but pod.yaml is absent it should fail",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+			},
+			wantErrs: []string{"pod.yaml", "not present in the inline set"},
+		},
+		{
+			name: "When .kube has Yaml=pod.yaml but pod.yaml has kind Deployment it should fail",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+				"pod.yaml":   "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: my-vm\n",
+			},
+			wantErrs: []string{"kind must be \"Pod\""},
+		},
+		{
+			name: "When .kube has no Yaml= directive it should be valid (no target to check)",
+			files: map[string]string{
+				"my-vm.kube": "[Kube]\n",
+			},
+			wantPass: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			spec := newQuadletInlineApp(t, tc.files)
+			errs := validateQuadletApplication(spec, "my-vm", false)
+
+			if tc.wantPass {
+				assert.Empty(t, errs, "expected no errors but got: %v", errs)
+				return
+			}
+			require.NotEmpty(t, errs)
+			allErrText := ""
+			for _, e := range errs {
+				allErrText += e.Error() + "\n"
+			}
+			for _, substr := range tc.wantErrs {
+				assert.Contains(t, allErrText, substr)
 			}
 		})
 	}
@@ -2541,4 +2630,213 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		errs := repo.Validate()
 		require.Empty(t, errs, "HttpRepoSpec should validate successfully")
 	})
+}
+
+func TestValidateVmApplication(t *testing.T) {
+	tests := []struct {
+		name     string
+		app      func(t *testing.T) ApplicationProviderSpec
+		wantErrs []string
+	}{
+		// ── Inline — valid paths ──────────────────────────────────────────
+		{
+			name: "When inline has valid vm.yaml it should be valid",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": validVmYaml("my-vm"),
+				})
+			},
+		},
+		{
+			name: "When inline has valid vm.yaml and one .kube file it should be valid",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml":    validVmYaml("my-vm"),
+					"my-vm.kube": "[Kube]\nYaml=vm.yaml\n",
+				})
+			},
+		},
+
+		// ── Image provider — valid path ───────────────────────────────────
+		{
+			name: "When image provider has valid OCI reference it should be valid",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmImageApp(t, "my-vm", "quay.io/containerdisks/fedora:40")
+			},
+		},
+
+		// ── Missing vm.yaml ───────────────────────────────────────────────
+		{
+			name: "When inline is empty it should fail with vm.yaml error",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{})
+			},
+			wantErrs: []string{"vm.yaml"},
+		},
+		{
+			name: "When inline has only a .kube file and no vm.yaml it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"my-vm.kube": "[Kube]\nYaml=vm.yaml\n",
+				})
+			},
+			wantErrs: []string{"vm.yaml"},
+		},
+
+		// ── vm.yaml content validation ────────────────────────────────────
+		{
+			name: "When vm.yaml has wrong kind it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": "apiVersion: kubevirt.io/v1\nkind: Deployment\nmetadata:\n  name: my-vm\n",
+				})
+			},
+			wantErrs: []string{"kind"},
+		},
+		{
+			name: "When vm.yaml has wrong apiVersion it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": "apiVersion: apps/v1\nkind: VirtualMachine\nmetadata:\n  name: my-vm\n",
+				})
+			},
+			wantErrs: []string{"apiVersion"},
+		},
+		{
+			name: "When vm.yaml metadata.name does not match app name it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": validVmYaml("other-vm"),
+				})
+			},
+			wantErrs: []string{"metadata.name"},
+		},
+		{
+			name: "When vm.yaml is not valid YAML it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": "{ invalid: yaml: :",
+				})
+			},
+			wantErrs: []string{"vm.yaml"},
+		},
+
+		// ── .kube file count ──────────────────────────────────────────────
+		{
+			name: "When inline has two .kube files it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml": validVmYaml("my-vm"),
+					"a.kube":  "[Kube]\nYaml=vm.yaml\n",
+					"b.kube":  "[Kube]\nYaml=vm.yaml\n",
+				})
+			},
+			wantErrs: []string{".kube"},
+		},
+
+		// ── Unrecognised files ────────────────────────────────────────────
+		{
+			name: "When inline has an unrecognised file it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineApp(t, "my-vm", map[string]string{
+					"vm.yaml":  validVmYaml("my-vm"),
+					"extra.sh": "#!/bin/sh\n",
+				})
+			},
+			wantErrs: []string{"unrecognised"},
+		},
+
+		// ── Duplicate inline paths ────────────────────────────────────────
+		{
+			name: "When inline has duplicate paths it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				vm := VmApplication{AppType: AppTypeVm, Name: lo.ToPtr("my-vm")}
+				require.NoError(t, vm.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
+					Inline: []ApplicationContent{
+						{Path: "vm.yaml", Content: lo.ToPtr(validVmYaml("my-vm"))},
+						{Path: "vm.yaml", Content: lo.ToPtr(validVmYaml("my-vm"))},
+					},
+				}))
+				var spec ApplicationProviderSpec
+				require.NoError(t, spec.FromVmApplication(vm))
+				return spec
+			},
+			wantErrs: []string{"duplicate"},
+		},
+		// ── Image provider — invalid OCI reference ────────────────────────
+		{
+			name: "When image provider has invalid OCI reference it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmImageApp(t, "my-vm", "not a valid image!!!")
+			},
+			wantErrs: []string{"image"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apps := []ApplicationProviderSpec{tt.app(t)}
+			gotErrs := validateApplications(apps, false)
+			if len(tt.wantErrs) > 0 {
+				require.NotEmpty(t, gotErrs, "expected errors containing %v but got none", tt.wantErrs)
+				for _, wantErr := range tt.wantErrs {
+					found := false
+					for _, gotErr := range gotErrs {
+						if strings.Contains(gotErr.Error(), wantErr) {
+							found = true
+							break
+						}
+					}
+					require.True(t, found, "expected an error containing %q, got: %v", wantErr, gotErrs)
+				}
+			} else {
+				require.Empty(t, gotErrs, "expected no errors but got: %v", gotErrs)
+			}
+		})
+	}
+}
+
+// validVmYaml returns a minimal valid KubeVirt VirtualMachine YAML for the given name.
+func validVmYaml(name string) string {
+	return "apiVersion: kubevirt.io/v1\nkind: VirtualMachine\nmetadata:\n  name: " + name + "\nspec:\n  running: false\n"
+}
+
+// newTestVmInlineApp builds a VmApplication with an inline: provider from a map of path→content.
+func newTestVmInlineApp(t *testing.T, name string, files map[string]string) ApplicationProviderSpec {
+	t.Helper()
+	inline := make([]ApplicationContent, 0, len(files))
+	for path, content := range files {
+		inline = append(inline, ApplicationContent{
+			Path:    path,
+			Content: lo.ToPtr(content),
+		})
+	}
+	vm := VmApplication{
+		AppType: AppTypeVm,
+		Name:    lo.ToPtr(name),
+	}
+	if name == "" {
+		vm.Name = nil
+	}
+	require.NoError(t, vm.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
+		Inline: inline,
+	}))
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromVmApplication(vm))
+	return spec
+}
+
+// newTestVmImageApp builds a VmApplication with an image: provider.
+func newTestVmImageApp(t *testing.T, name, imageRef string) ApplicationProviderSpec {
+	t.Helper()
+	vm := VmApplication{
+		AppType: AppTypeVm,
+		Name:    lo.ToPtr(name),
+	}
+	require.NoError(t, vm.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{
+		Image: imageRef,
+	}))
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromVmApplication(vm))
+	return spec
 }

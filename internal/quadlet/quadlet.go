@@ -73,6 +73,8 @@ const (
 	PublishPortKey = "PublishPort"
 	// DriverKey is the key name for specifying a Volume driver
 	DriverKey = "Driver"
+	// KubeYamlKey is the key name for the Pod YAML file reference in a [Kube] section.
+	KubeYamlKey = "Yaml"
 )
 
 // Sections maps quadlet section names to their corresponding file extensions.
@@ -261,7 +263,9 @@ func NamespaceResource(id string, resource string) string {
 	return fmt.Sprintf("%s-%s", id, resource)
 }
 
-// IsWorkload returns true if a quadlet file is considered to be a workload
+// IsWorkload returns true if a quadlet file is considered to be a workload.
+// Both .container and .kube files are workloads — they describe running processes.
 func IsWorkload(quadlet string) bool {
-	return filepath.Ext(quadlet) == ContainerExtension
+	ext := filepath.Ext(quadlet)
+	return ext == ContainerExtension || ext == KubeExtension
 }
