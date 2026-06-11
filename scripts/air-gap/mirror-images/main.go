@@ -173,22 +173,15 @@ func pinRPMPackages(packages []string, version string) []string {
 	return pinned
 }
 
-// resolveRPMVersion pins flightctl RPM packages to a specific version when
-// bundling RPMs so the downloaded RPM version matches the bundled image tags.
-// --rpm-version takes precedence; when absent and --tag-override is set and the
-// caller did not explicitly set --rpm-packages, the version is derived from the
-// tag override (converting image-tag hyphens to RPM-version tildes).
-func resolveRPMVersion(packages []string, rpmVersion, tagOverride string, shouldPin, packagesExplicitlySet bool) []string {
-	if !shouldPin {
+// resolveRPMVersion pins flightctl RPM packages to the version derived from
+// tagOverride when bundling RPMs, so the downloaded RPM version matches the
+// bundled image tags. Only applies when tagOverride is set and the caller did
+// not explicitly set --rpm-packages.
+func resolveRPMVersion(packages []string, tagOverride string, shouldPin, packagesExplicitlySet bool) []string {
+	if !shouldPin || tagOverride == "" || packagesExplicitlySet {
 		return packages
 	}
-	effective := rpmVersion
-	if effective == "" && tagOverride != "" && !packagesExplicitlySet {
-		effective = imageTagToRPMVersion(tagOverride)
-	}
-	if effective == "" {
-		return packages
-	}
+	effective := imageTagToRPMVersion(tagOverride)
 	pinned := pinRPMPackages(packages, effective)
 	logInfo("  RPM version pin:  %s", effective)
 	return pinned
@@ -312,7 +305,6 @@ func NewRootCommand() *cobra.Command {
 		bundleRPMs    bool
 		rpmPackages   []string
 		rpmExclude    []string
-		rpmVersion    string
 		rpmRepoURL    string
 		rpmReposync   bool
 		rpmCreaterepo bool
@@ -397,7 +389,7 @@ Examples:
 				rpmPackages = []string{"flightctl-agent", "flightctl-cli", "open-vm-tools", "ignition", "afterburn", "cloud-init"}
 			}
 
-			rpmPackages = resolveRPMVersion(rpmPackages, rpmVersion, tagOverride,
+			rpmPackages = resolveRPMVersion(rpmPackages, tagOverride,
 				bundleRPMs || agentOnly, cmd.Flags().Changed("rpm-packages"))
 
 			installPackages := excludePackages(rpmPackages, rpmExclude)
@@ -537,7 +529,6 @@ Examples:
 	cmd.Flags().BoolVar(&bundleRPMs, "bundle-rpms", false, "Include RPMs in the bundle for bare-metal quadlet installation (requires --bundle)")
 	cmd.Flags().StringSliceVar(&rpmPackages, "rpm-packages", []string{"flightctl-services", "flightctl-cli", "flightctl-agent"}, "RPM package names to download into the bundle (comma-separated). The default includes flightctl-cli for server-side fleet management and flightctl-agent for offline image building — the agent RPM is not enabled on the server but is available in the bundle rpms/ directory for embedding into device OS images.")
 	cmd.Flags().StringSliceVar(&rpmExclude, "rpm-exclude", nil, "RPM package names to download but exclude from auto-installation (comma-separated). Excluded packages are still present in rpms/ for manual use (e.g. embedding into device OS images).")
-	cmd.Flags().StringVar(&rpmVersion, "rpm-version", "", "Pin flightctl RPM packages to this exact version (e.g. 1.2.0~rc3). When omitted and --tag-override is set, the version is derived automatically from the tag override so that RPM and image versions stay in sync. Use this flag to override the derived version or when the RPM version differs from the image tag.")
 	cmd.Flags().StringVar(&rpmRepoURL, "rpm-repo-url", "https://rpm.flightctl.io/flightctl-epel.repo", "URL of the .repo file to configure dnf for RPM downloads")
 	cmd.Flags().BoolVar(&rpmReposync, "rpm-reposync", false, "Mirror the full FlightCtl RPM repository using 'dnf reposync' (includes repodata/; requires dnf-plugins-core; mutually exclusive with --rpm-createrepo)")
 	cmd.Flags().BoolVar(&rpmCreaterepo, "rpm-createrepo", false, "Generate repodata/ after 'dnf download' using 'createrepo_c' so the bundle can be used as a local dnf repository source (mutually exclusive with --rpm-reposync)")
