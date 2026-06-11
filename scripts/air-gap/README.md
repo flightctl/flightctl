@@ -73,7 +73,6 @@ make build-mirror-images
 | `--bundle-rpms` | false | Add RPMs and `install-rpms.sh` to the bundle. Requires `--bundle`. |
 | `--rpm-packages` | `flightctl-services,flightctl-cli,flightctl-agent` | Comma-separated packages to download. |
 | `--rpm-exclude` | — | Comma-separated packages to download but exclude from auto-installation. Excluded packages remain in `rpms/` for manual use (e.g. embedding `flightctl-agent` into device OS images). |
-| `--rpm-version` | — | Pin flightctl RPM packages to this exact version (e.g. `1.2.0~rc3`). When omitted and `--tag-override` is set, the version is derived automatically so RPM and image versions stay in sync. Use when the RPM version differs from the image tag. |
 | `--rpm-repo-url` | `https://rpm.flightctl.io/flightctl-epel.repo` | `.repo` file URL for RPM downloads. Override to use a COPR or custom repo. |
 | `--rpm-reposync` | false | Use `dnf reposync` to mirror the full repo with metadata. Mutually exclusive with `--rpm-createrepo`. |
 | `--rpm-createrepo` | false | Run `createrepo_c` after `dnf download` to generate `repodata/`. Mutually exclusive with `--rpm-reposync`. |
