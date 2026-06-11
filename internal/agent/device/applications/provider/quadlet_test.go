@@ -2421,7 +2421,7 @@ spec:
 				},
 			},
 			wantErr:         true,
-			wantErrContains: "decoding kube unit",
+			wantErrContains: "decoding content",
 		},
 	}
 
