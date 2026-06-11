@@ -593,6 +593,12 @@ func (v *VMInLibvirt) CreateSnapshot(name string) error {
 	}
 
 	logrus.Infof("Created external snapshot %s for VM %s with memory file %s", name, v.TestVM.VMName, v.TestVM.MemoryFilePath)
+
+	// Resume the VM after creating external snapshot (VM is paused during snapshot creation)
+	if err := v.Resume(); err != nil {
+		return fmt.Errorf("failed to resume VM after creating snapshot %s: %w", name, err)
+	}
+
 	return nil
 }
 
