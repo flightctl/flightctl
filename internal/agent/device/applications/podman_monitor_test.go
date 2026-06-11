@@ -486,6 +486,88 @@ func mockPodmanInspect(restarts int) client.PodmanInspect {
 	}
 }
 
+func TestUpdateApplicationStatusStopToExitedOverride(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	testCases := []struct {
+		name           string
+		currentStatus  StatusType
+		newStatus      StatusType
+		expectedStatus StatusType
+	}{
+		{
+			name:           "stopped container exiting cleanly is treated as died",
+			currentStatus:  StatusStop,
+			newStatus:      StatusExited,
+			expectedStatus: StatusDie,
+		},
+		{
+			name:           "running container exiting cleanly stays exited",
+			currentStatus:  StatusRunning,
+			newStatus:      StatusExited,
+			expectedStatus: StatusExited,
+		},
+		{
+			name:           "stopped container dying with error stays died",
+			currentStatus:  StatusStop,
+			newStatus:      StatusDie,
+			expectedStatus: StatusDie,
+		},
+		{
+			name:           "running container dying stays died",
+			currentStatus:  StatusRunning,
+			newStatus:      StatusDie,
+			expectedStatus: StatusDie,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			monitor := &PodmanMonitor{log: log}
+			app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+			app.AddWorkload(&Workload{
+				ID:     "c1",
+				Name:   "container1",
+				Status: tc.currentStatus,
+			})
+
+			event := &client.PodmanEvent{ID: "c1", Name: "container1"}
+			monitor.updateApplicationStatus(app, event, tc.newStatus, 0)
+
+			workload, exists := app.Workload("container1")
+			require.True(exists)
+			require.Equal(tc.expectedStatus, workload.Status)
+		})
+	}
+}
+
+func TestAllContainersManuallyStoppedShowsError(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	monitor := &PodmanMonitor{log: log}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+
+	for _, name := range []string{"container1", "container2"} {
+		app.AddWorkload(&Workload{
+			ID:     name + "-id",
+			Name:   name,
+			Status: StatusStop,
+		})
+		event := &client.PodmanEvent{ID: name + "-id", Name: name}
+		monitor.updateApplicationStatus(app, event, StatusExited, 0)
+	}
+
+	status, summary, err := app.Status()
+	require.NoError(err)
+	require.Equal(v1beta1.ApplicationStatusError, status.Status)
+	require.Equal(v1beta1.ApplicationsSummaryStatusError, summary.Status)
+	require.Equal("0/2", status.Ready)
+}
+
 func BenchmarkGenerateAppID(b *testing.B) {
 	// bench different string length
 	lengths := []int{50, 100, 253}
