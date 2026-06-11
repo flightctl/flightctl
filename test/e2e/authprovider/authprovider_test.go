@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,12 +20,14 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	quadletinfra "github.com/flightctl/flightctl/test/e2e/infra/quadlet"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -34,14 +39,19 @@ const (
 	keycloakTestPass             = "testpass"
 	keycloakDuplicateName        = "keycloak-e2e-duplicate"
 	keycloakLifecycleName        = "keycloak-e2e-lifecycle"
+	keycloakClientID             = "flightctl-client"
 	keycloakLifecycleClientID    = "flightctl-client-lifecycle"
 	keycloakOAuth2ProviderName   = "keycloak-oauth2-e2e"
 	keycloakOAuth2ClientID       = "flightctl-oauth2-client"
 	defaultOrganizationName      = "default"
 	defaultAdminRole             = "flightctl-admin"
+	staticOIDCProviderName       = "oidc"
+	openshiftProviderName        = "openshift"
+	aapProviderName              = "aap"
 	openshiftDefaultUsername     = "kubeadmin"
 	pamDefaultUsername           = "admin"
 	pamDefaultPassword           = "flightctl-e2e"
+	pamProviderUIName            = "pam"
 	defaultCypressLoginScript    = "cypress/run-provider-login-cypress.sh"
 	providerVisibilityArg        = "--show-providers"
 	loginInsecureTLSArg          = "--insecure-skip-tls-verify"
@@ -49,6 +59,9 @@ const (
 	aapCredentialSkipMessage     = "AAP browser login requires AAP_USERNAME and AAP_PASSWORD"
 	openshiftPasswordMessage     = "OPENSHIFT_PASSWORD or KUBEADMIN_PASS must be set for OpenShift browser login"
 	duplicateOIDCErrorSubstring  = "same issuer and clientId already exists"
+	pamOAuth2FallbackSecret      = "e2e-unused-pam-oauth2-client-secret"
+	cypressMissingSubstring      = "Cypress is not installed"
+	npmMissingSubstring          = "npm is not available"
 	loginURLTimeout              = 30 * time.Second
 	chromedpTimeout              = 60 * time.Second
 	loginFlowTimeout             = 2 * time.Minute
@@ -89,7 +102,7 @@ var _ = Describe("Auth provider browser login", func() {
 		harness = e2e.GetWorkerHarness()
 	})
 
-	Context("dynamic OIDC provider on kind and quadlet", func() {
+	Context("dynamic OIDC provider", func() {
 		It("logs in via OAuth --web --no-browser with Keycloak and can call the API", Label("88539", "authprovider"), func() {
 			ctx, cancel := context.WithTimeout(harness.GetTestContext(), loginFlowTimeout)
 			defer cancel()
@@ -177,7 +190,7 @@ var _ = Describe("Auth provider browser login", func() {
 			out, err := writeAndApplyAuthProviderManifest(
 				harness,
 				providerPath,
-				buildOIDCAuthProviderYAML(keycloakDuplicateName, auxSvcs.Keycloak.IssuerURL(), "flightctl-client", auxiliary.KeycloakE2EClientSecret, true),
+				buildOIDCAuthProviderYAML(keycloakDuplicateName, auxSvcs.Keycloak.IssuerURL(), keycloakClientID, auxiliary.KeycloakE2EClientSecret, true),
 			)
 			Expect(err).To(HaveOccurred(), "duplicate authprovider creation must fail")
 			Expect(out).To(
@@ -190,44 +203,59 @@ var _ = Describe("Auth provider browser login", func() {
 			ctx, cancel := context.WithTimeout(harness.GetTestContext(), loginFlowTimeout)
 			defer cancel()
 
+			apiEndpoint := harness.ApiEndpoint()
 			providerPath := authProviderManifestPath(keycloakOAuth2ProviderName)
 			registerAuthProviderManifestCleanup(harness, keycloakOAuth2ProviderName, providerPath)
 
-			By("creating a dynamic Keycloak-backed OAuth2 provider")
+			authProviderYAML := buildKeycloakOAuth2AuthProviderYAML(
+				keycloakOAuth2ProviderName,
+				auxSvcs.Keycloak.IssuerURL(),
+				keycloakOAuth2ClientID,
+				auxiliary.KeycloakE2EOAuth2ClientSecret,
+			)
+			if infra.DetectEnvironment() == infra.EnvironmentQuadlet {
+				var buildErr error
+				authProviderYAML, buildErr = buildQuadletPAMOAuth2AuthProviderYAML(ctx, apiEndpoint, keycloakOAuth2ProviderName)
+				Expect(buildErr).ToNot(HaveOccurred(), "build quadlet PAM-backed OAuth2 authprovider")
+			}
+
+			By("creating a dynamic OAuth2 provider")
 			out, err := writeAndApplyAuthProviderManifest(
 				harness,
 				providerPath,
-				buildKeycloakOAuth2AuthProviderYAML(
-					keycloakOAuth2ProviderName,
-					auxSvcs.Keycloak.IssuerURL(),
-					keycloakOAuth2ClientID,
-					auxiliary.KeycloakE2EOAuth2ClientSecret,
-				),
+				authProviderYAML,
 			)
 			Expect(err).ToNot(HaveOccurred(), "apply OAuth2 authprovider")
 			Expect(out).To(ContainSubstring(keycloakOAuth2ProviderName), "apply OAuth2 authprovider should mention provider name")
 
-			apiEndpoint := harness.ApiEndpoint()
 			By("verifying the OAuth2 provider becomes available for login")
 			Eventually(providerShownInLogin(harness, apiEndpoint, keycloakOAuth2ProviderName, true)).
 				WithTimeout(authProviderLifecycleTimeout).WithPolling(authProviderPollingInterval).
 				Should(BeTrue(), "OAuth2 provider must appear in login --show-providers")
 
-			By("starting an OAuth2 browser login flow from the CLI")
-			authURL, done, err := runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(authURL).ToNot(BeEmpty())
+			if infra.DetectEnvironment() == infra.EnvironmentQuadlet {
+				By("logging in through the PAM-backed OAuth2 password flow")
+				scenario := pamBrowserScenario()
+				out, err = runProviderPasswordLoginCLI(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName, scenario.username, scenario.password)
+				Expect(err).ToNot(HaveOccurred(), "CLI OAuth2 password login process should exit successfully")
+				Expect(out).To(ContainSubstring("Login successful."), "OAuth2 password login should report a successful login")
+			} else {
+				By("starting an OAuth2 browser login flow from the CLI")
+				authURL, done, err := runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(authURL).ToNot(BeEmpty())
 
-			By("completing the Keycloak login form for the OAuth2 provider")
-			err = fillKeycloakLoginForm(ctx, authURL, keycloakTestUser, keycloakTestPass)
-			Expect(err).ToNot(HaveOccurred(), "chromedp Keycloak login form fill failed for OAuth2 provider")
+				By("completing the Keycloak login form for the OAuth2 provider")
+				err = fillKeycloakLoginForm(ctx, authURL, keycloakTestUser, keycloakTestPass)
+				Expect(err).ToNot(HaveOccurred(), "chromedp Keycloak login form fill failed for OAuth2 provider")
 
-			By("waiting for the CLI callback to complete the OAuth2 login")
-			select {
-			case waitErr := <-done:
-				Expect(waitErr).ToNot(HaveOccurred(), "CLI OAuth2 login process should exit successfully")
-			case <-ctx.Done():
-				Fail("CLI OAuth2 login did not complete within timeout")
+				By("waiting for the CLI callback to complete the OAuth2 login")
+				select {
+				case waitErr := <-done:
+					Expect(waitErr).ToNot(HaveOccurred(), "CLI OAuth2 login process should exit successfully")
+				case <-ctx.Done():
+					Fail("CLI OAuth2 login did not complete within timeout")
+				}
 			}
 
 			By("calling the devices API through the logged-in CLI session")
@@ -263,7 +291,8 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the OpenShift browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)).To(Succeed())
+			err := runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, scenario)
+			Expect(err).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -281,7 +310,8 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the bundled PAM browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, pamBrowserScenario())).To(Succeed())
+			err := runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, pamBrowserScenario())
+			Expect(err).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -317,7 +347,8 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the AAP browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)).To(Succeed())
+			err := runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, scenario)
+			Expect(err).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -340,10 +371,11 @@ func openshiftBrowserScenario() browserLoginScenario {
 	}
 
 	return browserLoginScenario{
-		name:       "openshift",
-		providerUI: "openshift",
-		username:   username,
-		password:   password,
+		name:         openshiftProviderName,
+		providerName: openshiftProviderName,
+		providerUI:   openshiftProviderName,
+		username:     username,
+		password:     password,
 	}
 }
 
@@ -363,23 +395,26 @@ func pamBrowserScenario() browserLoginScenario {
 	}
 
 	return browserLoginScenario{
-		name:       "pam",
-		providerUI: "pam",
-		username:   username,
-		password:   password,
+		name:         pamProviderUIName,
+		providerName: staticOIDCProviderName,
+		providerUI:   pamProviderUIName,
+		username:     username,
+		password:     password,
 	}
 }
 
 // aapBrowserScenario returns the browser-login inputs for the AAP provider flow.
 func aapBrowserScenario() browserLoginScenario {
 	return browserLoginScenario{
-		name:       "aap",
-		providerUI: "aap",
-		username:   strings.TrimSpace(os.Getenv("AAP_USERNAME")),
-		password:   strings.TrimSpace(os.Getenv("AAP_PASSWORD")),
+		name:         aapProviderName,
+		providerName: aapProviderName,
+		providerUI:   aapProviderName,
+		username:     strings.TrimSpace(os.Getenv("AAP_USERNAME")),
+		password:     strings.TrimSpace(os.Getenv("AAP_PASSWORD")),
 	}
 }
 
+// ensureQuadletAAPProviderConfiguredForCurrentSpec applies the AAP auth config required by the current quadlet spec.
 func ensureQuadletAAPProviderConfiguredForCurrentSpec() error {
 	aapConfig, skipMessage, err := quadletAAPConfigFromEnv()
 	if err != nil {
@@ -391,6 +426,7 @@ func ensureQuadletAAPProviderConfiguredForCurrentSpec() error {
 	return configureQuadletAAPProviderForTest(aapConfig)
 }
 
+// quadletAAPConfigFromEnv builds the quadlet AAP config from environment variables or returns a skip reason.
 func quadletAAPConfigFromEnv() (*quadletAAPConfig, string, error) {
 	apiURL := strings.TrimSpace(os.Getenv("AAP_API_URL"))
 	clientID := strings.TrimSpace(os.Getenv("AAP_CLIENT_ID"))
@@ -419,6 +455,7 @@ func quadletAAPConfigFromEnv() (*quadletAAPConfig, string, error) {
 	}, "", nil
 }
 
+// configureQuadletAAPProviderForTest updates the quadlet service config for AAP and restores it after the spec.
 func configureQuadletAAPProviderForTest(aapConfig *quadletAAPConfig) error {
 	if aapConfig == nil {
 		return fmt.Errorf("AAP config is required")
@@ -482,6 +519,7 @@ func configureQuadletAAPProviderForTest(aapConfig *quadletAAPConfig) error {
 	return nil
 }
 
+// withQuadletAAPServiceConfig returns service config YAML updated with the requested AAP provider settings.
 func withQuadletAAPServiceConfig(configYAML string, aapConfig *quadletAAPConfig) (string, error) {
 	if aapConfig == nil {
 		return "", fmt.Errorf("AAP config is required")
@@ -539,6 +577,7 @@ func withQuadletAAPServiceConfig(configYAML string, aapConfig *quadletAAPConfig)
 	return string(updated), nil
 }
 
+// ensureNestedMap returns an existing nested map or creates one at the requested key.
 func ensureNestedMap(root map[string]interface{}, key string) map[string]interface{} {
 	if existing, ok := root[key].(map[string]interface{}); ok {
 		return existing
@@ -549,14 +588,17 @@ func ensureNestedMap(root map[string]interface{}, key string) map[string]interfa
 	return created
 }
 
+// defaultAAPAuthorizationURL returns the standard AAP authorization endpoint for an API URL.
 func defaultAAPAuthorizationURL(apiURL string) string {
 	return strings.TrimRight(apiURL, "/") + "/o/authorize/"
 }
 
+// defaultAAPTokenURL returns the standard AAP token endpoint for an API URL.
 func defaultAAPTokenURL(apiURL string) string {
 	return strings.TrimRight(apiURL, "/") + "/o/token/"
 }
 
+// firstNonEmpty returns the first non-empty value after trimming whitespace.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -566,6 +608,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// captureQuadletAAPClientIDSnapshot records the generated AAP client ID file before a spec mutates it.
 func captureQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider) (*quadletAAPClientIDSnapshot, error) {
 	if provider == nil {
 		return nil, fmt.Errorf("quadlet provider is required")
@@ -585,6 +628,7 @@ func captureQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider) (*q
 	}, nil
 }
 
+// restoreQuadletAAPClientIDSnapshot restores or removes the generated AAP client ID file after a spec.
 func restoreQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider, snapshot *quadletAAPClientIDSnapshot) error {
 	if provider == nil {
 		return fmt.Errorf("quadlet provider is required")
@@ -600,6 +644,7 @@ func restoreQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider, sna
 	return provider.WriteHostFile(renderer.DefaultAAPClientIDPath, []byte(snapshot.content))
 }
 
+// isMissingHostFileError reports whether a remote host file operation failed because the file is absent.
 func isMissingHostFileError(err error) bool {
 	if err == nil {
 		return false
@@ -655,8 +700,59 @@ func providerShownInLogin(harness *e2e.Harness, apiEndpoint, providerName string
 	}
 }
 
+// fetchAuthConfig retrieves the public auth configuration from the API server.
+func fetchAuthConfig(ctx context.Context, apiEndpoint string) (*api.AuthConfig, error) {
+	if strings.TrimSpace(apiEndpoint) == "" {
+		return nil, fmt.Errorf("api endpoint is required")
+	}
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // E2E uses self-signed test certificates.
+		},
+		Timeout: 10 * time.Second,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiEndpoint, "/")+"/api/v1/auth/config", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create auth config request: %w", err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get auth config: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get auth config returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var authConfig api.AuthConfig
+	if err := json.NewDecoder(resp.Body).Decode(&authConfig); err != nil {
+		return nil, fmt.Errorf("decode auth config: %w", err)
+	}
+	return &authConfig, nil
+}
+
+// findAuthProvider returns a provider with the requested name from an AuthConfig response.
+func findAuthProvider(authConfig *api.AuthConfig, providerName string) (*api.AuthProvider, error) {
+	if authConfig == nil || authConfig.Providers == nil {
+		return nil, fmt.Errorf("auth config does not include providers")
+	}
+	for i := range *authConfig.Providers {
+		provider := &(*authConfig.Providers)[i]
+		if provider.Metadata.Name != nil && *provider.Metadata.Name == providerName {
+			return provider, nil
+		}
+	}
+	return nil, fmt.Errorf("auth provider %q not found", providerName)
+}
+
 // writeAndApplyAuthProviderManifest writes a provider manifest to disk and applies it through the harness.
 func writeAndApplyAuthProviderManifest(harness *e2e.Harness, providerPath, providerYAML string) (string, error) {
+	if harness == nil {
+		return "", fmt.Errorf("worker harness is required")
+	}
 	if strings.TrimSpace(providerPath) == "" {
 		return "", fmt.Errorf("provider manifest path is required")
 	}
@@ -666,8 +762,8 @@ func writeAndApplyAuthProviderManifest(harness *e2e.Harness, providerPath, provi
 	if err := os.WriteFile(providerPath, []byte(providerYAML), 0600); err != nil {
 		return "", fmt.Errorf("write authprovider manifest %q: %w", providerPath, err)
 	}
-	if harness == nil {
-		return "", fmt.Errorf("worker harness is required")
+	if err := restoreAdminLoginForResourceManagement(harness); err != nil {
+		return "", err
 	}
 	return harness.ApplyResource(providerPath)
 }
@@ -680,7 +776,21 @@ func deleteAuthProviderByName(harness *e2e.Harness, providerName string) (string
 	if strings.TrimSpace(providerName) == "" {
 		return "", fmt.Errorf("provider name is required")
 	}
+	if err := restoreAdminLoginForResourceManagement(harness); err != nil {
+		return "", err
+	}
 	return harness.ManageResource("delete", "authprovider", providerName)
+}
+
+// restoreAdminLoginForResourceManagement resets the CLI session to an admin user before authprovider mutations.
+func restoreAdminLoginForResourceManagement(harness *e2e.Harness) error {
+	if harness == nil {
+		return fmt.Errorf("worker harness is required")
+	}
+	if _, err := login.LoginToAPIWithToken(harness); err != nil {
+		return fmt.Errorf("restore admin login for authprovider resource management: %w", err)
+	}
+	return nil
 }
 
 // runLoginWithCypressHarness runs the suite-local Cypress harness for browser-based provider login.
@@ -719,9 +829,30 @@ func runLoginWithCypressHarness(ctx context.Context, harness *e2e.Harness, apiEn
 		logrus.Infof("[authprovider] cypress login output:\n%s", string(out))
 	}
 	if err != nil {
+		if len(out) > 0 {
+			return fmt.Errorf("run cypress login helper %q for %s: %w\n%s", scriptPath, scenario.name, err, string(out))
+		}
 		return fmt.Errorf("run cypress login helper %q for %s: %w", scriptPath, scenario.name, err)
 	}
 	return nil
+}
+
+// runLoginWithCypressHarnessOrSkip runs the Cypress harness and skips when browser test dependencies are unavailable.
+func runLoginWithCypressHarnessOrSkip(ctx context.Context, harness *e2e.Harness, apiEndpoint string, scenario browserLoginScenario) error {
+	err := runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)
+	if isCypressUnavailableError(err) {
+		Skip(err.Error())
+	}
+	return err
+}
+
+// isCypressUnavailableError reports whether the suite-local browser helper cannot run because Cypress and npm are unavailable.
+func isCypressUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, cypressMissingSubstring) && strings.Contains(errText, npmMissingSubstring)
 }
 
 // runProviderLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the given provider.
@@ -758,36 +889,43 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 		return "", nil, pipeErr
 	}
 
+	var stderrBuf bytes.Buffer
+	var stdoutBuf bytes.Buffer
+
 	if err = cmd.Start(); err != nil {
 		return "", nil, err
 	}
 
-	doneCh := make(chan error, 1)
-	go func() {
-		doneCh <- cmd.Wait()
-		close(doneCh)
-	}()
-
 	var copyWg sync.WaitGroup
 	copyWg.Add(2)
-	var stderrBuf bytes.Buffer
 	go func() {
 		defer copyWg.Done()
 		_, _ = io.Copy(&stderrBuf, stderrPipe)
 	}()
 
-	var stdoutBuf bytes.Buffer
 	urlCh := make(chan string, 1)
 	go func() {
 		defer copyWg.Done()
+		urlSent := false
 		scanner := bufio.NewScanner(io.TeeReader(stdoutPipe, &stdoutBuf))
 		for scanner.Scan() {
 			line := scanner.Text()
-			if match := loginURLRe.FindStringSubmatch(line); len(match) > 1 {
+			if match := loginURLRe.FindStringSubmatch(line); !urlSent && len(match) > 1 {
 				urlCh <- strings.TrimSpace(match[1])
-				return
+				urlSent = true
 			}
 		}
+	}()
+
+	doneCh := make(chan error, 1)
+	go func() {
+		waitErr := cmd.Wait()
+		copyWg.Wait()
+		if waitErr != nil {
+			waitErr = loginCommandErrorWithOutput("login command failed", waitErr, stdoutBuf.String(), stderrBuf.String())
+		}
+		doneCh <- waitErr
+		close(doneCh)
 	}()
 
 	logCommandError := func(what string, err error) {
@@ -827,11 +965,68 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 	}
 }
 
+// runProviderPasswordLoginCLI logs in through an OAuth2 provider using password grant credentials.
+func runProviderPasswordLoginCLI(ctx context.Context, harness *e2e.Harness, apiEndpoint, providerName, username, password string) (string, error) {
+	if harness == nil {
+		return "", fmt.Errorf("worker harness is required")
+	}
+	if strings.TrimSpace(apiEndpoint) == "" {
+		return "", fmt.Errorf("api endpoint is required")
+	}
+	if strings.TrimSpace(providerName) == "" {
+		return "", fmt.Errorf("provider name is required")
+	}
+	if strings.TrimSpace(username) == "" {
+		return "", fmt.Errorf("username is required")
+	}
+	if password == "" {
+		return "", fmt.Errorf("password is required")
+	}
+
+	args := []string{
+		"login", apiEndpoint,
+		loginInsecureTLSArg,
+		"--provider", providerName,
+		"-u", username,
+		"-p", password,
+	}
+	flightctlPath := harness.GetFlightctlPath()
+	logrus.Infof("[authprovider] provider password login command for %s: %s %s", providerName, flightctlPath, strings.Join(sanitizeCommandArgsForLog(args, password), " "))
+
+	cmd := exec.CommandContext(ctx, flightctlPath, args...) //nolint:gosec // G204: command is suite-owned flightctl binary with fixed test arguments
+	cmd.Env = append(os.Environ(), "API_ENDPOINT="+apiEndpoint)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("run provider password login for %s: %w\n%s", providerName, err, string(out))
+	}
+	return string(out), nil
+}
+
 // runLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the bootstrap Keycloak OIDC provider.
 func runLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEndpoint string) (authURL string, done <-chan error, err error) {
 	return runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, keycloakAuthProviderName)
 }
 
+// loginCommandErrorWithOutput attaches captured CLI streams to a login command error.
+func loginCommandErrorWithOutput(message string, err error, stdout, stderr string) error {
+	if err == nil {
+		return nil
+	}
+
+	var output []string
+	if strings.TrimSpace(stdout) != "" {
+		output = append(output, "stdout:\n"+stdout)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		output = append(output, "stderr:\n"+stderr)
+	}
+	if len(output) == 0 {
+		return fmt.Errorf("%s: %w", message, err)
+	}
+	return fmt.Errorf("%s: %w\n%s", message, err, strings.Join(output, "\n"))
+}
+
+// sanitizeCommandArgsForLog redacts password values before logging a command line.
 func sanitizeCommandArgsForLog(args []string, password string) []string {
 	if len(args) == 0 {
 		return nil
@@ -972,6 +1167,52 @@ func buildKeycloakOAuth2AuthProviderYAML(name, issuerURL, clientID, clientSecret
 	authorizationURL := issuerURL + "/protocol/openid-connect/auth"
 	tokenURL := issuerURL + "/protocol/openid-connect/token"
 	userinfoURL := issuerURL + "/protocol/openid-connect/userinfo"
+	jwksURL := issuerURL + "/protocol/openid-connect/certs"
+
+	return buildOAuth2AuthProviderYAML(name, issuerURL, authorizationURL, tokenURL, userinfoURL, jwksURL, clientID, clientSecret, clientID, "account")
+}
+
+// buildQuadletPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the quadlet PAM issuer.
+func buildQuadletPAMOAuth2AuthProviderYAML(ctx context.Context, apiEndpoint, name string) (string, error) {
+	authConfig, err := fetchAuthConfig(ctx, apiEndpoint)
+	if err != nil {
+		return "", err
+	}
+	pamProvider, err := findAuthProvider(authConfig, staticOIDCProviderName)
+	if err != nil {
+		return "", err
+	}
+	pamSpec, err := pamProvider.Spec.AsOIDCProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("parse PAM OIDC provider spec: %w", err)
+	}
+
+	clientSecret := pamSpec.ClientSecret
+	if clientSecret == "" || clientSecret == "*****" {
+		clientSecret = pamOAuth2FallbackSecret
+	}
+	issuerURL := strings.TrimRight(pamSpec.Issuer, "/")
+	return buildOAuth2AuthProviderYAML(
+		name,
+		issuerURL,
+		issuerURL+"/authorize",
+		issuerURL+"/token",
+		issuerURL+"/userinfo",
+		issuerURL+"/jwks",
+		pamSpec.ClientId,
+		clientSecret,
+		pamSpec.ClientId,
+	), nil
+}
+
+// buildOAuth2AuthProviderYAML renders a dynamic OAuth2 authprovider manifest for this suite.
+func buildOAuth2AuthProviderYAML(name, issuerURL, authorizationURL, tokenURL, userinfoURL, jwksURL, clientID, clientSecret string, audiences ...string) string {
+	audienceYAML := ""
+	for _, audience := range audiences {
+		if strings.TrimSpace(audience) != "" {
+			audienceYAML += fmt.Sprintf("      - %s\n", audience)
+		}
+	}
 
 	return fmt.Sprintf(`apiVersion: flightctl.io/v1beta1
 kind: AuthProvider
@@ -993,6 +1234,11 @@ spec:
     - email
   usernameClaim:
     - preferred_username
+  introspection:
+    type: jwt
+    jwksUrl: %s
+    audience:
+%s
   organizationAssignment:
     type: static
     organizationName: %s
@@ -1000,5 +1246,5 @@ spec:
     type: static
     roles:
       - %s
-`, name, name, issuerURL, authorizationURL, tokenURL, userinfoURL, clientID, clientSecret, defaultOrganizationName, defaultAdminRole)
+`, name, name, issuerURL, authorizationURL, tokenURL, userinfoURL, clientID, clientSecret, jwksURL, audienceYAML, defaultOrganizationName, defaultAdminRole)
 }

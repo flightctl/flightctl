@@ -34,6 +34,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ensure_cypress_installed installs the suite-local Cypress dependencies when they are missing.
 ensure_cypress_installed() {
   if [[ -x "$CYPRESS_BIN" ]]; then
     return 0
@@ -53,6 +54,7 @@ ensure_cypress_installed() {
   fi
 }
 
+# resolve_openshift_oauth_client_id returns the single Flight Control OAuthClient name to patch.
 resolve_openshift_oauth_client_id() {
   if [[ -n "${OPENSHIFT_OAUTH_CLIENT_ID:-}" ]]; then
     echo "$OPENSHIFT_OAUTH_CLIENT_ID"
@@ -63,7 +65,8 @@ resolve_openshift_oauth_client_id() {
   client_ids="$(oc get oauthclient \
     -l flightctl.service=flightctl,component=oauth-client \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
-  client_count="$(grep -cve '^[[:space:]]*$' <<< "$client_ids")"
+  client_count="$(grep -cve '^[[:space:]]*$' <<< "$client_ids" || true)"
+  client_count="${client_count:-0}"
 
   case "$client_count" in
     0)
