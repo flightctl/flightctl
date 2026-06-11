@@ -140,6 +140,39 @@ func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpm
 	return nil
 }
 
+// imageTagToRPMVersion converts an image tag (e.g. "1.2.0-rc3") to the
+// equivalent RPM version string (e.g. "1.2.0~rc3"). RPM uses tildes (~) for
+// pre-release suffixes so they sort before the release version; container image
+// tags use hyphens instead.  A plain release version like "1.2.0" is unchanged.
+func imageTagToRPMVersion(tag string) string {
+	// Replace the first hyphen before a pre-release label (rc, alpha, beta) with a tilde.
+	// "1.2.0-rc3"    → "1.2.0~rc3"
+	// "1.2.0-main-5" → "1.2.0~main-5"  (dev build suffix)
+	// "1.2.0"        → "1.2.0"          (release — unchanged)
+	for i := 0; i < len(tag); i++ {
+		if tag[i] == '-' {
+			return tag[:i] + "~" + tag[i+1:]
+		}
+	}
+	return tag
+}
+
+// pinRPMPackages appends the given version to each flightctl package name so
+// that dnf downloads exactly that version rather than the latest available.
+// Third-party packages (those that do not start with "flightctl-") are left
+// unpinned so their upstream version is used unchanged.
+func pinRPMPackages(packages []string, version string) []string {
+	pinned := make([]string, len(packages))
+	for i, p := range packages {
+		if strings.HasPrefix(p, "flightctl-") || p == "flightctl" {
+			pinned[i] = p + "-" + version
+		} else {
+			pinned[i] = p
+		}
+	}
+	return pinned
+}
+
 // excludePackages returns packages with any entry found in exclude removed.
 func excludePackages(packages, exclude []string) []string {
 	if len(exclude) == 0 {
@@ -258,6 +291,7 @@ func NewRootCommand() *cobra.Command {
 		bundleRPMs    bool
 		rpmPackages   []string
 		rpmExclude    []string
+		rpmVersion    string
 		rpmRepoURL    string
 		rpmReposync   bool
 		rpmCreaterepo bool
@@ -318,7 +352,16 @@ Examples:
 
   # Server bundle: download agent RPM for image building but skip auto-install on server
   flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
-    --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent`,
+    --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent
+
+  # Bundle with explicit version pin — image tags and RPM version stay in sync automatically
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3
+
+  # Bundle pointing to a custom RPM repo (e.g. COPR) with explicit version pin
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3 \
+    --rpm-repo-url https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/repo/epel-9/group_redhat-et-flightctl-epel-9.repo`,
 
 		// SilenceUsage prevents cobra from printing the full usage block on every
 		// RunE error — our logError calls provide targeted messages instead.
@@ -331,6 +374,22 @@ Examples:
 
 			if agentOnly && !cmd.Flags().Changed("rpm-packages") {
 				rpmPackages = []string{"flightctl-agent", "flightctl-cli", "open-vm-tools", "ignition", "afterburn", "cloud-init"}
+			}
+
+			// Pin RPM packages to a specific version when requested.
+			// --rpm-version takes precedence; if not set, derive it from --tag-override
+			// so that the bundled RPM version matches the bundled image tags.
+			// Only applies when --rpm-packages was not explicitly overridden by the user
+			// (if the user already pinned versions in --rpm-packages, respect that).
+			if bundleRPMs || agentOnly {
+				effectiveRPMVersion := rpmVersion
+				if effectiveRPMVersion == "" && tagOverride != "" && !cmd.Flags().Changed("rpm-packages") {
+					effectiveRPMVersion = imageTagToRPMVersion(tagOverride)
+				}
+				if effectiveRPMVersion != "" {
+					rpmPackages = pinRPMPackages(rpmPackages, effectiveRPMVersion)
+					logInfo("  RPM version pin:  %s", effectiveRPMVersion)
+				}
 			}
 
 			installPackages := excludePackages(rpmPackages, rpmExclude)
@@ -470,6 +529,7 @@ Examples:
 	cmd.Flags().BoolVar(&bundleRPMs, "bundle-rpms", false, "Include RPMs in the bundle for bare-metal quadlet installation (requires --bundle)")
 	cmd.Flags().StringSliceVar(&rpmPackages, "rpm-packages", []string{"flightctl-services", "flightctl-cli", "flightctl-agent"}, "RPM package names to download into the bundle (comma-separated). The default includes flightctl-cli for server-side fleet management and flightctl-agent for offline image building — the agent RPM is not enabled on the server but is available in the bundle rpms/ directory for embedding into device OS images.")
 	cmd.Flags().StringSliceVar(&rpmExclude, "rpm-exclude", nil, "RPM package names to download but exclude from auto-installation (comma-separated). Excluded packages are still present in rpms/ for manual use (e.g. embedding into device OS images).")
+	cmd.Flags().StringVar(&rpmVersion, "rpm-version", "", "Pin flightctl RPM packages to this exact version (e.g. 1.2.0~rc3). When omitted and --tag-override is set, the version is derived automatically from the tag override so that RPM and image versions stay in sync. Use this flag to override the derived version or when the RPM version differs from the image tag.")
 	cmd.Flags().StringVar(&rpmRepoURL, "rpm-repo-url", "https://rpm.flightctl.io/flightctl-epel.repo", "URL of the .repo file to configure dnf for RPM downloads")
 	cmd.Flags().BoolVar(&rpmReposync, "rpm-reposync", false, "Mirror the full FlightCtl RPM repository using 'dnf reposync' (includes repodata/; requires dnf-plugins-core; mutually exclusive with --rpm-createrepo)")
 	cmd.Flags().BoolVar(&rpmCreaterepo, "rpm-createrepo", false, "Generate repodata/ after 'dnf download' using 'createrepo_c' so the bundle can be used as a local dnf repository source (mutually exclusive with --rpm-reposync)")
