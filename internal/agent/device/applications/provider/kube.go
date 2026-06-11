@@ -15,10 +15,6 @@ const (
 	// virtLauncherImagePrefix is the OCI image prefix used by KubeVirt's virt-launcher.
 	// Any pod whose volumes or containers reference this prefix is classified as a VM workload.
 	virtLauncherImagePrefix = "quay.io/kubevirt/virt-launcher"
-
-	// kubeYamlKey is the key in the [Kube] section of a .kube Quadlet unit that
-	// specifies the referenced Kubernetes Pod YAML filename.
-	kubeYamlKey = "Yaml"
 )
 
 // podSpec is a minimal struct for parsing the subset of a Podman Pod YAML that
@@ -133,9 +129,9 @@ func collectKubePodTargets(
 		return nil, fmt.Errorf("parsing kube unit: %w", err)
 	}
 
-	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, kubeYamlKey)
+	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
 	if err != nil {
-		return nil, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", kubeYamlKey, quadlet.KubeGroup, err)
+		return nil, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
 	}
 	yamlFilename = filepath.Base(yamlFilename)
 
