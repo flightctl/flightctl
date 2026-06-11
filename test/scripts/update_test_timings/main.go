@@ -45,7 +45,6 @@ type specTiming = e2etestutils.SpecTiming
 
 const suiteOverheadPrefix = e2etestutils.SuiteOverheadPrefix
 
-
 func githubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
 		return t
@@ -165,7 +164,6 @@ func downloadAndExtractArtifact(ctx context.Context, client *github.Client, owne
 	return nil
 }
 
-
 func loadExistingCache(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -204,7 +202,6 @@ func writeCache(path string, timings map[string]specTiming) error {
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
-
 
 func printSummary(timings map[string]specTiming, prevCount int) {
 	if len(timings) == 0 {

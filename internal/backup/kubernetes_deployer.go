@@ -47,8 +47,8 @@ var requiredPKISecretNames = []string{
 // Controlled by Helm values: ui.enabled, cliArtifacts.enabled, alertmanagerProxy.enabled.
 // Missing secrets are silently skipped.
 var optionalPKISecretNames = []string{
-	"flightctl-ui-server-tls",          // ui.enabled
-	"flightctl-ui-certs",               // ui.enabled
+	"flightctl-ui-server-tls",            // ui.enabled
+	"flightctl-ui-certs",                 // ui.enabled
 	"flightctl-cli-artifacts-server-tls", // cliArtifacts.enabled
 	"flightctl-alertmanager-proxy-certs", // alertmanagerProxy.enabled
 }

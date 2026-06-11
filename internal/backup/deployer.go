@@ -81,8 +81,8 @@ func (d *Detector) Detect() (DeploymentType, error) {
 
 	if podmanActive && kubeconfigPresent {
 		return DeploymentTypeUnknown, fmt.Errorf(
-			"conflicting deployment indicators detected: "+
-				"Podman (flightctl-api.service is active) and Kubernetes (kubeconfig present); "+
+			"conflicting deployment indicators detected: " +
+				"Podman (flightctl-api.service is active) and Kubernetes (kubeconfig present); " +
 				"use --deployment-type to specify explicitly",
 		)
 	}
@@ -136,7 +136,6 @@ func ValidateDeploymentType(s string) error {
 			s, DeploymentTypeKubernetes, DeploymentTypePodman)
 	}
 }
-
 
 // isInternalDB returns true if the database is internal (managed by FlightCtl deployment).
 // Internal databases have hostnames: localhost, 127.0.0.1, flightctl-db, or flightctl-db.<namespace>

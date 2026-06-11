@@ -17,7 +17,7 @@ import (
 type junitTestCase = e2etestutils.JUnitTestCase
 
 var (
-	junitSpecName       = e2etestutils.JUnitSpecName
+	junitSpecName        = e2etestutils.JUnitSpecName
 	parseTimingsFromFile = e2etestutils.ParseTimingsFromFile
 )
 
