@@ -56,7 +56,6 @@ func loadDiscovery(path string) ([]specInfo, error) {
 	return e2etestutils.LoadDiscovery(path)
 }
 
-
 func loadTimings(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -71,7 +70,6 @@ func loadTimings(path string) (map[string]specTiming, error) {
 	}
 	return timings, nil
 }
-
 
 func printSummary(assignments map[string][]string, specTimings map[string]specTiming, suiteTimings map[string]specTiming, defDuration float64, unknowns []string, specs []specInfo, sigma float64) {
 	// Build a lookup from spec name to suite name.
@@ -98,13 +96,13 @@ func printSummary(assignments map[string][]string, specTimings map[string]specTi
 			if suite != "" {
 				if _, seen := suitesSeen[suite]; !seen {
 					if overhead, ok := suiteTimings[suite]; ok {
-					total += e2etestutils.EffectiveWeight(overhead, sigma)
+						total += e2etestutils.EffectiveWeight(overhead, sigma)
+					}
+					suitesSeen[suite] = struct{}{}
 				}
-				suitesSeen[suite] = struct{}{}
 			}
-		}
-		if t, ok := specTimings[s]; ok {
-			total += e2etestutils.EffectiveWeight(t, sigma)
+			if t, ok := specTimings[s]; ok {
+				total += e2etestutils.EffectiveWeight(t, sigma)
 			} else {
 				total += defDuration
 			}
@@ -184,12 +182,12 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 			if err != nil {
 				return err
 			}
-		specTimings, suiteTimings := e2etestutils.SeparateTimings(allTimings)
+			specTimings, suiteTimings := e2etestutils.SeparateTimings(allTimings)
 
-		def := defSecs
-		if def < 0 {
-			def = e2etestutils.DefaultDuration(specTimings, 60.0)
-		}
+			def := defSecs
+			if def < 0 {
+				def = e2etestutils.DefaultDuration(specTimings, 60.0)
+			}
 			fmt.Printf("Default duration for unknown specs: %.1fs\n", def)
 
 			if sigma > 0 {
@@ -199,12 +197,12 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				fmt.Printf("Suite BeforeSuite overhead: %d suite(s) tracked\n", len(suiteTimings))
 			}
 
-		var unknowns []string
-		for _, s := range specs {
-			if _, ok := specTimings[s.Name]; !ok {
-				unknowns = append(unknowns, s.Name)
+			var unknowns []string
+			for _, s := range specs {
+				if _, ok := specTimings[s.Name]; !ok {
+					unknowns = append(unknowns, s.Name)
+				}
 			}
-		}
 			fmt.Printf("Specs: %d total, %d with timing data, %d using default\n",
 				len(specs), len(specs)-len(unknowns), len(unknowns))
 
