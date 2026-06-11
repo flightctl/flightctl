@@ -243,9 +243,10 @@ func createStandardImageBuildRepositories(h *e2e.Harness, testID string, c *negA
 }
 
 func createQuaySourceRepository(h *e2e.Harness, testID string, c *negAPIResourceCleanup) string {
+	resolveSourceRegistry(h)
 	name := fmt.Sprintf("repo-src-%s", testID)
 	_, err := resources.CreateOCIRepository(h, name, sourceRegistry,
-		lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+		lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 	Expect(err).ToNot(HaveOccurred())
 	c.sourceRepo = name
 	return name
