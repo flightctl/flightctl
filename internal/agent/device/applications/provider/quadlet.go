@@ -390,7 +390,6 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 	return targets.Add(p.spec.User, volTargets...), nil
 }
 
-
 func (p *quadletProvider) extractNestedTargets(ctx context.Context, configProvider dependency.PullConfigResolver) (*AppData, error) {
 	if !p.isImageBased() {
 		return &AppData{}, nil
