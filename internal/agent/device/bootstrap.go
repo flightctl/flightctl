@@ -112,6 +112,15 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
+	// Read rollback info before ensureBootstrap modifies the spec state. rollback.json
+	// records the version/hash from when CreateRollback() was called (before the OS
+	// reboot), so it correctly identifies the original failing spec even after console-only
+	// version increments changed the rendered version number since the rollback was created.
+	rollbackInfo, err := b.specManager.GetRollbackInfo()
+	if err != nil {
+		b.log.Errorf("Failed to read rollback info: %v", err)
+	}
+
 	if err := b.ensureBootstrap(ctx); err != nil {
 		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
 		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
@@ -126,7 +135,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	b.updateStatus(ctx)
+	b.updateStatus(ctx, rollbackInfo.Version)
 
 	// Report connectivity status to systemd.
 	// This is visible via `systemctl status flightctl-agent` as StatusText.
@@ -163,7 +172,7 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrap) updateStatus(ctx context.Context) {
+func (b *Bootstrap) updateStatus(ctx context.Context, failedVersion string) {
 	updatingCondition := v1beta1.Condition{
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
@@ -172,6 +181,11 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 		updatingCondition.Status = v1beta1.ConditionStatusTrue
 		// TODO: only set rebooting in case where we are actually rebooting
 		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
+	} else if failedVersion != "" {
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s", failedVersion)
+		updatingCondition.Status = v1beta1.ConditionStatusFalse
+		updatingCondition.Reason = string(v1beta1.UpdateStateError)
+		updatingCondition.Message = msg
 	} else {
 		updatingCondition.Status = v1beta1.ConditionStatusFalse
 		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
@@ -269,6 +283,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	}
 
 	b.log.Warn("Starting spec rollback")
+
 	// rollback and set the version to failed
 	if err := b.specManager.Rollback(ctx, spec.WithSetFailed()); err != nil {
 		return fmt.Errorf("failed spec rollback: %w", err)

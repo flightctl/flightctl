@@ -288,7 +288,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		if err != nil {
 			return fmt.Errorf("reading rollback spec for OS rollback: %w", err)
 		}
-		return a.rebootIntoRollbackOS(ctx, rollbackDevice.Spec)
+		return a.rebootIntoRollbackOS(ctx, rollbackDevice.Spec, syncErr)
 	}
 
 	if err := a.specManager.Rollback(ctx); err != nil {
@@ -298,13 +298,13 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 	return syncFn(ctx, desired, current)
 }
 
-func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec) error {
+func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec, syncErr error) error {
 	if err := a.hookManager.OnBeforeRebooting(ctx); err != nil {
 		a.log.Errorf("Error executing BeforeRebooting hook: %v", err)
 		return err
 	}
 
-	infoMsg := fmt.Sprintf("Device is rebooting into rollback OS: %s", rollbackSpec.Os.Image)
+	infoMsg := fmt.Sprintf("Device is rebooting into rollback OS: %s: %s", rollbackSpec.Os.Image, errors.FormatError(syncErr).Message())
 	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
 		Status: v1beta1.DeviceSummaryStatusRebooting,
 		Info:   lo.ToPtr(infoMsg),
