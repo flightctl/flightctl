@@ -358,7 +358,7 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 		})
 	} else {
 		quadletSpec, err := client.ParseQuadletReferencesFromSpec(p.inlineContent)
-		if err != nil && !p.hasKubeInlineFile() {
+		if err != nil {
 			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
 		}
 		for _, quad := range quadletSpec {
@@ -366,6 +366,8 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 		}
 
 		// Collect OCI targets from any .kube inline files referencing a pod YAML.
+		// ParseQuadletReferencesFromSpec processes .kube files but extractQuadletTargets
+		// does not parse the pod YAML — that is done here via collectKubePodTargets.
 		for i := range p.inlineContent {
 			if filepath.Ext(p.inlineContent[i].Path) != quadlet.KubeExtension {
 				continue
@@ -388,15 +390,6 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 	return targets.Add(p.spec.User, volTargets...), nil
 }
 
-// hasKubeInlineFile reports whether any entry in the inline content has a .kube extension.
-func (p *quadletProvider) hasKubeInlineFile() bool {
-	for _, c := range p.inlineContent {
-		if filepath.Ext(c.Path) == quadlet.KubeExtension {
-			return true
-		}
-	}
-	return false
-}
 
 func (p *quadletProvider) extractNestedTargets(ctx context.Context, configProvider dependency.PullConfigResolver) (*AppData, error) {
 	if !p.isImageBased() {
