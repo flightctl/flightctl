@@ -437,11 +437,11 @@ Parameters:
   - |
     set -euo pipefail
 
-    LABEL_SELECTOR="flightctl.service=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
+    EXPECTED_REVISION={{ $ctx.Release.Revision }}
     TIMEOUT={{ $timeout }}
     NS="{{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}"
 
-    echo "Waiting for migration job with labels: $LABEL_SELECTOR (timeout ${TIMEOUT}s)"
+    echo "Waiting for migration job for release revision ${EXPECTED_REVISION} or later (timeout ${TIMEOUT}s)"
     start=$(date +%s)
 
     while true; do
@@ -452,11 +452,10 @@ Parameters:
         exit 1
       fi
 
-      # Find job by label selector
-      JOB=$(kubectl get jobs -n "$NS" -l "$LABEL_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-      
-      # Check if job exists
-      if [ -n "$JOB" ]; then
+      JOB="flightctl-db-migration"
+      if kubectl get job "$JOB" -n "$NS" &>/dev/null; then
+        job_revision=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.metadata.labels.flightctl\.io/migration-revision}' 2>/dev/null || echo 0)
+
         # Check for parallel execution (dangerous even with idempotent migrations)
         parallelism=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.spec.parallelism}' 2>/dev/null || echo 1)
         if (( parallelism > 1 )); then
@@ -468,22 +467,24 @@ Parameters:
         succeeded=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo 0)
         failed=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.status.failed}' 2>/dev/null || echo 0)
 
-        if (( succeeded > 0 )); then
-            # The 'greater than 1' scenario would only occur if the job spec.completions is set to more than 1
-            if (( succeeded > 1 )); then
-                echo "Warning: Migration job completed $succeeded times (expected 1). Ensure spec.completions is set to 1."
-            fi
-            echo "Migration job $JOB completed successfully"
+        if (( job_revision > EXPECTED_REVISION )); then
+            # A higher-revision migration job exists; since migrations are sequential,
+            # this revision's migration must have already completed successfully.
+            echo "Found migration job $JOB at revision ${job_revision} > ${EXPECTED_REVISION}, migration already done"
             exit 0
-        elif (( failed > 0 )); then
-            echo "Migration job $JOB failed"
-            exit 1
-        else
-            echo "Migration job $JOB is still running..."
+        elif (( job_revision == EXPECTED_REVISION )); then
+            if (( succeeded > 0 )); then
+                echo "Migration job $JOB (revision ${job_revision}) completed successfully"
+                exit 0
+            elif (( failed > 0 )); then
+                echo "Migration job $JOB (revision ${job_revision}) failed"
+                exit 1
+            else
+                echo "Migration job $JOB (revision ${job_revision}) is still running..."
+            fi
         fi
       else
-        # Job not found - could be not created yet, RBAC issue, or other problem
-        echo "Migration job not found yet, waiting..."
+        echo "Migration job $JOB not found yet, waiting..."
       fi
 
       sleep 5
