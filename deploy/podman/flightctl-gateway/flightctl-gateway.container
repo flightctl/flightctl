@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control Gateway service
 After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
-Requires=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
+Wants=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
 PartOf=flightctl.target
 
 [Container]
@@ -32,3 +32,10 @@ Restart=always
 RestartSec=30
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-gateway/nginx.conf.template --output-file /etc/flightctl/flightctl-gateway/nginx.conf
+
+ExecStartPre=/usr/bin/systemctl is-active flightctl-api
+ExecStartPre=/usr/bin/systemctl is-active flightctl-telemetry-gateway
+ExecStartPre=/usr/bin/systemctl is-active flightctl-ui
+ExecStartPre=/usr/bin/systemctl is-active flightctl-pam-issuer
+ExecStartPre=/usr/bin/systemctl is-active flightctl-alertmanager-proxy
+ExecStartPre=/usr/bin/systemctl is-active flightctl-cli-artifacts
