@@ -312,6 +312,24 @@ See [Deploying Observability Offline](deploying-observability-linux.md#air-gappe
 for the complete procedure, including image lists, `skopeo` commands, and
 configuration notes.
 
+## flightctl-mirror-images flag reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--variant` | — | Deployment variant: `community-el9`, `community-el10`, `rhem-el9`, `rhem-el10`. Required unless `--agent-only` is set. |
+| `--dest-registry` | `localhost:5000` (bundle mode) | Destination registry `host:port` — no scheme. Required in live-push mode. |
+| `--execute` | `false` | Execute skopeo copy commands immediately. Mutually exclusive with `--bundle`. |
+| `--insecure` | `false` | Disable TLS verification for the destination registry. Required for plain HTTP registries. |
+| `--tag-override` | — | Pin the image tag for all untagged FlightCtl images (e.g. `1.2.0`). Also pins the RPM version automatically when `--bundle-rpms` or `--agent-only` is set. Third-party images with explicit tags are unaffected. |
+| `--bundle` | — | Create a self-contained `.tar.gz` archive at the given path. Mutually exclusive with `--execute`. |
+| `--bundle-rpms` | `false` | Include RPMs and an `install-rpms.sh` script in the bundle. Requires `--bundle`. |
+| `--rpm-packages` | `flightctl-services,`<br>`flightctl-cli,`<br>`flightctl-agent` | Comma-separated list of RPM packages to download into the bundle. |
+| `--rpm-exclude` | — | Comma-separated packages to download but skip during auto-install. RPMs remain in `rpms/` for manual use (e.g. embedding `flightctl-agent` into device OS images). |
+| `--rpm-repo-url` | `https://rpm.flightctl.io/`<br>`flightctl-epel.repo` | URL of the `.repo` file used for RPM downloads. Override to use COPR or a custom repo. |
+| `--rpm-createrepo` | `false` | Run `createrepo_c` after `dnf download` to generate `repodata/` in the bundle. Prevents `dnf` protected-package conflicts on install. Mutually exclusive with `--rpm-reposync`. |
+| `--rpm-reposync` | `false` | Mirror the full FlightCtl RPM repo using `dnf reposync`, including repodata. Requires `dnf-plugins-core`. Mutually exclusive with `--rpm-createrepo`. |
+| `--agent-only` | `false` | RPM-only bundle for edge device installation — skips all image bundling, `--variant` not required. Defaults `--rpm-packages` to `flightctl-agent,flightctl-cli,open-vm-tools,ignition,afterburn,cloud-init`. |
+
 ## Next steps
 
 - [Configuring Authentication and Authorization](configuring-auth/overview.md) —
