@@ -173,6 +173,27 @@ func pinRPMPackages(packages []string, version string) []string {
 	return pinned
 }
 
+// resolveRPMVersion pins flightctl RPM packages to a specific version when
+// bundling RPMs so the downloaded RPM version matches the bundled image tags.
+// --rpm-version takes precedence; when absent and --tag-override is set and the
+// caller did not explicitly set --rpm-packages, the version is derived from the
+// tag override (converting image-tag hyphens to RPM-version tildes).
+func resolveRPMVersion(packages []string, rpmVersion, tagOverride string, shouldPin, packagesExplicitlySet bool) []string {
+	if !shouldPin {
+		return packages
+	}
+	effective := rpmVersion
+	if effective == "" && tagOverride != "" && !packagesExplicitlySet {
+		effective = imageTagToRPMVersion(tagOverride)
+	}
+	if effective == "" {
+		return packages
+	}
+	pinned := pinRPMPackages(packages, effective)
+	logInfo("  RPM version pin:  %s", effective)
+	return pinned
+}
+
 // excludePackages returns packages with any entry found in exclude removed.
 func excludePackages(packages, exclude []string) []string {
 	if len(exclude) == 0 {
@@ -376,21 +397,8 @@ Examples:
 				rpmPackages = []string{"flightctl-agent", "flightctl-cli", "open-vm-tools", "ignition", "afterburn", "cloud-init"}
 			}
 
-			// Pin RPM packages to a specific version when requested.
-			// --rpm-version takes precedence; if not set, derive it from --tag-override
-			// so that the bundled RPM version matches the bundled image tags.
-			// Only applies when --rpm-packages was not explicitly overridden by the user
-			// (if the user already pinned versions in --rpm-packages, respect that).
-			if bundleRPMs || agentOnly {
-				effectiveRPMVersion := rpmVersion
-				if effectiveRPMVersion == "" && tagOverride != "" && !cmd.Flags().Changed("rpm-packages") {
-					effectiveRPMVersion = imageTagToRPMVersion(tagOverride)
-				}
-				if effectiveRPMVersion != "" {
-					rpmPackages = pinRPMPackages(rpmPackages, effectiveRPMVersion)
-					logInfo("  RPM version pin:  %s", effectiveRPMVersion)
-				}
-			}
+			rpmPackages = resolveRPMVersion(rpmPackages, rpmVersion, tagOverride,
+				bundleRPMs || agentOnly, cmd.Flags().Changed("rpm-packages"))
 
 			installPackages := excludePackages(rpmPackages, rpmExclude)
 			if len(rpmExclude) > 0 {
