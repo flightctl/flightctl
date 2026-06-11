@@ -90,15 +90,29 @@ make build-mirror-images
 #### Alternative: use flag overrides without switching branches
 
 If you cannot check out the release tag, pass `--tag-override` to pin the container
-image tags and include the version in `--rpm-packages` to pin the RPM:
+image tags. The tool automatically pins the RPM version to match — converting the
+image tag format (`1.1.2`) to the RPM version format (`1.1.2`) — so both the
+bundled images and the installed RPM reference the same version:
 
 ```bash
 ./bin/flightctl-mirror-images \
     --variant community-el9 \
     --bundle ~/flightctl-bundle-1.1.2.tar.gz \
     --bundle-rpms \
-    --tag-override v1.1.2 \
-    --rpm-packages flightctl-services-1.1.2
+    --tag-override 1.1.2
+```
+
+If the RPM version differs from the image tag (for example, builds
+where the image tag uses a hyphen and the RPM version uses a tilde), use
+`--rpm-version` to set the RPM version explicitly:
+
+```bash
+./bin/flightctl-mirror-images \
+    --variant community-el9 \
+    --bundle ~/flightctl-bundle-1.2.0-rc3.tar.gz \
+    --bundle-rpms \
+    --tag-override 1.2.0-rc3 \
+    --rpm-version 1.2.0~rc3
 ```
 
 To see which RPM versions are available in the FlightCtl repository before running
