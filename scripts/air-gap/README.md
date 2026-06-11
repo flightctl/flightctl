@@ -71,8 +71,10 @@ make build-mirror-images
 |------|---------|-------------|
 | `--bundle <path>` | — | Create a `.tar.gz` archive at path. Mutually exclusive with `--execute`. |
 | `--bundle-rpms` | false | Add RPMs and `install-rpms.sh` to the bundle. Requires `--bundle`. |
-| `--rpm-packages` | `flightctl-services` | Comma-separated packages to download. Use `flightctl-agent,flightctl-cli,open-vm-tools,ignition,afterburn,cloud-init` for edge devices (these are the `--agent-only` defaults). |
-| `--rpm-repo-url` | `https://rpm.flightctl.io/flightctl-epel.repo` | `.repo` file URL for RPM downloads. |
+| `--rpm-packages` | `flightctl-services,flightctl-cli,flightctl-agent` | Comma-separated packages to download. |
+| `--rpm-exclude` | — | Comma-separated packages to download but exclude from auto-installation. Excluded packages remain in `rpms/` for manual use (e.g. embedding `flightctl-agent` into device OS images). |
+| `--rpm-version` | — | Pin flightctl RPM packages to this exact version (e.g. `1.2.0~rc3`). When omitted and `--tag-override` is set, the version is derived automatically so RPM and image versions stay in sync. Use when the RPM version differs from the image tag. |
+| `--rpm-repo-url` | `https://rpm.flightctl.io/flightctl-epel.repo` | `.repo` file URL for RPM downloads. Override to use a COPR or custom repo. |
 | `--rpm-reposync` | false | Use `dnf reposync` to mirror the full repo with metadata. Mutually exclusive with `--rpm-createrepo`. |
 | `--rpm-createrepo` | false | Run `createrepo_c` after `dnf download` to generate `repodata/`. Mutually exclusive with `--rpm-reposync`. |
 | `--agent-only` | false | RPM-only bundle, no images, no `--variant` required. Defaults `--rpm-packages` to `flightctl-agent,flightctl-cli,open-vm-tools,ignition,afterburn,cloud-init`. |
@@ -119,7 +121,7 @@ Pass multiple packages as a comma-separated list or by repeating the flag — bo
 |------|---------|-------------|
 | `--execute` | false | Run skopeo commands immediately. |
 | `--insecure` | false | Add `--dest-tls-verify=false` (required for HTTP registries). |
-| `--tag-override <tag>` | — | Override the image tag for untagged FlightCtl service images (e.g. `v1.1.2`). Third-party images with pinned tags are unaffected. |
+| `--tag-override <tag>` | — | Override the image tag for untagged FlightCtl service images (e.g. `1.2.0-rc3`). Third-party images with pinned tags are unaffected. When `--bundle-rpms` is set, also pins flightctl RPM packages to the matching version (converting `-` to `~` for pre-release, e.g. `1.2.0-rc3` → `1.2.0~rc3`) unless `--rpm-packages` or `--rpm-version` is explicitly set. |
 
 ---
 
