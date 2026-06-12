@@ -210,7 +210,11 @@ cd ~/flightctl-bundle
 ```
 
 The script installs `flightctl-services` and all bundled dependencies using
-`sudo dnf install`.
+`sudo dnf install`. It uses `--nobest` so that system packages already present
+on the target (such as `librepo`) are used at their installed version rather
+than requiring the exact version from the bundle. This makes bundles portable
+across RHEL minor versions — a bundle built on RHEL 9.8 installs cleanly on a
+RHEL 9.5 target without version conflicts.
 
 ## Step 7: Configure image registry redirection
 
