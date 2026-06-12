@@ -1,9 +1,9 @@
 # Installing the Flight Control agent offline on RHEL
 
 This document describes how to install `flightctl-agent` and `flightctl-cli` on a RHEL
-machine that has no internet access. The procedure uses a connected prep machine to
-download the required packages, transfers them using portable media, and installs them
-locally on the target.
+machine that has no internet access. The `flightctl-mirror-images` tool running on a
+connected prep machine creates a portable RPM bundle. You then transfer the bundle to
+the target device and run the included install script.
 
 The agent itself does not require container images to run. However, if the agent manages
 containerized workloads on the device, those images must also be made available offline.
@@ -11,102 +11,91 @@ Both scenarios are covered here.
 
 ## Prerequisites
 
-- A connected RHEL 9 or RHEL 10 prep machine running the same major RHEL version as
-  the target
-- An air-gapped target RHEL machine
+On the **prep machine** (internet-connected):
+
+- RHEL 9 or RHEL 10 with `createrepo_c` installed (`sudo dnf install -y createrepo_c`)
+- The `flightctl-mirror-images` binary — either installed via the `flightctl-cli` RPM or
+  built from source (`make build-mirror-images`)
+
+On the **target device** (air-gapped):
+
+- RHEL 9 or RHEL 10
+- `sudo` access
 - A transfer method — see [Packaging artifacts for portable media](offline-portable-media.md)
-- `sudo` access on both machines
 
 ## Part 1: Installing the agent and CLI
 
-### Step 1: Download the packages on the prep machine
+### Step 1: Create the agent bundle on the prep machine
 
-Add the FlightCtl repository on the prep machine:
-
-```bash
-sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
-```
-
-Download `flightctl-agent`, `flightctl-cli`, and the system packages that the
-agent's OS image requires (`open-vm-tools`, `ignition`, `afterburn`, `cloud-init`):
+Run `flightctl-mirror-images` with the `--agent-only` flag. This creates a portable
+`.tar.gz` archive containing the agent, CLI, and the system packages required on edge
+devices (`open-vm-tools`, `ignition`, `afterburn`, `cloud-init`). No container images
+are included — the bundle is RPM-only and much smaller than a full service bundle.
 
 ```bash
-mkdir -p ~/flightctl-rpms
-dnf download --resolve --alldeps --destdir ~/flightctl-rpms \
-    flightctl-agent flightctl-cli \
-    open-vm-tools ignition afterburn cloud-init
+flightctl-mirror-images \
+    --agent-only \
+    --bundle ~/flightctl-agent-bundle.tar.gz \
+    --rpm-createrepo \
+    --tag-override 1.2.0
 ```
 
-> [!NOTE]
-> `open-vm-tools`, `ignition`, `afterburn`, and `cloud-init` are standard RHEL
-> packages, not FlightCtl packages. They are resolved from your existing RHEL
-> subscription repos and do not require the FlightCtl repo.
-
-To pin to a specific FlightCtl release version, include the version number:
+Replace `1.2.0` with your target FlightCtl release version. The `--tag-override` flag
+pins both the RPM version and is used to ensure the agent matches the server version.
+To find available versions:
 
 ```bash
-dnf download --resolve --alldeps --destdir ~/flightctl-rpms \
-    flightctl-agent-1.1.2 flightctl-cli-1.1.2 \
-    open-vm-tools ignition afterburn cloud-init
+dnf list --showduplicates flightctl-agent --disablerepo='*' \
+    --enablerepo=flightctl 2>/dev/null | tail -10
 ```
 
-To see which versions are available:
+To use a version from the COPR repository:
 
 ```bash
-dnf list --showduplicates flightctl-agent
+flightctl-mirror-images \
+    --agent-only \
+    --bundle ~/flightctl-agent-bundle.tar.gz \
+    --rpm-createrepo \
+    --tag-override 1.2.0-rc3 \
+    --rpm-repo-url https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/repo/epel-9/group_redhat-et-flightctl-epel-9.repo
 ```
 
-> [!NOTE]
-> If you need a full offline repo that lets the target machine resolve packages with
-> `dnf install` instead of installing from flat `.rpm` files, use `dnf reposync`
-> instead. See [Setting up a local RPM repository](offline-rpm-repository.md) for both
-> approaches and when to choose each.
+The bundle contains:
 
-Verify that the downloaded files include the expected packages:
+```console
+~/flightctl-agent-bundle.tar.gz
+├── rpms/            — agent, CLI, and dependency RPMs with repodata/
+└── install-rpms.sh  — installs packages using the local repo metadata
+```
+
+### Step 2: Transfer the bundle to the target device
 
 ```bash
-ls ~/flightctl-rpms/ | grep -E 'flightctl-(agent|cli)|open-vm-tools|ignition|afterburn|cloud-init'
+scp ~/flightctl-agent-bundle.tar.gz <user>@<device>:~/
 ```
 
-### Step 2: Transfer the packages to the target machine
+See [Packaging artifacts for portable media](offline-portable-media.md) for USB drive
+and other transfer formats.
 
-Package the downloaded RPMs into an archive:
+### Step 3: Extract and install on the target device
 
 ```bash
-tar -czf ~/flightctl-agent-rpms.tar.gz -C ~ flightctl-rpms/
+mkdir ~/flightctl-agent-bundle
+tar -xzf ~/flightctl-agent-bundle.tar.gz -C ~/flightctl-agent-bundle
+cd ~/flightctl-agent-bundle
+./install-rpms.sh
 ```
 
-Transfer the archive to the target machine. The transfer method depends on your
-environment — see [Packaging artifacts for portable media](offline-portable-media.md)
-for full instructions. For a target reachable via a jump host:
-
-```bash
-scp ~/flightctl-agent-rpms.tar.gz <user>@<target_host>:~/
-```
-
-### Step 3: Install on the target machine
-
-On the target machine, extract the archive:
-
-```bash
-tar -xzf ~/flightctl-agent-rpms.tar.gz -C ~/
-```
-
-Install all packages from the local directory:
-
-```bash
-sudo dnf install -y ~/flightctl-rpms/*.rpm
-```
-
-> [!NOTE]
-> If `dnf` reports unresolved dependencies, the prep machine may be running a different
-> RHEL minor version than the target. Re-run `dnf download --resolve --alldeps` on a prep machine
-> that matches the target's exact RHEL version and rebuild the archive.
+The install script detects the repo metadata generated by `--rpm-createrepo` and
+installs the agent and CLI by name using `dnf`. It uses `--nobest` so that system
+packages already present on the target are used at their installed version rather
+than requiring the exact version from the bundle, making bundles portable across
+RHEL minor versions.
 
 ### Step 4: Configure the agent
 
-The agent reads its configuration from `/etc/flightctl/config.yaml`. At minimum, you
-must configure the URL of the Flight Control enrollment service:
+The agent reads its configuration from `/etc/flightctl/config.yaml`. At minimum,
+configure the URL of the Flight Control enrollment service:
 
 ```bash
 sudo tee /etc/flightctl/config.yaml << 'EOF'
@@ -128,29 +117,15 @@ your provisioning pipeline before the agent can connect.
 
 ### Step 5: Start and enable the agent
 
-Enable and start the `flightctl-agent` service:
-
 ```bash
 sudo systemctl enable --now flightctl-agent
 ```
 
 ### Step 6: Verify the installation
 
-Check that the agent service is running:
-
 ```bash
 systemctl status flightctl-agent
-```
-
-Verify the CLI is available:
-
-```bash
 flightctl version
-```
-
-Check the agent logs for enrollment activity:
-
-```bash
 journalctl -u flightctl-agent -f
 ```
 
@@ -204,7 +179,7 @@ Flight Control points at the local registry instead of an internet-accessible re
    images and transfer it to the target:
 
    ```bash
-   ./bin/flightctl-mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
+   flightctl-mirror-images --variant community-el9 --bundle ~/workload-images.tar.gz
    scp ~/workload-images.tar.gz <user>@<target_host>:~/
    ```
 

@@ -345,14 +345,14 @@ echo "Installing RPMs from $RPMS_DIR..."
 
 if [ -d "$RPMS_DIR/flightctl/repodata" ]; then
     # reposync layout: RPMs and metadata are in the repo subdirectory
-    sudo dnf install -y --nogpgcheck \
+    sudo dnf install -y --nogpgcheck --nobest \
         --disablerepo='*' \
         --repofrompath="flightctl-local,$RPMS_DIR/flightctl" \
         --enablerepo=flightctl-local \
         $PACKAGES
 elif [ -d "$RPMS_DIR/repodata" ]; then
     # createrepo layout: flat RPMs with generated metadata
-    sudo dnf install -y --nogpgcheck \
+    sudo dnf install -y --nogpgcheck --nobest \
         --disablerepo='*' \
         --repofrompath="flightctl-local,$RPMS_DIR" \
         --enablerepo=flightctl-local \
@@ -365,7 +365,7 @@ else
     if command -v createrepo_c &>/dev/null; then
         echo "Generating repository metadata (createrepo_c)..."
         createrepo_c "$RPMS_DIR" >/dev/null 2>&1
-        sudo dnf install -y --nogpgcheck \
+        sudo dnf install -y --nogpgcheck --nobest \
             --disablerepo='*' \
             --repofrompath="flightctl-local,$RPMS_DIR" \
             --enablerepo=flightctl-local \
