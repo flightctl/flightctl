@@ -369,7 +369,7 @@ func findQuayMirrorRegistry() string {
 	}
 	for _, line := range strings.Split(out, "\n") {
 		parts := strings.Fields(line)
-		if len(parts) == 2 && parts[0] == defaultSourceRegistry {
+		if len(parts) == 2 && (parts[0] == defaultSourceRegistry || strings.HasPrefix(parts[0], defaultSourceRegistry+"/")) {
 			return parts[1]
 		}
 	}
@@ -382,6 +382,7 @@ func isLocalSourceRegistry() bool {
 	return sourceRegistry != defaultSourceRegistry
 }
 
+// getAgentServiceStatus returns the systemctl is-active status of the flightctl-agent service.
 func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getAgentServiceStatus: VM is nil\n")
@@ -395,6 +396,7 @@ func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// getEnrollmentIDFromAgentLogs extracts the enrollment ID from flightctl-agent journal logs.
 func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: VM is nil\n")
