@@ -122,11 +122,16 @@ func (c *Consumer) evaluateAndTransition(ctx context.Context, orgID uuid.UUID, p
 		return c.evaluateAmendmentFailed(ctx, orgID, promotion, imageBuild)
 	}
 
-	allReady, _, err := c.computeArtifactsStatus(ctx, orgID, promotion, imageBuild)
+	allReady, _, terminalFailedFormats, err := c.computeArtifactsStatus(ctx, orgID, promotion, imageBuild)
 	if err != nil {
 		c.log.WithError(err).WithField("promotion", lo.FromPtr(promotion.Metadata.Name)).
 			Warn("failed to compute promotion artifact status")
 		return fmt.Errorf("failed to compute artifact status for promotion %q: %w", lo.FromPtr(promotion.Metadata.Name), err)
+	}
+
+	if len(terminalFailedFormats) > 0 {
+		msg := buildExportTerminalFailureMessage(promotion.Spec.Source.ImageBuildRef, terminalFailedFormats)
+		return c.transitionToFailed(ctx, orgID, promotion, domain.ImagePromotionConditionReasonFailed, msg)
 	}
 
 	if !allReady {
@@ -517,7 +522,9 @@ func (c *Consumer) resolveArtifactReferences(ctx context.Context, orgID uuid.UUI
 // Returns:
 //   - allUnpublishedReady: true when all unpublished artifacts have completed artifacts.
 //   - unpublishedFormats: export formats not yet published.
-func (c *Consumer) computeArtifactsStatus(ctx context.Context, orgID uuid.UUID, current *domain.ImagePromotion, imageBuild *domain.ImageBuild) (allUnpublishedReady bool, unpublishedFormats []domain.ExportFormatType, err error) {
+//   - terminalFailedFormats: export formats whose most recent export is in a terminal non-completed
+//     state (Failed or Canceled) and no completed export exists.
+func (c *Consumer) computeArtifactsStatus(ctx context.Context, orgID uuid.UUID, current *domain.ImagePromotion, imageBuild *domain.ImageBuild) (allUnpublishedReady bool, unpublishedFormats []domain.ExportFormatType, terminalFailedFormats []domain.ExportFormatType, err error) {
 	if current.Status == nil {
 		current.Status = &domain.ImagePromotionStatus{}
 	}
@@ -553,7 +560,7 @@ func (c *Consumer) computeArtifactsStatus(ctx context.Context, orgID uuid.UUID, 
 		}
 		export, checkErr := c.resolveLatestCompletedExport(ctx, orgID, current.Spec.Source.ImageBuildRef, format)
 		if checkErr != nil {
-			return false, nil, fmt.Errorf("%w: failed to check export readiness for format %s: %w", errTransientExportLookup, format, checkErr)
+			return false, nil, nil, fmt.Errorf("%w: failed to check export readiness for format %s: %w", errTransientExportLookup, format, checkErr)
 		}
 		ready := export != nil
 		entry := domain.ArtifactPromotionStatus{Format: string(format), Ready: ready}
@@ -561,17 +568,30 @@ func (c *Consumer) computeArtifactsStatus(ctx context.Context, orgID uuid.UUID, 
 			entry.ResolvedExport = export.Metadata.Name
 		} else {
 			allUnpublishedReady = false
+			terminal, terminalErr := c.resolveLatestTerminalNonCompletedExport(ctx, orgID, current.Spec.Source.ImageBuildRef, format)
+			if terminalErr != nil {
+				return false, nil, nil, fmt.Errorf("%w: failed to check terminal export for format %s: %w", errTransientExportLookup, format, terminalErr)
+			}
+			if terminal != nil {
+				terminalFailedFormats = append(terminalFailedFormats, format)
+			}
 		}
 		statuses = append(statuses, entry)
 		unpublishedFormats = append(unpublishedFormats, format)
 	}
 	current.Status.ArtifactStatuses = &statuses
-	return allUnpublishedReady, unpublishedFormats, nil
+	return allUnpublishedReady, unpublishedFormats, terminalFailedFormats, nil
 }
 
 // resolveLatestCompletedExport returns the most recently completed ImageExport for the given format.
 func (c *Consumer) resolveLatestCompletedExport(ctx context.Context, orgID uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
 	return c.imageBuilderService.ImageExport().ListCompletedForBuild(ctx, orgID, imageBuildRef, format)
+}
+
+// resolveLatestTerminalNonCompletedExport returns the most recent terminal non-completed
+// (Failed or Canceled) ImageExport for the given format, or nil if none exists.
+func (c *Consumer) resolveLatestTerminalNonCompletedExport(ctx context.Context, orgID uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
+	return c.imageBuilderService.ImageExport().ListTerminalNonCompletedForBuild(ctx, orgID, imageBuildRef, format)
 }
 
 // ---- state transition helpers ----
@@ -703,6 +723,18 @@ func getPromotionReadyReasonWorker(promotion *domain.ImagePromotion) string {
 		return ""
 	}
 	return cond.Reason
+}
+
+func buildExportTerminalFailureMessage(imageBuildRef string, formats []domain.ExportFormatType) string {
+	formatStrs := make([]string, len(formats))
+	for i, f := range formats {
+		formatStrs[i] = string(f)
+	}
+	return fmt.Sprintf(
+		"Export(s) for format(s) [%s] failed or were canceled for build %q. Please create new exports to retry.",
+		strings.Join(formatStrs, ", "),
+		imageBuildRef,
+	)
 }
 
 func conditionMessageForReasonWorker(reason domain.ImagePromotionConditionReason) string {

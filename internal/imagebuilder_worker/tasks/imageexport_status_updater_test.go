@@ -98,6 +98,10 @@ func (m *mockImageExportServiceForStatusUpdater) ListCompletedForBuild(ctx conte
 	return nil, nil
 }
 
+func (m *mockImageExportServiceForStatusUpdater) ListTerminalNonCompletedForBuild(_ context.Context, _ uuid.UUID, _ string, _ api.ExportFormatType) (*api.ImageExport, error) {
+	return nil, nil
+}
+
 func (m *mockImageExportServiceForStatusUpdater) getCallsCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
