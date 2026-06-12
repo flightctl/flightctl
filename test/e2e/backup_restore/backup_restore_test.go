@@ -140,17 +140,18 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			// --- Step 5: Restore from backup; flightctl-restore handles service stop/start ---
 			By("Step 5: Restoring from backup (flightctl-restore stops services, restores DB, starts services)")
-			defer func() {
-				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
-				_ = br.ScaleUpFlightCtlServices()
-			}()
 			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
 
-			By("Waiting for API server to be responsive after scale up")
+			By("Verifying all services were restarted by the restore binary")
+			Eventually(func() error {
+				return br.VerifyAllServicesRunning()
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "All 8 services must be running after restore")
+
+			By("Waiting for API server to be responsive after restore")
 			Eventually(func() error {
 				_, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				return err
-			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "API server must respond after scale up")
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "API server must respond after restore")
 
 			// --- Step 6: Service RV=rvAtBackup (restored), device RV=rvAfterUpdate (> rvAtBackup) → ConflictPaused ---
 			By("Step 6: Waiting for devices to reach AwaitingReconnect or ConflictPaused or Online")
@@ -313,18 +314,18 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			defer cleanup()
 
 			By("Restore process: flightctl-restore (handles service stop/start internally)")
-			defer func() {
-				// Safety net: ensure services are up even if the restore binary is killed before its own deferred start.
-				_ = br.ScaleUpFlightCtlServices()
-			}()
 			Expect(br.RunFlightCtlRestore(archivePath)).To(Succeed(), "flightctl-restore must succeed (build with: make flightctl-restore)")
-			Expect(br.ScaleUpFlightCtlServices()).To(Succeed())
 
-			By("Waiting for API server to be responsive after scale up")
+			By("Verifying all services were restarted by the restore binary")
+			Eventually(func() error {
+				return br.VerifyAllServicesRunning()
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "All 8 services must be running after restore")
+
+			By("Waiting for API server to be responsive after restore")
 			Eventually(func() error {
 				_, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				return err
-			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "API server must respond after scale up")
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "API server must respond after restore")
 
 			By("84938: Devices should move to AwaitingReconnect then Online (device version <= server, no ConflictPaused)")
 			harness.WaitForDeviceContents(device1ID, "device 1 AwaitingReconnect or Online", func(device *v1beta1.Device) bool {
