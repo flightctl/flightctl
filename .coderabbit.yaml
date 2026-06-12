@@ -281,7 +281,10 @@ reviews:
     - path: ".github/{workflows,actions}/**/*"
       instructions: |
         CI/CD review (prodsec-skills):
-        - Pin actions by full SHA, not tag
+        - GitHub-owned actions (actions/*) use tag refs (e.g., @v4)
+          for readability — do NOT flag these for missing SHA pins.
+          Third-party actions must be pinned by full SHA with a
+          trailing version comment (e.g., @<sha> # v1.2.3).
         - No secrets in logs; mask sensitive outputs
         - Least privilege: minimize GITHUB_TOKEN permissions
         - No pull_request_target with checkout of PR head
@@ -432,7 +435,7 @@ reviews:
           attribution trailers: Assisted-by, Generated-by, or
           Made-with (e.g., Made-with: Cursor) are acceptable.
           Flag use of Co-Authored-By for AI tools.
-        mode: "warning"
+        mode: "error"
 
 # ── Knowledge base ───────────────────────────────────────────
 knowledge_base:
