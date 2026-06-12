@@ -68,8 +68,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				_, _ = resources.Delete(workerHarness, resources.Repositories, sourceRepoName)
 			}()
 
+			resolveSourceRegistry(workerHarness)
 			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
-				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+				lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
@@ -135,8 +136,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				_, _ = resources.Delete(workerHarness, resources.Repositories, sourceRepoName)
 			}()
 
+			resolveSourceRegistry(workerHarness)
 			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
-				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+				lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,

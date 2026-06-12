@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -22,7 +23,7 @@ import (
 // Shared constants used across all imagebuild test files
 const (
 	// Test timeouts
-	imageBuildTimeout    = 10 * time.Minute
+	imageBuildTimeout    = 15 * time.Minute
 	imageExportTimeout   = 15 * time.Minute
 	processingTimeout    = 2 * time.Minute
 	failureTimeout       = 3 * time.Minute
@@ -38,9 +39,9 @@ const (
 
 const (
 	// Source image (centos-bootc from quay.io)
-	sourceRegistry  = "quay.io"
-	sourceImageName = "centos-bootc/centos-bootc"
-	sourceImageTag  = "stream9"
+	defaultSourceRegistry = "quay.io"
+	sourceImageName       = "centos-bootc/centos-bootc"
+	sourceImageTag        = "stream9"
 
 	// Destination image
 	destImageName = "centos-bootc-custom"
@@ -48,6 +49,9 @@ const (
 	// VM SSH port base for this test (use high port to avoid conflicts)
 	vmSSHPortBase = 22800
 )
+
+var sourceRegistry = defaultSourceRegistry
+var sourceRegistryOnce sync.Once
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild end-to-end workflow", func() {
@@ -73,8 +77,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 1: Creating repositories")
 
+			resolveSourceRegistry(workerHarness)
 			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
-				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
+				lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
@@ -339,6 +344,45 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 // --- Helper functions (no Expect calls) ---
 
+// resolveSourceRegistry detects whether quay.io is mirrored via an OCP
+// ImageTagMirrorSet and, if so, overrides sourceRegistry to point at
+// the local mirror. This allows imagebuild tests to work in disconnected
+// OCP environments where quay.io is not directly reachable.
+func resolveSourceRegistry(_ *e2e.Harness) {
+	sourceRegistryOnce.Do(func() {
+		mirror := findQuayMirrorRegistry()
+		if mirror != "" {
+			sourceRegistry = mirror
+			GinkgoWriter.Printf("OCP mirror found for quay.io, using: %s\n", sourceRegistry)
+		}
+	})
+}
+
+// findQuayMirrorRegistry queries OCP ImageTagMirrorSet resources to find
+// a local mirror for quay.io. Returns the mirror address or empty string
+// if no mirror is configured or oc is unavailable (e.g. non-OCP environments).
+func findQuayMirrorRegistry() string {
+	out, err := testutil.RunOcCommand("get", "imagetagmirrorset", "-o",
+		`jsonpath={range .items[*].spec.imageTagMirrors[*]}{.source}{" "}{.mirrors[0]}{"\n"}{end}`)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 2 && (parts[0] == defaultSourceRegistry || strings.HasPrefix(parts[0], defaultSourceRegistry+"/")) {
+			return parts[1]
+		}
+	}
+	return ""
+}
+
+// isLocalSourceRegistry returns true when sourceRegistry was overridden
+// to a local OCP mirror (i.e. not the default quay.io).
+func isLocalSourceRegistry() bool {
+	return sourceRegistry != defaultSourceRegistry
+}
+
+// getAgentServiceStatus returns the systemctl is-active status of the flightctl-agent service.
 func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getAgentServiceStatus: VM is nil\n")
@@ -352,6 +396,7 @@ func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// getEnrollmentIDFromAgentLogs extracts the enrollment ID from flightctl-agent journal logs.
 func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: VM is nil\n")

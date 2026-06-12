@@ -200,6 +200,26 @@ func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
 	return nil
 }
 
+// RunOcCommand executes an oc CLI command with the given arguments and returns
+// its trimmed stdout. Returns an error if oc is not on PATH, the command fails,
+// or execution exceeds 30 seconds.
+func RunOcCommand(args ...string) (string, error) {
+	if !BinaryExistsOnPath("oc") {
+		return "", fmt.Errorf("oc not found on PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "oc", args...).CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("oc %s timed out after 30s", strings.Join(args, " "))
+		}
+		return "", fmt.Errorf("oc %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // IsAcmInstalled checks if ACM is installed and if it is running.
 // returns: isAcmInstalled, isAcmRunning, error
 func IsAcmInstalled() (bool, bool, error) {
