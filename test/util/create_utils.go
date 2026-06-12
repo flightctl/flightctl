@@ -554,3 +554,68 @@ func BuildInlineConfigSpec(name, filePath, content, user string) (api.ConfigProv
 	})
 	return provider, err
 }
+
+// BuildGitConfigSpec creates a ConfigProviderSpec for a git-backed config provider.
+func BuildGitConfigSpec(name, repository, targetRevision, path string) (api.ConfigProviderSpec, error) {
+	if name == "" || repository == "" || targetRevision == "" || path == "" {
+		return api.ConfigProviderSpec{}, fmt.Errorf("name, repository, targetRevision, and path must not be empty")
+	}
+	var provider api.ConfigProviderSpec
+	err := provider.FromGitConfigProviderSpec(api.GitConfigProviderSpec{
+		Name: name,
+		GitRef: struct {
+			Path           string `json:"path"`
+			Repository     string `json:"repository"`
+			TargetRevision string `json:"targetRevision"`
+		}{
+			Path:           path,
+			Repository:     repository,
+			TargetRevision: targetRevision,
+		},
+	})
+	return provider, err
+}
+
+// BuildHTTPConfigSpec creates a ConfigProviderSpec for an HTTP-backed config provider.
+func BuildHTTPConfigSpec(name, repository, filePath string, suffix *string) (api.ConfigProviderSpec, error) {
+	if name == "" || repository == "" || filePath == "" {
+		return api.ConfigProviderSpec{}, fmt.Errorf("name, repository, and filePath must not be empty")
+	}
+	var provider api.ConfigProviderSpec
+	err := provider.FromHttpConfigProviderSpec(api.HttpConfigProviderSpec{
+		Name: name,
+		HttpRef: struct {
+			FilePath   string  `json:"filePath"`
+			Repository string  `json:"repository"`
+			Suffix     *string `json:"suffix,omitempty"`
+		}{
+			FilePath:   filePath,
+			Repository: repository,
+			Suffix:     suffix,
+		},
+	})
+	return provider, err
+}
+
+// BuildK8sSecretConfigSpec creates a ConfigProviderSpec for a Kubernetes secret-backed config provider.
+func BuildK8sSecretConfigSpec(name, secretName, namespace, mountPath string) (api.ConfigProviderSpec, error) {
+	if name == "" || secretName == "" || namespace == "" || mountPath == "" {
+		return api.ConfigProviderSpec{}, fmt.Errorf("name, secretName, namespace, and mountPath must not be empty")
+	}
+	var provider api.ConfigProviderSpec
+	err := provider.FromKubernetesSecretProviderSpec(api.KubernetesSecretProviderSpec{
+		Name: name,
+		SecretRef: struct {
+			Group     string       `json:"group,omitempty"`
+			MountPath string       `json:"mountPath"`
+			Name      string       `json:"name"`
+			Namespace string       `json:"namespace"`
+			User      api.Username `json:"user,omitempty"`
+		}{
+			MountPath: mountPath,
+			Name:      secretName,
+			Namespace: namespace,
+		},
+	})
+	return provider, err
+}
