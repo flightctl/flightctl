@@ -5319,7 +5319,8 @@ components:
         A VM workload managed by the FlightCtl agent. The VM definition may be
         delivered either as an OCI image/artifact or as inline application content.
         For inline providers, the package must contain a KubeVirt VirtualMachine YAML
-        file named vm.yaml, following the same application package model as QuadletApplication.
+        file named vm.yaml. An optional Quadlet unit override file (*.kube) may also
+        be included, following the same application package model as QuadletApplication.
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
         - oneOf:
