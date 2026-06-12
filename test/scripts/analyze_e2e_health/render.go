@@ -27,16 +27,16 @@ type renderContext struct {
 
 type slackSummary struct {
 	// Pipeline timing (mirrors overview row 1)
-	WallTimeSecs            float64 `json:"wall_time_seconds"`
-	PrepareTimeSecs         float64 `json:"prepare_time_seconds"`
-	TestingTimeSecs         float64 `json:"testing_time_seconds"`
-	InferredShards          int     `json:"inferred_shards"`
-	AnalyzedRuns            int     `json:"analyzed_runs"`
+	WallTimeSecs    float64 `json:"wall_time_seconds"`
+	PrepareTimeSecs float64 `json:"prepare_time_seconds"`
+	TestingTimeSecs float64 `json:"testing_time_seconds"`
+	InferredShards  int     `json:"inferred_shards"`
+	AnalyzedRuns    int     `json:"analyzed_runs"`
 	// Test health (mirrors overview row 2)
-	TotalSpecsTracked       int     `json:"total_specs_tracked"`
-	ConsistentlyFailing     int     `json:"consistently_failing"`
-	FlakyTests              int     `json:"flaky_tests"`
-	NeverFailed             int     `json:"never_failed"`
+	TotalSpecsTracked   int `json:"total_specs_tracked"`
+	ConsistentlyFailing int `json:"consistently_failing"`
+	FlakyTests          int `json:"flaky_tests"`
+	NeverFailed         int `json:"never_failed"`
 	// Extra context
 	InfraInstabilityEvents  int     `json:"infra_instability_events"`
 	OptimizationSavingsSecs float64 `json:"optimization_savings_seconds"`

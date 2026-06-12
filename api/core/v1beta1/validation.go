@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -992,6 +993,8 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			allErrs = append(allErrs, validateComposeApplication(app, appName, fleetTemplate)...)
 		case AppTypeQuadlet:
 			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
+		case AppTypeVm:
+			allErrs = append(allErrs, validateVmApplication(app, appName, fleetTemplate)...)
 		default:
 			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
@@ -1114,6 +1117,7 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 			allErrs = append(allErrs, fmt.Errorf("invalid quadlet inline provider: %w", err))
 		} else {
 			allErrs = append(allErrs, inlineSpec.Validate(AppTypeQuadlet, fleetTemplate)...)
+			allErrs = append(allErrs, validateKubeYamlDirectives(inlineSpec, pathPrefix)...)
 		}
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown quadlet provider type: %s", providerType))
@@ -1121,6 +1125,137 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 
 	allErrs = append(allErrs, validateEnvVars(quadlet.EnvVars, pathPrefix)...)
 	allErrs = append(allErrs, validateApplicationVolumes(quadlet.Volumes, appName, AppTypeQuadlet, fleetTemplate)...)
+
+	return allErrs
+}
+
+// validateKubeYamlDirectives checks that every .kube file in inlineSpec has its
+// Yaml= target present in the inline set and that the target is a valid Pod manifest.
+// Content is decoded from base64 when necessary so validation is consistent regardless
+// of how the caller encoded the inline files.
+func validateKubeYamlDirectives(inlineSpec InlineApplicationProviderSpec, pathPrefix string) []error {
+	// Build a lookup map of path → decoded content for all inline files.
+	fileContents := make(map[string][]byte, len(inlineSpec.Inline))
+	for _, f := range inlineSpec.Inline {
+		if f.Content == nil {
+			continue
+		}
+		decoded, err := decodeApplicationContent(f)
+		if err != nil {
+			continue // malformed encoding is already caught by ApplicationContent.Validate
+		}
+		fileContents[f.Path] = decoded
+	}
+
+	var errs []error
+	for _, f := range inlineSpec.Inline {
+		if !strings.HasSuffix(f.Path, ".kube") || f.Content == nil {
+			continue
+		}
+		kubeBytes, ok := fileContents[f.Path]
+		if !ok {
+			continue
+		}
+		yamlFile := parseKubeYamlDirective(string(kubeBytes))
+		if yamlFile == "" {
+			continue
+		}
+		targetBytes, ok := fileContents[yamlFile]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s.inline[%s]: Yaml=%s references a file not present in the inline set",
+				pathPrefix, f.Path, yamlFile))
+			continue
+		}
+		errs = append(errs, validatePodManifest(targetBytes, pathPrefix+".inline["+yamlFile+"]")...)
+	}
+	return errs
+}
+
+// decodeApplicationContent returns the decoded byte content of an ApplicationContent entry,
+// handling both plain and base64 encodings.
+func decodeApplicationContent(f ApplicationContent) ([]byte, error) {
+	if f.Content == nil {
+		return nil, fmt.Errorf("nil content")
+	}
+	if f.IsBase64() {
+		return base64.StdEncoding.DecodeString(*f.Content)
+	}
+	return []byte(*f.Content), nil
+}
+
+// parseKubeYamlDirective extracts the value of the Yaml= key from a [Kube] unit file.
+// Returns an empty string if the directive is absent or the content cannot be parsed.
+func parseKubeYamlDirective(kubeContent string) string {
+	for _, line := range strings.Split(kubeContent, "\n") {
+		line = strings.TrimSpace(line)
+		key, value, found := strings.Cut(line, "=")
+		if found && strings.TrimSpace(key) == "Yaml" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+type podManifestMeta struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+}
+
+// validatePodManifest checks that the given YAML content is a valid Kubernetes Pod manifest.
+func validatePodManifest(content []byte, pathPrefix string) []error {
+	var meta podManifestMeta
+	if err := yaml.Unmarshal(content, &meta); err != nil {
+		return []error{fmt.Errorf("%s: must be valid YAML: %w", pathPrefix, err)}
+	}
+	if meta.Kind != "Pod" {
+		return []error{fmt.Errorf("%s: kind must be \"Pod\", got %q", pathPrefix, meta.Kind)}
+	}
+	return nil
+}
+
+func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	vm, err := app.AsVmApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid vm application: %w", err)}
+	}
+
+	providerType, err := vm.Type()
+	if err != nil {
+		return []error{fmt.Errorf("%s: invalid vm application provider type: %w", pathPrefix, err)}
+	}
+
+	switch providerType {
+	case ImageApplicationProviderType:
+		imageSpec, err := vm.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid vm image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+	case InlineApplicationProviderType:
+		inlineSpec, err := vm.AsInlineApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid vm inline provider: %w", err))
+		} else {
+			v := &vmValidator{appName: appName}
+			seenPath := make(map[string]struct{}, len(inlineSpec.Inline))
+			for i := range inlineSpec.Inline {
+				path := inlineSpec.Inline[i].Path
+				if _, exists := seenPath[path]; exists {
+					allErrs = append(allErrs, fmt.Errorf("duplicate inline path: %s", path))
+					continue
+				}
+				seenPath[path] = struct{}{}
+				allErrs = append(allErrs, inlineSpec.Inline[i].Validate(i, v, fleetTemplate)...)
+			}
+			allErrs = append(allErrs, v.Validate()...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown vm provider type: %s", pathPrefix, providerType))
+	}
 
 	return allErrs
 }
@@ -1342,6 +1477,26 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 			return imageSpec.Image, nil
 		}
 		return "", fmt.Errorf("inline quadlet application name cannot be empty")
+	case AppTypeVm:
+		vm, err := app.AsVmApplication()
+		if err != nil {
+			return "", fmt.Errorf("invalid vm application: %w", err)
+		}
+		providerType, err := vm.Type()
+		if err != nil {
+			return "", fmt.Errorf("invalid vm application provider type: %w", err)
+		}
+		if providerType == ImageApplicationProviderType {
+			imageSpec, err := vm.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", fmt.Errorf("invalid vm image provider: %w", err)
+			}
+			if imageSpec.Image == "" {
+				return "", fmt.Errorf("vm image cannot be empty when application name is not provided")
+			}
+			return imageSpec.Image, nil
+		}
+		return "", fmt.Errorf("inline vm application name cannot be empty")
 	default:
 		return "", fmt.Errorf("unsupported application type: %s", appType)
 	}

@@ -364,6 +364,24 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 		for _, quad := range quadletSpec {
 			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider, p.spec.User)...)
 		}
+
+		// Collect OCI targets from any .kube inline files referencing a pod YAML.
+		// ParseQuadletReferencesFromSpec processes .kube files but extractQuadletTargets
+		// does not parse the pod YAML — that is done here via collectKubePodTargets.
+		for i := range p.inlineContent {
+			if filepath.Ext(p.inlineContent[i].Path) != quadlet.KubeExtension {
+				continue
+			}
+			kubeContent, err := p.inlineContent[i].ContentsDecoded()
+			if err != nil {
+				return nil, fmt.Errorf("decoding kube unit %q: %w", p.inlineContent[i].Path, err)
+			}
+			kubeTargets, err := collectKubePodTargets(kubeContent, p.inlineContent, configProvider, p.spec.User)
+			if err != nil {
+				return nil, fmt.Errorf("%w: collecting pod OCI targets from %q: %w", errors.WithElement(p.spec.Name), p.inlineContent[i].Path, err)
+			}
+			targets = targets.Add(p.spec.User, kubeTargets...)
+		}
 	}
 	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider, p.spec.User)
 	if err != nil {

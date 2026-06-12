@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
+
 // testLogger creates a test logger with hook for capturing logs
 func testLogger() (logrus.FieldLogger, *test.Hook) {
 	logger, hook := test.NewNullLogger()
@@ -215,4 +216,3 @@ func TestIsInternalDB(t *testing.T) {
 		})
 	}
 }
-
