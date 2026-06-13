@@ -154,7 +154,7 @@ func statusCodeMessage(code codes.Code) string {
 	case codes.PermissionDenied:
 		return "permission denied"
 	case codes.ResourceExhausted:
-		return "resource limit exceeded (CPU, memory, or disk)"
+		return "resource limit exceeded, will retry when resources are available"
 	case codes.FailedPrecondition:
 		return "precondition not met (waiting for dependencies)"
 	case codes.Aborted:

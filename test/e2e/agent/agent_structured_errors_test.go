@@ -40,6 +40,7 @@ const (
 	StatusMsgPermissionDenied  = "permission denied"
 	StatusMsgUnavailable       = "service unavailable (network issue)"
 	StatusMsgInternal          = "internal error occurred"
+	StatusMsgResourceExhausted = "resource limit exceeded"
 )
 
 var _ = Describe("Agent structured error messages", Ordered, func() {
@@ -66,8 +67,8 @@ var _ = Describe("Agent structured error messages", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred(), "failed to apply bad image and wait for error")
 			Expect(cond.Message).ToNot(BeEmpty())
 			GinkgoWriter.Printf("Structured error: %s\n", cond.Message)
-			Expect(util.ValidateStructuredError(cond.Message, "Preparing", "prefetch", StatusMsgAuthFailed, StatusMsgNotFound, StatusMsgPermissionDenied, StatusMsgUnavailable, StatusMsgInternal)).To(Succeed(),
-				"expected Preparing/prefetch with one of auth failed, not found, "+StatusMsgPermissionDenied+", service unavailable, or internal error")
+			Expect(util.ValidateStructuredError(cond.Message, "Preparing", "prefetch", StatusMsgAuthFailed, StatusMsgNotFound, StatusMsgPermissionDenied, StatusMsgUnavailable, StatusMsgInternal, StatusMsgResourceExhausted)).To(Succeed(),
+				"expected Preparing/prefetch with one of auth failed, not found, "+StatusMsgPermissionDenied+", service unavailable, internal error, or resource limit exceeded")
 			Expect(cond.Message).To(ContainSubstring(fmt.Sprintf("failed for %s", NonExistentImage)),
 				"should contain 'failed for <image>'")
 
