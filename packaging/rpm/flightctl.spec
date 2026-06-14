@@ -565,6 +565,7 @@ fi
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/pki/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-remote-access
     %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
@@ -576,6 +577,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-remote-access
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-periodic
     %dir %{_sysconfdir}/flightctl/flightctl-ui
@@ -605,6 +607,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-remote-access
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-telemetry-gateway
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-builds
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
@@ -631,6 +634,7 @@ fi
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
+    %{_datadir}/flightctl/flightctl-remote-access/config.yaml.template
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
@@ -649,6 +653,7 @@ fi
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
+    %{_datadir}/containers/systemd/flightctl-remote-access.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
