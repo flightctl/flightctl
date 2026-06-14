@@ -393,6 +393,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.metrics | object | `{"address":":15690","enabled":true}` | Metrics configuration for flightctl-periodic |
 | periodic.metrics.address | string | `":15690"` | Address for the metrics HTTP server |
 | periodic.metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
+| remoteAccess | object | `{"env":{},"image":{"image":"quay.io/flightctl/flightctl-remote-access-el9","pullPolicy":"","tag":""}}` | Remote Access Configuration |
+| remoteAccess.env | object | `{}` | Additional environment variables for the remote access container |
+| remoteAccess.image.image | string | `"quay.io/flightctl/flightctl-remote-access-el9"` | Remote access container image |
+| remoteAccess.image.pullPolicy | string | `""` | Image pull policy for remote access container |
+| remoteAccess.image.tag | string | `""` | Remote access image tag (leave empty to use chart appVersion) |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |

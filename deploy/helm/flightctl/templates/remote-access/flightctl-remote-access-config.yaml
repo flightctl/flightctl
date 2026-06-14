@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-remote-access-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-remote-access
+data:
+  config.yaml: |-
+    service:
+        address: :3444
+        agentEndpointAddress: :7444
+    {{ if (default dict .Values.dev).tracing }}
+    tracing:
+        enabled: true
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
+    {{ end }}

@@ -528,6 +528,26 @@
         }
       }
     },
+    "remoteAccess": {
+      "type": "object",
+      "description": "Remote access service configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Remote access container image" },
+            "tag": { "type": "string", "description": "Remote access image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for remote access container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
     "alertExporter": {
       "type": "object",
       "description": "Alert exporter configuration",
