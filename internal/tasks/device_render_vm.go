@@ -18,7 +18,18 @@ const (
 	vmWorkloadTypeAnnotationValue = "vm"
 	vmYamlFileName                = "vm.yaml"
 	defaultKubeUnit               = "[Kube]\nYaml=pod.yaml\n"
+	maxStderrLen                  = 512
 )
+
+// truncateStderr trims and caps subprocess stderr to avoid embedding large or
+// sensitive tool output directly in error messages.
+func truncateStderr(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxStderrLen {
+		return s[:maxStderrLen] + "... (truncated)"
+	}
+	return s
+}
 
 // VmConverterFn accepts KubeVirt VM YAML on stdin and returns pod YAML and
 // stderr output. Passed explicitly to renderVmApplication — no package-level
@@ -119,6 +130,9 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	if vmApp.Name != nil {
 		name = *vmApp.Name
 	}
+	if name == "" {
+		return nil, fmt.Errorf("VmApplication must have a non-empty name")
+	}
 
 	outInlineSpec := domain.InlineApplicationProviderSpec{
 		Inline: []domain.ApplicationContent{
@@ -164,7 +178,7 @@ func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, 
 
 	podYAML, stderr, err := converter(ctx, vmYAML)
 	if err != nil {
-		return nil, fmt.Errorf("kubevirt-vm-to-pod: %s: %w", strings.TrimSpace(stderr), err)
+		return nil, fmt.Errorf("kubevirt-vm-to-pod: %s: %w", truncateStderr(stderr), err)
 	}
 	if len(podYAML) == 0 {
 		return nil, fmt.Errorf("kubevirt-vm-to-pod produced empty output")

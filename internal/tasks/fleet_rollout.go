@@ -362,7 +362,7 @@ func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion
 		case domain.AppTypeQuadlet:
 			newAppItem, errs = f.replaceQuadletApplicationParameters(device, appItem)
 		case domain.AppTypeVm:
-			newAppItem = &appItem
+			newAppItem, errs = f.replaceVmApplicationParameters(device, appItem)
 		default:
 			errs = append(errs, fmt.Errorf("unsupported app type for app %d: %s", appIndex, appType))
 		}
@@ -589,6 +589,53 @@ func (f FleetRolloutsLogic) replaceQuadletApplicationParameters(device *domain.D
 	var newItem domain.ApplicationProviderSpec
 	if err := newItem.FromQuadletApplication(quadletApp); err != nil {
 		return nil, []error{fmt.Errorf("failed converting quadlet application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceVmApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	vmApp, err := app.AsVmApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to vm application: %w", err)}
+	}
+	appName := lo.FromPtr(vmApp.Name)
+
+	providerType, err := vmApp.Type()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed getting provider type for vm app %s: %w", appName, err)}
+	}
+
+	switch providerType {
+	case domain.ImageApplicationProviderType:
+		imageSpec, err := vmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for vm app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = ReplaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed replacing parameters in image for vm app %s: %w", appName, err)}
+		}
+		if err := vmApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for vm app %s: %w", appName, err)}
+		}
+
+	case domain.InlineApplicationProviderType:
+		inlineSpec, err := vmApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get inline spec for vm app %s: %w", appName, err)}
+		}
+		if inlineErrs := f.replaceInlineContentParameters(device, appName, &inlineSpec); len(inlineErrs) > 0 {
+			return nil, inlineErrs
+		}
+		if err := vmApp.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating inline spec for vm app %s: %w", appName, err)}
+		}
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromVmApplication(vmApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting vm application: %w", err)}
 	}
 
 	return &newItem, nil
