@@ -143,4 +143,12 @@ stream {
 
     proxy_pass flightctl-telemetry-gateway:4317;
   }
+
+  # Passthrough to the Remote Access Agent service
+  server {
+    listen 7444;
+    listen [::]:7444 ipv6only=on;
+
+    proxy_pass flightctl-remote-access:7444;
+  }
 }

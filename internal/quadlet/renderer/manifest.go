@@ -75,6 +75,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-imagebuilder-worker/"), Template: false, Mode: RegularFileMode},
 
+		// Remote Access service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-remote-access/flightctl-remote-access.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-remote-access.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-remote-access/flightctl-remote-access-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-remote-access/"), Template: false, Mode: RegularFileMode},
+
 		// Telemetry Gateway service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-telemetry-gateway/flightctl-telemetry-gateway.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-telemetry-gateway.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-telemetry-gateway/flightctl-telemetry-gateway-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-telemetry-gateway/"), Template: false, Mode: RegularFileMode},
@@ -144,6 +148,8 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db-migrate"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-worker"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-remote-access"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-remote-access"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-builds"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-exports"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-telemetry-gateway"), Mode: ExecutableFileMode},
