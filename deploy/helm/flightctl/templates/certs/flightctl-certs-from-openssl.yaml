@@ -14,6 +14,8 @@
 {{- $cliArtifactsDNSSans := $cliArtifactsDNSSansResult.sans -}}
 {{- $imagebuilderApiDNSSansResult := include "flightctl.getImagebuilderApiDNSSans" . | fromJson -}}
 {{- $imagebuilderApiDNSSans := $imagebuilderApiDNSSansResult.sans -}}
+{{- $remoteAccessDNSSansResult := include "flightctl.getRemoteAccessDNSSans" . | fromJson -}}
+{{- $remoteAccessDNSSans := $remoteAccessDNSSansResult.sans -}}
 
 ---
 # ConfigMap containing the certificate generation script
@@ -79,6 +81,10 @@ spec:
         {{- end }}
         {{- range $imagebuilderApiDNSSans }}
         - --imagebuilder-api-san
+        - {{ . }}
+        {{- end }}
+        {{- range $remoteAccessDNSSans }}
+        - --remote-access-san
         - {{ . }}
         {{- end }}
         {{- if and .Values.ui.enabled (eq (include "flightctl.enableMulticlusterExtensions" .) "false") }}
