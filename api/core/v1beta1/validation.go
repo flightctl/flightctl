@@ -992,6 +992,8 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			allErrs = append(allErrs, validateComposeApplication(app, appName, fleetTemplate)...)
 		case AppTypeQuadlet:
 			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
+		case AppTypeVm:
+			allErrs = append(allErrs, validateVmApplication(app, appName, fleetTemplate)...)
 		default:
 			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
@@ -1121,6 +1123,53 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 
 	allErrs = append(allErrs, validateEnvVars(quadlet.EnvVars, pathPrefix)...)
 	allErrs = append(allErrs, validateApplicationVolumes(quadlet.Volumes, appName, AppTypeQuadlet, fleetTemplate)...)
+
+	return allErrs
+}
+
+func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	vm, err := app.AsVmApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid vm application: %w", err)}
+	}
+
+	providerType, err := vm.Type()
+	if err != nil {
+		return []error{fmt.Errorf("%s: invalid vm application provider type: %w", pathPrefix, err)}
+	}
+
+	switch providerType {
+	case ImageApplicationProviderType:
+		imageSpec, err := vm.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid vm image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+	case InlineApplicationProviderType:
+		inlineSpec, err := vm.AsInlineApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid vm inline provider: %w", err))
+		} else {
+			v := &vmValidator{appName: appName}
+			seenPath := make(map[string]struct{}, len(inlineSpec.Inline))
+			for i := range inlineSpec.Inline {
+				path := inlineSpec.Inline[i].Path
+				if _, exists := seenPath[path]; exists {
+					allErrs = append(allErrs, fmt.Errorf("duplicate inline path: %s", path))
+					continue
+				}
+				seenPath[path] = struct{}{}
+				allErrs = append(allErrs, inlineSpec.Inline[i].Validate(i, v, fleetTemplate)...)
+			}
+			allErrs = append(allErrs, v.Validate()...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown vm provider type: %s", pathPrefix, providerType))
+	}
 
 	return allErrs
 }
@@ -1342,6 +1391,26 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 			return imageSpec.Image, nil
 		}
 		return "", fmt.Errorf("inline quadlet application name cannot be empty")
+	case AppTypeVm:
+		vm, err := app.AsVmApplication()
+		if err != nil {
+			return "", fmt.Errorf("invalid vm application: %w", err)
+		}
+		providerType, err := vm.Type()
+		if err != nil {
+			return "", fmt.Errorf("invalid vm application provider type: %w", err)
+		}
+		if providerType == ImageApplicationProviderType {
+			imageSpec, err := vm.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", fmt.Errorf("invalid vm image provider: %w", err)
+			}
+			if imageSpec.Image == "" {
+				return "", fmt.Errorf("vm image cannot be empty when application name is not provided")
+			}
+			return imageSpec.Image, nil
+		}
+		return "", fmt.Errorf("inline vm application name cannot be empty")
 	default:
 		return "", fmt.Errorf("unsupported application type: %s", appType)
 	}

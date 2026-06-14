@@ -133,6 +133,11 @@ func (q QuadletApplication) Type() (ApplicationProviderType, error) {
 	return getApplicationProviderType(q.union)
 }
 
+// Type returns the provider type (image or inline) for vm applications.
+func (v VmApplication) Type() (ApplicationProviderType, error) {
+	return getApplicationProviderType(v.union)
+}
+
 func getApplicationProviderType(union json.RawMessage) (ApplicationProviderType, error) {
 	var data map[ApplicationProviderType]interface{}
 	if err := json.Unmarshal(union, &data); err != nil {
@@ -186,6 +191,12 @@ func (a ApplicationProviderSpec) GetName() (*string, error) {
 		return app.Name, nil
 	case AppTypeQuadlet:
 		app, err := a.AsQuadletApplication()
+		if err != nil {
+			return nil, err
+		}
+		return app.Name, nil
+	case AppTypeVm:
+		app, err := a.AsVmApplication()
 		if err != nil {
 			return nil, err
 		}

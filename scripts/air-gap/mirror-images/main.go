@@ -140,6 +140,53 @@ func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpm
 	return nil
 }
 
+// imageTagToRPMVersion converts an image tag (e.g. "1.2.0-rc3") to the
+// equivalent RPM version string (e.g. "1.2.0~rc3"). RPM uses tildes (~) for
+// pre-release suffixes so they sort before the release version; container image
+// tags use hyphens instead.  A plain release version like "1.2.0" is unchanged.
+func imageTagToRPMVersion(tag string) string {
+	// Replace the first hyphen before a pre-release label (rc, alpha, beta) with a tilde.
+	// "1.2.0-rc3"    → "1.2.0~rc3"
+	// "1.2.0-main-5" → "1.2.0~main-5"  (dev build suffix)
+	// "1.2.0"        → "1.2.0"          (release — unchanged)
+	for i := 0; i < len(tag); i++ {
+		if tag[i] == '-' {
+			return tag[:i] + "~" + tag[i+1:]
+		}
+	}
+	return tag
+}
+
+// pinRPMPackages appends the given version to each flightctl package name so
+// that dnf downloads exactly that version rather than the latest available.
+// Third-party packages (those that do not start with "flightctl-") are left
+// unpinned so their upstream version is used unchanged.
+func pinRPMPackages(packages []string, version string) []string {
+	pinned := make([]string, len(packages))
+	for i, p := range packages {
+		if strings.HasPrefix(p, "flightctl-") || p == "flightctl" {
+			pinned[i] = p + "-" + version
+		} else {
+			pinned[i] = p
+		}
+	}
+	return pinned
+}
+
+// resolveRPMVersion pins flightctl RPM packages to the version derived from
+// tagOverride when bundling RPMs, so the downloaded RPM version matches the
+// bundled image tags. Only applies when tagOverride is set and the caller did
+// not explicitly set --rpm-packages.
+func resolveRPMVersion(packages []string, tagOverride string, shouldPin, packagesExplicitlySet bool) []string {
+	if !shouldPin || tagOverride == "" || packagesExplicitlySet {
+		return packages
+	}
+	effective := imageTagToRPMVersion(tagOverride)
+	pinned := pinRPMPackages(packages, effective)
+	logInfo("  RPM version pin:  %s", effective)
+	return pinned
+}
+
 // excludePackages returns packages with any entry found in exclude removed.
 func excludePackages(packages, exclude []string) []string {
 	if len(exclude) == 0 {
@@ -318,7 +365,16 @@ Examples:
 
   # Server bundle: download agent RPM for image building but skip auto-install on server
   flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
-    --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent`,
+    --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent
+
+  # Bundle with explicit version pin — image tags and RPM version stay in sync automatically
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3
+
+  # Bundle pointing to a custom RPM repo (e.g. COPR) with explicit version pin
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3 \
+    --rpm-repo-url https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/repo/epel-9/group_redhat-et-flightctl-epel-9.repo`,
 
 		// SilenceUsage prevents cobra from printing the full usage block on every
 		// RunE error — our logError calls provide targeted messages instead.
@@ -332,6 +388,9 @@ Examples:
 			if agentOnly && !cmd.Flags().Changed("rpm-packages") {
 				rpmPackages = []string{"flightctl-agent", "flightctl-cli", "open-vm-tools", "ignition", "afterburn", "cloud-init"}
 			}
+
+			rpmPackages = resolveRPMVersion(rpmPackages, tagOverride,
+				bundleRPMs || agentOnly, cmd.Flags().Changed("rpm-packages"))
 
 			installPackages := excludePackages(rpmPackages, rpmExclude)
 			if len(rpmExclude) > 0 {
