@@ -17,6 +17,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/contextutil"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -1183,17 +1184,19 @@ func decodeApplicationContent(f ApplicationContent) ([]byte, error) {
 	return []byte(*f.Content), nil
 }
 
-// parseKubeYamlDirective extracts the value of the Yaml= key from a [Kube] unit file.
-// Returns an empty string if the directive is absent or the content cannot be parsed.
+// parseKubeYamlDirective extracts the value of the Yaml= key from the [Kube] section
+// of a quadlet unit file. Returns an empty string if the directive is absent or the
+// content cannot be parsed.
 func parseKubeYamlDirective(kubeContent string) string {
-	for _, line := range strings.Split(kubeContent, "\n") {
-		line = strings.TrimSpace(line)
-		key, value, found := strings.Cut(line, "=")
-		if found && strings.TrimSpace(key) == "Yaml" {
-			return strings.TrimSpace(value)
-		}
+	unit, err := quadlet.NewUnit([]byte(kubeContent))
+	if err != nil {
+		return ""
 	}
-	return ""
+	v, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(v)
 }
 
 type podManifestMeta struct {
@@ -1206,6 +1209,9 @@ func validatePodManifest(content []byte, pathPrefix string) []error {
 	var meta podManifestMeta
 	if err := yaml.Unmarshal(content, &meta); err != nil {
 		return []error{fmt.Errorf("%s: must be valid YAML: %w", pathPrefix, err)}
+	}
+	if strings.TrimSpace(meta.APIVersion) == "" {
+		return []error{fmt.Errorf("%s: apiVersion must be set", pathPrefix)}
 	}
 	if meta.Kind != "Pod" {
 		return []error{fmt.Errorf("%s: kind must be \"Pod\", got %q", pathPrefix, meta.Kind)}
