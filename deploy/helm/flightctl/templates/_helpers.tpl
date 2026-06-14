@@ -729,6 +729,23 @@ Usage: {{- $result := include "flightctl.getImagebuilderApiDNSSans" . | fromJson
 {{- end }}
 
 {{- /*
+Get DNS SANs for remote-access agent server certificate
+Usage: {{- $result := include "flightctl.getRemoteAccessDNSSans" . | fromJson }}{{ $remoteAccessDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getRemoteAccessDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "agent-remote-access.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-remote-access" }}
+  {{- $sans = append $sans "flightctl-remote-access-agent" }}
+  {{- $sans = append $sans (printf "flightctl-remote-access.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-remote-access-agent.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-remote-access.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-remote-access-agent.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
 Auth configuration block helper.
 Outputs the auth configuration section for service config files.
 Usage: {{- include "flightctl.authConfig" . | nindent 4 }}

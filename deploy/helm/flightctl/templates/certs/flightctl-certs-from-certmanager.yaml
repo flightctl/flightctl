@@ -201,6 +201,37 @@ spec:
     kind: Issuer
     group: cert-manager.io
 
+---
+# Remote Access Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-remote-access-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-remote-access-server-tls
+  commonName: flightctl-remote-access
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $remoteAccessDNSSansResult := include "flightctl.getRemoteAccessDNSSans" . | fromJson }}
+    {{- range $remoteAccessDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
 {{- if .Values.cliArtifacts.enabled }}
 ---
 # CLI Artifacts Server TLS Certificate
