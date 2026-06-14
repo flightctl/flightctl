@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-remote-access
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-remote-access
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-remote-access
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-remote-access
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      containers:
+        - name: flightctl-remote-access
+          image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.remoteAccess.image.image) }}:{{ default .Chart.AppVersion .Values.remoteAccess.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.remoteAccess.image.pullPolicy }}
+          ports:
+            - containerPort: 3444
+              name: service-api
+              protocol: TCP
+            - containerPort: 7444
+              name: agent-api
+              protocol: TCP
+          env:
+            - name: HOME
+              value: "/root"
+            {{- if .Values.remoteAccess.env }}
+            {{- range $key, $value := .Values.remoteAccess.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-remote-access-config
+              subPath: config.yaml
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.crt
+              name: flightctl-client-signer
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.key
+              name: flightctl-client-signer
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.crt
+              name: flightctl-remote-access-server-tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.key
+              name: flightctl-remote-access-server-tls
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-remote-access-config
+          configMap:
+            name: flightctl-remote-access-config
+        - name: flightctl-client-signer
+          secret:
+            secretName: flightctl-client-signer-ca
+        - name: flightctl-remote-access-server-tls
+          secret:
+            secretName: flightctl-remote-access-server-tls
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
