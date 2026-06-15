@@ -142,8 +142,9 @@ var _ kvstore.KVStore = (*fakeKVStore)(nil)
 // ─── renderVmApplication ──────────────────────────────────────────────────────
 
 const (
-	fakePodYAML    = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: my-vm\n"
-	customKubeUnit = "[Kube]\nYaml=pod.yaml\nKubeDownForce=true\nPublishPort=8080:8080/tcp\n"
+	fakePodYAML     = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: my-vm\n"
+	defaultKubeUnit = "[Kube]\nYaml=pod.yaml\n"
+	customKubeUnit  = "[Kube]\nYaml=pod.yaml\nKubeDownForce=true\nPublishPort=8080:8080/tcp\n"
 )
 
 func TestRenderVmApplication(t *testing.T) {
@@ -239,7 +240,7 @@ func TestRenderVmApplication(t *testing.T) {
 			converter:      stubbedConverter(fakePodYAML),
 			kvStore:        newFakeKVStore(),
 			wantPodYAML:    fakePodYAML,
-			wantKubeUnit:   "[Kube]\nYaml=pod.yaml\nPublishPort=8080:8080/tcp\n",
+			wantKubeUnit:   "[Kube]\nPublishPort=8080:8080/tcp\nYaml=pod.yaml\n",
 			wantAnnotation: true,
 		},
 	}
@@ -341,6 +342,7 @@ func TestBuildKubeUnit(t *testing.T) {
 		name        string
 		kubeContent *string
 		want        string
+		wantErr     bool
 	}{
 		{
 			name:        "When kubeContent is nil it should return the default unit",
@@ -348,25 +350,36 @@ func TestBuildKubeUnit(t *testing.T) {
 			want:        defaultKubeUnit,
 		},
 		{
-			name:        "When kubeContent is provided it should return it verbatim",
+			name:        "When kubeContent already has Yaml= it should preserve it and re-serialize",
 			kubeContent: lo.ToPtr(customKubeUnit),
 			want:        customKubeUnit,
 		},
 		{
-			name:        "When kubeContent is an empty string it should return it verbatim",
+			name:        "When kubeContent is an empty string it should add [Kube] with Yaml=pod.yaml",
 			kubeContent: lo.ToPtr(""),
-			want:        "",
+			want:        defaultKubeUnit,
 		},
 		{
-			name:        "When kubeContent omits Yaml= it should inject Yaml=pod.yaml into the [Kube] section",
+			name:        "When kubeContent omits Yaml= it should append Yaml=pod.yaml to the [Kube] section",
 			kubeContent: lo.ToPtr("[Kube]\nPublishPort=8080:8080/tcp\n"),
-			want:        "[Kube]\nYaml=pod.yaml\nPublishPort=8080:8080/tcp\n",
+			want:        "[Kube]\nPublishPort=8080:8080/tcp\nYaml=pod.yaml\n",
+		},
+		{
+			name:        "When kubeContent is malformed it should return an error",
+			kubeContent: lo.ToPtr("[InvalidSection\nYaml=pod.yaml\n"),
+			wantErr:     true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tc.want, buildKubeUnit(tc.kubeContent))
+			got, err := buildKubeUnit(tc.kubeContent)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/quadlet"
 )
 
 const (
@@ -17,7 +18,6 @@ const (
 	vmWorkloadTypeAnnotationKey   = "flightctl.io/workload-type"
 	vmWorkloadTypeAnnotationValue = "vm"
 	vmYamlFileName                = "vm.yaml"
-	defaultKubeUnit               = "[Kube]\nYaml=pod.yaml\n"
 	maxStderrLen                  = 512
 )
 
@@ -60,22 +60,37 @@ func NewVmConverter(binaryPath string) VmConverterFn {
 // kubevirt-vm-to-pod binary that must be present in PATH at runtime.
 var defaultVmConverter = NewVmConverter(kubevirtVmToPodBinary)
 
-// buildKubeUnit returns the Quadlet .kube unit file content.
-//
-//   - If kubeContent is nil, the minimal default unit ("[Kube]\nYaml=pod.yaml\n") is used.
-//   - If kubeContent is provided but omits a Yaml= directive, "Yaml=pod.yaml" is injected
-//     immediately after the [Kube] section header so that Podman/Quadlet always has a
-//     valid pod manifest reference.
-//   - If kubeContent already contains a Yaml= directive it is returned verbatim.
-func buildKubeUnit(kubeContent *string) string {
-	if kubeContent == nil {
-		return defaultKubeUnit
+// buildKubeUnit returns the Quadlet .kube unit file content with Yaml=pod.yaml
+// always set. When kubeContent is non-nil it is parsed and any existing Yaml=
+// directive is overridden; otherwise the minimal default unit is used.
+// Yaml= is always forced to pod.yaml because renderVmApplication always emits
+// the converted pod YAML under that name.
+func buildKubeUnit(kubeContent *string) (string, error) {
+	var u *quadlet.Unit
+	if kubeContent != nil {
+		var err error
+		u, err = quadlet.NewUnit([]byte(*kubeContent))
+		if err != nil {
+			return "", fmt.Errorf("parsing .kube unit: %w", err)
+		}
+	} else {
+		u = quadlet.NewEmptyUnit()
 	}
-	content := *kubeContent
-	if !strings.Contains(content, "Yaml=") {
-		content = strings.Replace(content, "[Kube]", "[Kube]\nYaml=pod.yaml", 1)
+
+	yamlSet := false
+	_ = u.Transform(quadlet.KubeGroup, quadlet.KubeYamlKey, func(_ string) (string, error) {
+		yamlSet = true
+		return "pod.yaml", nil
+	})
+	if !yamlSet {
+		u.Add(quadlet.KubeGroup, quadlet.KubeYamlKey, "pod.yaml")
 	}
-	return content
+
+	b, err := u.Write()
+	if err != nil {
+		return "", fmt.Errorf("serializing .kube unit: %w", err)
+	}
+	return string(b), nil
 }
 
 // renderVmApplication converts a VmApplication (inline: provider) into a
@@ -132,7 +147,10 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	}
 
 	podYAMLStr := string(podYAMLBytes)
-	kubeUnit := buildKubeUnit(kubeContent)
+	kubeUnit, err := buildKubeUnit(kubeContent)
+	if err != nil {
+		return nil, fmt.Errorf("building .kube unit: %w", err)
+	}
 
 	name := ""
 	if vmApp.Name != nil {
