@@ -27,6 +27,7 @@ const (
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
+var _ LifecycleHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
 	systemdFactory systemd.ManagerFactory
@@ -249,6 +250,47 @@ func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman
 		}
 	}
 	return nil
+}
+
+// Stop stops the application's systemd target without removing files or Podman resources.
+func (q *Quadlet) Stop(ctx context.Context, action Action) error {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Stop(ctx, target)
+}
+
+// Start starts a previously stopped application's systemd target.
+// The unit files are already on disk — no DaemonReload is required.
+func (q *Quadlet) Start(ctx context.Context, action Action) error {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Start(ctx, target)
+}
+
+// Restart restarts the application's systemd target. For VM workloads this
+// triggers an ACPI shutdown via virt-launcher-monitor before the unit restarts.
+func (q *Quadlet) Restart(ctx context.Context, action Action) error {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Restart(ctx, target)
 }
 
 func (q *Quadlet) Execute(ctx context.Context, actions Actions) error {

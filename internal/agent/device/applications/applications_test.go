@@ -312,3 +312,71 @@ func TestNewAppFromProvider(t *testing.T) {
 	app := m.newAppFromProvider(mock)
 	require.NotNil(app)
 }
+
+func mustNewVolumeManager(t *testing.T) provider.VolumeManager {
+	t.Helper()
+	vm, err := provider.NewVolumeManager(log.NewPrefixLogger("test"), "test-app", v1beta1.AppTypeCompose, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(t, err)
+	return vm
+}
+
+func TestApplicationStatusWithDesiredStateStopped(t *testing.T) {
+	tests := []struct {
+		name                  string
+		workloads             []Workload
+		desiredState          v1beta1.ApplicationDesiredState
+		expectedStatus        v1beta1.ApplicationStatusType
+		expectedSummaryStatus v1beta1.ApplicationsSummaryStatusType
+	}{
+		{
+			name: "When desiredState is stopped and all containers exited it should report Stopped",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusExited},
+				{Name: "container2", Status: StatusExited},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "When desiredState is running and all containers exited it should report Completed",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusExited},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateRunning,
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "When desiredState is stopped but containers are still running it should report Running",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			app := &application{
+				id:           "test-id",
+				desiredState: tt.desiredState,
+				status: &v1beta1.DeviceApplicationStatus{
+					Name:    "test-app",
+					Status:  v1beta1.ApplicationStatusUnknown,
+					AppType: v1beta1.AppTypeCompose,
+				},
+				volume: mustNewVolumeManager(t),
+			}
+			app.workloads = tt.workloads
+
+			status, summary, err := app.Status()
+			require.NoError(err)
+			require.Equal(tt.expectedStatus, status.Status)
+			require.Equal(tt.expectedSummaryStatus, summary.Status)
+		})
+	}
+}
