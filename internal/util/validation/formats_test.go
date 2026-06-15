@@ -61,17 +61,11 @@ func TestValidateConfigName(t *testing.T) {
 		"has spaces",
 		"has_underscores",
 		strings.Repeat("a", 254),
-	}
-
-	// These are technically allowed by the current regex but could be
-	// considered ugly. Documenting them as accepted to track the decision.
-	acceptedEdgeCases := []string{
+		"ex..com",
+		"a...b",
+		"example..json",
 		"example.-json",
 		"example-.json",
-		"example..json",
-	}
-	for _, val := range acceptedEdgeCases {
-		assert.Empty(ValidateConfigName(&val, "edge.config.name"), fmt.Sprintf("value: %q", val))
 	}
 	for _, val := range badValues {
 		assert.NotEmpty(ValidateConfigName(&val, "bad.config.name"), fmt.Sprintf("value: %q", val))
