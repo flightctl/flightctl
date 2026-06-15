@@ -131,12 +131,14 @@ func newHelmProvider(
 		commandChecker: client.IsCommandAvailable,
 		namespace:      namespace,
 		spec: &ApplicationSpec{
-			Name:    appName,
-			ID:      fmt.Sprintf("%s_%s", namespace, appName),
-			AppType: v1beta1.AppTypeHelm,
-			Path:    chartPath,
-			HelmApp: &helmApp,
-			Volume:  volumeManager,
+			Name:              appName,
+			ID:                fmt.Sprintf("%s_%s", namespace, appName),
+			AppType:           v1beta1.AppTypeHelm,
+			Path:              chartPath,
+			HelmApp:           &helmApp,
+			Volume:            volumeManager,
+			DesiredState:      (*apiSpec).GetDesiredState(),
+			RestartGeneration: (*apiSpec).GetRestartGeneration(),
 		},
 	}, nil
 }

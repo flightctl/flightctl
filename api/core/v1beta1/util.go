@@ -155,6 +155,26 @@ func getApplicationProviderType(union json.RawMessage) (ApplicationProviderType,
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
 }
 
+// GetDesiredState returns the desired lifecycle state for the application.
+// Returns ApplicationDesiredStateRunning if the field is absent or nil.
+func (a ApplicationProviderSpec) GetDesiredState() ApplicationDesiredState {
+	var base ApplicationProviderBase
+	if err := json.Unmarshal(a.union, &base); err != nil || base.DesiredState == nil {
+		return ApplicationDesiredStateRunning
+	}
+	return *base.DesiredState
+}
+
+// GetRestartGeneration returns the restartGeneration counter for the application.
+// Returns 0 if the field is absent or nil.
+func (a ApplicationProviderSpec) GetRestartGeneration() int {
+	var base ApplicationProviderBase
+	if err := json.Unmarshal(a.union, &base); err != nil || base.RestartGeneration == nil {
+		return 0
+	}
+	return *base.RestartGeneration
+}
+
 // GetAppType returns the application type from the discriminator.
 func (a ApplicationProviderSpec) GetAppType() (AppType, error) {
 	discriminator, err := a.Discriminator()

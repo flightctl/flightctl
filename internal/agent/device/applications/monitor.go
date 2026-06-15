@@ -172,7 +172,10 @@ func (m *monitor) Ensure(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	if _, ok := m.apps[appID]; ok {
+	if existing, ok := m.apps[appID]; ok {
+		// App is already installed; keep lifecycle intent in sync for status reporting.
+		existing.SetDesiredState(app.DesiredState())
+		existing.SetRestartGeneration(app.RestartGeneration())
 		return nil
 	}
 	m.apps[appID] = app

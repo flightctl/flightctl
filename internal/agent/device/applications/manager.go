@@ -100,6 +100,11 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if m.podmanMonitor.Has(provider.Spec().ID) {
+			m.podmanMonitor.QueueLifecycle(
+				provider.Spec().ID,
+				provider.Spec().DesiredState,
+				provider.Spec().RestartGeneration,
+			)
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
