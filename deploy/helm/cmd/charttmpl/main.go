@@ -74,7 +74,7 @@ func main() {
 	// Build profile key based on RHEM environment variable
 	var profileKey string
 	if _, isRHEM := os.LookupEnv("RHEM"); isRHEM {
-		profileKey = "redhat-" + osVersion
+		profileKey = "rhem-" + osVersion
 	} else {
 		profileKey = "community-" + osVersion
 	}
