@@ -229,6 +229,19 @@ func TestRenderVmApplication(t *testing.T) {
 			kvStore:   newFakeKVStore(),
 			wantErr:   "vm.yaml not found",
 		},
+		{
+			name:   "When inline set contains a .kube file without Yaml= it should inject the default Yaml=pod.yaml",
+			vmName: "my-vm",
+			files: map[string]string{
+				"vm.yaml":    minimalVmYAML("my-vm"),
+				"my-vm.kube": "[Kube]\nPublishPort=8080:8080/tcp\n",
+			},
+			converter:      stubbedConverter(fakePodYAML),
+			kvStore:        newFakeKVStore(),
+			wantPodYAML:    fakePodYAML,
+			wantKubeUnit:   "[Kube]\nYaml=pod.yaml\nPublishPort=8080:8080/tcp\n",
+			wantAnnotation: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -343,6 +356,11 @@ func TestBuildKubeUnit(t *testing.T) {
 			name:        "When kubeContent is an empty string it should return it verbatim",
 			kubeContent: lo.ToPtr(""),
 			want:        "",
+		},
+		{
+			name:        "When kubeContent omits Yaml= it should inject Yaml=pod.yaml into the [Kube] section",
+			kubeContent: lo.ToPtr("[Kube]\nPublishPort=8080:8080/tcp\n"),
+			want:        "[Kube]\nYaml=pod.yaml\nPublishPort=8080:8080/tcp\n",
 		},
 	}
 	for _, tc := range tests {

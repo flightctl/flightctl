@@ -213,6 +213,74 @@ spec:
 		})
 	})
 
+	Context("when a VmApplication with a user-provided .kube file that omits Yaml= is rendered", func() {
+		It("should inject the default Yaml=pod.yaml entry and preserve the rest of the .kube content", func() {
+			vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: %s
+spec:
+  running: true
+  template:
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          disks:
+          - name: containerdisk
+            disk:
+              bus: virtio
+          interfaces:
+          - name: default
+            masquerade: {}
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - name: containerdisk
+        containerDisk:
+          image: quay.io/containerdisks/fedora:40
+`, deviceName)
+
+			kubeNoYaml := "[Kube]\nPublishPort=9090:9090/tcp\n"
+			inlineSpec := api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{Path: "vm.yaml", Content: lo.ToPtr(vmYAML)},
+					{Path: fmt.Sprintf("%s.kube", deviceName), Content: lo.ToPtr(kubeNoYaml)},
+				},
+			}
+			vmApp := api.VmApplication{AppType: api.AppTypeVm, Name: lo.ToPtr(deviceName)}
+			Expect(vmApp.FromInlineApplicationProviderSpec(inlineSpec)).To(Succeed())
+
+			apps := buildAndRenderVmDevice(vmApp)
+			Expect(apps).To(HaveLen(1))
+
+			quadlet, err := apps[0].AsQuadletApplication()
+			Expect(err).ToNot(HaveOccurred())
+
+			inline, err := quadlet.AsInlineApplicationProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(inline.Inline).To(HaveLen(2))
+
+			fileMap := map[string]string{}
+			for _, f := range inline.Inline {
+				if f.Content != nil {
+					fileMap[f.Path] = *f.Content
+				}
+			}
+			Expect(fileMap).To(HaveKey("pod.yaml"))
+			kubeKey := fmt.Sprintf("%s.kube", deviceName)
+			Expect(fileMap).To(HaveKey(kubeKey))
+			Expect(fileMap[kubeKey]).To(ContainSubstring("Yaml=pod.yaml"),
+				"renderer must inject Yaml=pod.yaml when absent from the user-provided .kube")
+			Expect(fileMap[kubeKey]).To(ContainSubstring("PublishPort=9090:9090/tcp"),
+				"user-provided .kube directives must be preserved after injection")
+		})
+	})
+
 	Context("when a VmApplication with a user-provided .kube file is rendered", func() {
 		It("should preserve the user-provided .kube unit in the output", func() {
 			vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
