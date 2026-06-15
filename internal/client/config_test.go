@@ -93,6 +93,33 @@ func TestFlattenedConfig(t *testing.T) {
 	require.Equal(config.Service.CertificateAuthorityData, []byte(certData))
 }
 
+func TestNewHTTPClientForServer_SetsProxyFromEnvironment(t *testing.T) {
+	require := require.New(t)
+
+	config := &Config{
+		Service: Service{
+			Server:             "https://localhost:3443",
+			InsecureSkipVerify: true,
+		},
+	}
+	httpClient, err := NewHTTPClientForServer(config, config.Service.Server)
+	require.NoError(err)
+	require.NotNil(httpClient)
+
+	baseTransport := httpClient.Transport
+	for {
+		unwrapper, ok := baseTransport.(interface{ UnwrapTransport() http.RoundTripper })
+		if !ok {
+			break
+		}
+		baseTransport = unwrapper.UnwrapTransport()
+	}
+
+	httpTransport, ok := baseTransport.(*http.Transport)
+	require.True(ok)
+	require.NotNil(httpTransport.Proxy, "Transport.Proxy must be set so the agent respects HTTPS_PROXY/HTTP_PROXY/NO_PROXY")
+}
+
 func TestClientConfig(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
