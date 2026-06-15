@@ -176,6 +176,10 @@ func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, 
 		}
 	}
 
+	if converter == nil {
+		return nil, fmt.Errorf("vm converter function is required but was not provided")
+	}
+
 	podYAML, stderr, err := converter(ctx, vmYAML)
 	if err != nil {
 		return nil, fmt.Errorf("kubevirt-vm-to-pod: %s: %w", truncateStderr(stderr), err)

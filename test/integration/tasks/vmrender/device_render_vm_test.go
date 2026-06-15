@@ -91,8 +91,11 @@ var _ = Describe("VmApplicationRender", func() {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 
-		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
-		Expect(err).ToNot(HaveOccurred())
+		if kvStoreInst == nil {
+			kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(func() { kvStoreInst.Close() })
+		}
 
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
 
@@ -106,9 +109,6 @@ var _ = Describe("VmApplicationRender", func() {
 	})
 
 	AfterEach(func() {
-		if kvStoreInst != nil {
-			kvStoreInst.Close()
-		}
 		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
@@ -265,9 +265,16 @@ spec:
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inline.Inline).To(HaveLen(2))
 
-			paths := []string{inline.Inline[0].Path, inline.Inline[1].Path}
-			Expect(paths).To(ContainElement("pod.yaml"))
-			Expect(paths).To(ContainElement(fmt.Sprintf("%s.kube", deviceName)))
+			fileMap := map[string]string{}
+			for _, f := range inline.Inline {
+				if f.Content != nil {
+					fileMap[f.Path] = *f.Content
+				}
+			}
+			Expect(fileMap).To(HaveKey("pod.yaml"))
+			kubeKey := fmt.Sprintf("%s.kube", deviceName)
+			Expect(fileMap).To(HaveKey(kubeKey))
+			Expect(fileMap[kubeKey]).To(Equal(customKube), "user-provided .kube content must be preserved verbatim")
 		})
 	})
 })
