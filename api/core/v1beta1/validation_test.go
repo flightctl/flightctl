@@ -2840,3 +2840,81 @@ func newTestVmImageApp(t *testing.T, name, imageRef string) ApplicationProviderS
 	require.NoError(t, spec.FromVmApplication(vm))
 	return spec
 }
+
+func TestValidateApplicationDesiredState(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		app      ApplicationProviderSpec
+		wantErrs []string
+	}{
+		{
+			name: "When desiredState is omitted it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+		},
+		{
+			name: "When desiredState is running it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateRunning), nil),
+		},
+		{
+			name: "When desiredState is stopped it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+		},
+		{
+			name: "When restartGeneration is omitted it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+		},
+		{
+			name: "When restartGeneration is zero it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(0)),
+		},
+		{
+			name: "When restartGeneration is positive it should be accepted",
+			app:  newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(5)),
+		},
+		{
+			name:     "When restartGeneration is negative it should return an error",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(-1)),
+			wantErrs: []string{"restartGeneration"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotErrs := validateApplications([]ApplicationProviderSpec{tt.app}, false)
+			if len(tt.wantErrs) > 0 {
+				require.NotEmpty(gotErrs, "expected errors but got none")
+				for _, wantErr := range tt.wantErrs {
+					found := false
+					for _, gotErr := range gotErrs {
+						if strings.Contains(gotErr.Error(), wantErr) {
+							found = true
+							break
+						}
+					}
+					require.True(found, "expected an error containing %q, got: %v", wantErr, gotErrs)
+				}
+			} else {
+				require.Empty(gotErrs, "expected no errors but got: %v", gotErrs)
+			}
+		})
+	}
+}
+
+func TestApplicationStatusTypeConstants(t *testing.T) {
+	require.Equal(t, ApplicationStatusType("Stopped"), ApplicationStatusStopped)
+	require.Equal(t, ApplicationStatusType("Stopping"), ApplicationStatusStopping)
+}
+
+// newTestContainerAppWithLifecycle builds a ContainerApplication with optional desiredState and restartGeneration.
+func newTestContainerAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	containerApp := ContainerApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeContainer,
+		Image:             "quay.io/app/image:1",
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromContainerApplication(containerApp))
+	return spec
+}
