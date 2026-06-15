@@ -1,10 +1,12 @@
-# Standalone build for the kubevirt-vm-to-pod converter tool.
-# Uses the same base image as the worker build stages so the binary is built
-# in an identical environment. Used by the integration test suite via
-# testcontainers FromDockerfile — no cache mounts to maximise compatibility.
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25.8-1774618347
+# Build stage: compile kubevirt-vm-to-pod in an isolated toolset image.
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25.8-1774618347 AS build
 USER 0
 ARG KUBEVIRT_VM_TO_POD_COMMIT=d64fa7fd95361fdcc5ddd6c4c2714600821482a1
 RUN git clone https://github.com/vladikr/kubevirt-vm-to-pod /src && \
     cd /src && git checkout ${KUBEVIRT_VM_TO_POD_COMMIT} && \
-    CGO_ENABLED=0 GOOS=linux go build -o /usr/local/bin/kubevirt-vm-to-pod ./cmd
+    CGO_ENABLED=0 GOOS=linux go build -o /out/kubevirt-vm-to-pod ./cmd
+
+# Final stage: copy only the binary; no toolchain, non-root user.
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+COPY --from=build /out/kubevirt-vm-to-pod /usr/local/bin/kubevirt-vm-to-pod
+USER 1000
