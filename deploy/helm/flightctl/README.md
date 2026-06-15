@@ -1,10 +1,10 @@
-# flightctl
+# redhat-rhem
 
 ![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: latest](https://img.shields.io/badge/AppVersion-latest-informational?style=flat-square)
 
-A helm chart for FlightControl
+A helm chart for Red Hat Edge Manager
 
-**Homepage:** <https://github.com/flightctl/flightctl>
+**Homepage:** <https://red.ht/rhem>
 
 ## Prerequisites
 
@@ -44,24 +44,24 @@ imageBuilderWorker:
 
 ```bash
 # Install with default values
-helm install my-flightctl oci://quay.io/flightctl/charts/flightctl
+helm install my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem
 
 # Install with custom values
-helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.yaml
+helm install my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem -f values.yaml
 
 # Install for development environment
-helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.dev.yaml
+helm install my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem -f values.dev.yaml
 
 # Install for ACM (Advanced Cluster Management) integration
-helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm.yaml
+helm install my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem -f values.acm.yaml
 
 # Install in specific namespace
-helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace flightctl --create-namespace
+helm install my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem --namespace flightctl --create-namespace
 ```
 
 ### Upgrade Chart
 
-Flightctl uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
+Redhat-Rhem uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
 1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
 2. **Migration dry-run** — validates database migrations to catch issues early.
@@ -84,7 +84,7 @@ Note: On fresh installs, migrations run as a regular Job (not a hook).
 Basic upgrade command:
 
 ```bash
-helm upgrade my-flightctl oci://quay.io/flightctl/charts/flightctl
+helm upgrade my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem
 ```
 
 Upgrade to a specific chart version:
@@ -92,7 +92,7 @@ Upgrade to a specific chart version:
 ```bash
 helm upgrade \
   --version <new-version> \
-  my-flightctl oci://quay.io/flightctl/charts/flightctl
+  my-redhat-rhem oci://quay.io/flightctl/charts/redhat-rhem
 ```
 
 **Best Practices:**
@@ -112,27 +112,27 @@ Use rollbacks to revert to a previously successful revision if an upgrade causes
 Show release history and see failure reasons in the DESCRIPTION column:
 
 ```bash
-$ helm history my-flightctl
+$ helm history my-redhat-rhem
 REVISION  UPDATED  STATUS    CHART          APP VERSION  DESCRIPTION
-1         ...      deployed  flightctl-x.y.z  <appver>     Install complete
-2         ...      failed    flightctl-x.y.z  <appver>     Upgrade "my-flightctl" failed: context deadline exceeded
+1         ...      deployed  redhat-rhem-x.y.z  <appver>     Install complete
+2         ...      failed    redhat-rhem-x.y.z  <appver>     Upgrade "my-redhat-rhem" failed: context deadline exceeded
 ```
 
 Roll back to the previous successful revision (#1) and wait until it's healthy:
 
 ```bash
-$ helm rollback my-flightctl 1 --wait
+$ helm rollback my-redhat-rhem 1 --wait
 Rollback was a success! Happy Helming!
 ```
 
 Verify that history reflects the rollback:
 
 ```bash
-$ helm history my-flightctl
+$ helm history my-redhat-rhem
 REVISION  UPDATED  STATUS      CHART          APP VERSION  DESCRIPTION
-1         ...      superseded  flightctl-x.y.z  <appver>     Install complete
-2         ...      failed      flightctl-x.y.z  <appver>     Upgrade "my-flightctl" failed: context deadline exceeded
-3         ...      deployed    flightctl-x.y.z  <appver>     Rollback to 1
+1         ...      superseded  redhat-rhem-x.y.z  <appver>     Install complete
+2         ...      failed      redhat-rhem-x.y.z  <appver>     Upgrade "my-redhat-rhem" failed: context deadline exceeded
+3         ...      deployed    redhat-rhem-x.y.z  <appver>     Rollback to 1
 ```
 
 ### Monitoring
@@ -142,14 +142,14 @@ Use these commands to inspect the current release state, values, and installed r
 Show current release status and notes:
 
 ```bash
-helm status my-flightctl
+helm status my-redhat-rhem
 ```
 
 Show user-supplied values (add `--all` to include chart defaults as well):
 
 ```bash
-helm get values my-flightctl
-helm get values my-flightctl --all
+helm get values my-redhat-rhem
+helm get values my-redhat-rhem --all
 ```
 
 List releases and observe revision bump/status after an upgrade attempt:
@@ -157,62 +157,19 @@ List releases and observe revision bump/status after an upgrade attempt:
 ```bash
 $ helm list
 NAME        NAMESPACE  REVISION  UPDATED  STATUS    CHART           APP VERSION
-my-flightctl   ...        1         ...      deployed  flightctl-x.y.z   <appver>
-my-flightctl   ...        2         ...      failed    flightctl-x.y.z   <appver>
+my-redhat-rhem   ...        1         ...      deployed  redhat-rhem-x.y.z   <appver>
+my-redhat-rhem   ...        2         ...      failed    redhat-rhem-x.y.z   <appver>
 ```
 
 ### Uninstall Chart
 
 ```bash
-helm uninstall my-flightctl
+helm uninstall my-redhat-rhem
 ```
 
 ## Usage
 
-After installation, flightctl will be available in your cluster.
-
-### Accessing Flight Control
-
-1. **API Access**: The Flight Control API will be available at the configured endpoint
-2. **UI Access**: If enabled, the web UI will be accessible through the configured route/ingress
-3. **Agent Connection**: Devices can connect using the agent endpoint
-
-### TLS/SSL Certificate Configuration
-
-When using external PostgreSQL databases with TLS/SSL, Flight Control supports multiple certificate management options:
-
-#### Option 1: Kubernetes ConfigMap/Secret (Production)
-
-```bash
-# Create certificate resources
-kubectl create configmap postgres-ca-cert \
-  --from-file=ca-cert.pem=/path/to/ca-cert.pem
-
-kubectl create secret generic postgres-client-certs \
-  --from-file=client-cert.pem=/path/to/client-cert.pem \
-  --from-file=client-key.pem=/path/to/client-key.pem
-```
-
-```yaml
-# Configure in values.yaml
-db:
-  type: "external"
-  external:
-    hostname: "postgres.example.com"
-    sslmode: "verify-ca"
-    tlsConfigMapName: "postgres-ca-cert"     # ConfigMap containing CA certificate
-    tlsSecretName: "postgres-client-certs"   # Secret containing client certificates
-```
-
-**TLS/SSL Modes:**
-- `disable` - No TLS/SSL (not recommended for production)
-- `allow` - TLS/SSL if available, otherwise plain connection
-- `prefer` - TLS/SSL preferred, fallback to plain connection
-- `require` - TLS/SSL required, no certificate verification
-- `verify-ca` - TLS/SSL required, verify server certificate against CA
-- `verify-full` - TLS/SSL required, verify certificate and hostname
-
-For complete TLS/SSL configuration details, see the [external database documentation](../../../docs/user/external-database.md).
+After installation, redhat-rhem will be available in your cluster.
 
 For more detailed configuration options, see the [Values](#values) section below.
 
@@ -220,27 +177,27 @@ For more detailed configuration options, see the [Values](#values) section below
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| alertExporter | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alert-exporter-el9","pullPolicy":"","tag":""}}` | Alert Exporter Configuration |
+| alertExporter | object | `{"enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-alert-exporter-rhel9","pullPolicy":"","tag":""}}` | Alert Exporter Configuration |
 | alertExporter.enabled | bool | `true` | Enable alert exporter service |
-| alertExporter.image.image | string | `"quay.io/flightctl/flightctl-alert-exporter-el9"` | Alert exporter container image |
+| alertExporter.image.image | string | `"registry.redhat.io/rhem/flightctl-alert-exporter-rhel9"` | Alert exporter container image |
 | alertExporter.image.pullPolicy | string | `""` | Image pull policy for alert exporter container |
 | alertExporter.image.tag | string | `""` | Alert exporter image tag |
-| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9","pullPolicy":"","tag":"v2.15.0-1"}}` | Alertmanager Configuration |
 | alertmanager.additionalPVCLabels | string | `nil` | Additional labels for Alert Manager PVCs. |
 | alertmanager.additionalRouteLabels | string | `nil` | Additional labels for Alert Manager routes. |
 | alertmanager.enabled | bool | `true` | Enable Alertmanager for alert handling |
-| alertmanager.image.image | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
+| alertmanager.image.image | string | `"registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9"` | Alertmanager container image |
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
-| alertmanager.image.tag | string | `"v0.28.1"` | Alertmanager image tag |
-| alertmanagerProxy | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alertmanager-proxy-el9","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
+| alertmanager.image.tag | string | `"v2.15.0-1"` | Alertmanager image tag |
+| alertmanagerProxy | object | `{"enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
 | alertmanagerProxy.enabled | bool | `true` | Enable Alertmanager proxy service |
-| alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy-el9"` | Alertmanager proxy container image |
+| alertmanagerProxy.image.image | string | `"registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.pullPolicy | string | `""` | Image pull policy for Alertmanager proxy container |
 | alertmanagerProxy.image.tag | string | `""` | Alertmanager proxy image tag |
-| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"image":{"image":"quay.io/flightctl/flightctl-api-el9","pullPolicy":"","tag":""},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"image":{"image":"registry.redhat.io/rhem/flightctl-api-rhel9","pullPolicy":"","tag":""},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
 | api.additionalPVCLabels | string | `nil` | Additional labels for API PVCs. |
 | api.additionalRouteLabels | string | `nil` | Additional labels for API routes. |
-| api.image.image | string | `"quay.io/flightctl/flightctl-api-el9"` | API server container image |
+| api.image.image | string | `"registry.redhat.io/rhem/flightctl-api-rhel9"` | API server container image |
 | api.image.pullPolicy | string | `""` | Image pull policy for API server container |
 | api.image.tag | string | `""` | API server image tag (leave empty to use chart appVersion) |
 | api.rateLimit.authRequests | int | `20` | Maximum authentication requests per auth window Auth-specific rate limiting |
@@ -249,24 +206,24 @@ For more detailed configuration options, see the [Values](#values) section below
 | api.rateLimit.requests | int | `300` | Maximum requests per window for general API endpoints General API rate limiting |
 | api.rateLimit.trustedProxies | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | List of trusted proxy IP ranges that can set X-Forwarded-For headers Trusted proxies that can set X-Forwarded-For/X-Real-IP headers This should include your load balancer and UI proxy IPs |
 | api.rateLimit.window | string | `"1m"` | Time window for rate limiting (e.g., "1m", "1h") |
-| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts-el9","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
+| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
 | cliArtifacts.additionalRouteLabels | string | `nil` | Additional labels for CLI Artifacts routes. |
 | cliArtifacts.enabled | bool | `true` | Enable CLI artifacts service |
-| cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts-el9"` | CLI artifacts container image |
+| cliArtifacts.image.image | string | `"registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
 | cliArtifacts.image.tag | string | `""` | CLI artifacts image tag |
-| clusterCli | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Cluster CLI Configuration |
-| clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
+| clusterCli | object | `{"image":{"image":"registry.redhat.io/openshift4/ose-cli-rhel9","pullPolicy":"","tag":"v4.20.0"}}` | Cluster CLI Configuration |
+| clusterCli.image.image | string | `"registry.redhat.io/openshift4/ose-cli-rhel9"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
-| clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
-| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
+| clusterCli.image.tag | string | `"v4.20.0"` | Cluster CLI image tag |
+| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"registry.redhat.io/rhel9/postgresql-16","pullPolicy":"","tag":"9.7-1766414426"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
+| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"registry.redhat.io/rhel9/postgresql-16","pullPolicy":"","tag":"9.7-1766414426"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
 | db.builtin.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
 | db.builtin.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.fsGroup | string | `""` | File system group ID for database pod security context |
-| db.builtin.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
+| db.builtin.image.image | string | `"registry.redhat.io/rhel9/postgresql-16"` | PostgreSQL container image |
 | db.builtin.image.pullPolicy | string | `""` | Image pull policy for database container |
-| db.builtin.image.tag | string | `"20250214"` | PostgreSQL image tag |
+| db.builtin.image.tag | string | `"9.7-1766414426"` | PostgreSQL image tag |
 | db.builtin.masterUserSecretName | string | `""` | Database master/admin secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.maxConnections | int | `200` | Maximum number of database connections |
 | db.builtin.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. If not provided, the secret will be generated |
@@ -282,8 +239,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.external.tlsSecretName | string | `""` | Secret containing client certificates (automatically mounted at /etc/ssl/postgres/) |
 | db.name | string | `"flightctl"` | Database name for Flight Control |
 | db.type | string | `"builtin"` | Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported. |
-| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup-el9","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
-| dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup-el9"` | Database setup container image |
+| dbSetup | object | `{"image":{"image":"registry.redhat.io/rhem/flightctl-db-setup-rhel9","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
+| dbSetup.image.image | string | `"registry.redhat.io/rhem/flightctl-db-setup-rhel9"` | Database setup container image |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
 | dbSetup.image.tag | string | `""` | Database setup image tag |
 | dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
@@ -344,15 +301,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
-| imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
+| imageBuilderApi | object | `{"enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
 | imageBuilderApi.enabled | bool | `true` | Enable imagebuilder API service |
-| imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
+| imageBuilderApi.image.image | string | `"registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"syft":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"syft":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
-| imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker-el9"` | ImageBuilder Worker container image |
+| imageBuilderWorker.image.image | string | `"registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9"` | ImageBuilder Worker container image |
 | imageBuilderWorker.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder Worker container |
 | imageBuilderWorker.image.tag | string | `""` | ImageBuilder Worker image tag |
 | imageBuilderWorker.logLevel | string | `"info"` | Log level for the imagebuilder worker |
@@ -375,38 +332,38 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
-| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
+| kv | object | `{"fsGroup":"","image":{"image":"registry.redhat.io/rhel9/redis-7","pullPolicy":"","tag":"9.7-1766414358"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
+| kv.image.image | string | `"registry.redhat.io/rhel9/redis-7"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
-| kv.image.tag | string | `"20250108"` | Redis image tag |
+| kv.image.tag | string | `"9.7-1766414358"` | Redis image tag |
 | kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
-| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
+| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"registry.redhat.io/rhem/flightctl-periodic-rhel9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
-| periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic-el9"` | Periodic container image |
+| periodic.image.image | string | `"registry.redhat.io/rhem/flightctl-periodic-rhel9"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |
 | periodic.image.tag | string | `""` | Periodic image tag |
 | periodic.metrics | object | `{"address":":15690","enabled":true}` | Metrics configuration for flightctl-periodic |
 | periodic.metrics.address | string | `":15690"` | Address for the metrics HTTP server |
 | periodic.metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
-| telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
+| telemetryGateway.image.image | string | `"registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
-| ubiMinimal | object | `{"image":"registry.access.redhat.com/ubi9/ubi-minimal","tag":"9.7-1763362218"}` | UBI Minimal base image used by init containers (cert setup, etc.) Override this when deploying in an air-gapped environment where registry.access.redhat.com is unreachable — set image and tag to the mirrored location produced by the flightctl-mirror-images tool. |
-| ubiMinimal.image | string | `"registry.access.redhat.com/ubi9/ubi-minimal"` | UBI minimal image repository |
+| ubiMinimal | object | `{"image":"registry.redhat.io/ubi9/ubi-minimal","tag":"9.7-1763362218"}` | UBI Minimal base image used by init containers (cert setup, etc.) Override this when deploying in an air-gapped environment where registry.access.redhat.com is unreachable — set image and tag to the mirrored location produced by the flightctl-mirror-images tool. |
+| ubiMinimal.image | string | `"registry.redhat.io/ubi9/ubi-minimal"` | UBI minimal image repository |
 | ubiMinimal.tag | string | `"9.7-1763362218"` | UBI minimal image tag (pinned to avoid unexpected updates) |
-| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui-el9","pluginImage":"quay.io/flightctl/flightctl-ocp-ui-el9","pullPolicy":"","tag":""},"trustXForwardedHeaders":true,"trustedProxyCidrs":""}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"registry.redhat.io/rhem/flightctl-ui-rhel9","pluginImage":"registry.redhat.io/rhem/flightctl-ui-ocp-rhel9","pullPolicy":"","tag":""},"trustXForwardedHeaders":true,"trustedProxyCidrs":""}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
 | ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
 | ui.enabled | bool | `true` | Enable web UI deployment |
-| ui.image.image | string | `"quay.io/flightctl/flightctl-ui-el9"` | UI container image |
-| ui.image.pluginImage | string | `"quay.io/flightctl/flightctl-ocp-ui-el9"` | UI Plugin container image |
+| ui.image.image | string | `"registry.redhat.io/rhem/flightctl-ui-rhel9"` | UI container image |
+| ui.image.pluginImage | string | `"registry.redhat.io/rhem/flightctl-ui-ocp-rhel9"` | UI Plugin container image |
 | ui.image.pullPolicy | string | `""` | Image pull policy for UI container |
 | ui.image.tag | string | `""` | UI container image tag |
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
@@ -423,9 +380,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""}}` | Worker Configuration |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"registry.redhat.io/rhem/flightctl-worker-rhel9","pullPolicy":"","tag":""}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
-| worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
+| worker.image.image | string | `"registry.redhat.io/rhem/flightctl-worker-rhel9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
 
