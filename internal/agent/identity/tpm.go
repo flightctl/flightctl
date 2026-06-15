@@ -287,6 +287,8 @@ func (t *tpmProvider) createGRPCConnection(config *base_client.Config, clientCer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
+	// grpc.NewClient automatically handles HTTP CONNECT proxying via its
+	// delegating resolver, which reads HTTPS_PROXY/HTTP_PROXY/NO_PROXY.
 	conn, err := grpc.NewClient(grpcEndpoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
