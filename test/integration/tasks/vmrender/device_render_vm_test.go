@@ -91,12 +91,8 @@ var _ = Describe("VmApplicationRender", func() {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 
-		if kvStoreInst == nil {
-			kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
-			Expect(err).ToNot(HaveOccurred())
-			DeferCleanup(func() { kvStoreInst.Close() })
-		}
-
+		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
+		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
 
 		if queuesProvider == nil {
