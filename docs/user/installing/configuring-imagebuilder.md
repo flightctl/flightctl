@@ -649,17 +649,30 @@ spec:
 This sets `DefaultLimitNOFILE=1048576:1048576` in systemd, which raises the limit for all
 processes on the node, including container runtimes.
 
-On a Podman Quadlet (Linux host), add the following file instead:
+> [!NOTE]
+> `DefaultLimitNOFILE` is a system-wide default that applies to every service started by systemd
+> that does not have its own `LimitNOFILE=` directive in its unit file.
+
+On a Podman Quadlet (Linux host), use a systemd drop-in to raise the limit only for
+`flightctl-imagebuilder-worker.service`, without affecting any other service on the host:
 
 ```ini
-# /etc/systemd/system.conf.d/60-nofile.conf
-[Manager]
-DefaultLimitNOFILE=1048576:1048576
+# /etc/systemd/system/flightctl-imagebuilder-worker.service.d/limits.conf
+[Service]
+LimitNOFILE=1048576:1048576
 ```
 
-Then reload and restart the relevant services:
+Then reload and restart the service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart flightctl-imagebuilder-worker.service
 ```
+
+Verify the running service has the new limit:
+
+```bash
+systemctl show flightctl-imagebuilder-worker.service | grep LimitNOFILE
+```
+
+The output should show `LimitNOFILE=1048576` and `LimitNOFILESoft=1048576`.
