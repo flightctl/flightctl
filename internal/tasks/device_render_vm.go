@@ -60,14 +60,22 @@ func NewVmConverter(binaryPath string) VmConverterFn {
 // kubevirt-vm-to-pod binary that must be present in PATH at runtime.
 var defaultVmConverter = NewVmConverter(kubevirtVmToPodBinary)
 
-// buildKubeUnit returns the Quadlet .kube unit file content. When kubeContent
-// is non-nil it is returned verbatim (the operator supplied a .kube file in
-// the VmApplication inline set). Otherwise the minimal default unit is used.
+// buildKubeUnit returns the Quadlet .kube unit file content.
+//
+//   - If kubeContent is nil, the minimal default unit ("[Kube]\nYaml=pod.yaml\n") is used.
+//   - If kubeContent is provided but omits a Yaml= directive, "Yaml=pod.yaml" is injected
+//     immediately after the [Kube] section header so that Podman/Quadlet always has a
+//     valid pod manifest reference.
+//   - If kubeContent already contains a Yaml= directive it is returned verbatim.
 func buildKubeUnit(kubeContent *string) string {
-	if kubeContent != nil {
-		return *kubeContent
+	if kubeContent == nil {
+		return defaultKubeUnit
 	}
-	return defaultKubeUnit
+	content := *kubeContent
+	if !strings.Contains(content, "Yaml=") {
+		content = strings.Replace(content, "[Kube]", "[Kube]\nYaml=pod.yaml", 1)
+	}
+	return content
 }
 
 // renderVmApplication converts a VmApplication (inline: provider) into a
