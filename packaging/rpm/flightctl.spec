@@ -791,6 +791,32 @@ fi
 
 # If contexts were managed via policy, no cleanup is needed here.
 
+%posttrans services
+# Reload systemd after all file operations (install + old-file removal) are
+# complete.  The daemon-reload in %%post runs before the old package's files
+# are deleted, so quadlet files removed in this version are still visible to
+# systemd at that point.  A second reload here picks up those removals.
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+# Clean up stale systemd units from quadlet files removed in previous
+# versions.  Each unit may still be in systemd's active state from the
+# prior version; stop + reset-failed clears it so it no longer appears
+# in "systemctl list-units".
+# This block can be removed once all deployments have upgraded past this fix.
+#   flightctl-cli-artifacts-init  — removed in EDM-3783
+#   flightctl-pam-issuer-init     — removed in EDM-2304
+#   flightctl-alertmanager-proxy-init — removed in EDM-2304
+#   flightctl-db-external         — removed in EDM-2322
+for unit in \
+    flightctl-cli-artifacts-init.service \
+    flightctl-pam-issuer-init.service \
+    flightctl-alertmanager-proxy-init.service \
+    flightctl-db-external.service \
+; do
+    /usr/bin/systemctl stop "$unit" 2>/dev/null || :
+    /usr/bin/systemctl reset-failed "$unit" 2>/dev/null || :
+done
+
 %changelog
 * Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Adding certificate generation service
