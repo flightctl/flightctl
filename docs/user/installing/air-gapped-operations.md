@@ -62,11 +62,20 @@ For full fleet management documentation see
 
 ---
 
-## OS image updates using a local registry
+## Image updates using a local registry
 
-In an air-gapped environment, OS image updates for bootc-based devices must be staged
-in a local registry before being applied. The workflow has two phases: staging the new
-image in the local registry, then targeting the new image in the fleet configuration.
+In an air-gapped environment, container images must be staged in a local registry
+before devices can pull them. This applies to both OS (bootc) image updates and
+application workload images managed by the agent. The workflow is the same in both
+cases: mirror the image to the local registry, then target it in the fleet or device
+configuration.
+
+> [!NOTE]
+> For application workload images (non-OS containers), see
+> [Making container images available for managed workloads](installing-agent-offline.md#part-2-making-container-images-available-for-managed-workloads)
+> for the device-side setup including local registry and direct image loading.
+
+### OS image update workflow
 
 ### Prerequisites
 
