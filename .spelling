@@ -355,6 +355,8 @@ ClusterIssuer
 Issuer
 air-gapped
 bastion
+checksums
+quadlet
 bootc-image-builder
 OCP
 rhem-el9
