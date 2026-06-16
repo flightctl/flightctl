@@ -354,6 +354,12 @@ dropdown
 ClusterIssuer
 Issuer
 air-gapped
+bastion
+bootc-image-builder
+OCP
+rhem-el9
+rhem-el10
+syft
 ITMS
 MachineConfig
 MachineConfigPool
