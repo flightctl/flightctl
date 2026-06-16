@@ -104,10 +104,30 @@ scp flightctl-<version>.tgz <user>@<bastion>:~/
 
 ## Step 3: Configure image mirroring on OpenShift
 
-OpenShift uses `ImageTagMirrorSet` to redirect image pulls from source registries
-to your mirror. Apply the appropriate configuration for your variant.
+### What is ImageTagMirrorSet and why is it recommended?
 
-### For `rhem-el9` or `rhem-el10`
+`ImageTagMirrorSet` (ITMS) is an OpenShift cluster-level resource that tells the
+container runtime (CRI-O) to redirect image pulls from one registry to another.
+When a pod tries to pull `quay.io/flightctl/flightctl-api-el9:1.2.0`, CRI-O
+transparently fetches it from your local mirror instead — no changes to pod specs,
+Helm values, or quadlet files are required.
+
+ITMS is the recommended approach for OpenShift air-gapped installations because:
+
+- It operates at the cluster level — one configuration covers all namespaces and pods
+- It survives Helm upgrades without re-patching image references
+- It supports fallback mirrors if the primary is unavailable
+- It is the official OpenShift mechanism for image content source redirection
+  (replacing the deprecated `ImageContentSourcePolicy`)
+
+> [!IMPORTANT]
+> Applying an `ImageTagMirrorSet` triggers a `MachineConfig` rollout that drains
+> and restarts all nodes one at a time. Plan a maintenance window for production
+> clusters. On a 3-node cluster this typically takes 15–30 minutes.
+
+### Apply the ImageTagMirrorSet for your variant
+
+#### For `rhem-el9` or `rhem-el10`
 
 ```bash
 oc apply -f - <<EOF
@@ -120,13 +140,15 @@ spec:
   - source: registry.redhat.io
     mirrors:
     - <mirror-registry-host>:<port>
+    mirrorSourcePolicy: NeverContactSource
   - source: registry.access.redhat.com
     mirrors:
     - <mirror-registry-host>:<port>
+    mirrorSourcePolicy: NeverContactSource
 EOF
 ```
 
-### For `community-el9` or `community-el10`
+#### For `community-el9` or `community-el10`
 
 ```bash
 oc apply -f - <<EOF
@@ -139,22 +161,100 @@ spec:
   - source: quay.io
     mirrors:
     - <mirror-registry-host>:<port>
+    mirrorSourcePolicy: NeverContactSource
   - source: docker.io
     mirrors:
     - <mirror-registry-host>:<port>
+    mirrorSourcePolicy: NeverContactSource
   - source: registry.access.redhat.com
     mirrors:
     - <mirror-registry-host>:<port>
+    mirrorSourcePolicy: NeverContactSource
 EOF
 ```
 
-> [!NOTE]
-> After applying an `ImageTagMirrorSet`, OpenShift drains and restarts all nodes
-> to apply the new container runtime configuration. Wait for all nodes to return
-> to `Ready` state before proceeding.
+### Mirror policy options
+
+The `mirrorSourcePolicy` field controls what happens when the mirror is unavailable:
+
+| Policy | Behaviour | Use when |
+|--------|-----------|----------|
+| `NeverContactSource` | Only pull from mirrors; fail if no mirror works | Fully air-gapped — source registry is unreachable |
+| `AllowContactingSource` | Try mirrors first, fall back to source registry | Restricted network — source is reachable but slow or rate-limited |
+
+Use `NeverContactSource` in a fully disconnected environment to ensure no accidental
+outbound connections are attempted.
+
+### Wait for the rollout to complete
+
+After applying the ITMS, OpenShift triggers a `MachineConfig` rollout. Wait for all
+nodes to return to `Ready` state before proceeding:
 
 ```bash
-oc wait nodes --all --for=condition=Ready --timeout=10m
+oc wait nodes --all --for=condition=Ready --timeout=30m
+```
+
+Monitor rollout progress:
+
+```bash
+oc get mcp
+```
+
+All `MachineConfigPool` objects should show `UPDATED=True` and `DEGRADED=False`
+before you continue.
+
+### Verify the mirror configuration is active
+
+Confirm that CRI-O picked up the new mirror rules on a node:
+
+```bash
+# Open a debug shell on any node
+oc debug node/<node-name>
+
+# Inside the debug shell
+chroot /host
+cat /etc/containers/registries.conf.d/
+```
+
+The registry configuration directory should contain a file referencing your mirror.
+
+### Troubleshooting common ITMS issues
+
+**Image pull still fails after ITMS applied:**
+
+1. Verify the `MachineConfig` rollout is complete (`oc get mcp`). If nodes are still
+   updating, wait for the rollout to finish.
+2. Check that the image was actually mirrored to the local registry:
+
+   ```bash
+   curl https://<mirror-registry-host>:<port>/v2/<image-path>/tags/list
+   ```
+
+3. Verify the ITMS source matches the registry prefix in the image reference — ITMS
+   matches on prefix, not exact registry. `quay.io` covers all `quay.io/*` images.
+
+**Digest mismatch error (`manifest unknown` or `digest did not match`):**
+
+The image was mirrored by tag but the pod is pulling by digest. Ensure you mirrored
+the image after its final tag was pushed and that the same digest is present in the
+mirror:
+
+```bash
+skopeo inspect docker://<mirror-registry-host>:<port>/<image>:<tag> | grep Digest
+skopeo inspect docker://quay.io/<image>:<tag> | grep Digest
+```
+
+Both digests must match.
+
+**`NeverContactSource` causing failures on a partially connected cluster:**
+
+Switch to `AllowContactingSource` temporarily while diagnosing, then switch back once
+the mirror is populated:
+
+```bash
+oc patch imagetag mirrorset flightctl-mirrors \
+    --type=merge \
+    -p '{"spec":{"imageTagMirrors":[{"source":"quay.io","mirrors":["<mirror>"],"mirrorSourcePolicy":"AllowContactingSource"}]}}'
 ```
 
 ## Step 4: Create an image pull secret (Red Hat variants only)
