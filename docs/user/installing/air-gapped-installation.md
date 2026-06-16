@@ -29,8 +29,10 @@ Do you have an OpenShift or Kubernetes cluster?
 │
 └── NO  → Use the Linux quadlet installation path
           (systemd + podman, RPM-based)
-          Works on any Linux with skopeo, createrepo_c, and dnf available
-          (RHEL, CentOS Stream, Fedora, etc.)
+          Target machine: RHEL 9 or RHEL 10
+          Prep machine: RHEL or CentOS Stream (same major version as target)
+          recommended when using --bundle-rpms; any Linux with skopeo
+          works for image-only bundles
 ```
 
 ### Linux quadlet vs OpenShift at a glance
@@ -50,8 +52,12 @@ Do you have an OpenShift or Kubernetes cluster?
 
 Regardless of which path you choose, the prep machine requires:
 
-- Any Linux with `dnf` available (RHEL, CentOS Stream, Fedora, etc.)
-- `skopeo` installed (`sudo dnf install -y skopeo`)
+- `skopeo` installed (`sudo dnf install -y skopeo`) — required for all bundle modes
+- For `--bundle-rpms`: the prep machine should run RHEL or CentOS Stream at
+  the same major version as the target (e.g. RHEL 9 prep for a RHEL 9 target).
+  Using a different OS family (e.g. Fedora) risks pulling package versions
+  from that OS that conflict with the target's system packages.
+- For image-only bundles (no `--bundle-rpms`): any Linux with `skopeo` works
 - `createrepo_c` installed (`sudo dnf install -y createrepo_c`) — required for
   `--rpm-createrepo` and `--agent-only` bundles
 - The `flightctl-mirror-images` binary — installed via `flightctl-cli` RPM, or built
