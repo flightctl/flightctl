@@ -354,6 +354,13 @@ dropdown
 ClusterIssuer
 Issuer
 air-gapped
+ITMS
+MachineConfig
+MachineConfigPool
+mirrorSourcePolicy
+NeverContactSource
+AllowContactingSource
+CRI-O
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
