@@ -36,10 +36,12 @@ Welcome to the Flight Control user documentation.
     * [Backup and Restore](installing/backup-restore.md)
 
   * Offline and Air-Gapped Installation
+    * [Air-gapped Installation Guide](installing/air-gapped-installation.md)
     * [Setting up a local RPM repository](installing/offline-rpm-repository.md)
     * [Packaging artifacts for portable media](installing/offline-portable-media.md)
     * [Installing the Flight Control service offline on Linux](installing/installing-service-on-linux-offline.md)
     * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
+    * [Air-gapped fleet operations and OS image updates](installing/air-gapped-operations.md)
 
 * **[Installing the Flight Control CLI](installing/installing-cli.md)**
 
@@ -84,6 +86,9 @@ Welcome to the Flight Control user documentation.
   * [Catalog items](using/managing-catalogs.md#catalog-items)
   * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
+  * [ImageBuild resource](using/managing-image-builds.md#imagebuild-resource)
+  * [ImageExport resource](using/managing-image-builds.md#imageexport-resource)
+  * [ImagePromotion resource](using/managing-image-builds.md#imagepromotion-resource)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
   * [Diagnosing Agent Issues](using/diagnosing-agent-issues.md)

@@ -193,8 +193,116 @@ curl -O http://<prep_machine_ip>:8080/flightctl-artifacts.tar.gz
 
 Stop the server on the prep machine when the transfer is complete.
 
+## OpenShift artifacts
+
+Transferring artifacts for a disconnected OpenShift installation involves container
+images, the Helm chart, and optionally OS images for the image builder. This section
+covers the OCP-specific considerations.
+
+### Size estimates
+
+| Artifact set | Approximate size | Recommended media |
+|---|---|---|
+| Community variant images (`community-el9` or `community-el10`) | 5–8 GB | 16 GB+ USB or network share |
+| Red Hat variant images (`rhem-el9` or `rhem-el10`) | 10–15 GB | 32 GB+ USB or network share |
+| Helm chart only (`flightctl-<version>.tgz`) | < 1 MB | Any |
+| Image builder service images (podman, bootc-image-builder, syft) | ~3 GB additional | Add to above |
+
+> [!WARNING]
+> FAT32 has a 4 GB maximum file size. The community variant bundle
+> fits within this limit as individual images but the Red Hat variant may produce
+> files exceeding 4 GB. Format USB drives with **exFAT** or **ext4** — see
+> [USB drives](#usb-drives) above.
+
+### Transferring the bundle archive
+
+The `flightctl-mirror-images --bundle` command produces a single `.tar.gz` archive
+containing all images and an `import.sh` script. This is the recommended format for
+OCP transfers — transfer the archive to any machine inside the disconnected
+environment that can reach the internal mirror registry, then run `import.sh`:
+
+```bash
+# On a machine with registry access inside the disconnected environment
+mkdir ~/flightctl-bundle
+tar -xzf ~/flightctl-bundle.tar.gz -C ~/flightctl-bundle
+cd ~/flightctl-bundle
+./import.sh --registry <internal-mirror-registry-host>:<port>
+```
+
+### Checksum verification
+
+Generate a checksum on the prep machine before transfer:
+
+```bash
+sha256sum ~/flightctl-bundle.tar.gz > ~/flightctl-bundle.tar.gz.sha256
+```
+
+Transfer the `.sha256` file alongside the archive. Verify on the target machine
+before extracting:
+
+```bash
+sha256sum --check ~/flightctl-bundle.tar.gz.sha256
+```
+
+A `OK` result confirms the archive arrived intact. Do not proceed with import if
+verification fails — re-transfer the archive.
+
+### Splitting large archives
+
+If the archive exceeds the capacity of your transfer media, split it into smaller
+chunks:
+
+```bash
+# Split into 3 GB chunks
+split -b 3G ~/flightctl-bundle.tar.gz ~/flightctl-bundle.tar.gz.part-
+
+# List the parts
+ls ~/flightctl-bundle.tar.gz.part-*
+```
+
+Transfer all parts. Reassemble on the target before extraction:
+
+```bash
+cat ~/flightctl-bundle.tar.gz.part-* > ~/flightctl-bundle.tar.gz
+sha256sum --check ~/flightctl-bundle.tar.gz.sha256
+tar -xzf ~/flightctl-bundle.tar.gz -C ~/flightctl-bundle
+```
+
+### Transferring the Helm chart
+
+Download the Helm chart on the prep machine:
+
+```bash
+helm pull oci://quay.io/flightctl/charts/flightctl --version <version>
+# Produces: flightctl-<version>.tgz
+```
+
+Transfer the `.tgz` file using any of the methods above. The chart is small (< 1 MB)
+and does not require splitting.
+
+### Network share deployment
+
+For sites with a restricted local network, serve the bundle from a temporary HTTP
+server on a bastion host that can reach both the prep machine and the internal
+mirror registry:
+
+```bash
+# On the bastion host
+python3 -m http.server 8080 --directory ~/
+```
+
+From the target machine (or the machine with registry access):
+
+```bash
+curl -O http://<bastion_ip>:8080/flightctl-bundle.tar.gz
+curl -O http://<bastion_ip>:8080/flightctl-bundle.tar.gz.sha256
+sha256sum --check flightctl-bundle.tar.gz.sha256
+```
+
 ## Next steps
 
+- [Installing Flight Control in a disconnected OpenShift cluster](installing-service-on-openshift-disconnected.md) —
+  end-to-end OCP disconnected installation procedure
 - [Setting up a local RPM repository](offline-rpm-repository.md) — how to prepare
   packages before packaging them for transfer
 - [Installing the Flight Control agent offline on RHEL](installing-agent-offline.md) —

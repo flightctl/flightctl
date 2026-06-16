@@ -435,8 +435,9 @@ For a full repo mirror with proper metadata, use `dnf reposync` — see
 
 ### Step 3: Configure the imagebuilder-worker
 
-Override the service images and RPM repo URL before (or alongside) deploying the
-updated Helm release.
+Override the service images and RPM repo URL to use your internal registry.
+
+#### Kubernetes / Helm
 
 Create a `disconnected-values.yaml`:
 
@@ -458,6 +459,29 @@ Apply:
 helm upgrade flightctl flightctl-chart.tgz \
     --reuse-values \
     -f disconnected-values.yaml
+```
+
+#### Podman Quadlet (RHEL)
+
+Add the following to `/etc/flightctl/service-config.yaml`:
+
+```yaml
+imagebuilderWorker:
+  rpmRepoUrl: "http://my-rpm-mirror.example.com:8080/flightctl-local.repo"
+  serviceImages:
+    podman:
+      image: "my-internal.registry.example.com:5000/podman/stable:v5.7.1"
+    bootcImageBuilder:
+      image: "my-internal.registry.example.com:5000/centos-bootc/bootc-image-builder:latest"
+    syft:
+      image: "my-internal.registry.example.com:5000/anchore/syft:v1.44.0"
+```
+
+Restart the imagebuilder services to apply:
+
+```bash
+sudo systemctl restart flightctl-imagebuilder-api.service \
+                       flightctl-imagebuilder-worker.service
 ```
 
 If the internal registry uses a private CA, also mount it into the worker pod — see
@@ -649,17 +673,30 @@ spec:
 This sets `DefaultLimitNOFILE=1048576:1048576` in systemd, which raises the limit for all
 processes on the node, including container runtimes.
 
-On a Podman Quadlet (Linux host), add the following file instead:
+> [!NOTE]
+> `DefaultLimitNOFILE` is a system-wide default that applies to every service started by systemd
+> that does not have its own `LimitNOFILE=` directive in its unit file.
+
+On a Podman Quadlet (Linux host), use a systemd drop-in to raise the limit only for
+`flightctl-imagebuilder-worker.service`, without affecting any other service on the host:
 
 ```ini
-# /etc/systemd/system.conf.d/60-nofile.conf
-[Manager]
-DefaultLimitNOFILE=1048576:1048576
+# /etc/systemd/system/flightctl-imagebuilder-worker.service.d/limits.conf
+[Service]
+LimitNOFILE=1048576:1048576
 ```
 
-Then reload and restart the relevant services:
+Then reload and restart the service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart flightctl-imagebuilder-worker.service
 ```
+
+Verify the running service has the new limit:
+
+```bash
+systemctl show flightctl-imagebuilder-worker.service | grep LimitNOFILE
+```
+
+The output should show `LimitNOFILE=1048576` and `LimitNOFILESoft=1048576`.

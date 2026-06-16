@@ -230,10 +230,28 @@ local registry.
    The agent can then start containers from images in podman's local storage without
    any network access.
 
+---
+
+## Part 3: Enrolling the device
+
+Device enrollment works identically in air-gapped environments. The only requirement
+is that the device can reach the Flight Control API server on the internal network —
+no external internet access is needed at any point.
+
+Ensure the server CA certificate and enrollment credentials are distributed to the
+device through your provisioning pipeline (the agent config in Part 1, Step 4 already
+references them), then follow the standard enrollment procedure:
+
+[Enrolling Devices](../using/managing-devices.md#enrolling-devices)
+
+---
+
 ## Next steps
 
 - [Configuring the Flight Control Agent](installing-agent.md) — full configuration
   reference for `config.yaml`
+- [Air-gapped fleet operations](air-gapped-operations.md) — managing devices and
+  applying OS image updates in an air-gapped environment
 - [Setting up a local RPM repository](offline-rpm-repository.md) — `dnf reposync`
   and `dnf download` approaches for creating offline RPM sources
 - [Packaging artifacts for portable media](offline-portable-media.md) — USB, tar,
