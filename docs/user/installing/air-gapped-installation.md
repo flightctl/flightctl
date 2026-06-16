@@ -20,27 +20,22 @@ approach for your environment.
 ## Choosing your installation path
 
 ```text
-Do you have an OpenShift cluster?
+Do you have an OpenShift or Kubernetes cluster?
 │
-├── YES → Are you using Red Hat registry images (registry.redhat.io)?
-│         │
-│         ├── YES → Use variant: rhem-el9 or rhem-el10
-│         │         (requires registry.redhat.io entitlement on prep machine)
-│         │
-│         └── NO  → Use variant: community-el9 or community-el10
-│                   (uses quay.io images, no entitlement required)
+├── YES → Use the OpenShift/Helm installation path
+│         Choose a variant when running flightctl-mirror-images:
+│           community-el9/el10  — quay.io images, no entitlement required
+│           rhem-el9/rhem-el10  — registry.redhat.io images, requires entitlement
 │
-└── NO  → Are you running RHEL 9 or RHEL 10?
-          │
-          ├── YES → Use the RHEL quadlet installation path
-          │         (systemd + podman, RPM-based)
-          │
-          └── NO  → Contact your Flight Control team for guidance
+└── NO  → Use the Linux quadlet installation path
+          (systemd + podman, RPM-based)
+          Works on any Linux with skopeo, createrepo_c, and dnf available
+          (RHEL, CentOS Stream, Fedora, etc.)
 ```
 
-### RHEL vs OpenShift at a glance
+### Linux quadlet vs OpenShift at a glance
 
-| | RHEL (quadlet) | OpenShift (Helm) |
+| | Linux quadlet | OpenShift (Helm) |
 |---|---|---|
 | **Runtime** | systemd + podman | Kubernetes pods |
 | **Package format** | RPM (`flightctl-services`) | Helm chart |
@@ -55,7 +50,7 @@ Do you have an OpenShift cluster?
 
 Regardless of which path you choose, the prep machine requires:
 
-- RHEL 9 or RHEL 10
+- Any Linux with `dnf` available (RHEL, CentOS Stream, Fedora, etc.)
 - `skopeo` installed (`sudo dnf install -y skopeo`)
 - `createrepo_c` installed (`sudo dnf install -y createrepo_c`) — required for
   `--rpm-createrepo` and `--agent-only` bundles
