@@ -353,6 +353,7 @@ semver
 dropdown
 ClusterIssuer
 Issuer
+air-gapped
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE
