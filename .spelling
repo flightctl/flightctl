@@ -354,6 +354,8 @@ dropdown
 ClusterIssuer
 Issuer
 air-gapped
+resolution
+Fedora
 bastion
 checksums
 quadlet
