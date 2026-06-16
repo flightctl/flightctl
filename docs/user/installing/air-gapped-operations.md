@@ -100,35 +100,10 @@ directly — see [Packaging artifacts for portable media](offline-portable-media
 
 ### Step 2: Configure registry authentication on devices (if required)
 
-If the local registry requires authentication, configure the device to authenticate
-by embedding credentials in the device OS image or delivering them via a Flight
-Control configuration update.
-
-Create a `config.yaml` inline auth configuration:
-
-```yaml
-apiVersion: v1
-kind: Config
-spec:
-  os:
-    imageRef: <local-registry-host>:<port>/<image>:<tag>
-  config:
-    - path: /etc/ostree/auth.json
-      contentEncoding: base64
-      content: <base64-encoded-auth.json>
-```
-
-The `auth.json` file follows the standard container auth format:
-
-```json
-{
-  "auths": {
-    "<local-registry-host>:<port>": {
-      "auth": "<base64-encoded-username:password>"
-    }
-  }
-}
-```
+If the local registry requires authentication, configure devices to authenticate
+using image pull secrets. See
+[Using Image Pull Secrets](../using/managing-devices.md#using-image-pull-secrets)
+for the full procedure.
 
 ### Step 3: Target the new OS image in the fleet configuration
 
@@ -169,17 +144,17 @@ Individual device update status is visible in the device's `status.updated` fiel
 flightctl get device <device-name> -o yaml | grep -A5 "updated:"
 ```
 
-### Step 5: Verify the update on the device
+### Step 5: Verify the update completed
 
-After the device reboots into the new image, confirm the update succeeded:
+After the device reboots into the new image, confirm the update succeeded by
+checking the device status from the Flight Control server:
 
 ```bash
-# On the device
-bootc status
+flightctl get device <device-name> -o yaml | grep -A10 "os:"
 ```
 
-The output will show the current booted image and confirm it matches the target
-specified in the fleet configuration.
+The `status.os.image` field will show the currently running image once the device
+has applied the update and reported back.
 
 > [!NOTE]
 > OS updates use the `bootc` container storage transport. The device pulls the image
