@@ -32,9 +32,37 @@ func (h *Harness) NewBackupRestore(p *infra.Providers) *BackupRestore {
 	return &BackupRestore{Harness: h, providers: p}
 }
 
+// VerifyAllServicesRunning verifies that all FlightCtl services that are stopped during restore
+// are back up and running. This includes all 8 services: API, worker, periodic, imagebuilder-api,
+// imagebuilder-worker, gateway, alert-exporter, and alertmanager-proxy.
+func (br *BackupRestore) VerifyAllServicesRunning() error {
+	services := []infra.ServiceName{
+		infra.ServiceAPI,
+		infra.ServiceWorker,
+		infra.ServicePeriodic,
+		infra.ServiceImageBuilderAPI,
+		infra.ServiceImageBuilderWorker,
+		infra.ServiceTelemetryGateway,
+		infra.ServiceAlertExporter,
+		infra.ServiceAlertmanagerProxy,
+	}
+	for _, svc := range services {
+		running, err := br.providers.Lifecycle.IsRunning(svc)
+		if err != nil {
+			return fmt.Errorf("failed to check if %s is running: %w", svc, err)
+		}
+		if !running {
+			return fmt.Errorf("service %s is not running", svc)
+		}
+	}
+	return nil
+}
+
 // ScaleUpFlightCtlServices scales API, worker, periodic, alert-exporter, and alertmanager-proxy
 // back up to 1 replica. Used as a safety net after restore in case the binary is killed before
 // its own deferred startup.
+// DEPRECATED: This method is kept for backward compatibility but should not be used in new tests.
+// Tests should verify that the restore binary itself restarts all services via VerifyAllServicesRunning.
 func (br *BackupRestore) ScaleUpFlightCtlServices() error {
 	services := []infra.ServiceName{
 		infra.ServiceAPI,

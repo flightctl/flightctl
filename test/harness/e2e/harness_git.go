@@ -1,13 +1,16 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/test/util"
@@ -89,7 +92,7 @@ func (h *Harness) CreateGitRepositoryOnServer(config GitServerConfig, keyPath ut
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	createCmd := fmt.Sprintf("create-repo %s", repoName)
+	createCmd := fmt.Sprintf("create-repo '%s'", repoName)
 	err := h.runGitServerSSHCommand(config, keyPath, createCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
@@ -109,7 +112,7 @@ func (h *Harness) DeleteGitRepositoryOnServer(config GitServerConfig, keyPath ut
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
+	deleteCmd := fmt.Sprintf("delete-repo '%s'", repoName)
 	err := h.runGitServerSSHCommand(config, keyPath, deleteCmd)
 	if err != nil {
 		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
@@ -158,6 +161,21 @@ func (h *Harness) CloneGitRepositoryFromServer(config GitServerConfig, keyPath u
 
 // pushToGitServerRepo is a helper that clones a repo, calls prepareContent to set up files,
 // then commits and pushes changes.
+// sanitizeFilePath cleans filePath, rejects absolute paths, and verifies the
+// result stays inside workDir. Returns the full path and cleaned relative path.
+func sanitizeFilePath(workDir, filePath string) (fullPath, relPath string, err error) {
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) {
+		return "", "", fmt.Errorf("file path %q must be relative", filePath)
+	}
+	full := filepath.Join(workDir, cleaned)
+	rel, err := filepath.Rel(workDir, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", "", fmt.Errorf("file path %q escapes work directory", filePath)
+	}
+	return full, rel, nil
+}
+
 func (h *Harness) pushToGitServerRepo(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, addPath, commitMessage string, prepareContent func(workDir string) error) error {
 	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
 	defer os.RemoveAll(workDir)
@@ -191,7 +209,10 @@ func (h *Harness) PushContentToGitServerRepo(config GitServerConfig, keyPath uti
 	}
 
 	err := h.pushToGitServerRepo(config, keyPath, repoName, filePath, commitMessage, func(workDir string) error {
-		fullFilePath := filepath.Join(workDir, filePath)
+		fullFilePath, _, err := sanitizeFilePath(workDir, filePath)
+		if err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
 			return fmt.Errorf("failed to create directory for file: %w", err)
 		}
@@ -234,6 +255,57 @@ func (h *Harness) CreateGitBranchOnServer(config GitServerConfig, keyPath util.S
 	}
 
 	logrus.Infof("Created branch %s in git repository %s", branchName, repoName)
+	return nil
+}
+
+// PushContentToGitServerRepoBranch pushes content to a specific branch of a git repository on the server.
+func (h *Harness) PushContentToGitServerRepoBranch(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, branch, filePath, content, commitMessage string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if branch == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+	if commitMessage == "" {
+		commitMessage = "Add content via test harness"
+	}
+
+	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
+	defer os.RemoveAll(workDir)
+
+	if err := h.CloneGitRepositoryFromServer(config, keyPath, repoName, workDir); err != nil {
+		return fmt.Errorf("failed to clone repository for push: %w", err)
+	}
+
+	if err := h.runGitCommands(workDir, keyPath, [][]string{
+		{"git", "checkout", branch},
+	}); err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+	}
+
+	fullFilePath, cleanedPath, err := sanitizeFilePath(workDir, filePath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for file: %w", err)
+	}
+	if err := os.WriteFile(fullFilePath, []byte(content), 0600); err != nil {
+		return fmt.Errorf("failed to write content to file: %w", err)
+	}
+
+	if err := h.runGitCommands(workDir, keyPath, [][]string{
+		{"git", "add", cleanedPath},
+		{"git", "commit", "-m", commitMessage},
+		{"git", "push", "origin", branch},
+	}); err != nil {
+		return err
+	}
+
+	logrus.Infof("Pushed content to git repository %s branch %s, file: %s", repoName, branch, filePath)
 	return nil
 }
 
@@ -479,6 +551,44 @@ func (h *Harness) ReadFileFromDevice(filePath string) (string, error) {
 	return stdout.String(), nil
 }
 
+// GetRemoteHeadSHA returns the HEAD commit SHA of a remote git repository on the E2E git server.
+func (h *Harness) GetRemoteHeadSHA(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, branch string) (string, error) {
+	if keyPath == "" {
+		return "", fmt.Errorf("ssh key path cannot be empty")
+	}
+	if repoName == "" {
+		return "", fmt.Errorf("repository name cannot be empty")
+	}
+	if branch == "" {
+		branch = "main"
+	}
+
+	gitEnv := append(os.Environ(),
+		fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes -o LogLevel=ERROR", string(keyPath)),
+	)
+
+	repoURL := fmt.Sprintf("ssh://%s@%s/home/user/repos/%s.git",
+		config.User, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), repoName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", repoURL, fmt.Sprintf("refs/heads/%s", branch))
+	cmd.Env = gitEnv
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("timed out querying remote HEAD for branch %s: %w", branch, ctx.Err())
+		}
+		return "", fmt.Errorf("failed to get remote HEAD SHA: %w, output: %s", err, string(output))
+	}
+
+	parts := strings.Fields(string(output))
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no output from git ls-remote for branch %s", branch)
+	}
+	return parts[0], nil
+}
+
 // PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes.
 func (h *Harness) PushTemplatedFilesToGitRepo(workDir string, keyPath util.SSHPrivateKeyPath, sourceDir string, data interface{}) error {
 	err := writeTemplatedFilesToDir(sourceDir, workDir, data)
@@ -489,6 +599,54 @@ func (h *Harness) PushTemplatedFilesToGitRepo(workDir string, keyPath util.SSHPr
 	err = h.CommitAndPushGitRepo(workDir, keyPath, "")
 	if err != nil {
 		return fmt.Errorf("failed to commit and push: %w", err)
+	}
+
+	return nil
+}
+
+// GitRepoSetupOpts holds options for SetupGitRepoWithContent.
+type GitRepoSetupOpts struct {
+	GitServer     GitServerConfig
+	SSHKeyPath    util.SSHPrivateKeyPath
+	SSHKeyContent util.SSHPrivateKeyContent
+	InternalHost  string
+	InternalPort  int
+	RepoName      string
+	FilePath      string
+	Content       string
+	CommitMsg     string
+	// Timeout for waiting for the Repository to become accessible. Defaults to 2 minutes.
+	AccessTimeout time.Duration
+	// Polling interval for accessibility check. Defaults to 5 seconds.
+	AccessInterval time.Duration
+}
+
+// SetupGitRepoWithContent creates a git repo on the server, pushes initial content,
+// registers a Repository resource with SSH credentials, and waits for it to become accessible.
+func (h *Harness) SetupGitRepoWithContent(opts GitRepoSetupOpts) error {
+	if opts.AccessTimeout == 0 {
+		opts.AccessTimeout = 2 * time.Minute
+	}
+	if opts.AccessInterval == 0 {
+		opts.AccessInterval = 5 * time.Second
+	}
+
+	if err := h.CreateGitRepositoryOnServer(opts.GitServer, opts.SSHKeyPath, opts.RepoName); err != nil {
+		return fmt.Errorf("create git repo on server: %w", err)
+	}
+
+	if err := h.PushContentToGitServerRepo(opts.GitServer, opts.SSHKeyPath, opts.RepoName,
+		opts.FilePath, opts.Content, opts.CommitMsg); err != nil {
+		return fmt.Errorf("push initial content: %w", err)
+	}
+
+	if err := h.CreateRepositoryWithValidE2ECredentials(opts.InternalHost, opts.InternalPort,
+		opts.RepoName, opts.SSHKeyContent); err != nil {
+		return fmt.Errorf("create Repository resource: %w", err)
+	}
+
+	if err := h.WaitForRepositoryAccessible(opts.RepoName, opts.AccessTimeout, opts.AccessInterval); err != nil {
+		return fmt.Errorf("wait for repository accessible: %w", err)
 	}
 
 	return nil

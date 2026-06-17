@@ -36,10 +36,12 @@ Welcome to the Flight Control user documentation.
     * [Backup and Restore](installing/backup-restore.md)
 
   * Offline and Air-Gapped Installation
+    * [Air-gapped Installation Guide](installing/air-gapped-installation.md)
     * [Setting up a local RPM repository](installing/offline-rpm-repository.md)
     * [Packaging artifacts for portable media](installing/offline-portable-media.md)
     * [Installing the Flight Control service offline on Linux](installing/installing-service-on-linux-offline.md)
     * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
+    * [Air-gapped fleet operations and OS image updates](installing/air-gapped-operations.md)
 
 * **[Installing the Flight Control CLI](installing/installing-cli.md)**
 

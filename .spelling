@@ -351,6 +351,26 @@ multicluster
 ImagePromotion
 semver
 dropdown
+ClusterIssuer
+Issuer
+air-gapped
+resolution
+Fedora
+bastion
+checksums
+quadlet
+bootc-image-builder
+OCP
+rhem-el9
+rhem-el10
+syft
+ITMS
+MachineConfig
+MachineConfigPool
+mirrorSourcePolicy
+NeverContactSource
+AllowContactingSource
+CRI-O
  - docs/user/installing/configuring-imagebuilder.md
  RLIMIT
  NOFILE

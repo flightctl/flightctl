@@ -1182,3 +1182,24 @@ func (h *Harness) DecommissionDevice(deviceName string) (string, error) {
 	}
 	return h.CLI("decommission", "devices/"+deviceName)
 }
+
+// GetDeviceConfigRefFingerprint returns the fingerprint for a specific config provider
+// from the device's DependencySync status. Returns empty string if not found.
+func (h *Harness) GetDeviceConfigRefFingerprint(deviceID, configProviderName string) (string, error) {
+	if deviceID == "" {
+		return "", fmt.Errorf("deviceID is empty")
+	}
+	device, err := h.GetDevice(deviceID)
+	if err != nil {
+		return "", err
+	}
+	if device.Status == nil || device.Status.DependencySync == nil || device.Status.DependencySync.ConfigRefs == nil {
+		return "", nil
+	}
+	for _, ref := range *device.Status.DependencySync.ConfigRefs {
+		if ref.ConfigProviderName == configProviderName && ref.Fingerprint != nil && *ref.Fingerprint != "" {
+			return *ref.Fingerprint, nil
+		}
+	}
+	return "", nil
+}

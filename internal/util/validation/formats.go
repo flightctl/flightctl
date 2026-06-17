@@ -16,10 +16,11 @@ const (
 	DNS1123MaxLength      int    = 253
 	envVarNameFmt         string = `[A-Za-z_][A-Za-z0-9_]*`
 
-	// ConfigNameFmt extends the DNS 1123 label format to also allow dots,
-	// supporting config names like "example.json" or "config.yaml".
-	// Must start and end with an alphanumeric character.
-	ConfigNameFmt       string = `[a-z0-9]([-a-z0-9.]*[a-z0-9])?`
+	// ConfigNameFmt validates config names as dot-separated labels,
+	// supporting names like "example.json" or "my.config.v2".
+	// Each label must start and end with an alphanumeric character,
+	// and consecutive dots are not allowed.
+	ConfigNameFmt       string = `[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`
 	configNameMaxLength int    = 253
 
 	// HostnameOrFQDNFmt validates a hostname or FQDN (Fully Qualified Domain Name).

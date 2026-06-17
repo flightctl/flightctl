@@ -35,7 +35,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	if cfg.Database.Type != "pgsql" {
 		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
-		log.Fatal(errString)
+		log.Error(errString)
 		return nil, errors.New(errString)
 	}
 	dsn := createDSN(cfg, user, password)
@@ -69,8 +69,15 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		TranslateError: true,
 	})
 	if err != nil {
-		log.Fatalf("failed to connect database: %v", err)
-		return nil, err
+		log.Errorf("failed to connect database: %v", err)
+		return nil, fmt.Errorf("failed to connect database: %w", err)
+	}
+
+	// Get sql.DB early so we can close it on error
+	sqlDB, err := newDB.DB()
+	if err != nil {
+		log.Errorf("failed to get underlying sql.DB: %v", err)
+		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
 	// TODO: Make exposing DB metrics optional
@@ -82,15 +89,11 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}))
 
 	if err != nil {
-		log.Fatalf("Failed to register prometheus exporter: %v", err)
-		return nil, err
+		sqlDB.Close()
+		log.Errorf("Failed to register prometheus exporter: %v", err)
+		return nil, fmt.Errorf("failed to register prometheus exporter: %w", err)
 	}
 
-	sqlDB, err := newDB.DB()
-	if err != nil {
-		log.Fatalf("failed to configure connections: %v", err)
-		return nil, err
-	}
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
@@ -103,8 +106,9 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	if cfg.Tracing != nil && cfg.Tracing.Enabled {
 		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
-			log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-			return nil, err
+			sqlDB.Close()
+			log.Errorf("failed to register OpenTelemetry GORM plugin: %v", err)
+			return nil, fmt.Errorf("failed to register OpenTelemetry GORM plugin: %w", err)
 		}
 	}
 
@@ -117,8 +121,9 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}
 
 	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
-		log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-		return nil, err
+		sqlDB.Close()
+		log.Errorf("failed to register OpenTelemetry GORM plugin: %v", err)
+		return nil, fmt.Errorf("failed to register OpenTelemetry GORM plugin: %w", err)
 	}
 
 	return newDB, nil
