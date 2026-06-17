@@ -311,6 +311,10 @@ func TestLoadWithOverrides_InvalidDropinIsSkipped(t *testing.T) {
 
 	// Valid dropin should still be applied
 	require.Equal("debug", cfg.LogLevel, "valid dropin after invalid one should still be applied")
+
+	// Warning should be recorded for the invalid dropin
+	require.Len(cfg.Warnings, 1, "one warning should be recorded for the invalid dropin")
+	require.Contains(cfg.Warnings[0], "01-bad.yaml")
 }
 
 func TestLoadWithOverrides_InvalidBaseConfigStillFails(t *testing.T) {
@@ -371,4 +375,49 @@ func TestLoadWithOverrides_OnlyInvalidDropinsStillSucceeds(t *testing.T) {
 
 	// Base config values should be intact
 	require.Equal("https://enrollment.endpoint", cfg.EnrollmentService.Service.Server)
+
+	// Warnings should be recorded for both invalid dropins
+	require.Len(cfg.Warnings, 2, "warnings should be recorded for each invalid dropin")
+}
+
+func TestLoadWithOverrides_UnreadableDropinIsSkipped(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "etc", "flightctl")
+	dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+	require.NoError(os.MkdirAll(configDir, 0o755))
+	require.NoError(os.MkdirAll(dataDir, 0o755))
+
+	cfg := NewDefault()
+	cfg.ConfigDir = configDir
+	cfg.DataDir = dataDir
+	cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+	configFile := filepath.Join(configDir, "config.yaml")
+	require.NoError(os.WriteFile(configFile, []byte(yamlConfig), 0o600))
+
+	dropinDir := filepath.Join(configDir, "conf.d")
+	require.NoError(os.MkdirAll(dropinDir, 0o755))
+
+	// Create a dropin file with no read permissions
+	unreadablePath := filepath.Join(dropinDir, "01-unreadable.yaml")
+	require.NoError(os.WriteFile(unreadablePath, []byte("log-level: debug\n"), 0o000))
+
+	// Valid dropin applied after the unreadable one
+	require.NoError(os.WriteFile(
+		filepath.Join(dropinDir, "02-good.yaml"),
+		[]byte("log-level: warn\n"),
+		0o600,
+	))
+
+	err := cfg.LoadWithOverrides(configFile)
+	require.NoError(err, "unreadable dropin should be skipped, not cause an error")
+
+	// Valid dropin should still be applied
+	require.Equal("warn", cfg.LogLevel, "valid dropin after unreadable one should still be applied")
+
+	// Warning should be recorded for the unreadable dropin
+	require.Len(cfg.Warnings, 1, "one warning should be recorded for the unreadable dropin")
+	require.Contains(cfg.Warnings[0], "01-unreadable.yaml")
 }

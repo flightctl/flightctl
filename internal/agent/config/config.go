@@ -156,6 +156,10 @@ type Config struct {
 	// ImagePruning holds all image/artifact pruning-related configuration
 	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
 
+	// Warnings collects non-fatal issues encountered during config loading
+	// (e.g., skipped drop-ins) so they can be surfaced in device status.
+	Warnings []string `json:"-"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -440,11 +444,15 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 		overridePath := filepath.Join(confSubdir, filename)
 		contents, err := cfg.readWriter.ReadFile(overridePath)
 		if err != nil {
-			logrus.Warnf("Skipping unreadable override config %s: %v", overridePath, err)
+			msg := fmt.Sprintf("Skipping unreadable override config %s: %v", overridePath, err)
+			logrus.Warn(msg)
+			cfg.Warnings = append(cfg.Warnings, msg)
 			continue
 		}
 		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
-			logrus.Warnf("Skipping invalid override config %s: %v", overridePath, err)
+			msg := fmt.Sprintf("Skipping invalid override config %s: %v", overridePath, err)
+			logrus.Warn(msg)
+			cfg.Warnings = append(cfg.Warnings, msg)
 			continue
 		}
 		mergeConfigs(cfg, overrideCfg)

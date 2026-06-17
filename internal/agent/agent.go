@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -366,6 +367,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	// bootstrap
 	if err := bootstrap.Initialize(ctx); err != nil {
 		return fmt.Errorf("bootstrap failed: %w", err)
+	}
+
+	if len(a.config.Warnings) > 0 {
+		msg := strings.Join(a.config.Warnings, "; ")
+		_, updateErr := statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+			Status: v1beta1.DeviceSummaryStatusDegraded,
+			Info:   &msg,
+		}))
+		if updateErr != nil {
+			a.log.Warnf("Failed to report config warnings to status: %v", updateErr)
+		}
 	}
 
 	// Initialize certificate manager
