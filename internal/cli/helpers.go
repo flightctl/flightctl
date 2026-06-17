@@ -349,7 +349,7 @@ func responseField[T any](response interface{}, name string) (T, error) {
 		return zero, fmt.Errorf("response is invalid")
 	}
 
-	if v.Kind() != reflect.Ptr {
+	if v.Kind() != reflect.Pointer {
 		return zero, fmt.Errorf("response must be a pointer to a struct, got: %T", response)
 	}
 

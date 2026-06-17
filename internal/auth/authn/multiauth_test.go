@@ -316,7 +316,7 @@ func TestMultiAuth_GetAuthToken(t *testing.T) {
 	t.Run("Cookie header", func(t *testing.T) {
 		req, err := http.NewRequest("GET", "/test", nil)
 		require.NoError(t, err)
-		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"})
+		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"}) //nolint:gosec
 
 		token, err := multiAuth.GetAuthToken(req)
 		assert.NoError(t, err)
@@ -327,7 +327,7 @@ func TestMultiAuth_GetAuthToken(t *testing.T) {
 		req, err := http.NewRequest("GET", "/test", nil)
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer auth-header-token")
-		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"})
+		req.AddCookie(&http.Cookie{Name: "flightctl-session", Value: "eyJ0b2tlbiI6ICJ0ZXN0LXRva2VuIn0K"}) //nolint:gosec
 
 		token, err := multiAuth.GetAuthToken(req)
 		assert.NoError(t, err)
