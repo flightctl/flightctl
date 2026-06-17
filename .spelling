@@ -354,6 +354,9 @@ dropdown
 ClusterIssuer
 Issuer
 air-gapped
+vCPU
+vRAM
+vDisk
 resolution
 Fedora
 bastion
