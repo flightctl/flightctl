@@ -85,7 +85,7 @@ func deepEqualWithUnionHandling(v1, v2 reflect.Value, indentation string) bool {
 		}
 		return true
 
-	case reflect.Pointer, reflect.Interface:
+	case reflect.Ptr, reflect.Interface:
 		if v1.IsNil() != v2.IsNil() {
 			return false
 		}
