@@ -299,9 +299,15 @@ func (q *Quadlet) Start(ctx context.Context, action Action) error {
 	return systemctl.Start(ctx, target)
 }
 
-// Restart restarts the application's systemd target. For VM workloads this
-// triggers an ACPI shutdown via virt-launcher-monitor before the unit restarts.
+// Restart restarts the application. For VM workloads it sends an ACPI reboot
+// signal via virsh to the guest OS running inside the virt-launcher container,
+// allowing the guest to shut down cleanly before the VM restarts. For all other
+// quadlet types it restarts the systemd target directly.
 func (q *Quadlet) Restart(ctx context.Context, action Action) error {
+	if action.AppType == v1beta1.AppTypeVm {
+		return q.restartVM(ctx, action)
+	}
+
 	systemctl, err := q.systemdFactory(action.User)
 	if err != nil {
 		return fmt.Errorf("creating systemd client: %w", err)
@@ -311,6 +317,17 @@ func (q *Quadlet) Restart(ctx context.Context, action Action) error {
 		return fmt.Errorf("target name: %w", err)
 	}
 	return systemctl.Restart(ctx, target)
+}
+
+// restartVM sends an ACPI reboot signal to the libvirt domain running inside the
+// virt-launcher container. This gives the guest OS a chance to shut down cleanly
+// rather than abruptly killing the container process via systemctl restart.
+func (q *Quadlet) restartVM(ctx context.Context, action Action) error {
+	podman, err := q.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+	return podman.VirshReboot(ctx, action.Name)
 }
 
 func (q *Quadlet) Execute(ctx context.Context, actions Actions) error {

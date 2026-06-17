@@ -810,6 +810,20 @@ func (p *Podman) CopyContainerData(ctx context.Context, image, destPath string) 
 	return copyContainerData(ctx, p.log, p.readWriter, p, image, destPath)
 }
 
+// VirshReboot sends an ACPI reboot signal to the libvirt domain running inside
+// the virt-launcher container for the given VM application name. This allows the
+// guest OS to shut down cleanly before the VM is restarted, rather than doing a
+// hard container kill via systemctl restart.
+func (p *Podman) VirshReboot(ctx context.Context, appName string) error {
+	container := fmt.Sprintf("virt-launcher-%s-compute", appName)
+	domain := fmt.Sprintf("default_%s", appName)
+	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "exec", container, "virsh", "reboot", domain)
+	if exitCode != 0 {
+		return fmt.Errorf("virsh reboot %s: %w", domain, errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 func (p *Podman) Compose() *Compose {
 	return &Compose{
 		Podman: p,
