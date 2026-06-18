@@ -185,17 +185,30 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 func (caBackend *internalCA) IssueRequestedCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage, opts ...CertOption) (*x509.Certificate, error) {
 	now := time.Now()
 	expire := time.Duration(expirySeconds) * time.Second
-	// Note Subject (and other fields where applicable) validation is performed by the callers.
-	// This routine will sign what it is given, length checks and other validation should happen
-	// further up the call chain.
+
+	hasServerAuth := false
+	for _, u := range usage {
+		if u == x509.ExtKeyUsageServerAuth {
+			hasServerAuth = true
+			break
+		}
+	}
+
+	var ipAddresses = csr.IPAddresses
+	var dnsNames = csr.DNSNames
+	if !hasServerAuth {
+		ipAddresses = nil
+		dnsNames = nil
+	}
+
 	template := &x509.Certificate{
 		Subject:               csr.Subject,
 		Signature:             csr.Signature,
 		SignatureAlgorithm:    csr.SignatureAlgorithm,
 		PublicKey:             csr.PublicKey,
 		PublicKeyAlgorithm:    csr.PublicKeyAlgorithm,
-		IPAddresses:           csr.IPAddresses,
-		DNSNames:              csr.DNSNames,
+		IPAddresses:           ipAddresses,
+		DNSNames:              dnsNames,
 		Issuer:                caBackend.Config.Certs[0].Subject,
 		NotBefore:             now.Add(-time.Second),
 		NotAfter:              now.Add(expire),
