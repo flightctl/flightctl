@@ -43,6 +43,8 @@ var resourcePermissions = map[string]map[string][]string{
 		"imagepromotions":              {"get", "list", "create", "update", "patch", "delete"},
 		"repositories/check-oci-tag":   {"create"},
 		"repositories/check-oci-image": {"create"},
+		"enrollmentrequests":           {},
+		"events":                       {},
 		"*":                            {"get", "list"}, // Default read access for other resources
 	},
 	v1beta1.RoleViewer: {
