@@ -24,41 +24,38 @@ func (s *SignerServerSvc) Name() string {
 }
 
 func (s *SignerServerSvc) Verify(ctx context.Context, request SignRequest) error {
-	// For server service certificates, we require CLI authentication
-	// Users must authenticate through the CLI (same as other operations)
-
 	if _, err := PeerCertificateFromCtx(ctx); err == nil {
 		return fmt.Errorf("server csr is not allowed with peer certificate")
 	}
 
-	// For server certificates, we expect the CN to be a service name with svc- prefix
 	x509CSR := request.X509()
 	if x509CSR.Subject.CommonName == "" {
 		return fmt.Errorf("CSR CommonName cannot be empty for server certificates")
 	}
 
-	// Validate that the CN starts with the expected service prefix
 	servicePrefix := "svc-"
 	if !strings.HasPrefix(x509CSR.Subject.CommonName, servicePrefix) {
 		return fmt.Errorf("CSR CommonName %q must start with prefix %q", x509CSR.Subject.CommonName, servicePrefix)
 	}
 
-	// Extract service name and validate it's not empty
 	serviceName := strings.TrimPrefix(x509CSR.Subject.CommonName, servicePrefix)
 	if serviceName == "" {
 		return fmt.Errorf("CSR CommonName %q must include a service name after prefix %q", x509CSR.Subject.CommonName, servicePrefix)
+	}
+
+	if len(x509CSR.DNSNames) > 0 || len(x509CSR.IPAddresses) > 0 ||
+		len(x509CSR.URIs) > 0 || len(x509CSR.EmailAddresses) > 0 {
+		return fmt.Errorf("server-svc CSRs must not carry SANs")
 	}
 
 	return nil
 }
 
 func (s *SignerServerSvc) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
-
 	if _, err := PeerCertificateFromCtx(ctx); err == nil {
 		return nil, fmt.Errorf("server csr is not allowed with peer certificate")
 	}
 
-	// Ensure the CommonName follows the service naming convention
 	x509CSR := request.X509()
 	servicePrefix := "svc-"
 	if !strings.HasPrefix(x509CSR.Subject.CommonName, servicePrefix) {
@@ -69,6 +66,11 @@ func (s *SignerServerSvc) Sign(ctx context.Context, request SignRequest) (*x509.
 	if serviceName == "" {
 		return nil, fmt.Errorf("CSR CommonName %q must include a service name after prefix %q", x509CSR.Subject.CommonName, servicePrefix)
 	}
+
+	x509CSR.DNSNames = nil
+	x509CSR.IPAddresses = nil
+	x509CSR.URIs = nil
+	x509CSR.EmailAddresses = nil
 
 	expirySeconds := signerServerSvcExpiryDays * 24 * 60 * 60
 	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
