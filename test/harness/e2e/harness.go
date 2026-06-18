@@ -1039,10 +1039,15 @@ func (h *Harness) CleanUpTestResources(resourceTypes ...string) error {
 
 // cleanUpEnrollmentRequests handles the special case for enrollment requests
 // Since enrollment requests don't support labels, we need to:
-// 1. Get devices with the test label
-// 2. Delete enrollment requests with the same names as those devices
+// 1. Delete pending ERs whose spec.labels include the test-id (simulator skip-auto-approve path)
+// 2. Get devices with the test label
+// 3. Delete enrollment requests with the same names as those devices
 func (h *Harness) cleanUpEnrollmentRequests(testID string) error {
 	logrus.Debugf("Cleaning up enrollment requests for test-id: %s", testID)
+
+	if err := h.deleteEnrollmentRequestsBySpecTestID(testID); err != nil {
+		return fmt.Errorf("deleting enrollment requests by spec test-id: %w", err)
+	}
 
 	// Get devices with the test label
 	devices, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")

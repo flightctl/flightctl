@@ -2,10 +2,12 @@ package multiorg_test
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -78,20 +80,20 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			simulatorCmds = nil
 		})
 
-		It("should enroll 30 devices as admin and all users should see them", Label("88359"), func() {
+		It("should enroll 30 devices as admin and all users except installer should see them", Label("88359"), func() {
 			testID := harness.GetTestIDFromContext()
+			deferOrgSimulatorConfig(harness, users)
 
 			By("Logging in as admin to setup simulator config and create devices")
 			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.SetupDeviceSimulatorAgentConfig(0, 0)
-			Expect(err).ToNot(HaveOccurred(), "Failed to setup simulator agent config as admin")
+			setupSharedOrgSimulatorConfig(harness)
 
 			By(fmt.Sprintf("Starting 3 device simulators (%d devices each) as admin", devicesPerUser))
 			for i := 0; i < 3; i++ {
 				initialIndex := i * devicesPerUser
-				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, users.admin.name, initialIndex, devicesPerUser)
+				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, users.admin.name, initialIndex, devicesPerUser, false)
 				Expect(simErr).ToNot(HaveOccurred(), fmt.Sprintf("Failed to start simulator batch %d", i))
 				simulatorCmds = append(simulatorCmds, cmd)
 				GinkgoWriter.Printf("Simulator batch %d started (devices %d-%d)\n",
@@ -115,6 +117,12 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 					fmt.Sprintf("%s should see all %d devices in the shared organization", u.name, totalDevices))
 				GinkgoWriter.Printf("%s sees %d devices (expected %d)\n", u.name, count, totalDevices)
 			}
+
+			By("Switching to installer and verifying device list is denied")
+			err = loginAndSetOrg(harness, users.installer.name, users.installer.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectReadOnlyListForbidden(harness, util.Device)
 		})
 	})
 
@@ -152,8 +160,11 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("operator should have full CRUD access to devices and fleets", Label("88361"), func() {
+		It("operator should have full CRUD access to devices, fleets, and repositories and limited access to enrollment requests", Label("88361"), func() {
 			suiteCtx := e2e.GetWorkerContext()
+			testID := harness.GetTestIDFromContext()
+			var erName string
+			deferOrgSimulatorConfig(harness, users)
 
 			By("Logging in as operator")
 			err := loginAndSetOrg(harness, users.operator.name, users.operator.password)
@@ -172,10 +183,70 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				[]string{util.Fleet},
 				true, operatorLabels, flightCtlNs, []string{e2e.OperationAll})
 			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that operator can perform all CRUD operations on repositories")
+			err = e2e.ExecuteResourceOperations(suiteCtx, harness,
+				[]string{util.Repository},
+				true, operatorLabels, flightCtlNs, []string{e2e.OperationAll})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Creating an enrollment request as admin so operator can read it")
+			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			setupSharedOrgSimulatorConfig(harness)
+
+			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "operator-er-rbac", 0, 1, true)
+			Expect(simErr).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, erSimCmd)
+
+			Eventually(func() error {
+				var waitErr error
+				erName, waitErr = harness.WaitForSimulatorEnrollmentRequest(
+					testID, e2e.DeviceSimulatorAgentAlias(0), deviceEnrollTimeout, deviceEnrollPolling)
+				return waitErr
+			}, deviceEnrollTimeout, deviceEnrollPolling).Should(Succeed(),
+				"Expected an enrollment request from the simulator")
+
+			err = loginAndSetOrg(harness, users.operator.name, users.operator.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			if infra.IsQuadletEnvironment() {
+				By("Testing that operator can list events")
+				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Testing that operator can list enrollment requests")
+				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Testing that operator can get a specific enrollment request")
+				_, getErr := harness.GetResourcesByName("enrollmentrequests", erName)
+				Expect(getErr).ToNot(HaveOccurred(), "Operator should be able to get an enrollment request on quadlet")
+			} else {
+				By("Testing that operator cannot list events on OCP")
+				expectReadOnlyListForbidden(harness, "events")
+
+				By("Testing that operator cannot list enrollment requests on OCP")
+				expectReadOnlyListForbidden(harness, "enrollmentrequests")
+
+				By("Testing that operator cannot get a specific enrollment request on OCP")
+				out, getErr := harness.GetResourcesByName("enrollmentrequests", erName)
+				Expect(getErr).To(HaveOccurred(), "Operator should not be able to get an enrollment request on OCP")
+				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for operator enrollment request get")
+			}
+
+			By("Testing that operator cannot approve an enrollment request")
+			status, approveErr := harness.ApproveEnrollmentRequestWithLabels(erName, nil)
+			Expect(approveErr).To(HaveOccurred(), "Operator should not be able to approve an enrollment request")
+			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for operator enrollment approval")
 		})
 
 		It("viewer should only be able to read devices and fleets, not create or delete", Label("88362"), func() {
 			suiteCtx := e2e.GetWorkerContext()
+			testID := harness.GetTestIDFromContext()
+			var erName string
+			deferOrgSimulatorConfig(harness, users)
 
 			By("Logging in as viewer")
 			err := loginAndSetOrg(harness, users.viewer.name, users.viewer.password)
@@ -199,27 +270,62 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				false, viewerLabels, flightCtlNs, []string{e2e.OperationCreate})
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Creating resources as admin so viewer can attempt to delete them")
+			By("Creating resources as admin for viewer RBAC tests")
 			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, deviceName, _, deviceCreateErr := harness.CreateResource(util.Device)
-			Expect(deviceCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a device for viewer delete test")
+			_, deviceName, deviceData, deviceCreateErr := harness.CreateResource(util.Device)
+			Expect(deviceCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a device for viewer RBAC test")
 			DeferCleanup(func() {
 				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 				_, _ = harness.CleanUpResource(util.Device, deviceName)
 			})
 
-			_, fleetName, _, fleetCreateErr := harness.CreateResource(util.Fleet)
-			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for viewer delete test")
+			_, fleetName, fleetData, fleetCreateErr := harness.CreateResource(util.Fleet)
+			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for viewer RBAC test")
 			DeferCleanup(func() {
 				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
 				_, _ = harness.CleanUpResource(util.Fleet, fleetName)
 			})
 
-			By("Switching back to viewer and attempting to delete admin-created resources")
+			_, repoName, _, repoCreateErr := harness.CreateResource(util.Repository)
+			Expect(repoCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a repository for viewer RBAC test")
+			DeferCleanup(func() {
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				_, _ = harness.CleanUpResource(util.Repository, repoName)
+			})
+
+			setupSharedOrgSimulatorConfig(harness)
+
+			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "viewer-er-rbac", 0, 1, true)
+			Expect(simErr).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, erSimCmd)
+
+			Eventually(func() error {
+				var waitErr error
+				erName, waitErr = harness.WaitForSimulatorEnrollmentRequest(
+					testID, e2e.DeviceSimulatorAgentAlias(0), deviceEnrollTimeout, deviceEnrollPolling)
+				return waitErr
+			}, deviceEnrollTimeout, deviceEnrollPolling).Should(Succeed(),
+				"Expected an enrollment request from the simulator")
+
+			By("Switching back to viewer for update, delete, and read tests")
 			err = loginAndSetOrg(harness, users.viewer.name, users.viewer.password)
 			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that viewer cannot update a device")
+			updatedDeviceYAML, updateErr := harness.AddLabelsToYAML(string(deviceData), *viewerLabels)
+			Expect(updateErr).ToNot(HaveOccurred())
+			out, applyErr := harness.CLIWithStdin(updatedDeviceYAML, "apply", "-f", "-")
+			Expect(applyErr).To(HaveOccurred(), "Viewer should not be able to update a device")
+			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer device update")
+
+			By("Testing that viewer cannot update a fleet")
+			updatedFleetYAML, updateErr := harness.AddLabelsToYAML(string(fleetData), *viewerLabels)
+			Expect(updateErr).ToNot(HaveOccurred())
+			out, applyErr = harness.CLIWithStdin(updatedFleetYAML, "apply", "-f", "-")
+			Expect(applyErr).To(HaveOccurred(), "Viewer should not be able to update a fleet")
+			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer fleet update")
 
 			By("Testing that viewer cannot delete a device")
 			out, deleteErr := harness.CleanUpResource(util.Device, deviceName)
@@ -230,15 +336,101 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			out, deleteErr = harness.CleanUpResource(util.Fleet, fleetName)
 			Expect(deleteErr).To(HaveOccurred(), "Viewer should not be able to delete a fleet")
 			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer fleet delete")
+
+			By("Testing that viewer cannot create repositories")
+			err = e2e.ExecuteResourceOperations(suiteCtx, harness,
+				[]string{util.Repository},
+				false, viewerLabels, flightCtlNs, []string{e2e.OperationCreate})
+			Expect(err).ToNot(HaveOccurred())
+
+			if infra.IsQuadletEnvironment() {
+				By("Testing that viewer can list and get repositories")
+				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"repositories"}, true)
+				Expect(err).ToNot(HaveOccurred())
+				_, getErr := harness.GetResourcesByName("repositories", repoName)
+				Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get a repository on quadlet")
+
+				By("Testing that viewer can list and get enrollment requests")
+				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
+				Expect(err).ToNot(HaveOccurred())
+				_, getErr = harness.GetResourcesByName("enrollmentrequests", erName)
+				Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get an enrollment request on quadlet")
+
+				By("Testing that viewer can list events")
+				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
+				Expect(err).ToNot(HaveOccurred())
+			} else {
+				By("Testing that viewer cannot list or get repositories on OCP")
+				expectReadOnlyListForbidden(harness, "repositories")
+				out, getErr := harness.GetResourcesByName("repositories", repoName)
+				Expect(getErr).To(HaveOccurred(), "Viewer should not be able to get a repository on OCP")
+				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer repository get")
+
+				By("Testing that viewer cannot list or get enrollment requests on OCP")
+				expectReadOnlyListForbidden(harness, "enrollmentrequests")
+				out, getErr = harness.GetResourcesByName("enrollmentrequests", erName)
+				Expect(getErr).To(HaveOccurred(), "Viewer should not be able to get an enrollment request on OCP")
+				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer enrollment request get")
+
+				By("Testing that viewer cannot list events on OCP")
+				expectReadOnlyListForbidden(harness, "events")
+			}
+
+			By("Testing that viewer cannot approve an enrollment request")
+			status, approveErr := harness.ApproveEnrollmentRequestWithLabels(erName, nil)
+			Expect(approveErr).To(HaveOccurred(), "Viewer should not be able to approve an enrollment request")
+			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for viewer enrollment approval")
+		})
+
+		It("should enforce device console access by role", Label("89607", "agent"), func() {
+			testID := harness.GetTestIDFromContext()
+			deferOrgSimulatorConfig(harness, users)
+
+			By("Creating a device via simulator as admin")
+			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			setupSharedOrgSimulatorConfig(harness)
+
+			simCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "console-rbac", 0, 1, false)
+			Expect(simErr).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, simCmd)
+
+			deviceName, err := harness.WaitForLabeledSimulatorDevice(testID, 0, deviceEnrollTimeout, deviceEnrollPolling)
+			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("Device for console RBAC test: %s\n", deviceName)
+
+			for _, tc := range []struct {
+				role    string
+				user    userCred
+				allowed bool
+			}{
+				{"admin", users.admin, true},
+				{"operator", users.operator, true},
+				{"viewer", users.viewer, false},
+				{"installer", users.installer, false},
+			} {
+				By(fmt.Sprintf("Testing console access as %s", tc.role))
+				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
+				Expect(err).ToNot(HaveOccurred())
+				assertConsoleAccess(harness, deviceName, tc.allowed)
+			}
 		})
 
 		DescribeTable("decommission access control",
 			func(user, password string, shouldSucceed bool) {
+				deferOrgSimulatorConfig(harness, users)
+
 				By("Creating devices via simulator as admin")
+				err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				Expect(err).ToNot(HaveOccurred())
+				setupSharedOrgSimulatorConfig(harness)
+
 				loginFn := makeLoginFunc(users.admin.name, users.admin.password)
-				deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
+				deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, 1, deviceEnrollTimeout)
 				Expect(err).ToNot(HaveOccurred())
 				simulatorCmds = append(simulatorCmds, cmd)
+				deferDecommissionTestCleanup(harness, users, deviceName)
 				GinkgoWriter.Printf("Device for decommission test: %s\n", deviceName)
 
 				By(fmt.Sprintf("Logging in as %s and attempting to decommission", user))
@@ -260,8 +452,11 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Entry("installer cannot decommission a device", Label("88367"), installerUserCred().name, installerUserCred().password, false),
 		)
 
-		It("installer can read enrollment requests but cannot create devices or fleets", Label("88366"), func() {
+		It("installer should read enrollment requests and be denied device, fleet, repository, and events access", Label("88366"), func() {
 			suiteCtx := e2e.GetWorkerContext()
+			testID := harness.GetTestIDFromContext()
+			var erName string
+			deferOrgSimulatorConfig(harness, users)
 
 			By("Logging in as installer")
 			err := loginAndSetOrg(harness, users.installer.name, users.installer.password)
@@ -270,6 +465,15 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By("Testing that installer can read enrollment requests")
 			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
 			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that installer cannot list fleets")
+			expectReadOnlyListForbidden(harness, util.Fleet)
+
+			By("Testing that installer cannot list repositories")
+			expectReadOnlyListForbidden(harness, "repositories")
+
+			By("Testing that installer cannot list events")
+			expectReadOnlyListForbidden(harness, "events")
 
 			installerLabels := &map[string]string{"test": "multiorg-installer"}
 
@@ -284,6 +488,61 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				[]string{util.Fleet},
 				false, installerLabels, flightCtlNs, []string{e2e.OperationCreate})
 			Expect(err).ToNot(HaveOccurred())
+
+			By("Creating devices and fleets as admin so installer can attempt to update them")
+			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, deviceName, deviceData, deviceCreateErr := harness.CreateResource(util.Device)
+			Expect(deviceCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a device for installer RBAC test")
+			DeferCleanup(func() {
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				_, _ = harness.CleanUpResource(util.Device, deviceName)
+			})
+
+			_, fleetName, fleetData, fleetCreateErr := harness.CreateResource(util.Fleet)
+			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for installer RBAC test")
+			DeferCleanup(func() {
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				_, _ = harness.CleanUpResource(util.Fleet, fleetName)
+			})
+
+			setupSharedOrgSimulatorConfig(harness)
+
+			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "installer-er-rbac", 0, 1, true)
+			Expect(simErr).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, erSimCmd)
+
+			Eventually(func() error {
+				var waitErr error
+				erName, waitErr = harness.WaitForSimulatorEnrollmentRequest(
+					testID, e2e.DeviceSimulatorAgentAlias(0), deviceEnrollTimeout, deviceEnrollPolling)
+				return waitErr
+			}, deviceEnrollTimeout, deviceEnrollPolling).Should(Succeed(),
+				"Expected an enrollment request from the simulator")
+
+			By("Switching back to installer for update and approve tests")
+			err = loginAndSetOrg(harness, users.installer.name, users.installer.password)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that installer cannot update a device")
+			updatedDeviceYAML, updateErr := harness.AddLabelsToYAML(string(deviceData), *installerLabels)
+			Expect(updateErr).ToNot(HaveOccurred())
+			out, applyErr := harness.CLIWithStdin(updatedDeviceYAML, "apply", "-f", "-")
+			Expect(applyErr).To(HaveOccurred(), "Installer should not be able to update a device")
+			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for installer device update")
+
+			By("Testing that installer cannot update a fleet")
+			updatedFleetYAML, updateErr := harness.AddLabelsToYAML(string(fleetData), *installerLabels)
+			Expect(updateErr).ToNot(HaveOccurred())
+			out, applyErr = harness.CLIWithStdin(updatedFleetYAML, "apply", "-f", "-")
+			Expect(applyErr).To(HaveOccurred(), "Installer should not be able to update a fleet")
+			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for installer fleet update")
+
+			By("Testing that installer can approve an enrollment request")
+			status, approveErr := harness.ApproveEnrollmentRequestWithLabels(erName, nil)
+			Expect(approveErr).ToNot(HaveOccurred(), "Installer should be able to approve an enrollment request")
+			Expect(status).To(Equal(http.StatusOK), "Expected 200 OK for installer enrollment approval")
 		})
 	})
 })
@@ -324,6 +583,79 @@ func operatorUserCred() userCred  { return testUserCreds()[1] }
 func viewerUserCred() userCred    { return testUserCreds()[2] }
 func installerUserCred() userCred { return testUserCreds()[3] }
 
+// expectReadOnlyListForbidden asserts listing resource types is denied with HTTP 403.
+func expectReadOnlyListForbidden(harness *e2e.Harness, resourceTypes ...string) {
+	for _, resourceType := range resourceTypes {
+		out, err := harness.GetResourcesByName(resourceType)
+		Expect(err).To(HaveOccurred(), "listing %s should fail for this role", resourceType)
+		Expect(out).To(Or(
+			ContainSubstring(http403Substring),
+			ContainSubstring(forbiddenSubstring),
+		), "Expected RBAC denial (403/Forbidden) when listing %s", resourceType)
+	}
+}
+
+// deferDecommissionTestCleanup deletes the decommission test device and enrollment request
+// by name. Decommission clears device labels, so label-based AfterEach cleanup can miss them.
+func deferDecommissionTestCleanup(harness *e2e.Harness, users testUserSet, deviceName string) {
+	GinkgoHelper()
+	DeferCleanup(func() {
+		if deviceName == "" {
+			return
+		}
+		_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+		_, _ = harness.CleanUpResource(util.EnrollmentRequest, deviceName)
+		_ = harness.DeleteDeviceIgnoreNotFound(deviceName)
+	})
+}
+
+// setupSharedOrgSimulatorConfig regenerates ~/.flightctl/agent.yaml for the shared multiorg org.
+func setupSharedOrgSimulatorConfig(harness *e2e.Harness) {
+	GinkgoHelper()
+	_, err := harness.SetupDeviceSimulatorAgentConfig(0, 0)
+	Expect(err).ToNot(HaveOccurred(), "Failed to setup simulator agent config for shared org")
+}
+
+// deferOrgSimulatorConfig registers cleanup that resets CLI org to the system
+// default and regenerates ~/.flightctl/agent.yaml after tests that change simulator config.
+func deferOrgSimulatorConfig(harness *e2e.Harness, users testUserSet) {
+	GinkgoHelper()
+	DeferCleanup(func() {
+		if err := revertDefaultOrgSimulatorConfig(harness, users); err != nil {
+			GinkgoWriter.Printf("Warning: failed to restore default org and device simulator config: %v\n", err)
+		}
+	})
+}
+
+func revertDefaultOrgSimulatorConfig(harness *e2e.Harness, users testUserSet) error {
+	if infra.DetectEnvironment() == infra.EnvironmentOCP {
+		kubeadminPass := os.Getenv("KUBEADMIN_PASS")
+		if kubeadminPass == "" {
+			return fmt.Errorf("KUBEADMIN_PASS not set")
+		}
+		if err := login.Login(harness, "kubeadmin", kubeadminPass); err != nil {
+			return fmt.Errorf("login kubeadmin: %w", err)
+		}
+	} else if err := loginAndSetOrg(harness, users.admin.name, users.admin.password); err != nil {
+		return fmt.Errorf("login admin for revert: %w", err)
+	}
+
+	if err := harness.SetCurrentOrganization(org.DefaultID.String()); err != nil {
+		return fmt.Errorf("set default organization: %w", err)
+	}
+	if _, err := harness.SetupDeviceSimulatorAgentConfig(0, 0); err != nil {
+		return fmt.Errorf("regenerate device simulator agent config: %w", err)
+	}
+	GinkgoWriter.Printf("Restored default organization %s and device simulator config\n", org.DefaultID)
+	return nil
+}
+
+func makeLoginFunc(user, password string) e2e.LoginFunc {
+	return func(h *e2e.Harness) error {
+		return loginAndSetOrg(h, user, password)
+	}
+}
+
 // loginAndSetOrg logs in and ensures the user operates in the shared test org.
 // On quadlet, cluster-admin users default to the system org, so we explicitly
 // switch to the shared org. On OCP this is a no-op.
@@ -335,12 +667,6 @@ func loginAndSetOrg(harness *e2e.Harness, user, password string) error {
 		return harness.SetCurrentOrganization(quadletSharedOrgID)
 	}
 	return nil
-}
-
-func makeLoginFunc(user, password string) e2e.LoginFunc {
-	return func(h *e2e.Harness) error {
-		return loginAndSetOrg(h, user, password)
-	}
 }
 
 func collectOrgIDs(harness *e2e.Harness, users []userCred) (map[string]string, error) {
@@ -371,4 +697,21 @@ func loginAndGetOrgID(harness *e2e.Harness, user, password string) (string, erro
 		return "", fmt.Errorf("getting org for %s: %w", user, err)
 	}
 	return orgID, nil
+}
+
+// assertConsoleAccess verifies devices/console RBAC via flightctl console.
+func assertConsoleAccess(harness *e2e.Harness, deviceName string, allowed bool) {
+	GinkgoHelper()
+	const consoleMarker = "multiorg-console-ok"
+	out, err := harness.RunConsoleCommand(deviceName, []string{"--notty"}, "echo", consoleMarker)
+	if allowed {
+		Expect(err).ToNot(HaveOccurred(), "Console command should succeed for authorized role")
+		Expect(out).To(ContainSubstring(consoleMarker), "Console should execute remote command successfully")
+		return
+	}
+	Expect(err).To(HaveOccurred(), "Console should fail for unauthorized role")
+	Expect(out).To(Or(
+		ContainSubstring(http403Substring),
+		ContainSubstring(forbiddenSubstring),
+	), "Expected 403 Forbidden for console access")
 }

@@ -179,9 +179,6 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	_, err := harness.SetupDeviceSimulatorAgentConfig(0, 0)
-	Expect(err).ToNot(HaveOccurred())
-
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Multiorg test setup completed\n", workerID)
 })
 

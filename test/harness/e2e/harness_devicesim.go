@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/flightctl/flightctl/test/util"
 	ginkgo "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
@@ -301,8 +301,9 @@ func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedD
 type LoginFunc func(h *Harness) error
 
 // StartLabeledSimulator starts a device simulator with the given test-id label, user prefix,
-// initial device index, and device count. Returns the running command.
-func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int) (*exec.Cmd, error) {
+// initial device index, and device count. When skipAutoApprove is true, agents submit enrollment
+// requests and wait for manual approval instead of auto-approving via the simulator client.
+func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int, skipAutoApprove bool) (*exec.Cmd, error) {
 	if testID == "" {
 		return nil, fmt.Errorf("testID is empty")
 	}
@@ -315,7 +316,96 @@ func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix 
 		"--label", fmt.Sprintf("test-id=%s", testID),
 		"--label", fmt.Sprintf("user=%s", userPrefix),
 	}
+	if skipAutoApprove {
+		args = append(args, "--skip-auto-approve")
+	}
 	return h.RunDeviceSimulator(ctx, args...)
+}
+
+// DeviceSimulatorAgentAlias returns the agent alias label for a simulator device index.
+func DeviceSimulatorAgentAlias(initialDeviceIndex int) string {
+	return fmt.Sprintf("device-%05d", initialDeviceIndex)
+}
+
+// WaitForSimulatorEnrollmentRequest polls until an enrollment request exists whose
+// spec.labels match the given test-id and alias (from devicesimulator --label flags).
+func (h *Harness) WaitForSimulatorEnrollmentRequest(testID, alias string, timeout, polling time.Duration) (string, error) {
+	if strings.TrimSpace(testID) == "" {
+		return "", fmt.Errorf("testID is empty")
+	}
+	if strings.TrimSpace(alias) == "" {
+		return "", fmt.Errorf("alias is empty")
+	}
+	return pollUntil(timeout.String(), polling.String(),
+		fmt.Sprintf("enrollment request with test-id=%s and alias=%s", testID, alias),
+		func() (string, bool, error) {
+			name, found, err := h.findEnrollmentRequestBySpecLabels(testID, alias)
+			if err != nil || !found {
+				return "", false, err
+			}
+			return name, true, nil
+		})
+}
+
+// findEnrollmentRequestBySpecLabels finds an enrollment request by its test-id and alias labels.
+func (h *Harness) findEnrollmentRequestBySpecLabels(testID, alias string) (string, bool, error) {
+	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", false, err
+	}
+	if resp == nil || resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode()
+		}
+		return "", false, fmt.Errorf("list enrollment requests: status %d", status)
+	}
+	for _, er := range resp.JSON200.Items {
+		if er.Metadata.Name == nil {
+			continue
+		}
+		if er.Spec.Labels == nil {
+			continue
+		}
+		labels := *er.Spec.Labels
+		if labels["test-id"] == testID && labels["alias"] == alias {
+			return *er.Metadata.Name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// deleteEnrollmentRequestsBySpecTestID deletes pending enrollment requests whose
+// spec.labels include the given test-id (e.g. from devicesimulator --skip-auto-approve).
+func (h *Harness) deleteEnrollmentRequestsBySpecTestID(testID string) error {
+	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, nil)
+	if err != nil {
+		return err
+	}
+	if resp == nil || resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode()
+		}
+		return fmt.Errorf("list enrollment requests: status %d", status)
+	}
+
+	for _, er := range resp.JSON200.Items {
+		if er.Metadata.Name == nil || er.Spec.Labels == nil {
+			continue
+		}
+		if (*er.Spec.Labels)["test-id"] != testID {
+			continue
+		}
+		name := *er.Metadata.Name
+		_, err := h.CLI("delete", util.EnrollmentRequest, name)
+		if err != nil {
+			logrus.Debugf("Error deleting enrollment request %s: %v (might already be deleted)", name, err)
+			continue
+		}
+		logrus.Debugf("Successfully deleted enrollment request: %s", name)
+	}
+	return nil
 }
 
 // StopAllSimulators stops all running simulator commands, logging warnings on failure.
@@ -343,6 +433,27 @@ func (h *Harness) CountDevicesByLabel(testID string) int {
 	return len(lines)
 }
 
+// WaitForLabeledSimulatorDevice polls until the simulator device for the given test-id and
+// device index has enrolled and returns its name (the enrollment / device ID).
+func (h *Harness) WaitForLabeledSimulatorDevice(testID string, initialDeviceIndex int, timeout, polling time.Duration) (string, error) {
+	alias := DeviceSimulatorAgentAlias(initialDeviceIndex)
+	return pollUntil(timeout.String(), polling.String(),
+		fmt.Sprintf("simulator device with test-id=%s and alias=%s", testID, alias),
+		func() (string, bool, error) {
+			name, found, err := h.findEnrollmentRequestBySpecLabels(testID, alias)
+			if err != nil {
+				return "", false, err
+			}
+			if !found {
+				return "", false, nil
+			}
+			if _, err := h.GetDevice(name); err != nil {
+				return "", false, nil
+			}
+			return name, true, nil
+		})
+}
+
 // EnrollDeviceForDecommissionTest starts a labeled simulator as the given user, waits for
 // at least one device to enroll, and returns the name of the first enrolled device.
 func (h *Harness) EnrollDeviceForDecommissionTest(loginFn LoginFunc, deviceCount int, enrollTimeout time.Duration) (string, *exec.Cmd, error) {
@@ -355,30 +466,14 @@ func (h *Harness) EnrollDeviceForDecommissionTest(loginFn LoginFunc, deviceCount
 
 	testID := h.GetTestIDFromContext()
 
-	cmd, err := h.StartLabeledSimulator(h.Context, testID, "decommission-test", 0, deviceCount)
+	cmd, err := h.StartLabeledSimulator(h.Context, testID, "decommission-test", 0, deviceCount, false)
 	if err != nil {
 		return "", nil, fmt.Errorf("starting simulator: %w", err)
 	}
 
-	Eventually(func() int {
-		return h.CountDevicesByLabel(testID)
-	}, enrollTimeout, 2*time.Second).Should(BeNumerically(">=", 1),
-		fmt.Sprintf("Expected at least 1 device to enroll within %s", enrollTimeout))
-
-	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	deviceName, err := h.WaitForLabeledSimulatorDevice(testID, 0, enrollTimeout, 2*time.Second)
 	if err != nil {
-		return "", cmd, fmt.Errorf("listing devices: %w", err)
-	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		return "", cmd, fmt.Errorf("no devices found after enrollment")
-	}
-	parts := strings.SplitN(lines[0], "/", 2)
-	var deviceName string
-	if len(parts) == 2 {
-		deviceName = parts[1]
-	} else {
-		deviceName = parts[0]
+		return "", cmd, fmt.Errorf("waiting for device enrollment: %w", err)
 	}
 	return deviceName, cmd, nil
 }
