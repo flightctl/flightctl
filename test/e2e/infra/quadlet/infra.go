@@ -4,6 +4,7 @@ package quadlet
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,10 +14,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
+)
+
+const (
+	remoteForwardReadyTimeout = 10 * time.Second
+	remoteForwardPollInterval = 100 * time.Millisecond
+	remoteForwardStopTimeout  = time.Second
 )
 
 // ServiceInfo holds metadata about a Quadlet service.
@@ -160,7 +168,8 @@ func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, 
 
 	if p.isRemote() {
 		sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
-		usePassword := p.sshKeyPath == "" && getSSHPassword() != ""
+		password := getSSHPassword()
+		usePassword := p.sshKeyPath == "" && password != ""
 		if p.sshKeyPath != "" {
 			sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", p.sshKeyPath)
 		} else if !usePassword {
@@ -179,8 +188,14 @@ func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, 
 		sshArgs = append(sshArgs, strings.Join(remoteParts, " "))
 
 		if usePassword {
-			cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from trusted config
-			cmd.Env = append(os.Environ(), "SSHPASS="+getSSHPassword())
+			passwordFile, cleanupPasswordFile, err := sshpassPasswordFile(password)
+			if err != nil {
+				return "", fmt.Errorf("prepare SSH password for remote command: %w", err)
+			}
+			defer cleanupPasswordFile()
+
+			cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-d", "3", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from trusted config
+			cmd.ExtraFiles = []*os.File{passwordFile}
 		} else {
 			cmd = exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // G204: sshArgs from trusted config
 		}
@@ -221,6 +236,13 @@ func (p *InfraProvider) runCommandWithStdin(stdin io.Reader, command ...string) 
 
 // GetConfigValue retrieves a configuration value from config files or environment.
 func (p *InfraProvider) GetConfigValue(name, key string) (string, error) {
+	if err := validatePathComponent("config name", name); err != nil {
+		return "", err
+	}
+	if err := validatePathComponent("config key", key); err != nil {
+		return "", err
+	}
+
 	// Try environment variable first (uppercase, with underscores)
 	envKey := strings.ToUpper(strings.ReplaceAll(name+"_"+key, "-", "_"))
 	if value := os.Getenv(envKey); value != "" {
@@ -300,6 +322,13 @@ func (p *InfraProvider) SetStandaloneServiceConfig(content string) error {
 
 // GetSecretValue retrieves a secret value from secret files or environment.
 func (p *InfraProvider) GetSecretValue(name, key string) (string, error) {
+	if err := validatePathComponent("secret name", name); err != nil {
+		return "", err
+	}
+	if err := validatePathComponent("secret key", key); err != nil {
+		return "", err
+	}
+
 	// Try environment variable first
 	envKey := strings.ToUpper(strings.ReplaceAll(name+"_"+key, "-", "_"))
 	if value := os.Getenv(envKey); value != "" {
@@ -342,20 +371,12 @@ func (p *InfraProvider) GetServiceEndpoint(service infra.ServiceName) (string, i
 
 // ExposeService makes an internal service accessible from the test host.
 // If the container already publishes the port (e.g. flightctl-api), returns that URL and a no-op cleanup.
-// Otherwise (e.g. Redis) starts a TCP forwarder from a local port to the container.
+// Otherwise (e.g. Redis) starts a TCP forwarder from a local port to the container, using SSH for remote Quadlet hosts.
 // Repeated calls for the same (service, protocol) return the same URL so polling (e.g. WaitForQueueAccessible) does not spawn a new forward every time.
-// For remote Quadlet, returns host:port and the deployment must expose the service.
 func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string) (string, func(), error) {
 	info := GetServiceInfo(service)
 	if info.Port == 0 {
 		return "", nil, fmt.Errorf("ExposeService: service %s has no port", service)
-	}
-	if p.isRemote() {
-		host, port, err := p.GetServiceEndpoint(service)
-		if err != nil {
-			return "", nil, err
-		}
-		return fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(port))), func() {}, nil
 	}
 	cacheKey := string(service) + ":" + protocol
 	p.exposeCacheMu.Lock()
@@ -372,46 +393,64 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 	}
 	p.exposeCacheMu.Unlock()
 
-	// Local Quadlet: if port is already published, use it (no-op).
-	if hostPort, ok := p.getPublishedPort(info.ContainerName, info.Port); ok {
-		host := p.host
-		if host == "localhost" {
-			host = "127.0.0.1"
-		}
-		url := fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(hostPort)))
-		p.exposeCacheMu.Lock()
-		if e, ok := p.exposeCache[cacheKey]; ok {
+	// If the Quadlet publishes the port, use it directly.
+	if publishedHost, hostPort, ok := p.getPublishedPort(info.ContainerName, info.Port); ok {
+		if p.isRemote() && isLoopbackPublishedHost(publishedHost) {
+			logrus.Infof("Quadlet: %s publishes %d on remote loopback %s; using port-forward", service, info.Port, publishedHost)
+		} else {
+			host := publishedHost
+			if host == "" || isAllInterfacesPublishedHost(host) {
+				host = p.host
+			}
+			if host == "localhost" {
+				host = "127.0.0.1"
+			}
+			url := fmt.Sprintf("%s://%s", protocol, net.JoinHostPort(host, strconv.Itoa(hostPort)))
+			p.exposeCacheMu.Lock()
+			if e, ok := p.exposeCache[cacheKey]; ok {
+				p.exposeCacheMu.Unlock()
+				return e.url, func() {}, nil
+			}
+			p.exposeCache[cacheKey] = struct {
+				url     string
+				cleanup func()
+			}{url, func() {}}
 			p.exposeCacheMu.Unlock()
-			return e.url, func() {}, nil
+			return url, func() {}, nil
 		}
-		p.exposeCache[cacheKey] = struct {
-			url     string
-			cleanup func()
-		}{url, func() {}}
-		p.exposeCacheMu.Unlock()
-		return url, func() {}, nil
 	}
+
 	// Not published: port-forward from a local port to the container.
 	containerIP, err := p.getContainerIP(info.ContainerName)
 	if err != nil {
 		return "", nil, fmt.Errorf("get container IP for %s: %w", info.ContainerName, err)
 	}
-	localPort, err := getFreePort()
-	if err != nil {
-		return "", nil, fmt.Errorf("get free port: %w", err)
+	var url string
+	var cleanup func()
+	if p.isRemote() {
+		url, cleanup, err = p.startRemotePortForward(containerIP, info.Port, protocol, service)
+		if err != nil {
+			return "", nil, err
+		}
+	} else {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return "", nil, fmt.Errorf("listen on OS-assigned local port: %w", err)
+		}
+		localPort := listener.Addr().(*net.TCPAddr).Port
+		target := net.JoinHostPort(containerIP, strconv.Itoa(info.Port))
+		go runTCPForward(listener, target, service)
+		url = fmt.Sprintf("%s://127.0.0.1:%d", protocol, localPort)
+		cleanup = func() {
+			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				logrus.Warnf("Quadlet: failed to close %s local port-forward: %v", service, err)
+			}
+		}
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(localPort))
-	if err != nil {
-		return "", nil, fmt.Errorf("listen on 127.0.0.1:%d: %w", localPort, err)
-	}
-	target := net.JoinHostPort(containerIP, strconv.Itoa(info.Port))
-	go runTCPForward(listener, target, service)
-	url := fmt.Sprintf("%s://127.0.0.1:%d", protocol, localPort)
-	cleanup := func() { _ = listener.Close() }
 	p.exposeCacheMu.Lock()
 	if e, ok := p.exposeCache[cacheKey]; ok {
 		p.exposeCacheMu.Unlock()
-		_ = listener.Close()
+		cleanup()
 		return e.url, func() {}, nil
 	}
 	p.exposeCache[cacheKey] = struct {
@@ -420,7 +459,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 	}{url, cleanup}
 	p.exposeCacheMu.Unlock()
 	logrus.Infof("Quadlet: port-forwarding %s to %s", service, url)
-	// Return no-op cleanup so callers (e.g. GetRedisClient) do not close the shared forward when they're done.
+	// Return no-op cleanup so callers do not close the shared forward; InvalidateExposeCache owns cleanup.
 	return url, func() {}, nil
 }
 
@@ -441,27 +480,29 @@ func (p *InfraProvider) InvalidateExposeCache(service infra.ServiceName) {
 	}
 }
 
-// getPublishedPort returns the host port if the container publishes the given container port (e.g. 0.0.0.0:3443 -> 3443).
-// Returns (0, false) if the port is not published.
-func (p *InfraProvider) getPublishedPort(containerName string, containerPort int) (hostPort int, ok bool) {
+// getPublishedPort returns the published host and port for a container port (e.g. 0.0.0.0:3443).
+// Returns ("", 0, false) if the port is not published.
+func (p *InfraProvider) getPublishedPort(containerName string, containerPort int) (publishedHost string, hostPort int, ok bool) {
 	portArg := fmt.Sprintf("%d/tcp", containerPort)
 	args := []string{"podman", "port", containerName, portArg}
 	output, err := p.runCommand(args...)
 	if err != nil {
-		return 0, false
+		return "", 0, false
 	}
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return 0, false
+		return "", 0, false
 	}
-	// Output is like "0.0.0.0:3443" or ":::3443" -> take the part after the last colon.
+	// Output is like "0.0.0.0:3443", "127.0.0.1:3443", or ":::3443".
 	if i := strings.LastIndex(output, ":"); i >= 0 && i < len(output)-1 {
-		var p int
-		if _, err := fmt.Sscanf(output[i+1:], "%d", &p); err == nil {
-			return p, true
+		port, err := strconv.Atoi(output[i+1:])
+		if err == nil {
+			return strings.Trim(output[:i], "[]"), port, true
+		} else {
+			logrus.Debugf("Quadlet: ignoring invalid published port output %q: %v", output, err)
 		}
 	}
-	return 0, false
+	return "", 0, false
 }
 
 // getContainerIP returns the first container IP (Podman bridge).
@@ -479,13 +520,17 @@ func (p *InfraProvider) getContainerIP(containerName string) (string, error) {
 	return ip, nil
 }
 
+// getFreePort asks the OS for an available local TCP port and releases the probe listener.
 func getFreePort() (int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port, nil
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		logrus.Warnf("getFreePort: close probe listener: %v", err)
+	}
+	return port, nil
 }
 
 // runTCPForward accepts on listener and forwards each connection to target (host:port).
@@ -496,15 +541,32 @@ func runTCPForward(listener net.Listener, target string, service infra.ServiceNa
 			return
 		}
 		go func() {
-			defer client.Close()
 			backend, err := net.Dial("tcp", target)
 			if err != nil {
 				logrus.Warnf("Quadlet forward %s: dial %s: %v", service, target, err)
+				closeForwardConnection(client, service, "client")
 				return
 			}
-			defer backend.Close()
-			go func() { _, _ = io.Copy(backend, client) }()
-			_, _ = io.Copy(client, backend)
+
+			copyDone := make(chan struct{}, 2)
+			go func() {
+				if _, err := io.Copy(backend, client); err != nil && !errors.Is(err, net.ErrClosed) {
+					logrus.Debugf("Quadlet forward %s: copy client to backend: %v", service, err)
+				}
+				copyDone <- struct{}{}
+			}()
+			go func() {
+				if _, err := io.Copy(client, backend); err != nil && !errors.Is(err, net.ErrClosed) {
+					logrus.Debugf("Quadlet forward %s: copy backend to client: %v", service, err)
+				}
+				copyDone <- struct{}{}
+			}()
+
+			<-copyDone
+			// Close both ends to unblock the other copy goroutine; ErrClosed is suppressed in both goroutines.
+			closeForwardConnection(client, service, "client")
+			closeForwardConnection(backend, service, "backend")
+			<-copyDone
 		}()
 	}
 }
@@ -667,12 +729,177 @@ func (p *InfraProvider) mergeAndWriteServiceConfig(updates map[string]interface{
 	return nil
 }
 
+// writeHostFile writes content to a path on the Quadlet host using the provider's command transport.
 func (p *InfraProvider) writeHostFile(path string, content []byte) error {
 	b64 := base64.StdEncoding.EncodeToString(content)
 	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
-	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, path)
+	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, quoteForRemoteShell(path))
 	if _, err := p.runCommand("sh", "-c", script); err != nil {
-		return err
+		return fmt.Errorf("write remote file %s: %w", path, err)
 	}
 	return nil
+}
+
+// startRemotePortForward creates an SSH tunnel from a local port to an unpublished service container port.
+func (p *InfraProvider) startRemotePortForward(containerIP string, containerPort int, protocol string, service infra.ServiceName) (string, func(), error) {
+	containerIP = strings.TrimSpace(containerIP)
+	if net.ParseIP(containerIP) == nil {
+		return "", nil, fmt.Errorf("start remote port-forward for %s: invalid container IP %q", service, containerIP)
+	}
+	if containerPort <= 0 {
+		return "", nil, fmt.Errorf("start remote port-forward for %s: invalid container port %d", service, containerPort)
+	}
+	protocol = strings.TrimSpace(protocol)
+	if protocol == "" {
+		return "", nil, fmt.Errorf("start remote port-forward for %s: protocol is empty", service)
+	}
+
+	// SSH requires an explicit local port, so a small TOCTOU window is unavoidable.
+	// ExitOnForwardFailure below makes a conflicting bind fail immediately and clearly.
+	localPort, err := getFreePort()
+	if err != nil {
+		return "", nil, fmt.Errorf("get free port for remote %s forward: %w", service, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	forwardSpec := fmt.Sprintf("127.0.0.1:%d:%s", localPort, net.JoinHostPort(containerIP, strconv.Itoa(containerPort)))
+	sshArgs := []string{"-o", "StrictHostKeyChecking=no", "-o", "ExitOnForwardFailure=yes", "-N", "-L", forwardSpec}
+	password := getSSHPassword()
+	usePassword := p.sshKeyPath == "" && password != ""
+	if p.sshKeyPath != "" {
+		sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", p.sshKeyPath)
+	} else if !usePassword {
+		sshArgs = append(sshArgs, "-o", "BatchMode=yes")
+	}
+	sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", p.sshUser, p.host))
+
+	var cmd *exec.Cmd
+	if usePassword {
+		passwordFile, cleanupPasswordFile, err := sshpassPasswordFile(password)
+		if err != nil {
+			cancel()
+			return "", nil, fmt.Errorf("prepare SSH password for %s forward: %w", service, err)
+		}
+		defer cleanupPasswordFile()
+
+		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-d", "3", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from trusted config
+		cmd.ExtraFiles = []*os.File{passwordFile}
+	} else {
+		cmd = exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // G204: sshArgs from trusted config
+	}
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return "", nil, fmt.Errorf("start SSH port-forward for %s: %w", service, err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			cancel()
+			if cmd.Process != nil {
+				if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+					logrus.Warnf("Quadlet: failed to stop %s SSH port-forward: %v", service, err)
+				}
+			}
+			select {
+			case <-done:
+			case <-time.After(remoteForwardStopTimeout):
+				logrus.Warnf("Quadlet: timed out waiting for %s SSH port-forward to stop", service)
+			}
+		})
+	}
+
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(localPort))
+	deadline := time.Now().Add(remoteForwardReadyTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case waitErr := <-done:
+			cancel()
+			if waitErr == nil {
+				return "", nil, fmt.Errorf("SSH port-forward for %s exited unexpectedly", service)
+			}
+			return "", nil, fmt.Errorf("SSH port-forward for %s exited: %w", service, waitErr)
+		default:
+		}
+
+		conn, dialErr := net.DialTimeout("tcp", address, remoteForwardPollInterval)
+		if dialErr == nil {
+			if err := conn.Close(); err != nil {
+				logrus.Warnf("Quadlet: failed to close %s SSH port-forward readiness connection: %v", service, err)
+			}
+			url := fmt.Sprintf("%s://%s", protocol, address)
+			logrus.Infof("Quadlet: SSH port-forward for %s is ready at %s", service, url)
+			return url, cleanup, nil
+		}
+		time.Sleep(remoteForwardPollInterval)
+	}
+
+	cleanup()
+	return "", nil, fmt.Errorf("SSH port-forward for %s did not become ready within %s", service, remoteForwardReadyTimeout)
+}
+
+// closeForwardConnection closes one side of a TCP forward and logs non-duplicate cleanup failures.
+func closeForwardConnection(conn net.Conn, service infra.ServiceName, side string) {
+	if conn == nil {
+		return
+	}
+	if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		logrus.Warnf("Quadlet forward %s: close %s connection: %v", service, side, err)
+	}
+}
+
+// sshpassPasswordFile returns a read-only file descriptor containing the SSH password for sshpass -d.
+func sshpassPasswordFile(password string) (*os.File, func(), error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("create password pipe: %w", err)
+	}
+
+	cleanup := func() {
+		if err := reader.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			logrus.Debugf("Quadlet: close sshpass password reader: %v", err)
+		}
+	}
+	if _, err := writer.WriteString(password); err != nil {
+		_ = writer.Close()
+		cleanup()
+		return nil, nil, fmt.Errorf("write password pipe: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("close password pipe writer: %w", err)
+	}
+
+	return reader, cleanup, nil
+}
+
+// validatePathComponent rejects path traversal and separator characters before joining host paths.
+func validatePathComponent(label, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is empty", label)
+	}
+	if filepath.IsAbs(value) || strings.Contains(value, "..") || strings.Contains(value, "/") || strings.Contains(value, "\\") {
+		return fmt.Errorf("%s contains invalid path component %q", label, value)
+	}
+	return nil
+}
+
+// isAllInterfacesPublishedHost reports whether Podman published on all host interfaces.
+func isAllInterfacesPublishedHost(host string) bool {
+	return host == "0.0.0.0" || host == "::"
+}
+
+// isLoopbackPublishedHost reports whether Podman published only on host loopback.
+func isLoopbackPublishedHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
