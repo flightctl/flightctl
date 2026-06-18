@@ -60,8 +60,7 @@ func (p *PAMRBACProvider) isRemote() bool {
 	return p.sshUser != "" && p.host != "localhost" && p.host != "127.0.0.1"
 }
 
-// runCommand executes a command, using SSH if the host is remote.
-func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
+func (p *PAMRBACProvider) runCommandContext(ctx context.Context, command ...string) (string, error) {
 	var cmd *exec.Cmd
 
 	if p.isRemote() {
@@ -90,17 +89,17 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 		sshArgs = append(sshArgs, remoteCmd)
 
 		if usePassword {
-			cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from internal config (host, user, key path)
+			cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from internal config (host, user, key path)
 			cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
 		} else {
-			cmd = exec.Command("ssh", sshArgs...)
+			cmd = exec.CommandContext(ctx, "ssh", sshArgs...)
 		}
 	} else {
 		// Local execution
 		if p.useSudo {
-			cmd = exec.Command("sudo", command...)
+			cmd = exec.CommandContext(ctx, "sudo", command...)
 		} else {
-			cmd = exec.Command(command[0], command[1:]...) //nolint:gosec // G204: command args are from internal test config
+			cmd = exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // G204: command args are from internal test config
 		}
 	}
 
@@ -113,8 +112,12 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 
 // runPodmanExec executes a command in the PAM issuer container.
 func (p *PAMRBACProvider) runPodmanExec(args ...string) (string, error) {
+	return p.runPodmanExecContext(context.Background(), args...)
+}
+
+func (p *PAMRBACProvider) runPodmanExecContext(ctx context.Context, args ...string) (string, error) {
 	cmdArgs := append([]string{"podman", "exec", "--user", "0", p.pamIssuerContainer}, args...)
-	return p.runCommand(cmdArgs...)
+	return p.runCommandContext(ctx, cmdArgs...)
 }
 
 // shellQuote wraps s in single quotes for safe use in a remote shell command.
@@ -150,9 +153,9 @@ func (p *PAMRBACProvider) UpdateRole(_ context.Context, _ *infra.RoleSpec) error
 }
 
 // DeleteRole deletes the Linux group for the role.
-func (p *PAMRBACProvider) DeleteRole(_ context.Context, namespace, name string) error {
+func (p *PAMRBACProvider) DeleteRole(ctx context.Context, namespace, name string) error {
 	groupName := buildGroupName(namespace, name)
-	return p.deleteGroup(groupName)
+	return p.deleteGroup(ctx, groupName)
 }
 
 // CreateRoleBinding adds the user to the role's group.
@@ -205,8 +208,8 @@ func (p *PAMRBACProvider) UpdateClusterRole(_ context.Context, _ *infra.RoleSpec
 }
 
 // DeleteClusterRole deletes the Linux group for the cluster role.
-func (p *PAMRBACProvider) DeleteClusterRole(_ context.Context, name string) error {
-	return p.deleteGroup(name)
+func (p *PAMRBACProvider) DeleteClusterRole(ctx context.Context, name string) error {
+	return p.deleteGroup(ctx, name)
 }
 
 // CreateClusterRoleBinding adds the user to the cluster role's group.
@@ -240,10 +243,10 @@ func (p *PAMRBACProvider) AddUserToOrg(_ context.Context, orgName, userName stri
 }
 
 // DeleteOrganization deletes an organization (org-<name> group).
-func (p *PAMRBACProvider) DeleteOrganization(_ context.Context, name string) error {
+func (p *PAMRBACProvider) DeleteOrganization(ctx context.Context, name string) error {
 	groupName := OrgGroupName(name)
 	logrus.Infof("PAM RBAC: deleting organization group %s", groupName)
-	return p.deleteGroup(groupName)
+	return p.deleteGroup(ctx, groupName)
 }
 
 // --- Internal helper methods ---
@@ -264,8 +267,8 @@ func (p *PAMRBACProvider) createGroup(groupName string) error {
 }
 
 // deleteGroup deletes a Linux group from the PAM issuer container.
-func (p *PAMRBACProvider) deleteGroup(groupName string) error {
-	_, err := p.runPodmanExec("groupdel", groupName)
+func (p *PAMRBACProvider) deleteGroup(ctx context.Context, groupName string) error {
+	_, err := p.runPodmanExecContext(ctx, "groupdel", groupName)
 	if err != nil {
 		// Ignore "does not exist" errors
 		if strings.Contains(err.Error(), "does not exist") {

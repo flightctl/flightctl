@@ -1,5 +1,26 @@
 # Installing the Flight Control Service on OpenShift/Kubernetes
 
+## System requirements
+
+The following table shows the minimum recommended resources for the Flight Control
+server based on the number of managed devices. These values were established through
+benchmarking and represent the resources needed for the server workload — not the
+managed edge devices themselves.
+
+| Deployment size | Managed devices | vCPU (cores) | vRAM (GB) | vDisk (GB) |
+|---|---|---|---|---|
+| **Small** | 100 | 4 | 4 | 70 |
+| **Medium** | 1,000 | 4 | 8 | 70 |
+| **Large** | 10,000 | 4 | 16 | 70 |
+| **Super Large** | 100,000 | 8 | 40 | 120 |
+
+> [!NOTE]
+> These figures are based on benchmarking with an earlier version of Flight Control
+> and represent a reasonable baseline. Actual resource usage depends on polling
+> intervals, fleet template complexity, and observability stack configuration. Add
+> approximately 3 GB disk for each additional service component (image builder,
+> observability stack).
+
 ## Installing on Kubernetes
 
 You can install the Flight Control Service on any certified Kubernetes distribution that supports the Gateway API. If you have an OpenShift Kubernetes cluster available, refer to [Installing on OpenShift](#installing-on-openshift) for a more streamlined experience. If you are running RHEL and need a lightweight Kubernetes distribution, refer to [Installing on MicroShift](#installing-on-microshift).

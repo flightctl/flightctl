@@ -91,6 +91,10 @@ const (
 	AppTypeVm        = v1beta1.AppTypeVm
 )
 
+// ========== VM Application Types ==========
+
+type VmApplication = v1beta1.VmApplication
+
 // ========== Image Pull Policy ==========
 
 type ImagePullPolicy = v1beta1.ImagePullPolicy

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1989,6 +1990,13 @@ PublishPort=8080:80`,
 			wantErrCount:  1,
 			wantErrSubstr: "badfunction",
 		},
+		{
+			name: "valid kube quadlet",
+			content: `[Kube]
+Yaml=pod.yaml`,
+			path:         "my-vm.kube",
+			wantErrCount: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2000,6 +2008,87 @@ PublishPort=8080:80`,
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)
+			}
+		})
+	}
+}
+
+func TestValidateQuadletApplication_KubeYamlValidation(t *testing.T) {
+	t.Parallel()
+
+	validPodYAML := "apiVersion: v1\nkind: Pod\nmetadata:\n  name: my-vm\n"
+	validKubeUnit := "[Kube]\nYaml=pod.yaml\n"
+
+	newQuadletInlineApp := func(t *testing.T, files map[string]string) ApplicationProviderSpec {
+		t.Helper()
+		contents := make([]ApplicationContent, 0, len(files))
+		for path, content := range files {
+			c := content
+			contents = append(contents, ApplicationContent{Path: path, Content: &c})
+		}
+		inlineSpec := InlineApplicationProviderSpec{Inline: contents}
+		app := QuadletApplication{AppType: AppTypeQuadlet, Name: lo.ToPtr("my-vm")}
+		require.NoError(t, app.FromInlineApplicationProviderSpec(inlineSpec))
+		var spec ApplicationProviderSpec
+		require.NoError(t, spec.FromQuadletApplication(app))
+		return spec
+	}
+
+	tests := []struct {
+		name     string
+		files    map[string]string
+		wantErrs []string
+		wantPass bool
+	}{
+		{
+			name: "When .kube has Yaml=pod.yaml and pod.yaml is a valid Pod manifest it should be valid",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+				"pod.yaml":   validPodYAML,
+			},
+			wantPass: true,
+		},
+		{
+			name: "When .kube has Yaml=pod.yaml but pod.yaml is absent it should fail",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+			},
+			wantErrs: []string{"pod.yaml", "not present in the inline set"},
+		},
+		{
+			name: "When .kube has Yaml=pod.yaml but pod.yaml has kind Deployment it should fail",
+			files: map[string]string{
+				"my-vm.kube": validKubeUnit,
+				"pod.yaml":   "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: my-vm\n",
+			},
+			wantErrs: []string{"kind must be \"Pod\""},
+		},
+		{
+			name: "When .kube has no Yaml= directive it should be valid (no target to check)",
+			files: map[string]string{
+				"my-vm.kube": "[Kube]\n",
+			},
+			wantPass: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			spec := newQuadletInlineApp(t, tc.files)
+			errs := validateQuadletApplication(spec, "my-vm", false)
+
+			if tc.wantPass {
+				assert.Empty(t, errs, "expected no errors but got: %v", errs)
+				return
+			}
+			require.NotEmpty(t, errs)
+			allErrText := ""
+			for _, e := range errs {
+				allErrText += e.Error() + "\n"
+			}
+			for _, substr := range tc.wantErrs {
+				assert.Contains(t, allErrText, substr)
 			}
 		})
 	}

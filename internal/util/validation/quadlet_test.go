@@ -376,10 +376,9 @@ func TestValidateQuadletPaths(t *testing.T) {
 			wantErrSubstr: "unsupported quadlet type \".artifact\"",
 		},
 		{
-			name:          "contains kube file - unsupported",
-			paths:         []string{"app.kube"},
-			wantErr:       true,
-			wantErrSubstr: "unsupported quadlet type \".kube\"",
+			name:    "contains kube file - supported workload",
+			paths:   []string{"app.kube"},
+			wantErr: false,
 		},
 		{
 			name:          "mix of valid and unsupported",
