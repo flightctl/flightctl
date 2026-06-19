@@ -472,7 +472,7 @@ func TestCopyDirFiles(t *testing.T) {
 	t.Run("When destination parent does not exist it should create it", func(t *testing.T) {
 		srcDir := t.TempDir()
 		dstDir := filepath.Join(t.TempDir(), "nested", "deep", "dest")
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "f.txt"), []byte("x"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "f.txt"), []byte("x"), 0600))
 
 		err := copyDirFiles(srcDir, dstDir)
 		require.NoError(t, err)
