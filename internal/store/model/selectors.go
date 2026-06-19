@@ -185,7 +185,7 @@ func makeJSONBSelectorField(selectorName selector.SelectorName, selectorType sel
 		} else {
 			params.WriteString(" -> '")
 		}
-		params.WriteString(part)
+		params.WriteString(strings.ReplaceAll(part, "'", "''"))
 		params.WriteString("'")
 	}
 
