@@ -684,6 +684,55 @@ func setupMocks(t *testing.T) (*gomock.Controller, *MockStorage, *mockReadWriteC
 	return ctrl, mockStorage, conn, rw, logger
 }
 
+func TestNvBufferMax(t *testing.T) {
+	testCases := []struct {
+		name         string
+		conn         func(t *testing.T) io.ReadWriteCloser
+		wantFallback bool
+	}{
+		{
+			name: "When simulator is available it should return TPM_PT_NV_BUFFER_MAX from the TPM",
+			conn: func(t *testing.T) io.ReadWriteCloser {
+				sim, err := simulator.Get()
+				require.NoError(t, err)
+				return sim
+			},
+			wantFallback: false,
+		},
+		{
+			name: "When TPM connection returns EOF it should return the fallback chunk size",
+			conn: func(t *testing.T) io.ReadWriteCloser {
+				return &mockReadWriteCloser{Buffer: bytes.NewBuffer(nil), validSRK: false}
+			},
+			wantFallback: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			conn := tc.conn(t)
+			defer conn.Close()
+
+			session := &tpmSession{
+				conn:    conn,
+				log:     log.NewPrefixLogger("test"),
+				handles: make(map[KeyType]*tpm2.NamedHandle),
+			}
+
+			result := session.nvBufferMax()
+
+			if tc.wantFallback {
+				require.Equal(nvReadChunkSizeFallback, result)
+			} else {
+				require.NotZero(result)
+				require.Greater(result, nvReadChunkSizeFallback, "simulator NV_BUFFER_MAX should exceed the conservative fallback")
+			}
+		})
+	}
+}
+
 func TestDetectEKAlgorithm(t *testing.T) {
 	testCases := []struct {
 		name     string
