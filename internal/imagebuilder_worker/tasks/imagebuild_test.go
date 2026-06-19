@@ -415,8 +415,8 @@ func TestCopyDirFiles(t *testing.T) {
 		srcDir := t.TempDir()
 		dstDir := filepath.Join(t.TempDir(), "dest")
 
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "cert.pem"), []byte("certificate-data"), 0644))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "key.pem"), []byte("key-data"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "cert.pem"), []byte("certificate-data"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "key.pem"), []byte("key-data"), 0600))
 
 		err := copyDirFiles(srcDir, dstDir)
 		require.NoError(t, err)
@@ -439,7 +439,7 @@ func TestCopyDirFiles(t *testing.T) {
 		dstDir := filepath.Join(t.TempDir(), "dest")
 
 		require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("data"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("data"), 0600))
 
 		err := copyDirFiles(srcDir, dstDir)
 		require.NoError(t, err)
