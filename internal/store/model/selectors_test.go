@@ -36,6 +36,42 @@ func TestModelSchemaSelectors(t *testing.T) {
 	}
 }
 
+func TestMakeJSONBSelectorFieldEscapesSingleQuotes(t *testing.T) {
+	tests := []struct {
+		name          string
+		selectorName  string
+		expectContain string
+		expectAbsent  string
+	}{
+		{
+			name:          "When part contains single quote it should escape it",
+			selectorName:  "status.foo'bar.baz",
+			expectContain: "foo''bar",
+			expectAbsent:  "foo'b",
+		},
+		{
+			name:          "When part has no single quote it should pass through",
+			selectorName:  "status.summary.status",
+			expectContain: "'summary'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			field, err := makeJSONBSelectorField(selector.NewSelectorName(tt.selectorName), selector.Jsonb)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(field.FieldName, tt.expectContain) {
+				t.Errorf("expected FieldName %q to contain %q", field.FieldName, tt.expectContain)
+			}
+			if tt.expectAbsent != "" && strings.Contains(field.FieldName, tt.expectAbsent) {
+				t.Errorf("expected FieldName %q to NOT contain unescaped %q", field.FieldName, tt.expectAbsent)
+			}
+		})
+	}
+}
+
 func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap) error {
 	schema := scanAPISchema(schemaName, apischema)
 	for s, typ := range selectors {

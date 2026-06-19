@@ -155,7 +155,7 @@ func (sr *selectorFieldResolver) resolveSelector(name SelectorName) (*SelectorFi
 				params.WriteString(parts[0])
 				for _, part := range parts[1:] {
 					params.WriteString(" -> '")
-					params.WriteString(part)
+					params.WriteString(strings.ReplaceAll(part, "'", "''"))
 					params.WriteString("'")
 				}
 

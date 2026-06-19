@@ -731,8 +731,7 @@ func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID,
 	})
 }
 
-// Labels may contain characters that are not allowed to be part of a valid postgres field name.  This function
-// transforms a label to a valid postgres symbol
+// labelKeyToSymbol transforms a label key to a valid postgres symbol.
 func labelKeyToSymbol(labelKey string) string {
 	var builder strings.Builder
 	for _, c := range labelKey {
@@ -748,6 +747,10 @@ func labelKeyToSymbol(labelKey string) string {
 		}
 	}
 	return builder.String()
+}
+
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 // CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
@@ -766,14 +769,14 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 
 	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
 
-	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
+	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(quoteIdentifier(s)) }))
 	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
 	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> annotations ->> ?",
 		domain.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
 
 	query.Select(strings.Join(selectList, ","), args...)
 	for _, g := range labelSymbols {
-		query = query.Group(g)
+		query = query.Group(quoteIdentifier(g))
 	}
 	var results []map[string]any
 	err = query.Scan(&results).Error
