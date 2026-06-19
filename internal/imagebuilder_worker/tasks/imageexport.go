@@ -416,6 +416,9 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to pull source image: %w", err)
 	}
 
+	// Step 4.5: Disconnect container network before running image conversion
+	disconnectContainerNetwork(ctx, worker.ContainerName, log)
+
 	// Step 5: Run bootc-image-builder conversion
 	if err := c.runBootcImageBuilder(ctx, worker, imageExport.Spec.Format, bootcImageRef, log); err != nil {
 		return "", cleanup, fmt.Errorf("failed to run bootc-image-builder: %w", err)
@@ -506,7 +509,6 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"--privileged",
 		"--pull=newer",
 		"--entrypoint", "sleep",
-		"--security-opt", "label=type:unconfined_t",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
 	}
@@ -1381,6 +1383,17 @@ func (c *Consumer) pushBlobFromOCIDirWithProgress(
 
 	statusUpdater.reportOutput([]byte(fmt.Sprintf("Successfully pushed %s: %s\n", blobName, desc.Digest.String())))
 	return nil
+}
+
+// disconnectContainerNetwork removes network connectivity from a running container.
+// This is best-effort; failures are logged but do not block the workflow.
+func disconnectContainerNetwork(ctx context.Context, containerName string, log logrus.FieldLogger) {
+	cmd := exec.CommandContext(ctx, "podman", "network", "disconnect", "podman", containerName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.WithError(err).WithField("output", string(out)).Debug("Network disconnect returned error (best-effort)")
+	} else {
+		log.Debug("Disconnected container from network")
+	}
 }
 
 // isImageBuildReady checks if an ImageBuild is ready (completed with image reference)
