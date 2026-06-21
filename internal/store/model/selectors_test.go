@@ -36,7 +36,6 @@ func TestModelSchemaSelectors(t *testing.T) {
 	}
 }
 
-
 func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap) error {
 	schema := scanAPISchema(schemaName, apischema)
 	for s, typ := range selectors {
