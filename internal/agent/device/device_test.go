@@ -755,6 +755,21 @@ func TestSyncHandleMissingSpec(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	expectErrorStatus := func(mockStatusManager *status.MockManager) {
+		mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, fns ...status.UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
+				ds := &v1beta1.DeviceStatus{}
+				for _, fn := range fns {
+					require.NoError(t, fn(ds))
+				}
+				require.Equal(t, v1beta1.DeviceSummaryStatusError, ds.Summary.Status)
+				require.NotNil(t, ds.Summary.Info)
+				require.Contains(t, *ds.Summary.Info, "missing")
+				return nil, nil
+			},
+		)
+	}
+
 	testCases := []struct {
 		name       string
 		setupMocks func(mockSpecManager *spec.MockManager, mockStatusManager *status.MockManager)
@@ -763,7 +778,7 @@ func TestSyncHandleMissingSpec(t *testing.T) {
 			name: "GetDesired returns ErrMissingRenderedSpec triggers fatal exit",
 			setupMocks: func(mockSpecManager *spec.MockManager, mockStatusManager *status.MockManager) {
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(nil, false, errors.ErrMissingRenderedSpec)
-				mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
+				expectErrorStatus(mockStatusManager)
 			},
 		},
 		{
@@ -772,7 +787,7 @@ func TestSyncHandleMissingSpec(t *testing.T) {
 				desired := newVersionedDevice("1")
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil)
 				mockSpecManager.EXPECT().Read(spec.Current).Return(nil, errors.ErrMissingRenderedSpec)
-				mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
+				expectErrorStatus(mockStatusManager)
 			},
 		},
 	}

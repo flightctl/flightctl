@@ -151,6 +151,9 @@ func (s *manager) Ensure() error {
 	// If any file is missing, reset ALL files to version "0".
 	// This ensures the agent never tries to reason about partial state.
 	if anyMissing {
+		if !allMissing {
+			s.log.Warnf("Spec file missing, resetting all specs to empty...")
+		}
 		for _, specType := range []Type{Current, Desired, Rollback} {
 			var reason audit.Reason
 			if allMissing {
@@ -162,7 +165,6 @@ func (s *manager) Ensure() error {
 				} else {
 					reason = audit.ReasonRecovery
 				}
-				s.log.Warnf("Spec file missing, resetting all specs to empty...")
 			}
 
 			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), reason); err != nil {
