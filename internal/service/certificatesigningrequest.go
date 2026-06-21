@@ -163,7 +163,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -239,7 +239,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(ctx, newObj); err != nil {
+	if err := h.validateAllowedSignersForCSRService(newObj); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -292,7 +292,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -333,7 +333,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if errs := newCSR.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if name != *newCSR.Metadata.Name {
@@ -363,6 +363,11 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	oldCSR, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+
+	isApproving := domain.IsStatusConditionTrue(newCSR.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
+	if err := checkServerSvcApprovalPrivilege(ctx, oldCSR.Spec.SignerName, h.ca.Cfg.ServerSvcSignerName, isApproving); err != nil {
+		return nil, domain.StatusForbidden(err.Error())
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
@@ -437,15 +442,19 @@ func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningReques
 	}
 }
 
-func (h *ServiceHandler) validateAllowedSignersForCSRService(ctx context.Context, csr *domain.CertificateSigningRequest) error {
-	if csr.Spec.SignerName == h.ca.Cfg.DeviceManagementSignerName {
-		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
-	}
-	if csr.Spec.SignerName == h.ca.Cfg.ServerSvcSignerName {
+func checkServerSvcApprovalPrivilege(ctx context.Context, signerName, serverSvcSignerName string, isApproving bool) error {
+	if signerName == serverSvcSignerName && isApproving {
 		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 		if !ok || !mappedIdentity.IsSuperAdmin() {
-			return fmt.Errorf("signer name %q requires super-admin privileges", csr.Spec.SignerName)
+			return fmt.Errorf("approving CSRs with signer name %q requires super-admin privileges", signerName)
 		}
+	}
+	return nil
+}
+
+func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.CertificateSigningRequest) error {
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceManagementSignerName {
+		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
 	}
 	return nil
 }
