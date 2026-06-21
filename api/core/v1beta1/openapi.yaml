@@ -5209,6 +5209,16 @@ components:
           helm: '#/components/schemas/HelmApplication'
           vm: '#/components/schemas/VmApplication'
 
+    ApplicationDesiredState:
+      type: string
+      description: Desired lifecycle state for an application.
+      enum:
+        - "running"
+        - "stopped"
+      x-enum-varnames:
+        - "ApplicationDesiredStateRunning"
+        - "ApplicationDesiredStateStopped"
+
     ApplicationProviderBase:
       type: object
       description: Common properties for all application types.
@@ -5224,6 +5234,17 @@ components:
             type: string
           readOnly: true
           description: "Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time."
+        desiredState:
+          $ref: '#/components/schemas/ApplicationDesiredState'
+        restartGeneration:
+          type: integer
+          minimum: 0
+          default: 0
+          description: >
+            Monotonically increasing counter. The agent stores the last-seen value; when it
+            changes the agent restarts the application using the type-appropriate restart
+            operation. Does not affect desiredState. Increment to trigger a restart; only
+            meaningful when desiredState is "running".
       required:
         - appType
 
@@ -6059,6 +6080,8 @@ components:
         - "Error"
         - "Unknown"
         - "Completed"
+        - "Stopped"
+        - "Stopping"
       x-enum-varnames:
         - "ApplicationStatusPreparing"
         - "ApplicationStatusStarting"
@@ -6066,6 +6089,8 @@ components:
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
         - "ApplicationStatusCompleted"
+        - "ApplicationStatusStopped"
+        - "ApplicationStatusStopping"
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.

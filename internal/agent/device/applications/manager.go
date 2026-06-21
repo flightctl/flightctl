@@ -78,6 +78,20 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 	return nil
 }
 
+// newAppFromProvider creates the appropriate Application type for the given provider.
+// For VM workloads (IsVMWorkload == true) it wires a vmStatusPoller; otherwise it
+// returns a standard application using workload-count-based status logic.
+func (m *manager) newAppFromProvider(p provider.Provider) (Application, error) {
+	if !p.Spec().IsVMWorkload {
+		return NewApplication(p), nil
+	}
+	exec, err := client.ExecuterForUser(p.Spec().User)
+	if err != nil {
+		return nil, fmt.Errorf("creating executer for VM application %q: %w", p.Name(), err)
+	}
+	return NewVMApplication(p, exec, m.log), nil
+}
+
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	if err := m.validateProviderDeps(ctx, provider); err != nil {
 		return err
@@ -86,14 +100,28 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if m.podmanMonitor.Has(provider.Spec().ID) {
+			m.podmanMonitor.QueueLifecycle(
+				provider.Spec().ID,
+				provider.Spec().DesiredState,
+				provider.Spec().RestartGeneration,
+			)
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.podmanMonitor.Ensure(ctx, NewApplication(provider))
+		app, err := m.newAppFromProvider(provider)
+		if err != nil {
+			return err
+		}
+		return m.podmanMonitor.Ensure(ctx, app)
 	case v1beta1.AppTypeHelm:
 		if m.kubernetesMonitor.Has(provider.Spec().ID) {
+			m.kubernetesMonitor.QueueLifecycle(
+				provider.Spec().ID,
+				provider.Spec().DesiredState,
+				provider.Spec().RestartGeneration,
+			)
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
@@ -142,7 +170,11 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.podmanMonitor.QueueUpdate(NewApplication(provider))
+		app, err := m.newAppFromProvider(provider)
+		if err != nil {
+			return err
+		}
+		return m.podmanMonitor.QueueUpdate(app)
 	case v1beta1.AppTypeHelm:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)

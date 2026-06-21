@@ -182,9 +182,51 @@ func (m *PodmanMonitor) Has(id string) bool {
 	return ok
 }
 
-// Ensures that and application is added to the monitor. if the application
-// is added for the first time an Add action is queued to be executed by the
-// lifecycle manager. so additional adds for the same app will be idempotent.
+// QueueLifecycle compares the new spec's lifecycle intent against the stored intent on
+// the tracked application and queues ActionStop, ActionStart, or ActionRestart as needed.
+// It also updates the stored desiredState and restartGeneration so the next sync compares
+// correctly. No-op if the app is not tracked or if intent is unchanged.
+func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.ApplicationDesiredState, restartGeneration int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	app, ok := m.apps[appID]
+	if !ok {
+		return
+	}
+
+	currentState := app.DesiredState()
+	currentGen := app.RestartGeneration()
+
+	var actionType lifecycle.ActionType
+	switch {
+	case restartGeneration > currentGen && desiredState == v1beta1.ApplicationDesiredStateRunning:
+		actionType = lifecycle.ActionRestart
+	case desiredState != currentState:
+		if desiredState == v1beta1.ApplicationDesiredStateStopped {
+			actionType = lifecycle.ActionStop
+		} else {
+			actionType = lifecycle.ActionStart
+		}
+	}
+
+	app.SetDesiredState(desiredState)
+	app.SetRestartGeneration(restartGeneration)
+
+	if actionType == "" {
+		return
+	}
+
+	m.actions = append(m.actions, lifecycle.Action{
+		ID:      appID,
+		Name:    app.Name(),
+		User:    app.User(),
+		AppType: app.AppType(),
+		Path:    app.Path(),
+		Type:    actionType,
+	})
+}
+
 func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -279,11 +321,79 @@ func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
 }
 
 func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
-	// utilize the quadlet handler for containers
-	if appType == v1beta1.AppTypeContainer {
+	// Container and VM apps both use the quadlet action handler.
+	if appType == v1beta1.AppTypeContainer || appType == v1beta1.AppTypeVm {
 		return v1beta1.AppTypeQuadlet
 	}
 	return appType
+}
+
+// StopApp stops the application identified by appID without removing its files or Podman resources.
+// Dispatches to the LifecycleHandler for the application's type and updates the app's desired state.
+func (m *PodmanMonitor) StopApp(ctx context.Context, appID string) error {
+	handler, action, app, err := m.lifecycleDispatch(appID)
+	if err != nil {
+		return err
+	}
+	if err := handler.Stop(ctx, action); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateStopped)
+	m.mu.Unlock()
+	return nil
+}
+
+// StartApp starts a previously stopped application identified by appID.
+func (m *PodmanMonitor) StartApp(ctx context.Context, appID string) error {
+	handler, action, app, err := m.lifecycleDispatch(appID)
+	if err != nil {
+		return err
+	}
+	if err := handler.Start(ctx, action); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	m.mu.Unlock()
+	return nil
+}
+
+// RestartApp restarts the application identified by appID.
+// For VM workloads this triggers an ACPI shutdown before the unit restarts.
+func (m *PodmanMonitor) RestartApp(ctx context.Context, appID string) error {
+	handler, action, _, err := m.lifecycleDispatch(appID)
+	if err != nil {
+		return err
+	}
+	return handler.Restart(ctx, action)
+}
+
+// lifecycleDispatch looks up the application and resolves its LifecycleHandler.
+// Returns the handler, a lifecycle.Action populated from the application's fields, and the application itself.
+func (m *PodmanMonitor) lifecycleDispatch(appID string) (lifecycle.LifecycleHandler, lifecycle.Action, Application, error) {
+	m.mu.Lock()
+	app, ok := m.apps[appID]
+	m.mu.Unlock()
+
+	if !ok {
+		return nil, lifecycle.Action{}, nil, fmt.Errorf("%w: %s", errors.ErrAppNotFound, appID)
+	}
+
+	appType := normalizeActionAppType(app.AppType())
+	handler, ok := m.handlers[appType].(lifecycle.LifecycleHandler)
+	if !ok {
+		return nil, lifecycle.Action{}, nil, fmt.Errorf("%w: no lifecycle handler for app type %s", errors.ErrUnsupportedAppType, appType)
+	}
+
+	action := lifecycle.Action{
+		ID:      app.ID(),
+		Name:    app.Name(),
+		User:    app.User(),
+		AppType: app.AppType(),
+		Path:    app.Path(),
+	}
+	return handler, action, app, nil
 }
 
 // ExecuteActions executes all queued actions.
@@ -295,11 +405,16 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
 
+	// Group structural actions (Add/Update/Remove) by app type for batch execution.
+	// Lifecycle actions (Stop/Start/Restart) are dispatched directly below.
 	groupedActions := make(map[v1beta1.AppType][]lifecycle.Action)
 	for i := range actions {
 		action := actions[i]
-		appType := normalizeActionAppType(action.AppType)
+		if action.Type == lifecycle.ActionStop || action.Type == lifecycle.ActionStart || action.Type == lifecycle.ActionRestart {
+			continue
+		}
 
+		appType := normalizeActionAppType(action.AppType)
 		if systemShutdown && appType == v1beta1.AppTypeQuadlet {
 			m.log.Debugf("System shutdown: skipping quadlet action for %s", action.Name)
 			continue
@@ -315,6 +430,45 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 	for appType, actions := range groupedActions {
 		if err := m.handlers[appType].Execute(ctx, actions); err != nil {
 			return err
+		}
+	}
+
+	// After installing or updating an app, apply desiredState=stopped if the operator
+	// wants it off. The install/update handler always starts workloads; stop them here.
+	for _, a := range actions {
+		if a.Type != lifecycle.ActionAdd && a.Type != lifecycle.ActionUpdate {
+			continue
+		}
+		m.mu.Lock()
+		app, ok := m.apps[a.ID]
+		m.mu.Unlock()
+		if !ok || app.DesiredState() != v1beta1.ApplicationDesiredStateStopped {
+			continue
+		}
+		m.log.Infof("Stopping application %s (desiredState: stopped, post-install)", a.Name)
+		if err := m.StopApp(ctx, a.ID); err != nil {
+			m.log.Warnf("Failed to stop application %s after install: %v", a.Name, err)
+		}
+	}
+
+	// Dispatch explicit lifecycle actions queued by QueueLifecycle.
+	for _, a := range actions {
+		switch a.Type {
+		case lifecycle.ActionStop:
+			m.log.Infof("Stopping application %s", a.Name)
+			if err := m.StopApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to stop application %s: %v", a.Name, err)
+			}
+		case lifecycle.ActionStart:
+			m.log.Infof("Starting application %s", a.Name)
+			if err := m.StartApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to start application %s: %v", a.Name, err)
+			}
+		case lifecycle.ActionRestart:
+			m.log.Infof("Restarting application %s", a.Name)
+			if err := m.RestartApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
+			}
 		}
 	}
 

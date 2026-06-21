@@ -316,6 +316,32 @@ func (k *Kube) ResolveKubeconfig() (string, error) {
 	return k.kubeconfigPath, nil
 }
 
+// ScaleWorkloadsByLabel scales all Deployments and StatefulSets in namespace
+// that match labelSelector to the given replica count.
+func (k *Kube) ScaleWorkloadsByLabel(ctx context.Context, namespace, labelSelector, kubeconfigPath string, replicas int) error {
+	binary := k.Binary()
+	if binary == "" {
+		return fmt.Errorf("kubernetes CLI binary not available")
+	}
+
+	args := []string{
+		"scale", "deployment,statefulset",
+		"-l", labelSelector,
+		fmt.Sprintf("--replicas=%d", replicas),
+		"-n", namespace,
+	}
+	if kubeconfigPath != "" {
+		args = append(args, "--kubeconfig", kubeconfigPath)
+	}
+
+	// #nosec G204 - binary is either hardcoded ("kubectl"/"oc") or explicitly configured, args are internally constructed
+	_, stderr, exitCode := k.exec.ExecuteWithContext(ctx, binary, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("scale workloads: %s", stderr)
+	}
+	return nil
+}
+
 // Kustomize runs kubectl kustomize on the specified directory and returns the output.
 func (k *Kube) Kustomize(ctx context.Context, dir string) (stdout, stderr string, exitCode int) {
 	binary := k.Binary()

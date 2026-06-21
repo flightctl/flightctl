@@ -12,6 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -76,6 +78,7 @@ type Manager interface {
 	// application is valid and dependencies are met.
 	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
+	// It executes queued install/remove/update actions and reconciles stop/start/restart lifecycle.
 	AfterUpdate(ctx context.Context) error
 	// Shutdown closes the manager according to the corresponding shutdown state
 	Shutdown(ctx context.Context, state shutdown.State) error
@@ -119,6 +122,15 @@ type Application interface {
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// SetDesiredState records the operator-intended lifecycle state for this application.
+	// Called after a successful stop/start/restart to inform Status() of intent.
+	SetDesiredState(state v1beta1.ApplicationDesiredState)
+	// DesiredState returns the operator-intended lifecycle state for this application.
+	DesiredState() v1beta1.ApplicationDesiredState
+	// SetRestartGeneration updates the restart generation counter (called on each spec sync).
+	SetRestartGeneration(gen int)
+	// RestartGeneration returns the restart generation counter from the desired spec.
+	RestartGeneration() int
 	// ActionSpec returns the type-specific action configuration for this application.
 	ActionSpec() lifecycle.ActionSpec
 }
@@ -133,12 +145,15 @@ type Workload struct {
 }
 
 type application struct {
-	id         string
-	path       string
-	workloads  []Workload
-	volume     provider.VolumeManager
-	status     *v1beta1.DeviceApplicationStatus
-	actionSpec lifecycle.ActionSpec
+	id                string
+	path              string
+	workloads         []Workload
+	volume            provider.VolumeManager
+	status            *v1beta1.DeviceApplicationStatus
+	actionSpec        lifecycle.ActionSpec
+	vmPoller          *vmStatusPoller
+	desiredState      v1beta1.ApplicationDesiredState
+	restartGeneration int
 }
 
 // NewApplication creates a new application from an application provider.
@@ -154,8 +169,20 @@ func NewApplication(p provider.Provider) *application {
 			AppType:  spec.AppType,
 			RunAs:    spec.User,
 		},
-		volume: spec.Volume,
+		volume:            spec.Volume,
+		desiredState:      spec.DesiredState,
+		restartGeneration: spec.RestartGeneration,
 	}
+}
+
+// NewVMApplication creates an application for a VM workload with a vmStatusPoller
+// wired to the given executer. Status() on the returned application calls virsh
+// domstate rather than the workload-count-based logic.
+func NewVMApplication(p provider.Provider, exec executer.Executer, log *log.PrefixLogger) *application {
+	a := NewApplication(p)
+	a.status.AppType = v1beta1.AppTypeVm
+	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name)
+	return a
 }
 
 // NewHelmApplication creates a new application with Helm-specific configuration.
@@ -256,7 +283,55 @@ func (a *application) Volume() provider.VolumeManager {
 	return a.volume
 }
 
+func (a *application) SetDesiredState(state v1beta1.ApplicationDesiredState) {
+	a.desiredState = state
+}
+
+func (a *application) DesiredState() v1beta1.ApplicationDesiredState {
+	return a.desiredState
+}
+
+func (a *application) SetRestartGeneration(gen int) {
+	a.restartGeneration = gen
+}
+
+func (a *application) RestartGeneration() int {
+	return a.restartGeneration
+}
+
+// vmStatus polls the libvirt domain state and maps it to a DeviceApplicationStatus.
+// Called by Status() when the application has a vmPoller (i.e. IsVMWorkload is true).
+func (a *application) vmStatus() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), vmStatusPollTimeout)
+	defer cancel()
+
+	appStatus := a.vmPoller.Poll(ctx)
+	a.status.Status = appStatus
+
+	var summary v1beta1.DeviceApplicationsSummaryStatus
+	switch appStatus {
+	case v1beta1.ApplicationStatusRunning, v1beta1.ApplicationStatusStopped:
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+		a.status.Ready = "1/1"
+	case v1beta1.ApplicationStatusStopping, v1beta1.ApplicationStatusStarting:
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
+		a.status.Ready = "0/1"
+	case v1beta1.ApplicationStatusError:
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
+		a.status.Ready = "0/1"
+	default:
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+		a.status.Ready = "0/1"
+	}
+
+	a.volume.Status(a.status)
+	return a.status, summary, nil
+}
+
 func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
+	if a.vmPoller != nil {
+		return a.vmStatus()
+	}
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
@@ -282,6 +357,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	// order is important
 	switch {
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, exited)):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped:
+		// Workloads are still present — stopping is in progress.
+		newStatus = v1beta1.ApplicationStatusStopping
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown

@@ -27,6 +27,7 @@ const (
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
+var _ LifecycleHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
 	systemdFactory systemd.ManagerFactory
@@ -87,21 +88,41 @@ func (q *Quadlet) add(ctx context.Context, action Action, systemctl systemd.Mana
 		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
-	unitSet, err := q.loadedUnits(ctx, systemctl, services)
+	units, err := systemctl.ListUnitsByMatchPattern(ctx, services)
 	if err != nil {
 		return fmt.Errorf("listing loading units: %w", err)
 	}
 
+	unitSet := make(map[string]struct{}, len(units))
+	for _, u := range units {
+		if u.LoadState == string(v1beta1.SystemdLoadStateLoaded) {
+			unitSet[u.Unit] = struct{}{}
+		}
+	}
+
 	for _, service := range services {
 		if !isServiceLoaded(unitSet, service) {
-			err := fmt.Errorf("%s not loaded as a target", service)
-			generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
-			if logsErr != nil {
-				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
+			// Log actual load state for all returned units to aid diagnosis.
+			for _, u := range units {
+				q.log.Errorf("Unit state: %s loadState=%s activeState=%s subState=%s", u.Unit, u.LoadState, u.ActiveState, u.SubState)
 			}
-			if len(generatorLogs) > 0 {
-				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
-				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+			if len(units) == 0 {
+				q.log.Errorf("systemctl list-units returned no entries for services: %v", services)
+			}
+
+			err := fmt.Errorf("%s not loaded as a target", service)
+			// The podman quadlet generator's syslog identifier is "podman-system-generator".
+			for _, tag := range []string{"podman-system-generator", "quadlet-generator"} {
+				generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag(tag), client.WithLogSince(batchTime))
+				if logsErr != nil {
+					q.log.Errorf("Failed to fetch %s logs: %v", tag, logsErr)
+					continue
+				}
+				if len(generatorLogs) > 0 {
+					q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
+					err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+					break
+				}
 			}
 			return err
 		}
@@ -249,6 +270,64 @@ func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman
 		}
 	}
 	return nil
+}
+
+// Stop stops the application's systemd target without removing files or Podman resources.
+func (q *Quadlet) Stop(ctx context.Context, action Action) error {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Stop(ctx, target)
+}
+
+// Start starts a previously stopped application's systemd target.
+// The unit files are already on disk — no DaemonReload is required.
+func (q *Quadlet) Start(ctx context.Context, action Action) error {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Start(ctx, target)
+}
+
+// Restart restarts the application. For VM workloads it sends an ACPI reboot
+// signal via virsh to the guest OS running inside the virt-launcher container,
+// allowing the guest to shut down cleanly before the VM restarts. For all other
+// quadlet types it restarts the systemd target directly.
+func (q *Quadlet) Restart(ctx context.Context, action Action) error {
+	if action.AppType == v1beta1.AppTypeVm {
+		return q.restartVM(ctx, action)
+	}
+
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+	return systemctl.Restart(ctx, target)
+}
+
+// restartVM sends an ACPI reboot signal to the libvirt domain running inside the
+// virt-launcher container. This gives the guest OS a chance to shut down cleanly
+// rather than abruptly killing the container process via systemctl restart.
+func (q *Quadlet) restartVM(ctx context.Context, action Action) error {
+	podman, err := q.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+	return podman.VirshReboot(ctx, action.Name)
 }
 
 func (q *Quadlet) Execute(ctx context.Context, actions Actions) error {

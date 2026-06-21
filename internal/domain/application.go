@@ -68,6 +68,8 @@ const (
 	ApplicationStatusPreparing = v1beta1.ApplicationStatusPreparing
 	ApplicationStatusRunning   = v1beta1.ApplicationStatusRunning
 	ApplicationStatusStarting  = v1beta1.ApplicationStatusStarting
+	ApplicationStatusStopped   = v1beta1.ApplicationStatusStopped
+	ApplicationStatusStopping  = v1beta1.ApplicationStatusStopping
 	ApplicationStatusUnknown   = v1beta1.ApplicationStatusUnknown
 )
 

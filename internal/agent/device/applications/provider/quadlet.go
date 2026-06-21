@@ -105,6 +105,11 @@ func newQuadletProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
+	isVM, err := detectVMWorkload(inlineContent)
+	if err != nil {
+		return nil, fmt.Errorf("detecting VM workload for %q: %w", appName, err)
+	}
+
 	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, user, volumes)
 	if err != nil {
 		return nil, err
@@ -138,14 +143,17 @@ func newQuadletProvider(
 		imageRef:       imageRef,
 		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
-			Name:       appName,
-			ID:         appID,
-			User:       user,
-			AppType:    v1beta1.AppTypeQuadlet,
-			Path:       appPath,
-			EnvVars:    envVars,
-			QuadletApp: &quadletApp,
-			Volume:     volumeManager,
+			Name:              appName,
+			ID:                appID,
+			User:              user,
+			AppType:           v1beta1.AppTypeQuadlet,
+			Path:              appPath,
+			EnvVars:           envVars,
+			IsVMWorkload:      isVM,
+			QuadletApp:        &quadletApp,
+			Volume:            volumeManager,
+			DesiredState:      (*apiSpec).GetDesiredState(),
+			RestartGeneration: (*apiSpec).GetRestartGeneration(),
 		},
 	}
 
@@ -363,6 +371,24 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 		}
 		for _, quad := range quadletSpec {
 			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider, p.spec.User)...)
+		}
+
+		// Collect OCI targets from any .kube inline files referencing a pod YAML.
+		// ParseQuadletReferencesFromSpec processes .kube files but extractQuadletTargets
+		// does not parse the pod YAML — that is done here via collectKubePodTargets.
+		for i := range p.inlineContent {
+			if filepath.Ext(p.inlineContent[i].Path) != quadlet.KubeExtension {
+				continue
+			}
+			kubeContent, err := p.inlineContent[i].ContentsDecoded()
+			if err != nil {
+				return nil, fmt.Errorf("decoding kube unit %q: %w", p.inlineContent[i].Path, err)
+			}
+			kubeTargets, _, err := collectKubePodTargets(kubeContent, p.inlineContent, configProvider, p.spec.User)
+			if err != nil {
+				return nil, fmt.Errorf("%w: collecting pod OCI targets from %q: %w", errors.WithElement(p.spec.Name), p.inlineContent[i].Path, err)
+			}
+			targets = targets.Add(p.spec.User, kubeTargets...)
 		}
 	}
 	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider, p.spec.User)
@@ -712,6 +738,13 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 	switch extension {
 	case quadlet.ImageExtension:
 		// no labels for Image quadlets
+	case quadlet.KubeExtension:
+		// Kube quadlets run via `podman kube play` which does not support Label= in [Kube];
+		// status is tracked through the systemd service state instead.
+		// Add lifecycle config matching container units so kube services auto-start on boot.
+		unit.Add("Service", "Restart", "on-failure").
+			Add("Service", "RestartSec", "5").
+			Add("Install", "WantedBy", "default.target")
 	case quadlet.PodExtension:
 		// Pod quadlets don't have first class support for the LabelKey until v5.6
 		unit.Add(sectionName, quadlet.PodmanArgsKey, fmt.Sprintf("--label=%s=%s", client.QuadletProjectLabelKey, q.appID))
@@ -748,6 +781,8 @@ func defaultServiceName(basename, ext string) (string, error) {
 		return fmt.Sprintf("%s-network.service", basename), nil
 	case quadlet.ImageExtension:
 		return fmt.Sprintf("%s-image.service", basename), nil
+	case quadlet.KubeExtension:
+		return fmt.Sprintf("%s.service", basename), nil
 	default:
 		return "", fmt.Errorf("%w: %s", common.ErrUnsupportedQuadletType, ext)
 	}

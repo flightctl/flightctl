@@ -876,6 +876,14 @@ func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
 	name, _ := a.GetName()
 	allErrs = append(allErrs, validation.ValidateString(name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
+
+	var base ApplicationProviderBase
+	if err := json.Unmarshal(a.union, &base); err == nil {
+		if base.RestartGeneration != nil && *base.RestartGeneration < 0 {
+			allErrs = append(allErrs, fmt.Errorf("spec.applications[].restartGeneration: Invalid value %d: must be >= 0", *base.RestartGeneration))
+		}
+	}
+
 	return allErrs
 }
 

@@ -809,7 +809,6 @@ func computeSlowest(timings map[string]specTiming, topN int) []specEntry {
 	return specs
 }
 
-
 // lptSimulate runs the LPT algorithm with the given timings and returns the
 // estimated total workflow time (pipeline overhead + max shard duration).
 func lptSimulate(timings map[string]specTiming, specs []e2etestutils.SpecInfo, shardCount int, pipelineOverheadSecs float64) float64 {
@@ -1077,4 +1076,3 @@ func inferShardCount(agg pipelineAgg) int {
 	}
 	return 10
 }
-

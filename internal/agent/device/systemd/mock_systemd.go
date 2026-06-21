@@ -171,6 +171,25 @@ func (mr *MockManagerMockRecorder) ResetFailed(ctx any, units ...any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetFailed", reflect.TypeOf((*MockManager)(nil).ResetFailed), varargs...)
 }
 
+// Restart mocks base method.
+func (m *MockManager) Restart(ctx context.Context, units ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range units {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Restart", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Restart indicates an expected call of Restart.
+func (mr *MockManagerMockRecorder) Restart(ctx any, units ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, units...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Restart", reflect.TypeOf((*MockManager)(nil).Restart), varargs...)
+}
+
 // Show mocks base method.
 func (m *MockManager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
 	m.ctrl.T.Helper()

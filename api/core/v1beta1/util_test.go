@@ -8,6 +8,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestApplicationProviderSpecGetDesiredState(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		app      ApplicationProviderSpec
+		expected ApplicationDesiredState
+	}{
+		{
+			name:     "When desiredState is absent it should default to running",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+			expected: ApplicationDesiredStateRunning,
+		},
+		{
+			name:     "When desiredState is running it should return running",
+			app:      newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateRunning), nil),
+			expected: ApplicationDesiredStateRunning,
+		},
+		{
+			name:     "When desiredState is stopped it should return stopped",
+			app:      newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			expected: ApplicationDesiredStateStopped,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.app.GetDesiredState())
+		})
+	}
+}
+
+func TestApplicationProviderSpecGetRestartGeneration(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		app      ApplicationProviderSpec
+		expected int
+	}{
+		{
+			name:     "When restartGeneration is absent it should default to zero",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+			expected: 0,
+		},
+		{
+			name:     "When restartGeneration is zero it should return zero",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(0)),
+			expected: 0,
+		},
+		{
+			name:     "When restartGeneration is positive it should return that value",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(5)),
+			expected: 5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.app.GetRestartGeneration())
+		})
+	}
+}
+
 func TestEventDetailsHasData(t *testing.T) {
 	tests := []struct {
 		name     string
