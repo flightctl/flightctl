@@ -657,12 +657,13 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 
 func TestHelmHandler_Stop(t *testing.T) {
 	testCases := []struct {
-		name           string
-		action         Action
-		kubeconfigPath string
-		setupMock      func(*executer.MockExecuter, *fileio.MockReadWriter)
-		wantErr        bool
-		errContains    string
+		name               string
+		action             Action
+		kubeconfigPath     string
+		skipKubeconfigPath bool
+		setupMock          func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr            bool
+		errContains        string
 	}{
 		{
 			name: "When desiredState is stopped it should scale all labeled workloads to 0",
@@ -720,6 +721,20 @@ func TestHelmHandler_Stop(t *testing.T) {
 				}).Return("", "", 0)
 			},
 		},
+		{
+			name: "When kubeconfig cannot be resolved it should return ErrKubernetesAppsDisabled",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			skipKubeconfigPath: true,
+			setupMock: func(_ *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+				mockRW.EXPECT().PathExists(gomock.Any()).Return(false, nil).AnyTimes()
+			},
+			wantErr:     true,
+			errContains: "resolving kubeconfig",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -734,12 +749,13 @@ func TestHelmHandler_Stop(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
+			kubeOpts := []client.KubernetesOption{client.WithBinary("kubectl")}
+			if !tc.skipKubeconfigPath {
+				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
+			}
 			clients := &testCLIClients{
 				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
-				kube: client.NewKube(logger, mockExec, mockReadWriter,
-					client.WithBinary("kubectl"),
-					client.WithKubeconfigPath(tc.kubeconfigPath),
-				),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			handler := NewHelmHandler(logger, clients, testExecutableResolver{path: "/test/flightctl"},
 				func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil })
@@ -760,11 +776,12 @@ func TestHelmHandler_Stop(t *testing.T) {
 
 func TestHelmHandler_Start(t *testing.T) {
 	testCases := []struct {
-		name           string
-		action         Action
-		kubeconfigPath string
-		setupMock      func(*executer.MockExecuter, *fileio.MockReadWriter)
-		wantErr        bool
+		name               string
+		action             Action
+		kubeconfigPath     string
+		skipKubeconfigPath bool
+		setupMock          func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr            bool
 	}{
 		{
 			name: "When desiredState is running it should re-apply the chart via helm upgrade --install",
@@ -831,6 +848,36 @@ func TestHelmHandler_Start(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "When helm version check fails it should return an error",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+					"version", "--short",
+				}).Return("", "helm not found", 1)
+			},
+			wantErr: true,
+		},
+		{
+			name: "When kubeconfig cannot be resolved it should return ErrKubernetesAppsDisabled",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			skipKubeconfigPath: true,
+			setupMock: func(_ *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+				mockRW.EXPECT().PathExists(gomock.Any()).Return(false, nil).AnyTimes()
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -845,12 +892,13 @@ func TestHelmHandler_Start(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
+			kubeOpts := []client.KubernetesOption{client.WithBinary("kubectl")}
+			if !tc.skipKubeconfigPath {
+				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
+			}
 			clients := &testCLIClients{
 				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
-				kube: client.NewKube(logger, mockExec, mockReadWriter,
-					client.WithBinary("kubectl"),
-					client.WithKubeconfigPath(tc.kubeconfigPath),
-				),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			handler := NewHelmHandler(logger, clients, testExecutableResolver{path: "/test/flightctl"},
 				func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil })
