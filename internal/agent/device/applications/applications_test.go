@@ -515,13 +515,29 @@ func TestApplicationStatusWithDesiredStateStopped(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "When desiredState is stopped but containers are still running it should report Running",
+			name: "When desiredState is stopped but containers are still running it should report Stopping",
 			workloads: []Workload{
 				{Name: "container1", Status: StatusRunning},
 			},
 			desiredState:          v1beta1.ApplicationDesiredStateStopped,
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStopping,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name:                  "When desiredState is stopped and no workloads exist it should report Stopped",
+			workloads:             []Workload{},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "When desiredState is stopped and containers are initializing it should report Stopping",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusInit},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopping,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
 
