@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,26 @@ func parsePodYAMLTargets(
 	return targets, nil
 }
 
+// lookupKubeYamlPath reads the Yaml= directive from a parsed .kube unit and
+// validates the value as a safe relative path. It returns (cleanPath, true, nil)
+// on success; ("", false, nil) when the [Kube] section or Yaml= key is absent
+// (not an error — the caller decides whether to skip or fail); and ("", false, err)
+// for any unexpected lookup error or an unsafe path value.
+func lookupKubeYamlPath(unit *quadlet.Unit) (string, bool, error) {
+	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+	if err != nil {
+		if errors.Is(err, quadlet.ErrSectionNotFound) || errors.Is(err, quadlet.ErrKeyNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("looking up %s= in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
+	}
+	cleanPath := filepath.Clean(yamlFilename)
+	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", false, fmt.Errorf("pod YAML path %q is not a valid relative path", yamlFilename)
+	}
+	return cleanPath, true, nil
+}
+
 // collectKubePodTargets extracts OCI pull targets from a .kube inline Quadlet application.
 // It reads the Yaml= directive in the .kube unit to locate the pod YAML filename, finds
 // that file in inlineContent, and delegates to parsePodYAMLTargets.
@@ -108,14 +129,12 @@ func collectKubePodTargets(
 		return nil, fmt.Errorf("parsing kube unit: %w", err)
 	}
 
-	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+	cleanPath, found, err := lookupKubeYamlPath(unit)
 	if err != nil {
-		return nil, fmt.Errorf("kube unit missing %s= directive in [%s]: %w", quadlet.KubeYamlKey, quadlet.KubeGroup, err)
+		return nil, err
 	}
-
-	cleanPath := filepath.Clean(yamlFilename)
-	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("pod YAML path %q is not a valid relative path", yamlFilename)
+	if !found {
+		return nil, fmt.Errorf("kube unit missing %s= directive in [%s]", quadlet.KubeYamlKey, quadlet.KubeGroup)
 	}
 
 	for i := range inlineContent {

@@ -664,16 +664,12 @@ func (q *quadletInstaller) namespacePodYAML(kubeFilename string) error {
 		return fmt.Errorf("parsing kube unit: %w", err)
 	}
 
-	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
+	cleanPath, found, err := lookupKubeYamlPath(unit)
 	if err != nil {
-		if err == quadlet.ErrSectionNotFound || err == quadlet.ErrKeyNotFound {
-			return nil
-		}
 		return fmt.Errorf("looking up pod YAML path in %q: %w", kubeFilename, err)
 	}
-	cleanPath := filepath.Clean(yamlFilename)
-	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("pod YAML path %q is not a valid relative path", yamlFilename)
+	if !found {
+		return nil
 	}
 
 	yamlPath := filepath.Join(q.appUnitPath, cleanPath)
