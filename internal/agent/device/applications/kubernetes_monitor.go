@@ -239,6 +239,10 @@ func (m *KubernetesMonitor) lifecycleDispatch(appID string) (lifecycle.Lifecycle
 
 // ExecuteActions executes all queued actions.
 func (m *KubernetesMonitor) ExecuteActions(ctx context.Context) error {
+	return m.executeActions(ctx)
+}
+
+func (m *KubernetesMonitor) executeActions(ctx context.Context) error {
 	actions := m.drainActions()
 
 	// Group structural actions (Add/Update/Remove) by app type for batch execution.
