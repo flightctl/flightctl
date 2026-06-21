@@ -749,6 +749,8 @@ func labelKeyToSymbol(labelKey string) string {
 	return builder.String()
 }
 
+// quoteIdentifier wraps name in PostgreSQL double-quotes, escaping embedded quotes.
+// This prevents SQL injection — gorm.Expr is a raw expression marker and does NOT sanitize.
 func quoteIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
