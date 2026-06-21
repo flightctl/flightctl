@@ -1,11 +1,14 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/identity"
 )
 
 func TestValidateAllowedSignersForCSRService(t *testing.T) {
@@ -17,33 +20,56 @@ func TestValidateAllowedSignersForCSRService(t *testing.T) {
 
 	h := &ServiceHandler{ca: ca}
 
+	superAdminCtx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+		identity.NewMappedIdentity("admin", "uid-admin", nil, nil, true, nil))
+	nonAdminCtx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey,
+		identity.NewMappedIdentity("user", "uid-user", nil, nil, false, nil))
+
 	cases := []struct {
 		name       string
+		ctx        context.Context
 		signerName string
 		wantErr    bool
 	}{
 		{
-			name:       "device management signer is blocked",
+			name:       "When device management signer is used it should be rejected",
+			ctx:        superAdminCtx,
 			signerName: cfg.DeviceManagementSignerName,
 			wantErr:    true,
 		},
 		{
-			name:       "server svc signer is blocked",
+			name:       "When server svc signer is used by super-admin it should be accepted",
+			ctx:        superAdminCtx,
+			signerName: cfg.ServerSvcSignerName,
+			wantErr:    false,
+		},
+		{
+			name:       "When server svc signer is used by non-super-admin it should be rejected",
+			ctx:        nonAdminCtx,
 			signerName: cfg.ServerSvcSignerName,
 			wantErr:    true,
 		},
 		{
-			name:       "enrollment signer is allowed",
+			name:       "When server svc signer is used without identity it should be rejected",
+			ctx:        context.Background(),
+			signerName: cfg.ServerSvcSignerName,
+			wantErr:    true,
+		},
+		{
+			name:       "When enrollment signer is used it should be accepted",
+			ctx:        nonAdminCtx,
 			signerName: cfg.DeviceEnrollmentSignerName,
 			wantErr:    false,
 		},
 		{
-			name:       "device management renewal signer is allowed",
+			name:       "When device management renewal signer is used it should be accepted",
+			ctx:        nonAdminCtx,
 			signerName: cfg.DeviceManagementRenewalSignerName,
 			wantErr:    false,
 		},
 		{
-			name:       "device svc client signer is allowed",
+			name:       "When device svc client signer is used it should be accepted",
+			ctx:        nonAdminCtx,
 			signerName: cfg.DeviceSvcClientSignerName,
 			wantErr:    false,
 		},
@@ -56,7 +82,7 @@ func TestValidateAllowedSignersForCSRService(t *testing.T) {
 					SignerName: tc.signerName,
 				},
 			}
-			err := h.validateAllowedSignersForCSRService(csr)
+			err := h.validateAllowedSignersForCSRService(tc.ctx, csr)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}

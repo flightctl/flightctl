@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -162,7 +163,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -238,7 +239,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(newObj); err != nil {
+	if err := h.validateAllowedSignersForCSRService(ctx, newObj); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -291,7 +292,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 
@@ -332,7 +333,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if errs := newCSR.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
+	if err := h.validateAllowedSignersForCSRService(ctx, &csr); err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if name != *newCSR.Metadata.Name {
@@ -436,12 +437,15 @@ func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningReques
 	}
 }
 
-func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.CertificateSigningRequest) error {
+func (h *ServiceHandler) validateAllowedSignersForCSRService(ctx context.Context, csr *domain.CertificateSigningRequest) error {
 	if csr.Spec.SignerName == h.ca.Cfg.DeviceManagementSignerName {
 		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
 	}
 	if csr.Spec.SignerName == h.ca.Cfg.ServerSvcSignerName {
-		return fmt.Errorf("signer name %q requires super-admin privileges", csr.Spec.SignerName)
+		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok || !mappedIdentity.IsSuperAdmin() {
+			return fmt.Errorf("signer name %q requires super-admin privileges", csr.Spec.SignerName)
+		}
 	}
 	return nil
 }
