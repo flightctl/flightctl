@@ -333,9 +333,6 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if errs := newCSR.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
-		return nil, domain.StatusBadRequest(err.Error())
-	}
 	if name != *newCSR.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
