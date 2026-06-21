@@ -469,37 +469,22 @@ func makeKeyPairAndCSR(ctx context.Context, ca *icrypto.CAClient, signerName str
 		return nil, nil, fmt.Errorf("failed to generate client key pair: %w", err)
 	}
 
+	raw, err := fccrypto.MakeCSR(clientPrivateKey.(crypto.Signer), subjectName, fccrypto.WithDNSNames("localhost"))
+	if err != nil {
+		return nil, nil, err
+	}
+
 	seconds := expiryDays * 24 * 3600
 	if seconds > math.MaxInt32 {
 		return nil, nil, fmt.Errorf("expiryDays too large: would overflow int32 seconds")
 	}
-
-	isServerSvc := signerName == ca.Cfg.ServerSvcSignerName
-
-	var csrOpts []fccrypto.CSROption
-	if !isServerSvc {
-		csrOpts = append(csrOpts, fccrypto.WithDNSNames("localhost"))
-	}
-	raw, err := fccrypto.MakeCSR(clientPrivateKey.(crypto.Signer), subjectName, csrOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
+	expiry := int32(seconds) // #nosec G115 -- safe: bounds already checked above
 
 	x509CSR, err := fccrypto.ParseCSR(raw)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if isServerSvc {
-		x509CSR.DNSNames = []string{"localhost"}
-		signedCert, err := ca.IssueRequestedServerCertificate(ctx, x509CSR, seconds)
-		if err != nil {
-			return nil, nil, fmt.Errorf("makeKeyPairAndCSR: issuing server certificate: %w", err)
-		}
-		return clientPrivateKey, signedCert, nil
-	}
-
-	expiry := int32(seconds) // #nosec G115 -- safe: bounds already checked above
 	req, err := signer.NewSignRequest(
 		signerName,
 		*x509CSR,
