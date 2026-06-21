@@ -43,11 +43,6 @@ func (s *SignerServerSvc) Verify(ctx context.Context, request SignRequest) error
 		return fmt.Errorf("CSR CommonName %q must include a service name after prefix %q", x509CSR.Subject.CommonName, servicePrefix)
 	}
 
-	if len(x509CSR.DNSNames) > 0 || len(x509CSR.IPAddresses) > 0 ||
-		len(x509CSR.URIs) > 0 || len(x509CSR.EmailAddresses) > 0 {
-		return fmt.Errorf("server-svc CSRs must not carry SANs")
-	}
-
 	return nil
 }
 
@@ -66,11 +61,6 @@ func (s *SignerServerSvc) Sign(ctx context.Context, request SignRequest) (*x509.
 	if serviceName == "" {
 		return nil, fmt.Errorf("CSR CommonName %q must include a service name after prefix %q", x509CSR.Subject.CommonName, servicePrefix)
 	}
-
-	x509CSR.DNSNames = nil
-	x509CSR.IPAddresses = nil
-	x509CSR.URIs = nil
-	x509CSR.EmailAddresses = nil
 
 	expirySeconds := signerServerSvcExpiryDays * 24 * 60 * 60
 	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {

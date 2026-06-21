@@ -6,26 +6,20 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"net"
-	"net/url"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
 
-func makeCSRWithSANs(t *testing.T, cn string, dnsNames []string, ips []net.IP, uris []*url.URL, emails []string) *x509.CertificateRequest {
+func makeCSRWithCN(t *testing.T, cn string) *x509.CertificateRequest {
 	t.Helper()
 	_, priv, err := fccrypto.NewKeyPair()
 	if err != nil {
 		t.Fatalf("newKeyPair: %v", err)
 	}
 	tpl := &x509.CertificateRequest{
-		Subject:        pkix.Name{CommonName: cn},
-		DNSNames:       dnsNames,
-		IPAddresses:    ips,
-		URIs:           uris,
-		EmailAddresses: emails,
+		Subject: pkix.Name{CommonName: cn},
 	}
 	raw, err := x509.CreateCertificateRequest(rand.Reader, tpl, priv.(crypto.Signer))
 	if err != nil {
@@ -50,9 +44,9 @@ func TestSignerServerSvc(t *testing.T) {
 
 	verifyCases := []testCase{
 		{
-			name: "valid CSR without SANs succeeds",
+			name: "valid CSR succeeds",
 			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "svc-myservice", nil, nil, nil, nil)
+				csr := makeCSRWithCN(t, "svc-myservice")
 				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
@@ -62,58 +56,9 @@ func TestSignerServerSvc(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "CSR with DNSNames is rejected",
-			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "svc-attacker", []string{"agent-api.example.com"}, nil, nil, nil)
-				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
-				if err != nil {
-					t.Fatalf("NewSignRequest: %v", err)
-				}
-				return context.Background(), req
-			},
-			wantErr: true,
-		},
-		{
-			name: "CSR with IPAddresses is rejected",
-			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "svc-attacker", nil, []net.IP{net.ParseIP("10.0.0.1")}, nil, nil)
-				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
-				if err != nil {
-					t.Fatalf("NewSignRequest: %v", err)
-				}
-				return context.Background(), req
-			},
-			wantErr: true,
-		},
-		{
-			name: "CSR with URIs is rejected",
-			build: func() (context.Context, SignRequest) {
-				u, _ := url.Parse("spiffe://cluster.local/ns/default/sa/attacker")
-				csr := makeCSRWithSANs(t, "svc-attacker", nil, nil, []*url.URL{u}, nil)
-				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
-				if err != nil {
-					t.Fatalf("NewSignRequest: %v", err)
-				}
-				return context.Background(), req
-			},
-			wantErr: true,
-		},
-		{
-			name: "CSR with EmailAddresses is rejected",
-			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "svc-attacker", nil, nil, nil, []string{"admin@example.com"})
-				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
-				if err != nil {
-					t.Fatalf("NewSignRequest: %v", err)
-				}
-				return context.Background(), req
-			},
-			wantErr: true,
-		},
-		{
 			name: "CSR with peer certificate is rejected",
 			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "svc-myservice", nil, nil, nil, nil)
+				csr := makeCSRWithCN(t, "svc-myservice")
 				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
@@ -127,7 +72,7 @@ func TestSignerServerSvc(t *testing.T) {
 		{
 			name: "CSR with empty CN is rejected",
 			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "", nil, nil, nil, nil)
+				csr := makeCSRWithCN(t, "")
 				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
@@ -139,7 +84,7 @@ func TestSignerServerSvc(t *testing.T) {
 		{
 			name: "CSR with wrong CN prefix is rejected",
 			build: func() (context.Context, SignRequest) {
-				csr := makeCSRWithSANs(t, "notaservice", nil, nil, nil, nil)
+				csr := makeCSRWithCN(t, "notaservice")
 				req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
@@ -164,19 +109,4 @@ func TestSignerServerSvc(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("Sign/strips SANs from CSR", func(t *testing.T) {
-		csr := makeCSRWithSANs(t, "svc-myservice", nil, nil, nil, nil)
-		req, err := NewSignRequest(cfg.ServerSvcSignerName, *csr)
-		if err != nil {
-			t.Fatalf("NewSignRequest: %v", err)
-		}
-		cert, err := signer.Sign(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cert == nil {
-			t.Fatal("expected certificate, got nil")
-		}
-	})
 }

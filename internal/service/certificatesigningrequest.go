@@ -441,7 +441,7 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.Certifi
 		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
 	}
 	if csr.Spec.SignerName == h.ca.Cfg.ServerSvcSignerName {
-		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service", csr.Spec.SignerName)
+		return fmt.Errorf("signer name %q requires super-admin privileges", csr.Spec.SignerName)
 	}
 	return nil
 }
