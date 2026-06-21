@@ -110,6 +110,11 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		return m.podmanMonitor.Ensure(ctx, m.newAppFromProvider(provider))
 	case v1beta1.AppTypeHelm:
 		if m.kubernetesMonitor.Has(provider.Spec().ID) {
+			m.kubernetesMonitor.QueueLifecycle(
+				provider.Spec().ID,
+				provider.Spec().DesiredState,
+				provider.Spec().RestartGeneration,
+			)
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
