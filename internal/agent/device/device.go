@@ -272,7 +272,9 @@ func (a *Agent) handleMissingSpec(ctx context.Context, err error) bool {
 	}
 	msg := fmt.Sprintf("Spec file missing at runtime: %v", err)
 	a.log.Errorf("%s", msg)
-	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, updateErr := a.statusManager.Update(updateCtx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
 		Status: v1beta1.DeviceSummaryStatusError,
 		Info:   lo.ToPtr(msg),
 	}))
