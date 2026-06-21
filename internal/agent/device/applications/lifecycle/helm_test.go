@@ -655,6 +655,319 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 	require.NoError(err)
 }
 
+func TestHelmHandler_Stop(t *testing.T) {
+	testCases := []struct {
+		name           string
+		action         Action
+		kubeconfigPath string
+		setupMock      func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name: "When desiredState is stopped it should scale all labeled workloads to 0",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+					"scale", "deployment,statefulset",
+					"-l", "agent.flightctl.io/app=my-app",
+					"--replicas=0",
+					"-n", "my-namespace",
+					"--kubeconfig", "/tmp/kubeconfig",
+				}).Return("", "", 0)
+			},
+		},
+		{
+			name: "When scale command fails it should return an error",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+					"scale", "deployment,statefulset",
+					"-l", "agent.flightctl.io/app=my-app",
+					"--replicas=0",
+					"-n", "my-namespace",
+					"--kubeconfig", "/tmp/kubeconfig",
+				}).Return("", "error: unable to scale", 1)
+			},
+			wantErr:     true,
+			errContains: "scale workloads",
+		},
+		{
+			name: "When no namespace is specified it should derive it from the app name",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Spec: HelmSpec{},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+					"scale", "deployment,statefulset",
+					"-l", "agent.flightctl.io/app=my-app",
+					"--replicas=0",
+					"-n", "flightctl-my-release",
+					"--kubeconfig", "/tmp/kubeconfig",
+				}).Return("", "", 0)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			tc.setupMock(mockExec, mockReadWriter)
+
+			clients := &testCLIClients{
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter,
+					client.WithBinary("kubectl"),
+					client.WithKubeconfigPath(tc.kubeconfigPath),
+				),
+			}
+			handler := NewHelmHandler(logger, clients, testExecutableResolver{path: "/test/flightctl"},
+				func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil })
+
+			err := handler.Stop(context.Background(), tc.action)
+
+			if tc.wantErr {
+				require.Error(err)
+				if tc.errContains != "" {
+					require.Contains(err.Error(), tc.errContains)
+				}
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}
+
+func TestHelmHandler_Start(t *testing.T) {
+	testCases := []struct {
+		name           string
+		action         Action
+		kubeconfigPath string
+		setupMock      func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr        bool
+	}{
+		{
+			name: "When desiredState is running it should re-apply the chart via helm upgrade --install",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"version", "--short",
+					}).Return("v3.14.0", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+						"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
+					}).Return("my-namespace   Active   5d", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+						"--install",
+						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
+						"--atomic",
+						"--post-renderer", "/test/flightctl",
+						"--post-renderer-args", "helm-render",
+						"--post-renderer-args", "--app",
+						"--post-renderer-args", "my-app",
+					}).Return("", "", 0),
+				)
+			},
+		},
+		{
+			name: "When helm upgrade --install fails it should return an error",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"version", "--short",
+					}).Return("v3.14.0", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+						"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
+					}).Return("my-namespace   Active   5d", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+						"--install",
+						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
+						"--atomic",
+						"--post-renderer", "/test/flightctl",
+						"--post-renderer-args", "helm-render",
+						"--post-renderer-args", "--app",
+						"--post-renderer-args", "my-app",
+					}).Return("", "Error: chart not found", 1),
+				)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			tc.setupMock(mockExec, mockReadWriter)
+
+			clients := &testCLIClients{
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter,
+					client.WithBinary("kubectl"),
+					client.WithKubeconfigPath(tc.kubeconfigPath),
+				),
+			}
+			handler := NewHelmHandler(logger, clients, testExecutableResolver{path: "/test/flightctl"},
+				func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil })
+
+			err := handler.Start(context.Background(), tc.action)
+
+			if tc.wantErr {
+				require.Error(err)
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}
+
+func TestHelmHandler_Restart(t *testing.T) {
+	testCases := []struct {
+		name           string
+		action         Action
+		kubeconfigPath string
+		setupMock      func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr        bool
+	}{
+		{
+			name: "When restartGeneration increments it should scale to 0 then re-apply the chart",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+						"scale", "deployment,statefulset",
+						"-l", "agent.flightctl.io/app=my-app",
+						"--replicas=0",
+						"-n", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
+					}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"version", "--short",
+					}).Return("v3.14.0", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+						"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
+					}).Return("my-namespace   Active   5d", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
+						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+						"--install",
+						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
+						"--atomic",
+						"--post-renderer", "/test/flightctl",
+						"--post-renderer-args", "helm-render",
+						"--post-renderer-args", "--app",
+						"--post-renderer-args", "my-app",
+					}).Return("", "", 0),
+				)
+			},
+		},
+		{
+			name: "When stop fails it should not call helm upgrade",
+			action: Action{
+				ID:   "my-app",
+				Name: "my-release",
+				Path: "/var/lib/flightctl/helm/charts/mychart-1.0.0",
+				Spec: HelmSpec{Namespace: "my-namespace"},
+			},
+			kubeconfigPath: "/tmp/kubeconfig",
+			setupMock: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+					"scale", "deployment,statefulset",
+					"-l", "agent.flightctl.io/app=my-app",
+					"--replicas=0",
+					"-n", "my-namespace",
+					"--kubeconfig", "/tmp/kubeconfig",
+				}).Return("", "error: unable to scale", 1)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			tc.setupMock(mockExec, mockReadWriter)
+
+			clients := &testCLIClients{
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter,
+					client.WithBinary("kubectl"),
+					client.WithKubeconfigPath(tc.kubeconfigPath),
+				),
+			}
+			handler := NewHelmHandler(logger, clients, testExecutableResolver{path: "/test/flightctl"},
+				func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil })
+
+			err := handler.Restart(context.Background(), tc.action)
+
+			if tc.wantErr {
+				require.Error(err)
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}
+
 func TestHelmHandler_Execute_UnsupportedActionType(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
