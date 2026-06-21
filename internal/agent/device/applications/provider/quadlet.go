@@ -666,7 +666,10 @@ func (q *quadletInstaller) namespacePodYAML(kubeFilename string) error {
 
 	yamlFilename, err := unit.Lookup(quadlet.KubeGroup, quadlet.KubeYamlKey)
 	if err != nil {
-		return nil
+		if err == quadlet.ErrSectionNotFound || err == quadlet.ErrKeyNotFound {
+			return nil
+		}
+		return fmt.Errorf("looking up pod YAML path in %q: %w", kubeFilename, err)
 	}
 	cleanPath := filepath.Clean(yamlFilename)
 	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
