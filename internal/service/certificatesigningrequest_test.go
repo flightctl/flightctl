@@ -113,6 +113,13 @@ func TestUpdateCertificateSigningRequestApprovalServerSvc(t *testing.T) {
 			approved:   false,
 			wantErr:    false,
 		},
+		{
+			name:       "When non-server-svc signer approval is by non-super-admin it should be accepted",
+			ctx:        nonAdminCtx,
+			signerName: cfg.DeviceEnrollmentSignerName,
+			approved:   true,
+			wantErr:    false,
+		},
 	}
 
 	for _, tc := range cases {
