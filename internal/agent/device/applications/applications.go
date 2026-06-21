@@ -321,6 +321,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	// order is important
 	switch {
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, exited)):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped:
+		// Workloads are still present — stopping is in progress.
+		newStatus = v1beta1.ApplicationStatusStopping
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
@@ -331,11 +338,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isCompleted(total, exited):
-		if a.desiredState == v1beta1.ApplicationDesiredStateStopped {
-			newStatus = v1beta1.ApplicationStatusStopped
-		} else {
-			newStatus = v1beta1.ApplicationStatusCompleted
-		}
+		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
