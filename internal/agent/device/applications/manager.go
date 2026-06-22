@@ -219,25 +219,26 @@ func (m *manager) clearAppDataCache() {
 	m.appDataCache = provider.NewAppDataCache()
 }
 
-func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, opts ...status.CollectorOpt) (*status.StatusContribution, error) {
 	var allResults []AppStatusResult
 
 	podmanResults, err := m.podmanMonitor.Status()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	allResults = append(allResults, podmanResults...)
 
 	k8sResults, err := m.kubernetesMonitor.Status()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	allResults = append(allResults, k8sResults...)
 
 	statuses, summary := aggregateAppStatuses(allResults)
-	status.ApplicationsSummary = summary
-	status.Applications = statuses
-	return nil
+	return &status.StatusContribution{
+		Applications:        statuses,
+		ApplicationsSummary: &summary,
+	}, nil
 }
 
 func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus) {
