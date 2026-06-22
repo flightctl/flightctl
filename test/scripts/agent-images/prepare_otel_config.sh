@@ -68,7 +68,11 @@ if [ -z "$ip" ]; then
   dns_suffix="nip.io"
 fi
 
-[ -n "$ip" ] || die "Could not extract IP from server URL: $server_url"
+# Hostname fallback (quadlet and other deployments using global.baseDomain)
+hostname=""
+if [ -z "$ip" ]; then
+  hostname="$(printf '%s\n' "$server_url" | sed -n 's#.*://\([^:/?#]*\).*#\1#p')"
+fi
 
 # Read CA (base64)
 ca_b64="$(yq -e -r '.["enrollment-service"].service."certificate-authority-data" // ""' "$CFG" 2>/dev/null || true)"
@@ -86,9 +90,19 @@ chmod 0640 "$tmp_ca"
 mv -f "$tmp_ca" "$DIR/certs/gateway-ca.crt"
 log "Wrote CA to $DIR/certs/gateway-ca.crt"
 
-# Build gateway endpoint (gRPC/4317) using the same DNS suffix as server URL
-gateway="telemetry-gateway.${ip}.${dns_suffix}:4317"
-log "Derived OTEL_GATEWAY=${gateway}"
+# Build gateway endpoint (gRPC/4317)
+if [ -n "${OTEL_GATEWAY:-}" ]; then
+  gateway="$OTEL_GATEWAY"
+  log "Using OTEL_GATEWAY from environment: ${gateway}"
+elif [ -n "$ip" ]; then
+  gateway="telemetry-gateway.${ip}.${dns_suffix}:4317"
+  log "Derived OTEL_GATEWAY=${gateway}"
+elif [ -n "$hostname" ]; then
+  gateway="${hostname}:4317"
+  log "Derived OTEL_GATEWAY=${gateway} (hostname-based)"
+else
+  die "Could not extract IP or hostname from server URL: $server_url"
+fi
 
 # Build OTEL options; allow optional server_name_override via env OTLP_SERVER_NAME
 opts="--config=${DIR}/config.yaml"
