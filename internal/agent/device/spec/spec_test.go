@@ -212,9 +212,7 @@ func TestEnsure(t *testing.T) {
 			cache:            newCache(log),
 		}
 
-		// allMissing loop: all 3 files missing (allMissing=true)
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(false, nil)
-		// anyMissing loop: all 3 files missing (anyMissing=true)
+		// single loop: all 3 files missing (allMissing=true, anyMissing=true)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(false, nil)
 		// write loop: attempt to write first file and fail
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
@@ -238,9 +236,7 @@ func TestEnsure(t *testing.T) {
 			publisher:        newPublisher("test", poll.NewConfig(time.Second, 1.5), "1", nil, log),
 		}
 
-		// allMissing loop: first file exists, break early (allMissing=false)
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
-		// anyMissing loop: current exists, desired exists, rollback missing
+		// single loop: current exists, desired exists, rollback missing (allMissing=false, anyMissing=true)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
@@ -271,9 +267,7 @@ func TestEnsure(t *testing.T) {
 			cache:            newCache(log),
 		}
 
-		// allMissing loop: first file exists, break early (allMissing=false)
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
-		// anyMissing loop: all 3 files exist (anyMissing=false, no writes)
+		// single loop: all 3 files exist (allMissing=false, anyMissing=false)
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(true, nil)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)

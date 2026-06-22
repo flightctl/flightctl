@@ -123,8 +123,9 @@ func (s *manager) Ensure() error {
 	// Check and recreate missing spec files.
 	// Distinguishes between first startup (bootstrap) and recovery from corruption.
 
-	// Determine if this is first startup by checking if ALL files are missing
+	// Single pass to determine allMissing and anyMissing
 	allMissing := true
+	anyMissing := false
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -132,18 +133,7 @@ func (s *manager) Ensure() error {
 		}
 		if exists {
 			allMissing = false
-			break
-		}
-	}
-
-	// Check if any individual file is missing
-	anyMissing := false
-	for _, specType := range []Type{Current, Desired, Rollback} {
-		exists, err := s.exists(specType)
-		if err != nil {
-			return err
-		}
-		if !exists {
+		} else {
 			anyMissing = true
 		}
 	}
