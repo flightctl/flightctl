@@ -312,14 +312,19 @@ UnitFileState=enabled
 				m.AddExclusions(tt.exclusions...)
 			}
 
-			status := v1beta1.NewDeviceStatus()
-			err := m.Status(context.Background(), &status)
+			contribution, err := m.Status(context.Background())
 
 			if tt.expectError {
 				require.Error(err)
 			} else {
 				require.NoError(err)
-				require.Equal(tt.expected, status.Systemd)
+				require.NotNil(contribution)
+				require.NotNil(contribution.Systemd)
+				if tt.expected == nil {
+					require.Nil(*contribution.Systemd)
+				} else {
+					require.Equal(*tt.expected, *contribution.Systemd)
+				}
 			}
 		})
 	}

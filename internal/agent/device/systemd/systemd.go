@@ -154,15 +154,17 @@ func (m *manager) normalizeActiveStateValue(val v1beta1.SystemdActiveStateType) 
 	return val
 }
 
-func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, _ ...status.CollectorOpt) (*status.StatusContribution, error) {
 	if len(m.patterns) == 0 {
-		device.Systemd = nil
-		return nil
+		var nilSlice []v1beta1.SystemdUnitStatus
+		return &status.StatusContribution{
+			Systemd: &nilSlice,
+		}, nil
 	}
 
 	units, err := m.client.ShowByMatchPattern(ctx, m.patterns)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	systemdUnits := make([]v1beta1.SystemdUnitStatus, 0, len(units))
@@ -181,8 +183,9 @@ func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ..
 			SubState:    unit["SubState"],
 		})
 	}
-	device.Systemd = lo.ToPtr(systemdUnits)
-	return nil
+	return &status.StatusContribution{
+		Systemd: lo.ToPtr(systemdUnits),
+	}, nil
 }
 
 func validatePatterns(patterns []string) error {
