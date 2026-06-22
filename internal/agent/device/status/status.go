@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,10 +24,47 @@ const (
 
 var _ Manager = (*StatusManager)(nil)
 
+// StatusContribution holds the status data returned by an exporter.
+// Each exporter populates only the fields it owns; nil fields are ignored
+// during merge.
+//
+// If an exporter returns both a non-nil StatusContribution and a non-nil
+// error, the contribution is still merged (the exporter did its best) and
+// the error is aggregated with other exporter errors.
+type StatusContribution struct {
+	Applications        []v1beta1.DeviceApplicationStatus
+	ApplicationsSummary *v1beta1.DeviceApplicationsSummaryStatus
+	Systemd             *[]v1beta1.SystemdUnitStatus
+	Resources           *v1beta1.DeviceResourceStatus
+	Os                  *v1beta1.DeviceOsStatus
+	Config              *v1beta1.DeviceConfigStatus
+	SystemInfo          *v1beta1.DeviceSystemInfo
+	// SummaryContribution lets an exporter influence the device summary
+	// without setting it directly. The manager picks highest severity.
+	SummaryContribution *SummaryContribution
+}
+
+// SummaryContribution carries an exporter's desired summary severity.
+type SummaryContribution struct {
+	Status v1beta1.DeviceSummaryStatusType
+	Info   *string
+}
+
+// summaryPriority defines the ordering for picking the highest-severity summary.
+var summaryPriority = map[v1beta1.DeviceSummaryStatusType]int{
+	v1beta1.DeviceSummaryStatusUnknown:   0,
+	v1beta1.DeviceSummaryStatusOnline:    1,
+	v1beta1.DeviceSummaryStatusDegraded:  2,
+	v1beta1.DeviceSummaryStatusRebooting: 3,
+	v1beta1.DeviceSummaryStatusError:     4,
+}
+
 // NewManager creates a new device status manager.
 func NewManager(
 	deviceName string,
 	log *log.PrefixLogger,
+	exporters []Exporter,
+	configWarnings []string,
 ) *StatusManager {
 	status := v1beta1.NewDeviceStatus()
 	return &StatusManager{
@@ -39,40 +77,43 @@ func NewManager(
 			},
 			Status: &status,
 		},
-		log: log,
+		exporters:      exporters,
+		configWarnings: configWarnings,
+		log:            log,
 	}
 }
 
-// Collector aggregates device status from various exporters.
+// StatusManager aggregates device status from various exporters.
 type StatusManager struct {
 	mu               sync.Mutex
 	deviceName       string
 	managementClient client.Management
 	exporters        []Exporter
+	configWarnings   []string
 	device           *v1beta1.Device
 	lastStatus       *v1beta1.DeviceStatus
 
 	log *log.PrefixLogger
 }
 
+// Exporter returns a StatusContribution describing the exporter's owned fields.
 type Exporter interface {
-	// Status collects status information and updates the device status.
-	Status(context.Context, *v1beta1.DeviceStatus, ...CollectorOpt) error
+	Status(context.Context, ...CollectorOpt) (*StatusContribution, error)
 }
 
+// Getter provides read access to the device status.
 type Getter interface {
 	// Get returns the device status and is safe to call without a management client.
 	Get(context.Context) *v1beta1.DeviceStatus
 }
 
+// Manager is the consumer-facing interface for device status operations.
 type Manager interface {
 	Getter
 	// Sync collects status information from all exporters and updates the device status.
 	Sync(context.Context) error
 	// Collect gathers status information from all exporters and is safe to call without a management client.
 	Collect(context.Context, ...CollectorOpt) error
-	// RegisterStatusExporter registers an exporter to be called when collecting status.
-	RegisterStatusExporter(Exporter)
 	// Update updates the device status with the given update functions.
 	Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1beta1.DeviceStatus, error)
 	// UpdateCondition updates the device status with the given condition.
@@ -104,15 +145,10 @@ func (m *StatusManager) Get(ctx context.Context) *v1beta1.DeviceStatus {
 	return &statusCopy
 }
 
-// reset assumes the lock is held
+// reset assumes the lock is held — only Applications is zeroed; other fields
+// carry forward from the previous cycle.
 func (m *StatusManager) reset() {
 	m.device.Status.Applications = m.device.Status.Applications[:0]
-}
-
-func (m *StatusManager) RegisterStatusExporter(exporter Exporter) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.exporters = append(m.exporters, exporter)
 }
 
 func (m *StatusManager) Collect(ctx context.Context, opts ...CollectorOpt) error {
@@ -126,21 +162,108 @@ func (m *StatusManager) Collect(ctx context.Context, opts ...CollectorOpt) error
 func (m *StatusManager) collect(ctx context.Context, opts ...CollectorOpt) error {
 	m.reset()
 
-	errs := []error{}
+	var errs []error
+	var summaryContributions []*SummaryContribution
+
 	for _, export := range m.exporters {
-		if err := export.Status(ctx, m.device.Status, opts...); err != nil {
+		contribution, err := export.Status(ctx, opts...)
+		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
 			errs = append(errs, err)
 		}
+		if contribution != nil {
+			mergeContribution(m.device.Status, contribution)
+			if contribution.SummaryContribution != nil {
+				summaryContributions = append(summaryContributions, contribution.SummaryContribution)
+			}
+		}
 	}
+
+	m.device.Status.Summary = calculateSummary(summaryContributions, m.configWarnings)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
 
 	return nil
+}
+
+// mergeContribution applies non-nil fields from a StatusContribution onto
+// the existing DeviceStatus. Nil fields are left untouched (carry-forward).
+func mergeContribution(s *v1beta1.DeviceStatus, c *StatusContribution) {
+	if c == nil {
+		return
+	}
+	if c.Applications != nil {
+		s.Applications = append(s.Applications, c.Applications...)
+	}
+	if c.ApplicationsSummary != nil {
+		s.ApplicationsSummary = *c.ApplicationsSummary
+	}
+	if c.Systemd != nil {
+		if *c.Systemd == nil {
+			s.Systemd = nil
+		} else {
+			s.Systemd = c.Systemd
+		}
+	}
+	if c.Resources != nil {
+		s.Resources = *c.Resources
+	}
+	if c.Os != nil {
+		s.Os = *c.Os
+	}
+	if c.Config != nil {
+		s.Config = *c.Config
+	}
+	if c.SystemInfo != nil {
+		s.SystemInfo = *c.SystemInfo
+	}
+}
+
+// calculateSummary picks the highest-severity SummaryContribution using
+// summaryPriority ordering. If configWarnings are present and no higher
+// severity exists, returns Degraded with the joined warning message.
+// If no contributions exist, returns Online with nil Info.
+func calculateSummary(contributions []*SummaryContribution, configWarnings []string) v1beta1.DeviceSummaryStatus {
+	var best *SummaryContribution
+	bestPriority := -1
+
+	for _, c := range contributions {
+		if c == nil {
+			continue
+		}
+		p := summaryPriority[c.Status]
+		if p >= bestPriority {
+			bestPriority = p
+			best = c
+		}
+	}
+
+	// Config warnings contribute Degraded if no higher severity exists
+	if len(configWarnings) > 0 {
+		degradedPriority := summaryPriority[v1beta1.DeviceSummaryStatusDegraded]
+		if bestPriority < degradedPriority {
+			msg := log.Truncate(strings.Join(configWarnings, "; "), MaxMessageLength)
+			return v1beta1.DeviceSummaryStatus{
+				Status: v1beta1.DeviceSummaryStatusDegraded,
+				Info:   &msg,
+			}
+		}
+	}
+
+	if best == nil {
+		return v1beta1.DeviceSummaryStatus{
+			Status: v1beta1.DeviceSummaryStatusOnline,
+		}
+	}
+
+	return v1beta1.DeviceSummaryStatus{
+		Status: best.Status,
+		Info:   best.Info,
+	}
 }
 
 // ReloadCollect collects status information from all exporters in the case that
