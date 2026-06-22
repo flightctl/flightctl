@@ -65,15 +65,18 @@ type manager struct {
 	log                *log.PrefixLogger
 }
 
-func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, _ ...status.CollectorOpt) (*status.StatusContribution, error) {
 	bootcInfo, err := m.client.Status(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	status.Os.Image = bootcInfo.GetBootedImage()
-	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
-	return nil
+	return &status.StatusContribution{
+		Os: &v1beta1.DeviceOsStatus{
+			Image:       bootcInfo.GetBootedImage(),
+			ImageDigest: bootcInfo.GetBootedImageDigest(),
+		},
+	}, nil
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {

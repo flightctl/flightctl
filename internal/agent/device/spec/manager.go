@@ -562,9 +562,12 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-func (s *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
-	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
-	return nil
+func (s *manager) Status(ctx context.Context, _ ...status.CollectorOpt) (*status.StatusContribution, error) {
+	return &status.StatusContribution{
+		Config: &v1beta1.DeviceConfigStatus{
+			RenderedVersion: s.cache.getRenderedVersion(Current),
+		},
+	}, nil
 }
 
 func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {

@@ -200,7 +200,7 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, opts ...status.CollectorOpt) (*status.StatusContribution, error) {
 	collectorOpts := status.CollectorOpts{}
 	for _, opt := range opts {
 		opt(&collectorOpts)
@@ -209,7 +209,7 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 
 	if m.collected && !collectorOpts.Force {
 		m.mu.Unlock()
-		return nil
+		return &status.StatusContribution{}, nil
 	}
 
 	// set collected to true even if there is an error this is to prevent
@@ -244,12 +244,10 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 	)
 
 	if err != nil {
-		deviceStatus.SystemInfo = m.defaultSystemInfo()
-		return err
+		defaultInfo := m.defaultSystemInfo()
+		return &status.StatusContribution{SystemInfo: &defaultInfo}, err
 	}
-	deviceStatus.SystemInfo = systemInfo
-
-	return nil
+	return &status.StatusContribution{SystemInfo: &systemInfo}, nil
 }
 
 // defaultSystemInfo returns the default system info.
