@@ -531,4 +531,3 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	log.Info("Successfully wiped certificate and restarted flightctl-agent service")
 	return nil
 }
-
