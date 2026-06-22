@@ -125,6 +125,23 @@ else
     PODMAN_BUILD_EXTRA_FLAGS="${BUILD_ARGS}"
 fi
 
+# Auto-detect mirror registry from OCP ImageTagMirrorSet if not explicitly set
+if [ -z "${MIRROR_REGISTRY:-}" ] && command -v oc &>/dev/null; then
+    MIRROR_REGISTRY=$(oc get imagetagmirrorset -o jsonpath='{range .items[*].spec.imageTagMirrors[*]}{.source}{" "}{.mirrors[0]}{"\n"}{end}' 2>/dev/null \
+        | awk '$1 == "quay.io" || index($1, "quay.io/") == 1 {print $2; exit}')
+fi
+
+if [ -n "${MIRROR_REGISTRY:-}" ]; then
+    case "${MIRROR_REGISTRY}" in
+        *[!a-zA-Z0-9._:/-]*)
+            echo "ERROR: Invalid MIRROR_REGISTRY format: ${MIRROR_REGISTRY}" >&2
+            exit 1
+            ;;
+    esac
+    echo "Mirror registry: ${MIRROR_REGISTRY}"
+    PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS} --build-arg MIRROR_REGISTRY=${MIRROR_REGISTRY}"
+fi
+
 export PODMAN_BUILD_EXTRA_FLAGS
 export IMAGE_REPO
 export TAG

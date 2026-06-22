@@ -20,6 +20,12 @@ RUN mkdir -p /var/crio && \
     rm -rf /opt && ln -s /var /opt && \
     ln -snf /run /var/run
 
+ARG MIRROR_REGISTRY=""
+COPY --from=variant-context etc/containers/mirror-registry.sh /tmp/mirror-registry.sh
+RUN if [ -n "${MIRROR_REGISTRY}" ]; then \
+      sh /tmp/mirror-registry.sh "${MIRROR_REGISTRY}"; \
+    fi && rm -f /tmp/mirror-registry.sh
+
 RUN firewall-offline-cmd --zone=public --add-port=22/tcp && \
     firewall-offline-cmd --zone=trusted --add-source=10.42.0.0/16 && \
     firewall-offline-cmd --zone=trusted --add-source=169.254.169.1 && \
