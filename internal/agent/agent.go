@@ -340,6 +340,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
+	if len(a.config.Warnings) > 0 {
+		statusManager.RegisterStatusExporter(&configWarningExporter{warnings: a.config.Warnings})
+	}
 
 	// create config controller
 	configController := config.NewController(
@@ -367,17 +370,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// bootstrap
 	if err := bootstrap.Initialize(ctx); err != nil {
 		return fmt.Errorf("bootstrap failed: %w", err)
-	}
-
-	if len(a.config.Warnings) > 0 {
-		msg := strings.Join(a.config.Warnings, "; ")
-		_, updateErr := statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
-			Status: v1beta1.DeviceSummaryStatusDegraded,
-			Info:   &msg,
-		}))
-		if updateErr != nil {
-			a.log.Warnf("Failed to report config warnings to status: %v", updateErr)
-		}
 	}
 
 	// Initialize certificate manager
@@ -539,5 +531,23 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	}
 
 	log.Info("Successfully wiped certificate and restarted flightctl-agent service")
+	return nil
+}
+
+// configWarningExporter surfaces config loading warnings (e.g. skipped drop-ins)
+// in the device summary on every status collection cycle.
+type configWarningExporter struct {
+	warnings []string
+}
+
+func (e *configWarningExporter) Status(_ context.Context, s *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
+	if len(e.warnings) == 0 {
+		return nil
+	}
+	msg := log.Truncate(strings.Join(e.warnings, "; "), status.MaxMessageLength)
+	if s.Summary.Status == v1beta1.DeviceSummaryStatusOnline {
+		s.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
+	}
+	s.Summary.Info = &msg
 	return nil
 }
