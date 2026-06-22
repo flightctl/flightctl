@@ -298,11 +298,13 @@ func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, 
 			{Path: name + ".kube", Content: lo.ToPtr(kubeUnit)},
 		},
 	}); err != nil {
-		return v1beta1.ApplicationProviderSpec{}, err
+		return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("building inline VM application spec: %w", err)
 	}
 	var appSpec v1beta1.ApplicationProviderSpec
-	err := appSpec.FromVmApplication(vmApp)
-	return appSpec, err
+	if err := appSpec.FromVmApplication(vmApp); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("converting VM application to provider spec: %w", err)
+	}
+	return appSpec, nil
 }
 
 // NewHelmApplicationSpec creates a HelmApplication spec with optional values files.

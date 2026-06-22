@@ -7,9 +7,14 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
+
+// ContainerExecer runs a command inside a container. vmStatusPoller uses it
+// to execute virsh domstate via podman exec.
+type ContainerExecer interface {
+	ExecInContainer(ctx context.Context, container string, args ...string) (stdout, stderr string, exitCode int)
+}
 
 const (
 	// vmConsecutiveFailureThreshold is the number of consecutive virsh domstate
@@ -52,7 +57,7 @@ const (
 // virsh domstate inside the virt-launcher container via podman exec.
 // Results are cached for vmStatusCacheTTL to reduce exec frequency.
 type vmStatusPoller struct {
-	exec                executer.Executer
+	exec                ContainerExecer
 	log                 *log.PrefixLogger
 	appName             string
 	consecutiveFailures int
@@ -62,7 +67,7 @@ type vmStatusPoller struct {
 }
 
 // newVMStatusPoller returns a vmStatusPoller for the given application name.
-func newVMStatusPoller(exec executer.Executer, log *log.PrefixLogger, appName string) *vmStatusPoller {
+func newVMStatusPoller(exec ContainerExecer, log *log.PrefixLogger, appName string) *vmStatusPoller {
 	return &vmStatusPoller{
 		exec:        exec,
 		log:         log,
@@ -84,7 +89,7 @@ func (p *vmStatusPoller) Poll(ctx context.Context) v1beta1.ApplicationStatusType
 
 	container := fmt.Sprintf("%s%s%s", virtLauncherContainerPrefix, p.appName, virtLauncherContainerSuffix)
 	domain := fmt.Sprintf("%s_%s", virtLauncherDomainNamespace, p.appName)
-	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, "podman", "exec", container, "virsh", "domstate", domain)
+	stdout, stderr, exitCode := p.exec.ExecInContainer(ctx, container, "virsh", "domstate", domain)
 	if exitCode != 0 {
 		p.consecutiveFailures++
 		p.log.Debugf("virsh domstate for %q exited %d (failure %d/%d): %s", p.appName, exitCode, p.consecutiveFailures, p.maxFailures, strings.TrimSpace(stderr))
