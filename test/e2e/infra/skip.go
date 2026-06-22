@@ -39,6 +39,36 @@ func SkipIfRBACNotSupported(rbacProvider RBACProvider) {
 	}
 }
 
+// quadletObservabilityServices are systemd services from the flightctl-observability stack
+// required by observability e2e tests on Quadlet (Prometheus scrapes API and gateway metrics).
+var quadletObservabilityServices = []ServiceName{
+	ServicePrometheus,
+}
+
+// SkipIfQuadletObservabilityNotRunning skips when on Quadlet and the observability stack
+// is not active. Requires flightctl-observability RPM and flightctl-observability.target.
+func SkipIfQuadletObservabilityNotRunning(lifecycle ServiceLifecycleProvider) {
+	if !IsQuadletEnvironment() {
+		return
+	}
+	if lifecycle == nil {
+		Fail("Quadlet observability tests require a lifecycle provider")
+	}
+	for _, svc := range quadletObservabilityServices {
+		running, err := lifecycle.IsRunning(svc)
+		if err != nil {
+			Fail(fmt.Sprintf("unable to check %s status: %v", svc, err))
+		}
+		if !running {
+			Skip(fmt.Sprintf(
+				"flightctl-observability stack not running (%s is not active); "+
+					"install flightctl-observability and run: systemctl enable --now flightctl-observability.target",
+				svc,
+			))
+		}
+	}
+}
+
 // SkipIfEnvironment skips the current test if running in the specified environment.
 func SkipIfEnvironment(envType string, reason ...string) {
 	currentEnv := DetectEnvironment()
