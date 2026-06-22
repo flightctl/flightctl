@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -162,9 +161,9 @@ func NewApplication(p provider.Provider) *application {
 }
 
 // NewVMApplication creates an application for a VM workload with a vmStatusPoller
-// wired to the given executer. Status() on the returned application calls virsh
-// domstate rather than the workload-count-based logic.
-func NewVMApplication(p provider.Provider, exec executer.Executer, log *log.PrefixLogger) *application {
+// wired to the given ContainerExecer. Status() on the returned application calls
+// virsh domstate rather than the workload-count-based logic.
+func NewVMApplication(p provider.Provider, exec ContainerExecer, log *log.PrefixLogger) *application {
 	a := NewApplication(p)
 	a.status.AppType = v1beta1.AppTypeVm
 	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name)

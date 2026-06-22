@@ -17,6 +17,18 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// mockContainerExecer is a test double for ContainerExecer that returns
+// configurable stdout/stderr/exitCode values for any ExecInContainer call.
+type mockContainerExecer struct {
+	stdout   string
+	stderr   string
+	exitCode int
+}
+
+func (m *mockContainerExecer) ExecInContainer(_ context.Context, _ string, _ ...string) (string, string, int) {
+	return m.stdout, m.stderr, m.exitCode
+}
+
 // newMockVMProvider returns a MockProvider whose Spec() returns a minimal ApplicationSpec
 // for a VM workload with the given app name.
 func newMockVMProvider(ctrl *gomock.Controller, appName string) *provider.MockProvider {
@@ -314,8 +326,6 @@ func TestApplicationStatus(t *testing.T) {
 
 func TestVMApplicationStatus(t *testing.T) {
 	const appName = "fedora-vm"
-	const container = "virt-launcher-fedora-vm-compute"
-	const domain = virtLauncherDomainNamespace + "_" + appName
 
 	tests := []struct {
 		name                  string
@@ -376,13 +386,11 @@ func TestVMApplicationStatus(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().
-				ExecuteWithContext(gomock.Any(), "podman", "exec", container, "virsh", "domstate", domain).
-				Return(tt.virshStdout, "", tt.virshExitCode)
-
 			mockProvider := newMockVMProvider(ctrl, appName)
-			app := NewVMApplication(mockProvider, mockExec, log.NewPrefixLogger(""))
+			app := NewVMApplication(mockProvider, &mockContainerExecer{
+				stdout:   tt.virshStdout,
+				exitCode: tt.virshExitCode,
+			}, log.NewPrefixLogger(""))
 			app.vmPoller.consecutiveFailures = tt.initialFailures
 
 			appStatus, summary, err := app.Status()
@@ -462,7 +470,19 @@ func TestNewAppFromProvider(t *testing.T) {
 				mock.EXPECT().Name().Return("app").AnyTimes()
 			}
 
-			m := &manager{log: log.NewPrefixLogger("")}
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+			podmanFactory := client.PodmanFactory(func(user v1beta1.Username) (*client.Podman, error) {
+				execForUser, err := client.ExecuterForUser(user)
+				if err != nil {
+					return nil, err
+				}
+				return client.NewPodman(log.NewPrefixLogger(""), execForUser, readWriter, util.NewPollConfig()), nil
+			})
+			m := &manager{log: log.NewPrefixLogger(""), podmanFactory: podmanFactory}
 			app, err := m.newAppFromProvider(mock)
 
 			if tt.wantErr {

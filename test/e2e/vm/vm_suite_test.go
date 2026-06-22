@@ -88,7 +88,11 @@ func printVMQuadletDiagnosticsIfFailed(h *e2e.Harness) {
 		{"podman version", []string{"podman", "version", "--format", "{{.Client.Version}} / {{.Server.Version}}"}},
 	}
 	for _, c := range cmds {
-		out, _ := h.VM.RunSSH(c.args, nil)
+		out, err := h.VM.RunSSH(c.args, nil)
+		if err != nil {
+			logrus.Warnf("[VM-diag] %s: SSH command failed: %v", c.label, err)
+			continue
+		}
 		logrus.Infof("[VM-diag] %s:\n%s", c.label, out.String())
 	}
 }

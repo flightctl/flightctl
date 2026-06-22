@@ -85,11 +85,11 @@ func (m *manager) newAppFromProvider(p provider.Provider) (Application, error) {
 	if !p.Spec().IsVMWorkload {
 		return NewApplication(p), nil
 	}
-	exec, err := client.ExecuterForUser(p.Spec().User)
+	podman, err := m.podmanFactory(p.Spec().User)
 	if err != nil {
-		return nil, fmt.Errorf("creating executer for VM application %q: %w", p.Name(), err)
+		return nil, fmt.Errorf("creating podman client for VM application %q: %w", p.Name(), err)
 	}
-	return NewVMApplication(p, exec, m.log), nil
+	return NewVMApplication(p, podman, m.log), nil
 }
 
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {

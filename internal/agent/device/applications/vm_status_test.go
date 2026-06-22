@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -64,75 +67,63 @@ func TestVMStatusPollerPoll(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		setupMock             func(*executer.MockExecuter)
+		virshStdout           string
+		virshStderr           string
+		virshExitCode         int
 		initialFailures       int
 		expectedStatus        v1beta1.ApplicationStatusType
 		expectedFailuresAfter int
 	}{
 		{
-			name: "When virsh exits zero with running it should return Running and reset failure counter",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("running\n", "", 0)
-			},
+			name:                  "When virsh exits zero with running it should return Running and reset failure counter",
+			virshStdout:           "running\n",
+			virshExitCode:         0,
 			initialFailures:       2,
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
 			expectedFailuresAfter: 0,
 		},
 		{
-			name: "When virsh exits zero with shut off it should return Stopped and reset failure counter",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("shut off\n", "", 0)
-			},
+			name:                  "When virsh exits zero with shut off it should return Stopped and reset failure counter",
+			virshStdout:           "shut off\n",
+			virshExitCode:         0,
 			expectedStatus:        v1beta1.ApplicationStatusStopped,
 			expectedFailuresAfter: 0,
 		},
 		{
-			name: "When virsh exits zero with in shutdown it should return Stopping",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("in shutdown\n", "", 0)
-			},
+			name:                  "When virsh exits zero with in shutdown it should return Stopping",
+			virshStdout:           "in shutdown\n",
+			virshExitCode:         0,
 			expectedStatus:        v1beta1.ApplicationStatusStopping,
 			expectedFailuresAfter: 0,
 		},
 		{
-			name: "When virsh exits non-zero on first failure it should return Starting and increment counter",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("", "error: failed to connect", 1)
-			},
+			name:                  "When virsh exits non-zero on first failure it should return Starting and increment counter",
+			virshStderr:           "error: failed to connect",
+			virshExitCode:         1,
 			initialFailures:       0,
 			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedFailuresAfter: 1,
 		},
 		{
-			name: "When virsh exits non-zero on second consecutive failure it should return Starting",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("", "error: failed to connect", 1)
-			},
+			name:                  "When virsh exits non-zero on second consecutive failure it should return Starting",
+			virshStderr:           "error: failed to connect",
+			virshExitCode:         1,
 			initialFailures:       vmConsecutiveFailureThreshold - 2,
 			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedFailuresAfter: vmConsecutiveFailureThreshold - 1,
 		},
 		{
-			name: "When virsh exits non-zero on the Nth consecutive failure it should return Error",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("", "error: failed to connect", 1)
-			},
+			name:                  "When virsh exits non-zero on the Nth consecutive failure it should return Error",
+			virshStderr:           "error: failed to connect",
+			virshExitCode:         1,
 			initialFailures:       vmConsecutiveFailureThreshold - 1,
 			expectedStatus:        v1beta1.ApplicationStatusError,
 			expectedFailuresAfter: vmConsecutiveFailureThreshold,
 		},
 		{
-			name: "When virsh recovers after prior failures it should return mapped state and reset counter",
-			setupMock: func(m *executer.MockExecuter) {
-				m.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
-					Return("running\n", "", 0)
-			},
+			name:                  "When virsh recovers after prior failures it should return mapped state and reset counter",
+			virshStdout:           "running\n",
+			virshExitCode:         0,
 			initialFailures:       vmConsecutiveFailureThreshold - 1,
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
 			expectedFailuresAfter: 0,
@@ -145,10 +136,18 @@ func TestVMStatusPollerPoll(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
 			mockExec := executer.NewMockExecuter(ctrl)
-			tt.setupMock(mockExec)
+			mockExec.EXPECT().
+				ExecuteWithContext(gomock.Any(), "podman", "exec", expectedContainer, "virsh", "domstate", expectedDomain).
+				Return(tt.virshStdout, tt.virshStderr, tt.virshExitCode)
 
-			poller := newVMStatusPoller(mockExec, log.NewPrefixLogger(""), appName)
+			podman := client.NewPodman(log.NewPrefixLogger(""), mockExec, readWriter, util.NewPollConfig())
+			poller := newVMStatusPoller(podman, log.NewPrefixLogger(""), appName)
 			poller.consecutiveFailures = tt.initialFailures
 
 			status := poller.Poll(context.Background())
