@@ -749,10 +749,12 @@ func labelKeyToSymbol(labelKey string) string {
 	return builder.String()
 }
 
-// quoteIdentifier wraps name in PostgreSQL double-quotes, escaping embedded quotes.
-// This prevents SQL injection — gorm.Expr is a raw expression marker and does NOT sanitize.
 func quoteIdentifier(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	end := strings.IndexRune(name, 0)
+	if end > -1 {
+		name = name[:end]
+	}
+	return `"` + strings.Replace(name, `"`, `""`, -1) + `"`
 }
 
 // CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
