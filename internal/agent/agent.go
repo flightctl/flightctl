@@ -341,7 +341,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
 	if len(a.config.Warnings) > 0 {
-		statusManager.RegisterStatusExporter(&configWarningExporter{warnings: a.config.Warnings})
+		statusManager.RegisterStatusExporter(newConfigWarningExporter(a.config.Warnings))
 	}
 
 	// create config controller
@@ -537,17 +537,20 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 // configWarningExporter surfaces config loading warnings (e.g. skipped drop-ins)
 // in the device summary on every status collection cycle.
 type configWarningExporter struct {
-	warnings []string
+	msg string
+}
+
+func newConfigWarningExporter(warnings []string) *configWarningExporter {
+	return &configWarningExporter{
+		msg: log.Truncate(strings.Join(warnings, "; "), status.MaxMessageLength),
+	}
 }
 
 func (e *configWarningExporter) Status(_ context.Context, s *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
-	if len(e.warnings) == 0 {
+	if s.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
 		return nil
 	}
-	msg := log.Truncate(strings.Join(e.warnings, "; "), status.MaxMessageLength)
-	if s.Summary.Status == v1beta1.DeviceSummaryStatusOnline {
-		s.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
-	}
-	s.Summary.Info = &msg
+	s.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
+	s.Summary.Info = &e.msg
 	return nil
 }
