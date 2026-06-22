@@ -36,6 +36,7 @@ func TestQuoteIdentifier(t *testing.T) {
 		{"with underscore", "my_key", `"my_key"`},
 		{"with embedded double quote", `my"key`, `"my""key"`},
 		{"label symbol", "node_dot_zone", `"node_dot_zone"`},
+		{"with null byte", "region\x00injected", `"region"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
