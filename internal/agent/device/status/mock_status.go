@@ -42,21 +42,22 @@ func (m *MockExporter) EXPECT() *MockExporterMockRecorder {
 }
 
 // Status mocks base method.
-func (m *MockExporter) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...CollectorOpt) error {
+func (m *MockExporter) Status(arg0 context.Context, arg1 ...CollectorOpt) (*StatusContribution, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{arg0, arg1}
-	for _, a := range arg2 {
+	varargs := []any{arg0}
+	for _, a := range arg1 {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Status", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(*StatusContribution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockExporterMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.Call {
+func (mr *MockExporterMockRecorder) Status(arg0 any, arg1 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{arg0, arg1}, arg2...)
+	varargs := append([]any{arg0}, arg1...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockExporter)(nil).Status), varargs...)
 }
 
@@ -163,18 +164,6 @@ func (m *MockManager) InvalidateLastStatus() {
 func (mr *MockManagerMockRecorder) InvalidateLastStatus() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateLastStatus", reflect.TypeOf((*MockManager)(nil).InvalidateLastStatus))
-}
-
-// RegisterStatusExporter mocks base method.
-func (m *MockManager) RegisterStatusExporter(arg0 Exporter) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterStatusExporter", arg0)
-}
-
-// RegisterStatusExporter indicates an expected call of RegisterStatusExporter.
-func (mr *MockManagerMockRecorder) RegisterStatusExporter(arg0 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterStatusExporter", reflect.TypeOf((*MockManager)(nil).RegisterStatusExporter), arg0)
 }
 
 // SetClient mocks base method.
