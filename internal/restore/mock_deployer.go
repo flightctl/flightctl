@@ -166,6 +166,21 @@ func (mr *MockDeployerMockRecorder) RestorePKI(ctx, extractDir any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestorePKI", reflect.TypeOf((*MockDeployer)(nil).RestorePKI), ctx, extractDir)
 }
 
+// SetupExternalDBCerts mocks base method.
+func (m *MockDeployer) SetupExternalDBCerts(ctx context.Context, cfg *config.Config) (func(), error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetupExternalDBCerts", ctx, cfg)
+	ret0, _ := ret[0].(func())
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetupExternalDBCerts indicates an expected call of SetupExternalDBCerts.
+func (mr *MockDeployerMockRecorder) SetupExternalDBCerts(ctx, cfg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetupExternalDBCerts", reflect.TypeOf((*MockDeployer)(nil).SetupExternalDBCerts), ctx, cfg)
+}
+
 // StartServices mocks base method.
 func (m *MockDeployer) StartServices(ctx context.Context) error {
 	m.ctrl.T.Helper()
