@@ -150,43 +150,30 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 	return nil
 }
 
-// Status returns the device status based on the resource monitors and for the device summary.
-func (m *ResourceManager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
+// Status returns the device resource status and a summary contribution reflecting resource alerts.
+func (m *ResourceManager) Status(ctx context.Context, _ ...status.CollectorOpt) (*status.StatusContribution, error) {
 	alerts := m.Alerts()
 
+	var resources v1beta1.DeviceResourceStatus
 	hasCriticalOrErrorResource := false
 	hasDegradedResource := false
 	criticalResourceTypes := []string{}
 	degradedResourceTypes := []string{}
 
-	// define monitor types and alerts
-	resourceMonitors := map[string]struct {
+	type monitorDef struct {
+		monitorType string
 		alerts      []v1beta1.ResourceAlertRule
-		setStatusFn func(v1beta1.DeviceResourceStatusType)
-	}{
-		DiskMonitorType: {
-			alerts: alerts.DiskUsage,
-			setStatusFn: func(resourceStatus v1beta1.DeviceResourceStatusType) {
-				status.Resources.Disk = resourceStatus
-			},
-		},
-		CPUMonitorType: {
-			alerts: alerts.CPUUsage,
-			setStatusFn: func(resourceStatus v1beta1.DeviceResourceStatusType) {
-				status.Resources.Cpu = resourceStatus
-			},
-		},
-		MemoryMonitorType: {
-			alerts: alerts.MemoryUsage,
-			setStatusFn: func(resourceStatus v1beta1.DeviceResourceStatusType) {
-				status.Resources.Memory = resourceStatus
-			},
-		},
+		setFn       func(v1beta1.DeviceResourceStatusType)
 	}
 
-	// set the status for each monitor type
-	for monitorType, monitor := range resourceMonitors {
-		resourceStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(monitorType, monitor.alerts)
+	monitors := []monitorDef{
+		{DiskMonitorType, alerts.DiskUsage, func(s v1beta1.DeviceResourceStatusType) { resources.Disk = s }},
+		{CPUMonitorType, alerts.CPUUsage, func(s v1beta1.DeviceResourceStatusType) { resources.Cpu = s }},
+		{MemoryMonitorType, alerts.MemoryUsage, func(s v1beta1.DeviceResourceStatusType) { resources.Memory = s }},
+	}
+
+	for _, mon := range monitors {
+		resourceStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(mon.monitorType, mon.alerts)
 		if alertMsg != "" {
 			m.log.Warn(alertMsg)
 		}
@@ -194,28 +181,36 @@ func (m *ResourceManager) Status(ctx context.Context, status *v1beta1.DeviceStat
 		switch resourceStatus {
 		case v1beta1.DeviceResourceStatusCritical, v1beta1.DeviceResourceStatusError:
 			hasCriticalOrErrorResource = true
-			criticalResourceTypes = append(criticalResourceTypes, monitorType)
+			criticalResourceTypes = append(criticalResourceTypes, mon.monitorType)
 		case v1beta1.DeviceResourceStatusWarning:
 			hasDegradedResource = true
-			degradedResourceTypes = append(degradedResourceTypes, monitorType)
+			degradedResourceTypes = append(degradedResourceTypes, mon.monitorType)
 		}
 
-		monitor.setStatusFn(resourceStatus)
+		mon.setFn(resourceStatus)
 	}
 
-	// ensure status proper reflects in the device summary
+	contribution := &status.StatusContribution{
+		Resources: &resources,
+	}
+
 	if hasCriticalOrErrorResource {
-		status.Summary.Status = v1beta1.DeviceSummaryStatusError
-		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Critical resource alert: %s", strings.Join(criticalResourceTypes, ", ")))
+		contribution.SummaryContribution = &status.SummaryContribution{
+			Status: v1beta1.DeviceSummaryStatusError,
+			Info:   lo.ToPtr(fmt.Sprintf("Critical resource alert: %s", strings.Join(criticalResourceTypes, ", "))),
+		}
 	} else if hasDegradedResource {
-		status.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
-		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Degraded resource alert: %s", strings.Join(degradedResourceTypes, ", ")))
+		contribution.SummaryContribution = &status.SummaryContribution{
+			Status: v1beta1.DeviceSummaryStatusDegraded,
+			Info:   lo.ToPtr(fmt.Sprintf("Degraded resource alert: %s", strings.Join(degradedResourceTypes, ", "))),
+		}
 	} else {
-		status.Summary.Status = v1beta1.DeviceSummaryStatusOnline
-		status.Summary.Info = nil
+		contribution.SummaryContribution = &status.SummaryContribution{
+			Status: v1beta1.DeviceSummaryStatusOnline,
+		}
 	}
 
-	return nil
+	return contribution, nil
 }
 
 func (m *ResourceManager) Alerts() *Alerts {

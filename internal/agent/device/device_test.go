@@ -404,7 +404,7 @@ func TestSync(t *testing.T) {
 			}
 			consoleManager := console.NewManager(mockRouterService, deviceName, "root", mockExec, mockWatcher, log)
 			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
-			statusManager := status.NewManager(deviceName, log)
+			statusManager := status.NewManager(deviceName, log, nil, nil)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
 
@@ -526,7 +526,7 @@ func TestRollbackDevice(t *testing.T) {
 			dataDir := filepath.Join(tmpDir, "data")
 
 			policyManager := policy.NewManager(log)
-			statusManager := status.NewManager(deviceName, log)
+			statusManager := status.NewManager(deviceName, log, nil, nil)
 			statusManager.SetClient(mockManagementClient)
 			mockAuditLogger := audit.NewMockLogger(ctrl)
 			mockAuditLogger.EXPECT().Close().Return(nil).AnyTimes()
@@ -719,7 +719,7 @@ func TestOSRollback(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
-			statusManager := status.NewManager(deviceName, log)
+			statusManager := status.NewManager(deviceName, log, nil, nil)
 			statusManager.SetClient(mockManagementClient)
 
 			agent := Agent{

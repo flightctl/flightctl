@@ -271,3 +271,123 @@ image-pruning:
 	require.NotNil(cfg.ImagePruning.Enabled, "Enabled should not be nil when dropin enables pruning")
 	require.True(*cfg.ImagePruning.Enabled, "pruning dropin should override config setting")
 }
+
+func TestLoadWithOverrides_DropinErrorHandling(t *testing.T) {
+	tests := []struct {
+		name             string
+		baseConfig       string
+		setupDropins     func(t *testing.T, dropinDir string)
+		wantErr          bool
+		skipOnRoot       bool
+		expectedLogLevel string
+		expectedWarnings int
+		warningContains  string
+	}{
+		{
+			name:       "When an invalid dropin exists it should skip it and apply valid ones",
+			baseConfig: yamlConfig,
+			setupDropins: func(t *testing.T, dropinDir string) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "01-bad.yaml"),
+					[]byte("image-pruning:\n\t enabled: true\n"),
+					0o600,
+				))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "02-good.yaml"),
+					[]byte("log-level: debug\n"),
+					0o600,
+				))
+			},
+			expectedLogLevel: "debug",
+			expectedWarnings: 1,
+			warningContains:  "01-bad.yaml",
+		},
+		{
+			name:       "When the base config is invalid it should return an error",
+			baseConfig: "invalid: yaml: [\n",
+			wantErr:    true,
+		},
+		{
+			name:       "When only invalid dropins exist it should still succeed with base config",
+			baseConfig: yamlConfig,
+			setupDropins: func(t *testing.T, dropinDir string) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "01-bad.yaml"),
+					[]byte("image-pruning:\n\t enabled: true\n"),
+					0o600,
+				))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "02-also-bad.yaml"),
+					[]byte("{{{not yaml at all\n"),
+					0o600,
+				))
+			},
+			expectedWarnings: 2,
+		},
+		{
+			name:       "When an unreadable dropin exists it should skip it and apply valid ones",
+			baseConfig: yamlConfig,
+			skipOnRoot: true,
+			setupDropins: func(t *testing.T, dropinDir string) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "01-unreadable.yaml"),
+					[]byte("log-level: debug\n"),
+					0o000,
+				))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dropinDir, "02-good.yaml"),
+					[]byte("log-level: warn\n"),
+					0o600,
+				))
+			},
+			expectedLogLevel: "warn",
+			expectedWarnings: 1,
+			warningContains:  "01-unreadable.yaml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipOnRoot && os.Getuid() == 0 {
+				t.Skip("permission test is not meaningful when running as root")
+			}
+
+			require := require.New(t)
+			tmpDir := t.TempDir()
+			configDir := filepath.Join(tmpDir, "etc", "flightctl")
+			dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+			require.NoError(os.MkdirAll(configDir, 0o755))
+			require.NoError(os.MkdirAll(dataDir, 0o755))
+
+			cfg := NewDefault()
+			cfg.ConfigDir = configDir
+			cfg.DataDir = dataDir
+			cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+			configFile := filepath.Join(configDir, "config.yaml")
+			require.NoError(os.WriteFile(configFile, []byte(tt.baseConfig), 0o600))
+
+			if tt.setupDropins != nil {
+				dropinDir := filepath.Join(configDir, "conf.d")
+				require.NoError(os.MkdirAll(dropinDir, 0o755))
+				tt.setupDropins(t, dropinDir)
+			}
+
+			err := cfg.LoadWithOverrides(configFile)
+			if tt.wantErr {
+				require.Error(err)
+				return
+			}
+			require.NoError(err)
+
+			if tt.expectedLogLevel != "" {
+				require.Equal(tt.expectedLogLevel, cfg.LogLevel)
+			}
+			require.Len(cfg.Warnings, tt.expectedWarnings)
+			if tt.warningContains != "" {
+				require.Contains(cfg.Warnings[0], tt.warningContains)
+			}
+		})
+	}
+}

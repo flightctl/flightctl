@@ -308,9 +308,19 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create status manager
+	statusExporters := []status.Exporter{
+		applicationsManager,
+		rootSystemdManager,
+		resourceManager,
+		osManager,
+		specManager,
+		systemInfoManager,
+	}
 	statusManager := status.NewManager(
 		deviceName,
 		a.log,
+		statusExporters,
+		a.config.Warnings,
 	)
 
 	// create lifecycle manager
@@ -331,14 +341,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		backoff,
 		a.log,
 	)
-
-	// register status exporters
-	statusManager.RegisterStatusExporter(applicationsManager)
-	statusManager.RegisterStatusExporter(rootSystemdManager)
-	statusManager.RegisterStatusExporter(resourceManager)
-	statusManager.RegisterStatusExporter(osManager)
-	statusManager.RegisterStatusExporter(specManager)
-	statusManager.RegisterStatusExporter(systemInfoManager)
 
 	// create config controller
 	configController := config.NewController(
