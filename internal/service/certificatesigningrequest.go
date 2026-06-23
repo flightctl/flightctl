@@ -362,8 +362,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 		return nil, StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
 
-	isApproving := domain.IsStatusConditionTrue(newCSR.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved)
-	if err := checkServerSvcApprovalPrivilege(ctx, oldCSR.Spec.SignerName, h.ca.Cfg.ServerSvcSignerName, isApproving); err != nil {
+	if err := checkServerSvcApprovalPrivilege(ctx, oldCSR.Spec.SignerName, h.ca.Cfg.ServerSvcSignerName); err != nil {
 		return nil, domain.StatusForbidden(err.Error())
 	}
 
@@ -439,11 +438,11 @@ func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningReques
 	}
 }
 
-func checkServerSvcApprovalPrivilege(ctx context.Context, signerName, serverSvcSignerName string, isApproving bool) error {
-	if signerName == serverSvcSignerName && isApproving {
+func checkServerSvcApprovalPrivilege(ctx context.Context, signerName, serverSvcSignerName string) error {
+	if signerName == serverSvcSignerName {
 		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 		if !ok || !mappedIdentity.IsSuperAdmin() {
-			return fmt.Errorf("approving CSRs with signer name %q requires super-admin privileges", signerName)
+			return fmt.Errorf("approving or denying CSRs with signer name %q requires super-admin privileges", signerName)
 		}
 	}
 	return nil
