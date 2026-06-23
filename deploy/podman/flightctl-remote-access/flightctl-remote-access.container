@@ -12,8 +12,6 @@ Network=flightctl.network
 AddHost=%H:host-gateway
 User=1001
 Environment=HOME=/root
-NoNewPrivileges=true
-DropCapability=all
 
 Volume=/etc/flightctl/pki/flightctl-remote-access/server.crt:/root/.flightctl/certs/server.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-remote-access/server.key:/root/.flightctl/certs/server.key:ro,z
