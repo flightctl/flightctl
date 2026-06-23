@@ -295,6 +295,16 @@ func (o *LoginOptions) resolveCredentials() error {
 	}
 
 	if o.CredentialsFile != "" {
+		fi, err := os.Stat(o.CredentialsFile)
+		if err != nil {
+			return fmt.Errorf("reading credentials file %s: %w", o.CredentialsFile, err)
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("credentials file %s is not a regular file", o.CredentialsFile)
+		}
+		if fi.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("credentials file %s has too broad permissions %04o, expected 0600 or stricter", o.CredentialsFile, fi.Mode().Perm())
+		}
 		data, err := os.ReadFile(o.CredentialsFile)
 		if err != nil {
 			return fmt.Errorf("reading credentials file %s: %w", o.CredentialsFile, err)

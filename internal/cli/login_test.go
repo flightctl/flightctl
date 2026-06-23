@@ -628,6 +628,12 @@ func TestLoginOptions_CompleteCredentialsFile(t *testing.T) {
 			errContains: "parsing credentials file",
 		},
 		{
+			name:        "When credentials file has world-readable permissions it should return error",
+			fileContent: `{"token": "file-token"}`,
+			wantErr:     true,
+			errContains: "too broad permissions",
+		},
+		{
 			name:         "When credentials file has empty fields it should not overwrite existing values",
 			fileContent:  `{"token": "", "username": "file-user", "password": "file-pass"}`,
 			flagToken:    "flag-token",
@@ -649,7 +655,11 @@ func TestLoginOptions_CompleteCredentialsFile(t *testing.T) {
 			if tt.fileContent != "" || !tt.wantErr {
 				tmpDir := t.TempDir()
 				credPath := filepath.Join(tmpDir, "creds.json")
-				require.NoError(os.WriteFile(credPath, []byte(tt.fileContent), 0600))
+				perm := os.FileMode(0600)
+				if tt.errContains == "too broad permissions" {
+					perm = 0644
+				}
+				require.NoError(os.WriteFile(credPath, []byte(tt.fileContent), perm))
 				o.CredentialsFile = credPath
 			} else if tt.wantErr && tt.errContains == "reading credentials file" {
 				o.CredentialsFile = "/nonexistent/path/creds.json"
