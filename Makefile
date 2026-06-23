@@ -446,6 +446,11 @@ LINT_CONTAINER := podman run --rm --security-opt label=disable \
 	-v go-build-cache:/root/.cache/go-build \
 	-v go-mod-cache:/go/pkg/mod \
 	-w /app --user 0 $(LINT_IMAGE)
+# lint-fix runs as the host user so that auto-fixed files are not root-owned.
+# Cache volumes are omitted because /root/.cache is inaccessible to non-root.
+LINT_FIX_CONTAINER := podman run --rm --security-opt label=disable \
+	-v $(GOBASE):/app \
+	-w /app --user $$(id -u):$$(id -g) $(LINT_IMAGE)
 
 .PHONY: tools
 tools:
@@ -461,7 +466,7 @@ lint: .output/stamps/lint-image
 
 .PHONY: lint-fix
 lint-fix: .output/stamps/lint-image
-	$(LINT_CONTAINER) golangci-lint run -v --fix
+	$(LINT_FIX_CONTAINER) golangci-lint run -v --fix
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint
