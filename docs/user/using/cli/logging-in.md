@@ -100,6 +100,8 @@ Token-based authentication is useful for automation, CI/CD pipelines, and non-in
   flightctl login https://flightctl.example.com --token=<your-token> --certificate-authority=/path/to/ca.crt
   ```
 
+> **Tip:** For automation and scripting, you can set the `FLIGHTCTL_TOKEN` environment variable instead of passing `--token` on the command line. See [Logging in Non-Interactively](#logging-in-non-interactively-automation-and-scripting).
+
 ## Logging in with Username and Password
 
 Username and password authentication uses the OAuth/OIDC resource owner password credentials flow. This method is only available if your identity provider supports password flow.
@@ -141,6 +143,63 @@ Username and password authentication uses the OAuth/OIDC resource owner password
   ```shell
   flightctl login https://flightctl.example.com -u myuser -p mypassword --certificate-authority=/path/to/ca.crt
   ```
+
+> **Tip:** For automation and scripting, you can set the `FLIGHTCTL_USERNAME` and `FLIGHTCTL_PASSWORD` environment variables instead of passing `-u` and `-p` on the command line. See [Logging in Non-Interactively](#logging-in-non-interactively-automation-and-scripting).
+
+## Logging in Non-Interactively (Automation and Scripting)
+
+For CI/CD pipelines, device onboarding scripts, and other non-interactive scenarios, you can pass credentials through environment variables or a credentials file instead of CLI flags. This avoids exposing secrets in `/proc/*/cmdline`.
+
+### Using Environment Variables
+
+Set one or more of the following environment variables before running `flightctl login`:
+
+* `FLIGHTCTL_TOKEN` - Bearer token (equivalent to `--token`)
+* `FLIGHTCTL_USERNAME` - Username (equivalent to `-u`)
+* `FLIGHTCTL_PASSWORD` - Password (equivalent to `-p`)
+
+**Example with a token:**
+
+```shell
+export FLIGHTCTL_TOKEN=eyJhbGciOiJSUzI1NiIs...
+flightctl login https://flightctl.example.com
+```
+
+**Example with username and password:**
+
+```shell
+export FLIGHTCTL_USERNAME=myuser
+export FLIGHTCTL_PASSWORD=mypassword
+flightctl login https://flightctl.example.com
+```
+
+### Using a Credentials File
+
+Pass a JSON file containing credentials using the `--credentials-file` flag:
+
+```shell
+flightctl login https://flightctl.example.com --credentials-file /path/to/creds.json
+```
+
+The JSON file format is:
+
+```json
+{"token": "eyJhbGciOiJSUzI1NiIs...", "username": "", "password": ""}
+```
+
+Include only the fields you need. For token-based authentication, provide `token`. For password-based authentication, provide `username` and `password`.
+
+> **Security:** Set file permissions to `0600` (`chmod 600 creds.json`) and delete the file after use in automation scripts.
+
+### Credential Precedence
+
+When credentials are provided through multiple sources, the following precedence order applies (highest to lowest):
+
+1. `--credentials-file` - Always takes precedence
+2. CLI flags (`--token`, `-u`, `-p`) - Override environment variables
+3. Environment variables (`FLIGHTCTL_TOKEN`, `FLIGHTCTL_USERNAME`, `FLIGHTCTL_PASSWORD`) - Used when flags are not set
+
+The same mutual exclusion rules apply regardless of source: token-based and username/password authentication cannot be combined.
 
 ## Listing Available Authentication Providers
 
