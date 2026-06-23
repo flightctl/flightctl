@@ -3,11 +3,14 @@ package cli
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoginOptions_Complete(t *testing.T) {
@@ -566,6 +569,240 @@ func TestLoginOptions_GetAuthConfig_HTTPResponseErrors(t *testing.T) {
 				assert.Contains(t, errMsg, tt.url)
 				assert.Contains(t, errMsg, fmt.Sprintf("response code %v", tt.statusCode))
 			}
+		})
+	}
+}
+
+func TestLoginOptions_CompleteCredentialsFile(t *testing.T) {
+	tests := []struct {
+		name         string
+		fileContent  string
+		flagToken    string
+		flagUsername string
+		flagPassword string
+		wantToken    string
+		wantUsername string
+		wantPassword string
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name:         "When credentials file has token it should populate access token",
+			fileContent:  `{"token": "file-token"}`,
+			wantToken:    "file-token",
+			wantUsername: "",
+			wantPassword: "",
+		},
+		{
+			name:         "When credentials file has username and password it should populate both",
+			fileContent:  `{"username": "file-user", "password": "file-pass"}`,
+			wantToken:    "",
+			wantUsername: "file-user",
+			wantPassword: "file-pass",
+		},
+		{
+			name:         "When credentials file and flags are set it should use file values",
+			fileContent:  `{"token": "file-token"}`,
+			flagToken:    "flag-token",
+			wantToken:    "file-token",
+			wantUsername: "",
+			wantPassword: "",
+		},
+		{
+			name:         "When credentials file has username and flags have token it should use file values",
+			fileContent:  `{"username": "file-user", "password": "file-pass"}`,
+			flagToken:    "flag-token",
+			wantToken:    "flag-token",
+			wantUsername: "file-user",
+			wantPassword: "file-pass",
+		},
+		{
+			name:        "When credentials file does not exist it should return error",
+			wantErr:     true,
+			errContains: "reading credentials file",
+		},
+		{
+			name:        "When credentials file has invalid JSON it should return error",
+			fileContent: `{invalid json`,
+			wantErr:     true,
+			errContains: "parsing credentials file",
+		},
+		{
+			name:         "When credentials file has empty fields it should not overwrite existing values",
+			fileContent:  `{"token": "", "username": "file-user", "password": "file-pass"}`,
+			flagToken:    "flag-token",
+			wantToken:    "flag-token",
+			wantUsername: "file-user",
+			wantPassword: "file-pass",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			o := DefaultLoginOptions()
+			o.AccessToken = tt.flagToken
+			o.Username = tt.flagUsername
+			o.Password = tt.flagPassword
+
+			if tt.fileContent != "" || !tt.wantErr {
+				tmpDir := t.TempDir()
+				credPath := filepath.Join(tmpDir, "creds.json")
+				require.NoError(os.WriteFile(credPath, []byte(tt.fileContent), 0600))
+				o.CredentialsFile = credPath
+			} else if tt.wantErr && tt.errContains == "reading credentials file" {
+				o.CredentialsFile = "/nonexistent/path/creds.json"
+			}
+
+			err := o.resolveCredentials()
+
+			if tt.wantErr {
+				require.Error(err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+
+			require.NoError(err)
+			assert.Equal(t, tt.wantToken, o.AccessToken)
+			assert.Equal(t, tt.wantUsername, o.Username)
+			assert.Equal(t, tt.wantPassword, o.Password)
+		})
+	}
+}
+
+func TestLoginOptions_CompleteCredentialsEnvVars(t *testing.T) {
+	tests := []struct {
+		name         string
+		envToken     string
+		envUsername  string
+		envPassword  string
+		flagToken    string
+		flagUsername string
+		flagPassword string
+		wantToken    string
+		wantUsername string
+		wantPassword string
+	}{
+		{
+			name:         "When env vars are set and flags are empty it should use env values",
+			envToken:     "env-token",
+			wantToken:    "env-token",
+			wantUsername: "",
+			wantPassword: "",
+		},
+		{
+			name:         "When env username and password are set it should populate both",
+			envUsername:  "env-user",
+			envPassword:  "env-pass",
+			wantToken:    "",
+			wantUsername: "env-user",
+			wantPassword: "env-pass",
+		},
+		{
+			name:         "When flags are set it should use flag values over env vars",
+			envToken:     "env-token",
+			flagToken:    "flag-token",
+			wantToken:    "flag-token",
+			wantUsername: "",
+			wantPassword: "",
+		},
+		{
+			name:         "When flag username is set it should take precedence over env",
+			envUsername:  "env-user",
+			envPassword:  "env-pass",
+			flagUsername: "flag-user",
+			wantToken:    "",
+			wantUsername: "flag-user",
+			wantPassword: "env-pass",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			if tt.envToken != "" {
+				t.Setenv("FLIGHTCTL_TOKEN", tt.envToken)
+			}
+			if tt.envUsername != "" {
+				t.Setenv("FLIGHTCTL_USERNAME", tt.envUsername)
+			}
+			if tt.envPassword != "" {
+				t.Setenv("FLIGHTCTL_PASSWORD", tt.envPassword)
+			}
+
+			o := DefaultLoginOptions()
+			o.AccessToken = tt.flagToken
+			o.Username = tt.flagUsername
+			o.Password = tt.flagPassword
+
+			err := o.resolveCredentials()
+			require.NoError(err)
+
+			assert.Equal(t, tt.wantToken, o.AccessToken)
+			assert.Equal(t, tt.wantUsername, o.Username)
+			assert.Equal(t, tt.wantPassword, o.Password)
+		})
+	}
+}
+
+func TestLoginOptions_CompleteCredentialPrecedence(t *testing.T) {
+	tests := []struct {
+		name      string
+		flagToken string
+		envToken  string
+		fileToken string
+		wantToken string
+	}{
+		{
+			name:      "When all sources are set it should use credentials file",
+			flagToken: "flag-token",
+			envToken:  "env-token",
+			fileToken: "file-token",
+			wantToken: "file-token",
+		},
+		{
+			name:      "When flags and env are set it should use flags",
+			flagToken: "flag-token",
+			envToken:  "env-token",
+			wantToken: "flag-token",
+		},
+		{
+			name:      "When only env is set it should use env",
+			envToken:  "env-token",
+			wantToken: "env-token",
+		},
+		{
+			name:      "When only flags are set it should use flags",
+			flagToken: "flag-token",
+			wantToken: "flag-token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			if tt.envToken != "" {
+				t.Setenv("FLIGHTCTL_TOKEN", tt.envToken)
+			}
+
+			o := DefaultLoginOptions()
+			o.AccessToken = tt.flagToken
+
+			if tt.fileToken != "" {
+				tmpDir := t.TempDir()
+				credPath := filepath.Join(tmpDir, "creds.json")
+				content := fmt.Sprintf(`{"token": "%s"}`, tt.fileToken)
+				require.NoError(os.WriteFile(credPath, []byte(content), 0600))
+				o.CredentialsFile = credPath
+			}
+
+			err := o.resolveCredentials()
+			require.NoError(err)
+
+			assert.Equal(t, tt.wantToken, o.AccessToken)
 		})
 	}
 }
