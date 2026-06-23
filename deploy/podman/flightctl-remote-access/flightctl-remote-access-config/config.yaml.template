@@ -1,3 +1,4 @@
 service:
   address: :3444
   agentEndpointAddress: :7444
+  disableTLS: true

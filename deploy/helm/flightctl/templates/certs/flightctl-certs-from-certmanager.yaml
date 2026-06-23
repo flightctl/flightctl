@@ -201,6 +201,7 @@ spec:
     kind: Issuer
     group: cert-manager.io
 
+{{- if .Values.remoteAccess.enabled }}
 ---
 # Remote Access Server TLS Certificate
 apiVersion: cert-manager.io/v1
@@ -231,6 +232,7 @@ spec:
     name: flightctl-ca-issuer
     kind: Issuer
     group: cert-manager.io
+{{- end }}
 
 {{- if .Values.cliArtifacts.enabled }}
 ---

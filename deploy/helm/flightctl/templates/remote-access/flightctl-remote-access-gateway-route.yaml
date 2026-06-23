@@ -2,7 +2,7 @@
 apiVersion: gateway.networking.k8s.io/v1alpha2
 kind: TLSRoute
 metadata:
-  name: flightctl-remote-access-route-agent
+  name: flightctl-remote-access-route
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
@@ -12,9 +12,9 @@ spec:
     - name: flightctl-gateway
       sectionName: api
   hostnames:
-    - agent-remote-access.{{ include "flightctl.getBaseDomain" . }}
+    - remote-access.{{ include "flightctl.getBaseDomain" . }}
   rules:
     - backendRefs:
-      - name: flightctl-remote-access-agent
-        port: 7444
+      - name: flightctl-remote-access
+        port: 3444
 {{ end }}

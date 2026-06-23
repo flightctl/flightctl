@@ -66,6 +66,14 @@ http {
       proxy_pass http://flightctl-imagebuilder-api:8445/;
     }
 
+    location /_/remote-access/ {
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+
+      proxy_pass http://flightctl-remote-access:3444/;
+    }
+
     # Everything else goes to the UI service for the frontend.
     location / {
       # This is a convenience so that users can point to the base URL of the deployment when doing the
@@ -144,7 +152,7 @@ stream {
     proxy_pass flightctl-telemetry-gateway:4317;
   }
 
-  # Passthrough to the Remote Access Agent service
+  # Passthrough to the Remote Access Agent service (gRPC — agents)
   server {
     listen 7444;
     listen [::]:7444 ipv6only=on;

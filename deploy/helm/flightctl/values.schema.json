@@ -533,6 +533,7 @@
       "description": "Remote access service configuration",
       "additionalProperties": false,
       "properties": {
+        "enabled": { "type": "boolean", "description": "Enable remote access service" },
         "image": {
           "type": "object",
           "additionalProperties": false,
@@ -545,6 +546,29 @@
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits for the remote access container",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": { "type": "string" },
+                "memory": { "type": "string" }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": { "type": "string" },
+                "memory": { "type": "string" }
+              }
+            }
+          }
         }
       }
     },
