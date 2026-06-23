@@ -57,6 +57,305 @@ const kubeUnitNoYamlKey = `[Kube]
 KubeDownForce=false
 `
 
+// sampleVMPodYAML is a minimal VM pod YAML with the annotations and command
+// that parseVMContainerInfo requires.
+const sampleVMPodYAML = `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers:
+  - name: compute
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+    command:
+    - /usr/bin/virt-launcher-monitor
+    - --name
+    - fedora-vm
+    - --namespace
+    - default
+`
+
+func TestParseNamespaceFromCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "When --namespace flag is present it should return its value",
+			args:     []string{"--name", "fedora-vm", "--namespace", "default"},
+			expected: "default",
+		},
+		{
+			name:     "When --namespace flag has a non-default value it should return that value",
+			args:     []string{"--namespace", "my-ns", "--name", "vm"},
+			expected: "my-ns",
+		},
+		{
+			name:     "When --namespace flag is absent it should return empty string",
+			args:     []string{"--name", "fedora-vm", "--uid", ""},
+			expected: "",
+		},
+		{
+			name:     "When --namespace is the last element with no value it should return empty string",
+			args:     []string{"--name", "fedora-vm", "--namespace"},
+			expected: "",
+		},
+		{
+			name:     "When args is empty it should return empty string",
+			args:     []string{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			require.Equal(tt.expected, parseNamespaceFromCommand(tt.args))
+		})
+	}
+}
+
+func TestParseNamespaceFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []podEnvVar
+		expected string
+	}{
+		{
+			name: "When STANDALONE_VMI has a namespace it should return it",
+			env: []podEnvVar{
+				{Name: "OTHER_VAR", Value: "irrelevant"},
+				{Name: standaloneVMIEnvVar, Value: `{"metadata":{"name":"fedora-vm","namespace":"staging"}}`},
+			},
+			expected: "staging",
+		},
+		{
+			name: "When STANDALONE_VMI has namespace default it should return default",
+			env: []podEnvVar{
+				{Name: standaloneVMIEnvVar, Value: `{"metadata":{"name":"fedora-vm","namespace":"default"}}`},
+			},
+			expected: "default",
+		},
+		{
+			name: "When STANDALONE_VMI env var is absent it should return empty string",
+			env: []podEnvVar{
+				{Name: "OTHER_VAR", Value: "val"},
+			},
+			expected: "",
+		},
+		{
+			name: "When STANDALONE_VMI value is not valid JSON it should return empty string",
+			env: []podEnvVar{
+				{Name: standaloneVMIEnvVar, Value: "not-json"},
+			},
+			expected: "",
+		},
+		{
+			name: "When STANDALONE_VMI JSON has no namespace field it should return empty string",
+			env: []podEnvVar{
+				{Name: standaloneVMIEnvVar, Value: `{"metadata":{"name":"fedora-vm"}}`},
+			},
+			expected: "",
+		},
+		{
+			name:     "When env is empty it should return empty string",
+			env:      []podEnvVar{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			require.Equal(tt.expected, parseNamespaceFromEnv(tt.env))
+		})
+	}
+}
+
+func TestParseVMContainerInfo(t *testing.T) {
+	tests := []struct {
+		name            string
+		podYAML         string
+		expectedInfo    VMContainerInfo
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name:    "When pod YAML has all required fields it should return correct info with parsed namespace",
+			podYAML: sampleVMPodYAML,
+			expectedInfo: VMContainerInfo{
+				OriginalPodName: "virt-launcher-fedora-vm",
+				ContainerName:   "compute",
+				DomainName:      "default_fedora-vm",
+			},
+		},
+		{
+			name: "When --namespace flag is absent but STANDALONE_VMI has namespace it should use env namespace",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers:
+  - name: compute
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+    command:
+    - /usr/bin/virt-launcher-monitor
+    - --name
+    - fedora-vm
+    env:
+    - name: STANDALONE_VMI
+      value: '{"metadata":{"name":"fedora-vm","namespace":"staging"}}'
+`,
+			expectedInfo: VMContainerInfo{
+				OriginalPodName: "virt-launcher-fedora-vm",
+				ContainerName:   "compute",
+				DomainName:      "staging_fedora-vm",
+			},
+		},
+		{
+			name: "When neither command flag nor STANDALONE_VMI is present it should fall back to default namespace",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers:
+  - name: compute
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+    command:
+    - /usr/bin/virt-launcher-monitor
+    - --name
+    - fedora-vm
+`,
+			expectedInfo: VMContainerInfo{
+				OriginalPodName: "virt-launcher-fedora-vm",
+				ContainerName:   "compute",
+				DomainName:      "default_fedora-vm",
+			},
+		},
+		{
+			name: "When --namespace has a non-default value it should use that namespace",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-my-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: my-vm
+spec:
+  containers:
+  - name: compute
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+    command:
+    - /usr/bin/virt-launcher-monitor
+    - --namespace
+    - production
+    - --name
+    - my-vm
+`,
+			expectedInfo: VMContainerInfo{
+				OriginalPodName: "virt-launcher-my-vm",
+				ContainerName:   "compute",
+				DomainName:      "production_my-vm",
+			},
+		},
+		{
+			name: "When default-container annotation names a container absent from spec.containers it should return an error",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers:
+  - name: sidecar
+    image: quay.io/kubevirt/virt-launcher:v1.8.0
+`,
+			wantErr:         true,
+			wantErrContains: "compute",
+		},
+		{
+			name: "When metadata.name is missing it should return an error",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers: []
+`,
+			wantErr:         true,
+			wantErrContains: "metadata.name",
+		},
+		{
+			name: "When default-container annotation is missing it should return an error",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubevirt.io/domain: fedora-vm
+spec:
+  containers: []
+`,
+			wantErr:         true,
+			wantErrContains: annotationDefaultContainer,
+		},
+		{
+			name: "When kubevirt.io/domain annotation is missing it should return an error",
+			podYAML: `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: virt-launcher-fedora-vm
+  annotations:
+    kubectl.kubernetes.io/default-container: compute
+spec:
+  containers: []
+`,
+			wantErr:         true,
+			wantErrContains: annotationKubeVirtDomain,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			info, err := parseVMContainerInfo([]byte(tt.podYAML))
+			if tt.wantErr {
+				require.Error(err)
+				if tt.wantErrContains != "" {
+					require.Contains(err.Error(), tt.wantErrContains)
+				}
+				return
+			}
+			require.NoError(err)
+			require.Equal(tt.expectedInfo, info)
+		})
+	}
+}
+
 func TestParsePodYAMLTargets(t *testing.T) {
 	tests := []struct {
 		name            string

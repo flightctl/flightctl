@@ -166,7 +166,7 @@ func NewApplication(p provider.Provider) *application {
 func NewVMApplication(p provider.Provider, exec ContainerExecer, log *log.PrefixLogger) *application {
 	a := NewApplication(p)
 	a.status.AppType = v1beta1.AppTypeVm
-	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VMContainerName, p.Spec().VMDomainName)
+	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VM.ContainerName, p.Spec().VM.DomainName)
 	return a
 }
 
@@ -269,7 +269,7 @@ func (a *application) Volume() provider.VolumeManager {
 }
 
 // vmStatus polls the libvirt domain state and maps it to a DeviceApplicationStatus.
-// Called by Status() when the application has a vmPoller (i.e. IsVMWorkload is true).
+// Called by Status() when the application has a vmPoller (i.e. VM != nil).
 func (a *application) vmStatus() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), vmStatusPollTimeout)
 	defer cancel()

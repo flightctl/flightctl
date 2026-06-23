@@ -39,14 +39,15 @@ func newMockVMProvider(ctrl *gomock.Controller, appName string) *provider.MockPr
 		ctrl.T.Fatalf("newMockVMProvider: NewVolumeManager: %v", err)
 	}
 	spec := &provider.ApplicationSpec{
-		Name:            appName,
-		ID:              appName,
-		AppType:         v1beta1.AppTypeQuadlet,
-		User:            v1beta1.CurrentProcessUsername,
-		IsVMWorkload:    true,
-		VMContainerName: fmt.Sprintf("virt-launcher-%s-compute", appName),
-		VMDomainName:    fmt.Sprintf("default_%s", appName),
-		Volume:          vol,
+		Name:    appName,
+		ID:      appName,
+		AppType: v1beta1.AppTypeQuadlet,
+		User:    v1beta1.CurrentProcessUsername,
+		VM: &provider.VMSpec{
+			ContainerName: fmt.Sprintf("virt-launcher-%s-compute", appName),
+			DomainName:    fmt.Sprintf("default_%s", appName),
+		},
+		Volume: vol,
 	}
 	mock := provider.NewMockProvider(ctrl)
 	mock.EXPECT().Spec().Return(spec).AnyTimes()
@@ -463,14 +464,20 @@ func TestNewAppFromProvider(t *testing.T) {
 				vmDomainName = "default_app"
 			}
 			spec := &provider.ApplicationSpec{
-				Name:            "app",
-				ID:              "app",
-				AppType:         v1beta1.AppTypeQuadlet,
-				User:            v1beta1.CurrentProcessUsername,
-				IsVMWorkload:    tt.isVM,
-				VMContainerName: vmContainerName,
-				VMDomainName:    vmDomainName,
-				Volume:          vol,
+				Name:    "app",
+				ID:      "app",
+				AppType: v1beta1.AppTypeQuadlet,
+				User:    v1beta1.CurrentProcessUsername,
+				VM: func() *provider.VMSpec {
+					if !tt.isVM {
+						return nil
+					}
+					return &provider.VMSpec{
+						ContainerName: vmContainerName,
+						DomainName:    vmDomainName,
+					}
+				}(),
+				Volume: vol,
 			}
 			mock := provider.NewMockProvider(ctrl)
 			mock.EXPECT().Spec().Return(spec).AnyTimes()

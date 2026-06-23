@@ -133,14 +133,16 @@ func newQuadletProvider(
 		volumeManager.AddVolumes(quadletVolumes)
 	}
 
-	var vmContainerName, vmDomainName string
+	var vmSpec *VMSpec
 	if isVM {
 		info, err := lookupVMContainerInfo(inlineContent)
 		if err != nil {
 			return nil, fmt.Errorf("resolving VM container names for %q: %w", appName, err)
 		}
-		vmContainerName = namespacedQuadlet(appID, info.OriginalPodName) + "-" + info.ContainerName
-		vmDomainName = virtLauncherDomainNamespace + "_" + info.KubeVirtDomain
+		vmSpec = &VMSpec{
+			ContainerName: namespacedQuadlet(appID, info.OriginalPodName) + "-" + info.ContainerName,
+			DomainName:    info.DomainName,
+		}
 	}
 
 	p := &quadletProvider{
@@ -151,17 +153,15 @@ func newQuadletProvider(
 		imageRef:       imageRef,
 		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
-			Name:            appName,
-			ID:              appID,
-			User:            user,
-			AppType:         v1beta1.AppTypeQuadlet,
-			Path:            appPath,
-			EnvVars:         envVars,
-			IsVMWorkload:    isVM,
-			VMContainerName: vmContainerName,
-			VMDomainName:    vmDomainName,
-			QuadletApp:      &quadletApp,
-			Volume:          volumeManager,
+			Name:       appName,
+			ID:         appID,
+			User:       user,
+			AppType:    v1beta1.AppTypeQuadlet,
+			Path:       appPath,
+			EnvVars:    envVars,
+			VM:         vmSpec,
+			QuadletApp: &quadletApp,
+			Volume:     volumeManager,
 		},
 	}
 
