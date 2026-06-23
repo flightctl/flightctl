@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
@@ -17,7 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 )
 
 // Server provides the flightctl-remote-access service: an HTTP 501 stub and
@@ -33,17 +37,21 @@ type Server struct {
 	agentTLSConfig *tls.Config
 }
 
-// New creates a Server with a TLS HTTP listener at cfg.Service.Address and
-// an mTLS gRPC+HTTP mux listener at cfg.Service.AgentEndpointAddress.
+// New creates a Server with an HTTP listener at cfg.Service.Address (TLS
+// terminated at the service when cfg.Service.DisableTLS is false, or plain HTTP
+// when DisableTLS is true for deployments where TLS is handled upstream) and an
+// mTLS gRPC+HTTP mux listener at cfg.Service.AgentEndpointAddress.
 func New(log logrus.FieldLogger, cfg *config.Config, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig) (*Server, error) {
-	tlsConfig, agentTLSConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+	_, agentTLSConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("building agent TLS config: %w", err)
 	}
 
-	httpListener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
+	// Plain TCP listener; ServeTLS is called in Run() when DisableTLS is false
+	// so the service terminates TLS itself (e.g. OCP/Helm passthrough route).
+	httpListener, err := net.Listen("tcp", cfg.Service.Address)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listening on service address %q: %w", cfg.Service.Address, err)
 	}
 
 	// Plain TCP listener — ServeTLS is called in Run() so that Go's net/http
@@ -51,7 +59,7 @@ func New(log logrus.FieldLogger, cfg *config.Config, ca *crypto.CAClient, server
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
 		_ = httpListener.Close()
-		return nil, err
+		return nil, fmt.Errorf("listening on agent endpoint address %q: %w", cfg.Service.AgentEndpointAddress, err)
 	}
 
 	grpcServer := grpc.NewServer(
@@ -76,7 +84,8 @@ func New(log logrus.FieldLogger, cfg *config.Config, ca *crypto.CAClient, server
 	return s, nil
 }
 
-// Run starts both listeners concurrently and blocks until ctx is cancelled.
+// Run starts both listeners concurrently and blocks until ctx is cancelled or a
+// listener exits unexpectedly.
 func (s *Server) Run(ctx context.Context) error {
 	agentSrv := middleware.NewHTTPServerWithTLSContext(
 		grpcMuxHandlerFunc(s.grpcServer, stubHandler(), s.log),
@@ -87,34 +96,61 @@ func (s *Server) Run(ctx context.Context) error {
 
 	httpSrv := middleware.NewHTTPServer(stubHandler(), s.log, s.cfg.Service.Address, s.cfg)
 
+	serveErrCh := make(chan error, 2)
+
 	go func() {
 		s.log.Printf("Remote-access agent listener on %s", s.agentListener.Addr())
 		agentSrv.TLSConfig = s.agentTLSConfig
 		if err := agentSrv.ServeTLS(s.agentListener, "", ""); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-			s.log.Errorf("agent listener error: %v", err)
+			serveErrCh <- err
 		}
 	}()
 
 	go func() {
-		s.log.Printf("Remote-access HTTP stub listener on %s", s.httpListener.Addr())
-		if err := httpSrv.Serve(s.httpListener); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-			s.log.Errorf("HTTP stub listener error: %v", err)
+		s.log.Printf("Remote-access HTTP listener on %s (disableTLS=%v)", s.httpListener.Addr(), s.cfg.Service.DisableTLS)
+		var err error
+		if s.cfg.Service.DisableTLS {
+			err = httpSrv.Serve(s.httpListener)
+		} else {
+			httpSrv.TLSConfig = s.agentTLSConfig
+			err = httpSrv.ServeTLS(s.httpListener, "", "")
+		}
+		if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+			serveErrCh <- err
 		}
 	}()
 
-	<-ctx.Done()
-	s.log.Println("Shutdown signal received:", ctx.Err())
+	var runErr error
+	select {
+	case <-ctx.Done():
+		s.log.Println("Shutdown signal received:", ctx.Err())
+	case runErr = <-serveErrCh:
+		s.log.Errorf("listener exited unexpectedly: %v", runErr)
+	}
+
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), apiserver.GracefulShutdownTimeout)
 	defer cancel()
 	_ = agentSrv.Shutdown(ctxTimeout)
 	_ = httpSrv.Shutdown(ctxTimeout)
-	return nil
+
+	grpcStopCh := make(chan struct{})
+	go func() {
+		s.grpcServer.GracefulStop()
+		close(grpcStopCh)
+	}()
+	select {
+	case <-grpcStopCh:
+	case <-ctxTimeout.Done():
+		s.grpcServer.Stop()
+	}
+
+	return runErr
 }
 
-// Stream implements pb.RouterServiceServer — accepts the incoming agent gRPC
-// stream and immediately closes it (stub).
+// Stream implements pb.RouterServiceServer — rejects the stream with Unavailable
+// until real console-bridging logic is added in a future story.
 func (s *Server) Stream(_ pb.RouterService_StreamServer) error {
-	return nil
+	return status.Error(codes.Unavailable, "service not yet implemented")
 }
 
 // stubHandler returns HTTP 501 Not Implemented for every request.
@@ -128,7 +164,7 @@ func stubHandler() http.Handler {
 // httpHandler (HTTP) based on the Content-Type header.
 func grpcMuxHandlerFunc(grpcServer *grpc.Server, httpHandler http.Handler, log logrus.FieldLogger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && r.Header.Get("Content-Type") == "application/grpc" {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			type rwTimeoutSetter interface {
 				SetReadDeadline(time.Time) error
 				SetWriteDeadline(time.Time) error

@@ -1,3 +1,4 @@
+{{- if .Values.remoteAccess.enabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,6 +20,7 @@ spec:
         flightctl.service: flightctl-remote-access
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: false
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
@@ -27,6 +29,13 @@ spec:
         - name: flightctl-remote-access
           image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.remoteAccess.image.image) }}:{{ default .Chart.AppVersion .Values.remoteAccess.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.remoteAccess.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 3444
               name: service-api
@@ -34,6 +43,22 @@ spec:
             - containerPort: 7444
               name: agent-api
               protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: agent-api
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            tcpSocket:
+              port: service-api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.remoteAccess.resources | nindent 12 }}
           env:
             - name: HOME
               value: "/root"
@@ -82,3 +107,4 @@ spec:
         - name: flightctl-ca-bundle
           secret:
             secretName: flightctl-ca-bundle
+{{- end }}

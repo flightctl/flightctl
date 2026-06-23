@@ -67,3 +67,6 @@ telemetry-gateway:
 userinfo-proxy:
   image: quay.io/flightctl/flightctl-userinfo-proxy-el10
   tag: latest
+remote-access:
+  image: quay.io/flightctl/flightctl-remote-access-el10
+  tag: latest

@@ -10,6 +10,7 @@ Image={{ .RemoteAccess.Image }}:{{ .RemoteAccess.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
+User=1001
 Environment=HOME=/root
 
 Volume=/etc/flightctl/pki/flightctl-remote-access/server.crt:/root/.flightctl/certs/server.crt:ro,z

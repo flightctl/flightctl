@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -39,8 +40,10 @@ func main() {
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-remote-access")
 	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := tracerShutdown(shutdownCtx); err != nil {
+			log.Errorf("failed to shut down tracer: %v", err)
 		}
 	}()
 
