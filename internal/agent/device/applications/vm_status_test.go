@@ -147,7 +147,7 @@ func TestVMStatusPollerPoll(t *testing.T) {
 				Return(tt.virshStdout, tt.virshStderr, tt.virshExitCode)
 
 			podman := client.NewPodman(log.NewPrefixLogger(""), mockExec, readWriter, util.NewPollConfig())
-			poller := newVMStatusPoller(podman, log.NewPrefixLogger(""), appName)
+			poller := newVMStatusPoller(podman, log.NewPrefixLogger(""), appName, expectedContainer)
 			poller.consecutiveFailures = tt.initialFailures
 
 			status := poller.Poll(context.Background())

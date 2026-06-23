@@ -133,6 +133,11 @@ func newQuadletProvider(
 		volumeManager.AddVolumes(quadletVolumes)
 	}
 
+	var vmContainerName string
+	if isVM {
+		vmContainerName = fmt.Sprintf("virt-launcher-%s-compute", appName)
+	}
+
 	p := &quadletProvider{
 		log:            log,
 		podman:         podman,
@@ -141,15 +146,16 @@ func newQuadletProvider(
 		imageRef:       imageRef,
 		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
-			Name:         appName,
-			ID:           appID,
-			User:         user,
-			AppType:      v1beta1.AppTypeQuadlet,
-			Path:         appPath,
-			EnvVars:      envVars,
-			IsVMWorkload: isVM,
-			QuadletApp:   &quadletApp,
-			Volume:       volumeManager,
+			Name:            appName,
+			ID:              appID,
+			User:            user,
+			AppType:         v1beta1.AppTypeQuadlet,
+			Path:            appPath,
+			EnvVars:         envVars,
+			IsVMWorkload:    isVM,
+			VMContainerName: vmContainerName,
+			QuadletApp:      &quadletApp,
+			Volume:          volumeManager,
 		},
 	}
 
