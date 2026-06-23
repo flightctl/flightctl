@@ -24,6 +24,10 @@ flightctl login <server_url> [flags]
 
 * `-t, --token <token>` - Bearer token for authentication
 
+#### Credential File
+
+* `--credentials-file <path>` - Path to a JSON file containing credentials (`token`, `username`, `password`). Takes precedence over flags and environment variables.
+
 #### Provider-Based Authentication
 
 * `--provider <name>` - Name of the authentication provider to use
@@ -45,6 +49,14 @@ flightctl login <server_url> [flags]
 #### Other Flags
 
 * `-h, --help` - Display help
+
+#### Environment Variables
+
+* `FLIGHTCTL_TOKEN` - Bearer token (used when `--token` is not set)
+* `FLIGHTCTL_USERNAME` - Username (used when `-u` is not set)
+* `FLIGHTCTL_PASSWORD` - Password (used when `-p` is not set)
+
+Precedence: `--credentials-file` > CLI flags > environment variables. See [Logging in Non-Interactively](../using/cli/logging-in.md#logging-in-non-interactively-automation-and-scripting).
 
 ### Configuration File
 
