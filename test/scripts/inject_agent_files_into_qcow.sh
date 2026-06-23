@@ -303,6 +303,16 @@ EOF
     fi
   fi
 
+  # For quadlet environment, add flightctl-vm.local entry
+  if [[ -n "${QUADLET_HOST:-}" ]] && [[ "$QUADLET_HOST" != "localhost" ]]; then
+    if ! sudo grep -qF -- "flightctl-vm.local" "$hosts_file" 2>/dev/null; then
+      log "Adding FlightCtl VM hosts entry: $QUADLET_HOST -> flightctl-vm.local"
+      echo "$QUADLET_HOST flightctl-vm.local" | sudo tee -a "$hosts_file" >/dev/null
+    else
+      log "FlightCtl VM hosts entry already exists"
+    fi
+  fi
+
   # Add registry hostname entry for IPv6 mode
   if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
     if ! sudo grep -qF -- "$REGISTRY_HOSTNAME" "$hosts_file" 2>/dev/null; then

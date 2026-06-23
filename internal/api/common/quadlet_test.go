@@ -22,6 +22,7 @@ func TestParseQuadletSpec(t *testing.T) {
 		wantNetworks     []string
 		wantPods         []string
 		wantName         *string
+		wantYamlFile     *string
 		wantErr          bool
 		wantErrType      error
 		wantErrSubstr    string
@@ -113,12 +114,12 @@ ContextDir=/tmp/build`,
 			wantErrSubstr: "Build",
 		},
 		{
-			name: "unsupported type: Kube",
+			name: "valid kube type with Yaml directive",
 			data: `[Kube]
-Yaml=/path/to/kube.yaml`,
-			wantErr:       true,
-			wantErrType:   ErrUnsupportedQuadletType,
-			wantErrSubstr: "Kube",
+Yaml=pod.yaml`,
+			wantErr:      false,
+			wantType:     QuadletTypeKube,
+			wantYamlFile: lo.ToPtr("pod.yaml"),
 		},
 		{
 			name: "unsupported type: Artifact",
@@ -421,6 +422,12 @@ PodName=pod-one`,
 				require.Equal(*tt.wantName, *spec.Name)
 			} else {
 				require.Nil(spec.Name)
+			}
+			if tt.wantYamlFile != nil {
+				require.NotNil(spec.YamlFile, "expected YamlFile to be populated")
+				require.Equal(*tt.wantYamlFile, *spec.YamlFile)
+			} else {
+				require.Nil(spec.YamlFile)
 			}
 		})
 	}

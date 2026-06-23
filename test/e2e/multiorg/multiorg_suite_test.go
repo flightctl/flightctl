@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/quadlet"
@@ -17,7 +19,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const quadletOrgName = "multiorg-test"
+const (
+	quadletOrgName           = "multiorg-test"
+	quadletOrgCleanupTimeout = 60 * time.Second
+)
 
 // quadletSharedOrgID holds the org ID for the shared test organization on quadlet.
 // On quadlet, cluster-admin users default to the system org (00000000...),
@@ -192,6 +197,7 @@ var _ = AfterEach(func() {
 	harness.CaptureDeploymentLogsIfFailed()
 
 	creds := testUserCreds()
+	// Best-effort reset before cleanup; cleanup itself is still asserted below.
 	_ = loginAndSetOrg(harness, creds[0].name, creds[0].password)
 
 	err := harness.CleanUpAllTestResources()
@@ -210,6 +216,7 @@ var _ = AfterSuite(func() {
 	case infra.EnvironmentOCP:
 		flightCtlNs := os.Getenv("FLIGHTCTL_NS")
 		if flightCtlNs != "" {
+			// Best-effort cleanup of test users; failures should not mask suite results.
 			_ = login.CleanupTestUsers(harness, flightCtlNs, rbacTestUsers())
 		}
 
@@ -222,10 +229,14 @@ var _ = AfterSuite(func() {
 			GinkgoWriter.Printf("Warning: failed to re-login as kubeadmin in AfterSuite: %v\n", err)
 			return
 		}
+		// Best-effort refresh after restoring the kubeadmin login for following suites.
 		_ = harness.RefreshCluster()
 		GinkgoWriter.Println("AfterSuite: restored kubeadmin context for subsequent test suites")
 
 	case infra.EnvironmentQuadlet:
+		if err := restoreDefaultOrganization(harness); err != nil {
+			Fail(fmt.Sprintf("failed to restore default organization in AfterSuite: %v", err))
+		}
 		providers := setup.GetDefaultProviders()
 		if providers == nil || providers.RBAC == nil {
 			GinkgoWriter.Println("Warning: no providers available for quadlet cleanup")
@@ -241,7 +252,22 @@ var _ = AfterSuite(func() {
 				GinkgoWriter.Printf("Warning: failed to cleanup PAM user %s: %v\n", u.Name, err)
 			}
 		}
-		_ = pamRBAC.DeleteOrganization(context.Background(), quadletOrgName)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), quadletOrgCleanupTimeout)
+		defer cancel()
+		if err := pamRBAC.DeleteOrganization(cleanupCtx, quadletOrgName); err != nil {
+			GinkgoWriter.Printf("Warning: failed to cleanup PAM org %s: %v\n", quadletOrgName, err)
+			GinkgoWriter.Println("AfterSuite: cleaned up PAM test users; PAM org cleanup had partial failures")
+			return
+		}
 		GinkgoWriter.Println("AfterSuite: cleaned up PAM test users and org")
 	}
 })
+
+// restoreDefaultOrganization resets the persisted client organization after quadlet multiorg tests.
+func restoreDefaultOrganization(harness *e2e.Harness) error {
+	if err := harness.SetCurrentOrganization(org.DefaultID.String()); err != nil {
+		return fmt.Errorf("set default organization: %w", err)
+	}
+	GinkgoWriter.Printf("AfterSuite: restored default organization %s for subsequent test suites\n", org.DefaultID.String())
+	return nil
+}
