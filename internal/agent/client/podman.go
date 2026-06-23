@@ -468,6 +468,13 @@ func extractArtifactAnnotations(inspect *ArtifactInspect) map[string]string {
 	return annotations
 }
 
+// ExecInContainer runs the given command inside a container via `podman exec`
+// and returns stdout, stderr, and the exit code.
+func (p *Podman) ExecInContainer(ctx context.Context, container string, args ...string) (string, string, int) {
+	cmdArgs := append([]string{"exec", container}, args...)
+	return p.exec.ExecuteWithContext(ctx, podmanCmd, cmdArgs...)
+}
+
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
 // When the events are in sync with the current time a sync event is emitted.
 func (p *Podman) EventsSinceCmd(ctx context.Context, events []string, sinceTime string) *exec.Cmd {

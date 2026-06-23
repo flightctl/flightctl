@@ -580,6 +580,11 @@ func (d *DisruptionBudget) Validate() []error {
 	if len(groupBy) != len(lo.Uniq(groupBy)) {
 		errs = append(errs, errors.New("groupBy items must be unique"))
 	}
+	for _, key := range groupBy {
+		if keyErrs := validation.ValidateLabelKey(key); len(keyErrs) > 0 {
+			errs = append(errs, fmt.Errorf("invalid groupBy key %q: %s", key, strings.Join(keyErrs, "; ")))
+		}
+	}
 	return errs
 }
 

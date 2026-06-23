@@ -37,10 +37,8 @@ func TestBackupRestore(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	if reason := backupRestoreExternalDBSkipReason(); reason != "" {
-		Skip(reason)
-	}
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarness()
+	Expect(err).ToNot(HaveOccurred())
 })
 
 var _ = BeforeEach(func() {

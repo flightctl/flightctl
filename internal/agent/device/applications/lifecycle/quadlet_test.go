@@ -335,6 +335,7 @@ func TestQuadlet_add(t *testing.T) {
 					Return([]client.SystemDUnitListEntry{}, nil)
 				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
+				mockRW.EXPECT().ReadDir(gomock.Any()).Return(nil, fmt.Errorf("dir not found")).AnyTimes()
 				mockRW.EXPECT().RemoveFile("/etc/systemd/system/test-id-flightctl-quadlet-app.target").Return(nil).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
 			},

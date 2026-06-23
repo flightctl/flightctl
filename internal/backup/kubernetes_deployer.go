@@ -47,8 +47,8 @@ var requiredPKISecretNames = []string{
 // Controlled by Helm values: ui.enabled, cliArtifacts.enabled, alertmanagerProxy.enabled.
 // Missing secrets are silently skipped.
 var optionalPKISecretNames = []string{
-	"flightctl-ui-server-tls",          // ui.enabled
-	"flightctl-ui-certs",               // ui.enabled
+	"flightctl-ui-server-tls",            // ui.enabled
+	"flightctl-ui-certs",                 // ui.enabled
 	"flightctl-cli-artifacts-server-tls", // cliArtifacts.enabled
 	"flightctl-alertmanager-proxy-certs", // alertmanagerProxy.enabled
 }
@@ -181,18 +181,47 @@ func (k *KubernetesDeployer) getSecretStringValue(ctx context.Context, ns, name,
 }
 
 // BackupDatabase backs up the PostgreSQL database using pg_dump via Kubernetes client-go.
-// Credentials are read from the flightctl-db-app-secret Kubernetes Secret in internalNamespace.
-// If that Secret does not exist, the database is assumed to be external and ErrExternalDatabase
-// is returned without creating a backup.
+// First checks if a Helm-managed flightctl-db Deployment exists to determine if the database
+// is builtin or external. For builtin databases, credentials are read from the
+// flightctl-db-app-secret Kubernetes Secret and pg_dump is executed in the database pod.
+// For external databases, returns ErrExternalDatabase without creating a backup.
 func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir string) error {
-	// Extract DB credentials from the cluster Secret.  A missing Secret means
-	// the DB is externally managed; any other error is propagated.
-	dbUser, err := k.getSecretStringValue(ctx, k.internalNamespace, dbAppSecretName, dbUserKey)
+	clientset, err := k.resolveClientset()
+	if err != nil {
+		return err
+	}
+
+	namespace := k.internalNamespace
+	k.log.Debugf("Using namespace for DB: %s", namespace)
+
+	// Check if this is an external or builtin database by looking for the Helm-managed
+	// flightctl-db Deployment (authoritative check - works even with user-provided Secrets).
+	deployment, err := clientset.AppsV1().Deployments(namespace).Get(ctx, "flightctl-db", metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			// No Deployment → external database
+			k.log.Infof("No flightctl-db Deployment found - assuming external database")
 			return ErrExternalDatabase
 		}
-		return fmt.Errorf("failed to get database credentials: %w", err)
+		// Unexpected error checking Deployment
+		return fmt.Errorf("failed to check for database Deployment: %w", err)
+	}
+
+	// Deployment exists - verify it's Helm-managed (builtin DB)
+	managedBy, ok := deployment.Labels["app.kubernetes.io/managed-by"]
+	if !ok || managedBy != "Helm" {
+		// Deployment exists but not Helm-managed → external database
+		k.log.Infof("flightctl-db Deployment exists but is not Helm-managed - assuming external database")
+		return ErrExternalDatabase
+	}
+
+	// Helm-managed Deployment exists → builtin database, proceed with backup
+	k.log.Debugf("Found Helm-managed flightctl-db Deployment - proceeding with builtin database backup")
+
+	// Extract DB credentials from the cluster Secret
+	dbUser, err := k.getSecretStringValue(ctx, k.internalNamespace, dbAppSecretName, dbUserKey)
+	if err != nil {
+		return fmt.Errorf("failed to get database user: %w", err)
 	}
 	dbPassword, err := k.getSecretStringValue(ctx, k.internalNamespace, dbAppSecretName, dbPasswordKey)
 	if err != nil {
@@ -201,20 +230,11 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 
 	// Create db directory
 	dbDir := filepath.Join(outputDir, "db")
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	if err = os.MkdirAll(dbDir, 0755); err != nil {
 		return fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	// Use internal namespace for finding DB pod (defaults to namespace if not set)
-	namespace := k.internalNamespace
-	k.log.Debugf("Using namespace for DB pod: %s", namespace)
-
 	labelSelector := "flightctl.service=flightctl-db"
-
-	clientset, err := k.resolveClientset()
-	if err != nil {
-		return err
-	}
 
 	// List pods with label selector
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
@@ -226,7 +246,8 @@ func (k *KubernetesDeployer) BackupDatabase(ctx context.Context, outputDir strin
 	}
 
 	if len(pods.Items) == 0 {
-		return fmt.Errorf("database pod not found in namespace %s with label %s", namespace, labelSelector)
+		// Builtin DB configured but pod is missing → error
+		return fmt.Errorf("database pod not found in namespace %s with label %s (builtin database configured but pod unavailable - incomplete backup would result)", namespace, labelSelector)
 	}
 
 	config, err := k.resolveRestConfig()

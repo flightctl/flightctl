@@ -60,6 +60,17 @@ type appProvider interface {
 	parentIsAvailable(ctx context.Context) (ref string, digest string, available bool, err error)
 }
 
+// VMSpec holds KubeVirt VM-specific names resolved from the pod YAML at
+// provider creation time. Its presence (non-nil) indicates a VM workload.
+type VMSpec struct {
+	// ContainerName is the fully-qualified Podman container name for the
+	// virt-launcher container (e.g. "{appID}-virt-launcher-{vmName}-compute").
+	ContainerName string
+	// DomainName is the virsh domain identifier
+	// (e.g. "default_{vmName}").
+	DomainName string
+}
+
 type ApplicationSpec struct {
 	// Name of the application
 	Name string
@@ -75,6 +86,10 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
+	// VM is non-nil when the Quadlet application is a KubeVirt VM workload.
+	// Both names are derived from the pod YAML produced by kubevirt-vm-to-pod
+	// so they reflect the actual names used after Install() runs.
+	VM *VMSpec
 	// bootTime is used for embedded app comparison (unexported, works with reflect.DeepEqual)
 	bootTime string
 	// Volume manager.
