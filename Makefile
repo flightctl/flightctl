@@ -459,6 +459,10 @@ tools:
 lint: .output/stamps/lint-image
 	$(LINT_CONTAINER) golangci-lint run -v
 
+.PHONY: lint-fix
+lint-fix: .output/stamps/lint-image
+	$(LINT_CONTAINER) golangci-lint run -v --fix
+
 .PHONY: rpmlint
 rpmlint: check-rpmlint
 	@echo "Running rpmlint on RPM spec file"
