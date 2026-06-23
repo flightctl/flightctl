@@ -803,15 +803,11 @@ fi
 # prior version; stop + reset-failed clears it so it no longer appears
 # in "systemctl list-units".
 # This block can be removed once all deployments have upgraded past this fix.
-#   flightctl-cli-artifacts-init  — removed in EDM-3783
-#   flightctl-pam-issuer-init     — removed in EDM-2304
-#   flightctl-alertmanager-proxy-init — removed in EDM-2304
-#   flightctl-db-external         — removed in EDM-2322
+#   flightctl-cli-artifacts-init      — removed in EDM-3783 (shipped in 1.0.0–1.1.2)
+#   flightctl-alertmanager-proxy-init — removed in EDM-2304 (shipped in 0.10.0)
 for unit in \
     flightctl-cli-artifacts-init.service \
-    flightctl-pam-issuer-init.service \
     flightctl-alertmanager-proxy-init.service \
-    flightctl-db-external.service \
 ; do
     /usr/bin/systemctl stop "$unit" 2>/dev/null || :
     /usr/bin/systemctl reset-failed "$unit" 2>/dev/null || :
