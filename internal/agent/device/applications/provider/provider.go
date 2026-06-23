@@ -78,6 +78,10 @@ type ApplicationSpec struct {
 	// IsVMWorkload is true when the inline Quadlet contains a .kube unit referencing
 	// a pod YAML with a virt-launcher image, indicating a KubeVirt VM workload.
 	IsVMWorkload bool
+	// VMContainerName is the Podman container name for the VM's virt-launcher
+	// container (e.g. "virt-launcher-{appName}-compute"). Computed by the
+	// provider so the naming convention is centralised and easy to update.
+	VMContainerName string
 	// bootTime is used for embedded app comparison (unexported, works with reflect.DeepEqual)
 	bootTime string
 	// Volume manager.

@@ -2,6 +2,7 @@ package applications
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -38,12 +39,13 @@ func newMockVMProvider(ctrl *gomock.Controller, appName string) *provider.MockPr
 		ctrl.T.Fatalf("newMockVMProvider: NewVolumeManager: %v", err)
 	}
 	spec := &provider.ApplicationSpec{
-		Name:         appName,
-		ID:           appName,
-		AppType:      v1beta1.AppTypeQuadlet,
-		User:         v1beta1.CurrentProcessUsername,
-		IsVMWorkload: true,
-		Volume:       vol,
+		Name:            appName,
+		ID:              appName,
+		AppType:         v1beta1.AppTypeQuadlet,
+		User:            v1beta1.CurrentProcessUsername,
+		IsVMWorkload:    true,
+		VMContainerName: fmt.Sprintf("virt-launcher-%s-compute", appName),
+		Volume:          vol,
 	}
 	mock := provider.NewMockProvider(ctrl)
 	mock.EXPECT().Spec().Return(spec).AnyTimes()
@@ -345,12 +347,12 @@ func TestVMApplicationStatus(t *testing.T) {
 			expectedReady:         "1/1",
 		},
 		{
-			name:                  "When virsh returns shut off it should report Stopped with Healthy summary",
+			name:                  "When virsh returns shut off it should report Stopped with Healthy summary and Ready 0/1",
 			virshStdout:           "shut off\n",
 			virshExitCode:         0,
 			expectedStatus:        v1beta1.ApplicationStatusStopped,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-			expectedReady:         "1/1",
+			expectedReady:         "0/1",
 		},
 		{
 			name:                  "When virsh returns in shutdown it should report Stopping with Degraded summary",
@@ -420,30 +422,28 @@ func TestNewApplicationUsesWorkloadBasedLogic(t *testing.T) {
 }
 
 func TestNewAppFromProvider(t *testing.T) {
+	factoryErr := fmt.Errorf("podman factory error")
+
 	tests := []struct {
 		name         string
 		isVM         bool
-		user         v1beta1.Username
 		wantVMPoller bool
-		wantErr      bool
+		factoryErr   error
 	}{
 		{
 			name:         "When provider is not a VM workload it should return a regular application",
 			isVM:         false,
-			user:         v1beta1.CurrentProcessUsername,
 			wantVMPoller: false,
 		},
 		{
-			name:         "When provider is a VM workload with the current process user it should return a VM application",
+			name:         "When provider is a VM workload it should return a VM application",
 			isVM:         true,
-			user:         v1beta1.CurrentProcessUsername,
 			wantVMPoller: true,
 		},
 		{
-			name:    "When provider is a VM workload with a nonexistent user it should return an error",
-			isVM:    true,
-			user:    v1beta1.Username("nonexistent-user-emd4100-test"),
-			wantErr: true,
+			name:       "When provider is a VM workload and the factory fails it should return an error",
+			isVM:       true,
+			factoryErr: factoryErr,
 		},
 	}
 
@@ -453,20 +453,25 @@ func TestNewAppFromProvider(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			vol, err := provider.NewVolumeManager(nil, "app", v1beta1.AppTypeQuadlet, tt.user, nil)
+			vol, err := provider.NewVolumeManager(nil, "app", v1beta1.AppTypeQuadlet, v1beta1.CurrentProcessUsername, nil)
 			require.NoError(err)
 
+			vmContainerName := ""
+			if tt.isVM {
+				vmContainerName = "virt-launcher-app-compute"
+			}
 			spec := &provider.ApplicationSpec{
-				Name:         "app",
-				ID:           "app",
-				AppType:      v1beta1.AppTypeQuadlet,
-				User:         tt.user,
-				IsVMWorkload: tt.isVM,
-				Volume:       vol,
+				Name:            "app",
+				ID:              "app",
+				AppType:         v1beta1.AppTypeQuadlet,
+				User:            v1beta1.CurrentProcessUsername,
+				IsVMWorkload:    tt.isVM,
+				VMContainerName: vmContainerName,
+				Volume:          vol,
 			}
 			mock := provider.NewMockProvider(ctrl)
 			mock.EXPECT().Spec().Return(spec).AnyTimes()
-			if tt.isVM && tt.wantErr {
+			if tt.isVM && tt.factoryErr != nil {
 				mock.EXPECT().Name().Return("app").AnyTimes()
 			}
 
@@ -475,17 +480,18 @@ func TestNewAppFromProvider(t *testing.T) {
 				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
 				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 			)
-			podmanFactory := client.PodmanFactory(func(user v1beta1.Username) (*client.Podman, error) {
-				execForUser, err := client.ExecuterForUser(user)
-				if err != nil {
-					return nil, err
+			mockExec := executer.NewMockExecuter(ctrl)
+			podman := client.NewPodman(log.NewPrefixLogger(""), mockExec, readWriter, util.NewPollConfig())
+			var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) {
+				if tt.factoryErr != nil {
+					return nil, tt.factoryErr
 				}
-				return client.NewPodman(log.NewPrefixLogger(""), execForUser, readWriter, util.NewPollConfig()), nil
-			})
+				return podman, nil
+			}
 			m := &manager{log: log.NewPrefixLogger(""), podmanFactory: podmanFactory}
 			app, err := m.newAppFromProvider(mock)
 
-			if tt.wantErr {
+			if tt.factoryErr != nil {
 				require.Error(err)
 				return
 			}

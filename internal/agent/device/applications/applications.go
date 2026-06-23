@@ -166,7 +166,7 @@ func NewApplication(p provider.Provider) *application {
 func NewVMApplication(p provider.Provider, exec ContainerExecer, log *log.PrefixLogger) *application {
 	a := NewApplication(p)
 	a.status.AppType = v1beta1.AppTypeVm
-	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name)
+	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VMContainerName)
 	return a
 }
 
@@ -279,9 +279,12 @@ func (a *application) vmStatus() (*v1beta1.DeviceApplicationStatus, v1beta1.Devi
 
 	var summary v1beta1.DeviceApplicationsSummaryStatus
 	switch appStatus {
-	case v1beta1.ApplicationStatusRunning, v1beta1.ApplicationStatusStopped:
+	case v1beta1.ApplicationStatusRunning:
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 		a.status.Ready = "1/1"
+	case v1beta1.ApplicationStatusStopped:
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+		a.status.Ready = "0/1"
 	case v1beta1.ApplicationStatusStopping, v1beta1.ApplicationStatusStarting:
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 		a.status.Ready = "0/1"

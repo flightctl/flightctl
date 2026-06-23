@@ -2,7 +2,6 @@ package applications
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -30,11 +29,6 @@ const (
 	// resulting journal noise) while keeping state changes detectable within one TTL.
 	vmStatusCacheTTL = 30 * time.Second
 
-	// virtLauncherContainerSuffix is appended to the app name to form the
-	// container name used by KubeVirt's virt-launcher pod.
-	virtLauncherContainerSuffix = "-compute"
-	virtLauncherContainerPrefix = "virt-launcher-"
-
 	// virtLauncherDomainNamespace is the Kubernetes namespace prefix that
 	// KubeVirt's virt-launcher uses when naming the libvirt domain:
 	// "{namespace}_{vmName}". In standalone (non-Kubernetes) deployments the
@@ -57,22 +51,30 @@ const (
 // virsh domstate inside the virt-launcher container via podman exec.
 // Results are cached for vmStatusCacheTTL to reduce exec frequency.
 type vmStatusPoller struct {
-	exec                ContainerExecer
-	log                 *log.PrefixLogger
-	appName             string
+	exec          ContainerExecer
+	log           *log.PrefixLogger
+	appName       string
+	containerName string
+	domainName    string
+
 	consecutiveFailures int
 	maxFailures         int
 	cachedStatus        v1beta1.ApplicationStatusType
 	cacheExpiry         time.Time
 }
 
-// newVMStatusPoller returns a vmStatusPoller for the given application name.
-func newVMStatusPoller(exec ContainerExecer, log *log.PrefixLogger, appName string) *vmStatusPoller {
+// newVMStatusPoller returns a vmStatusPoller for the given application.
+// containerName is the Podman container name for the virt-launcher container
+// (e.g. "virt-launcher-{appName}-compute"), provided by the caller so that
+// the naming convention is centralised in the provider layer.
+func newVMStatusPoller(exec ContainerExecer, log *log.PrefixLogger, appName, containerName string) *vmStatusPoller {
 	return &vmStatusPoller{
-		exec:        exec,
-		log:         log,
-		appName:     appName,
-		maxFailures: vmConsecutiveFailureThreshold,
+		exec:          exec,
+		log:           log,
+		appName:       appName,
+		containerName: containerName,
+		domainName:    virtLauncherDomainNamespace + "_" + appName,
+		maxFailures:   vmConsecutiveFailureThreshold,
 	}
 }
 
@@ -87,9 +89,7 @@ func (p *vmStatusPoller) Poll(ctx context.Context) v1beta1.ApplicationStatusType
 		return p.cachedStatus
 	}
 
-	container := fmt.Sprintf("%s%s%s", virtLauncherContainerPrefix, p.appName, virtLauncherContainerSuffix)
-	domain := fmt.Sprintf("%s_%s", virtLauncherDomainNamespace, p.appName)
-	stdout, stderr, exitCode := p.exec.ExecInContainer(ctx, container, "virsh", "domstate", domain)
+	stdout, stderr, exitCode := p.exec.ExecInContainer(ctx, p.containerName, "virsh", "domstate", p.domainName)
 	if exitCode != 0 {
 		p.consecutiveFailures++
 		p.log.Debugf("virsh domstate for %q exited %d (failure %d/%d): %s", p.appName, exitCode, p.consecutiveFailures, p.maxFailures, strings.TrimSpace(stderr))
