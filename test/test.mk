@@ -1,7 +1,15 @@
 REPORTS ?= $(ROOT_DIR)/reports
 
 GO_TEST_FORMAT = pkgname
-GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
+# RACE=0 disables the race detector (faster for local iteration; CI always uses RACE=1).
+RACE ?= 1
+# COVERAGE=0 disables the unit-test coverage profile (faster for local iteration; CI always uses COVERAGE=1).
+COVERAGE ?= 1
+
+GO_TESTING_FLAGS= $(GO_BUILD_FLAGS)
+ifeq ($(RACE), 1)
+	GO_TESTING_FLAGS += -race
+endif
 
 GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
@@ -16,7 +24,10 @@ INTEGRATION_GINKGO_FOCUS ?=
 # Set to 1 to disable parallel execution. Default: 4.
 INTEGRATION_PROCS ?= 4
 
-GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
+GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)
+ifeq ($(COVERAGE), 1)
+	GO_UNITTEST_FLAGS += -coverprofile=$(REPORTS)/unit-coverage.out
+endif
 
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
