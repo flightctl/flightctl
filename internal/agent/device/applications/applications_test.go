@@ -45,6 +45,7 @@ func newMockVMProvider(ctrl *gomock.Controller, appName string) *provider.MockPr
 		User:            v1beta1.CurrentProcessUsername,
 		IsVMWorkload:    true,
 		VMContainerName: fmt.Sprintf("virt-launcher-%s-compute", appName),
+		VMDomainName:    fmt.Sprintf("default_%s", appName),
 		Volume:          vol,
 	}
 	mock := provider.NewMockProvider(ctrl)
@@ -456,9 +457,10 @@ func TestNewAppFromProvider(t *testing.T) {
 			vol, err := provider.NewVolumeManager(nil, "app", v1beta1.AppTypeQuadlet, v1beta1.CurrentProcessUsername, nil)
 			require.NoError(err)
 
-			vmContainerName := ""
+			vmContainerName, vmDomainName := "", ""
 			if tt.isVM {
 				vmContainerName = "virt-launcher-app-compute"
+				vmDomainName = "default_app"
 			}
 			spec := &provider.ApplicationSpec{
 				Name:            "app",
@@ -467,6 +469,7 @@ func TestNewAppFromProvider(t *testing.T) {
 				User:            v1beta1.CurrentProcessUsername,
 				IsVMWorkload:    tt.isVM,
 				VMContainerName: vmContainerName,
+				VMDomainName:    vmDomainName,
 				Volume:          vol,
 			}
 			mock := provider.NewMockProvider(ctrl)

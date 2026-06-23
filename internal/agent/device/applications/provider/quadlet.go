@@ -133,9 +133,14 @@ func newQuadletProvider(
 		volumeManager.AddVolumes(quadletVolumes)
 	}
 
-	var vmContainerName string
+	var vmContainerName, vmDomainName string
 	if isVM {
-		vmContainerName = fmt.Sprintf("virt-launcher-%s-compute", appName)
+		info, err := lookupVMContainerInfo(inlineContent)
+		if err != nil {
+			return nil, fmt.Errorf("resolving VM container names for %q: %w", appName, err)
+		}
+		vmContainerName = namespacedQuadlet(appID, info.OriginalPodName) + "-" + info.ContainerName
+		vmDomainName = virtLauncherDomainNamespace + "_" + info.KubeVirtDomain
 	}
 
 	p := &quadletProvider{
@@ -154,6 +159,7 @@ func newQuadletProvider(
 			EnvVars:         envVars,
 			IsVMWorkload:    isVM,
 			VMContainerName: vmContainerName,
+			VMDomainName:    vmDomainName,
 			QuadletApp:      &quadletApp,
 			Volume:          volumeManager,
 		},

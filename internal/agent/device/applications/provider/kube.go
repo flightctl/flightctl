@@ -13,10 +13,16 @@ import (
 )
 
 // podSpec is a minimal struct for parsing the subset of a Podman Pod YAML that
-// the agent needs for OCI prefetch.
-// Only fields required by the design (§4.1) are defined — no external k8s.io/api dependency.
+// the agent needs for OCI prefetch and VM container name resolution.
+// Only fields required by the design are defined — no external k8s.io/api dependency.
 type podSpec struct {
-	Spec podSpecInner `yaml:"spec"`
+	Metadata podMetadata  `yaml:"metadata"`
+	Spec     podSpecInner `yaml:"spec"`
+}
+
+type podMetadata struct {
+	Name        string            `yaml:"name"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
 }
 
 type podSpecInner struct {
@@ -35,6 +41,100 @@ type podVolume struct {
 
 type podVolumeImage struct {
 	Reference string `yaml:"reference"`
+}
+
+// Annotation keys set by kubevirt-vm-to-pod on the generated pod spec.
+const (
+	annotationDefaultContainer = "kubectl.kubernetes.io/default-container"
+	annotationKubeVirtDomain   = "kubevirt.io/domain"
+
+	// virtLauncherDomainNamespace is the libvirt namespace prefix used by
+	// KubeVirt virt-launcher in standalone (non-Kubernetes) deployments.
+	virtLauncherDomainNamespace = "default"
+)
+
+// VMContainerInfo holds the resolved container and domain names parsed from the
+// pod YAML produced by kubevirt-vm-to-pod, before appID namespacing is applied.
+type VMContainerInfo struct {
+	// OriginalPodName is metadata.name from the pod YAML (e.g. "virt-launcher-demo-vm").
+	// The caller must apply appID namespacing to get the final Podman pod name.
+	OriginalPodName string
+	// ContainerName is the default container (kubectl.kubernetes.io/default-container annotation).
+	ContainerName string
+	// KubeVirtDomain is the libvirt domain identifier (kubevirt.io/domain annotation).
+	KubeVirtDomain string
+}
+
+// parseVMContainerInfo extracts container and domain information from a pod YAML
+// produced by kubevirt-vm-to-pod. Returns an error if required fields are missing.
+func parseVMContainerInfo(podYAML []byte) (VMContainerInfo, error) {
+	var pod podSpec
+	if err := yaml.Unmarshal(podYAML, &pod); err != nil {
+		return VMContainerInfo{}, fmt.Errorf("parsing pod YAML: %w", err)
+	}
+
+	if pod.Metadata.Name == "" {
+		return VMContainerInfo{}, fmt.Errorf("pod YAML missing metadata.name")
+	}
+
+	containerName := pod.Metadata.Annotations[annotationDefaultContainer]
+	if containerName == "" {
+		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationDefaultContainer)
+	}
+
+	domain := pod.Metadata.Annotations[annotationKubeVirtDomain]
+	if domain == "" {
+		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationKubeVirtDomain)
+	}
+
+	return VMContainerInfo{
+		OriginalPodName: pod.Metadata.Name,
+		ContainerName:   containerName,
+		KubeVirtDomain:  domain,
+	}, nil
+}
+
+// lookupVMContainerInfo finds the .kube unit in inlineContent, follows its Yaml=
+// directive to the pod YAML, and parses VM container names from that pod YAML.
+func lookupVMContainerInfo(inlineContent []v1beta1.ApplicationContent) (VMContainerInfo, error) {
+	for i := range inlineContent {
+		if !strings.HasSuffix(inlineContent[i].Path, ".kube") {
+			continue
+		}
+
+		kubeContent, err := inlineContent[i].ContentsDecoded()
+		if err != nil {
+			return VMContainerInfo{}, fmt.Errorf("decoding kube unit %q: %w", inlineContent[i].Path, err)
+		}
+
+		unit, err := quadlet.NewUnit(kubeContent)
+		if err != nil {
+			return VMContainerInfo{}, fmt.Errorf("parsing kube unit %q: %w", inlineContent[i].Path, err)
+		}
+
+		cleanPath, found, err := lookupKubeYamlPath(unit)
+		if err != nil {
+			return VMContainerInfo{}, err
+		}
+		if !found {
+			continue
+		}
+
+		for j := range inlineContent {
+			if filepath.Clean(inlineContent[j].Path) != cleanPath {
+				continue
+			}
+			podYAML, err := inlineContent[j].ContentsDecoded()
+			if err != nil {
+				return VMContainerInfo{}, fmt.Errorf("decoding pod YAML %q: %w", cleanPath, err)
+			}
+			return parseVMContainerInfo(podYAML)
+		}
+
+		return VMContainerInfo{}, fmt.Errorf("pod YAML %q not found in inline content", cleanPath)
+	}
+
+	return VMContainerInfo{}, fmt.Errorf("no .kube unit found in inline content")
 }
 
 // parsePodYAMLTargets parses a Kubernetes Pod YAML produced by kubevirt-vm-to-pod and

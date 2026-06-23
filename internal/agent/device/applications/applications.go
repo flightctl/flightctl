@@ -166,7 +166,7 @@ func NewApplication(p provider.Provider) *application {
 func NewVMApplication(p provider.Provider, exec ContainerExecer, log *log.PrefixLogger) *application {
 	a := NewApplication(p)
 	a.status.AppType = v1beta1.AppTypeVm
-	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VMContainerName)
+	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VMContainerName, p.Spec().VMDomainName)
 	return a
 }
 
