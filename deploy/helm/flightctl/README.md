@@ -400,6 +400,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | remoteAccess.image.pullPolicy | string | `""` | Image pull policy for remote access container |
 | remoteAccess.image.tag | string | `""` | Remote access image tag (leave empty to use chart appVersion) |
 | remoteAccess.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resource requests and limits for the remote access container |
+| remoteAccess.resources.limits.cpu | string | `"500m"` | CPU limit for the remote access container |
+| remoteAccess.resources.limits.memory | string | `"256Mi"` | Memory limit for the remote access container |
+| remoteAccess.resources.requests.cpu | string | `"100m"` | CPU request for the remote access container |
+| remoteAccess.resources.requests.memory | string | `"128Mi"` | Memory request for the remote access container |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
