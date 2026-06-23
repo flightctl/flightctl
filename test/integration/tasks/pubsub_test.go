@@ -43,7 +43,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 	})
 
 	Describe("Publish and Subscribe", func() {
-		It("When ... it should deliver a message to multiple subscribers", func() {
+		It("When a message is published it should deliver to multiple subscribers", func() {
 			channel := fmt.Sprintf("test-pubsub-channel-%d", GinkgoParallelProcess())
 			payload := []byte("hello subscribers")
 
@@ -94,7 +94,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			}
 		})
 
-		It("When ... it should not deliver old messages to a late subscriber", func() {
+		It("When a subscriber joins after publish it should not receive old messages", func() {
 			channel := fmt.Sprintf("test-pubsub-late-%d", GinkgoParallelProcess())
 
 			publisher, err := provider.NewPubSubPublisher(ctx, channel)
@@ -126,7 +126,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			Expect(received).To(BeNil(), "late subscriber should not receive messages published before it subscribed")
 		})
 
-		It("When ... it should handle a handler error without hanging", func() {
+		It("When a handler returns an error it should not hang the publisher", func() {
 			channel := fmt.Sprintf("test-pubsub-error-%d", GinkgoParallelProcess())
 
 			subscriber, err := provider.NewPubSubSubscriber(ctx, channel)
@@ -154,7 +154,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			Eventually(done, 3*time.Second).Should(BeClosed())
 		})
 
-		It("When ... it should return an error when publishing on a closed publisher", func() {
+		It("When the publisher is closed it should return an error on publish", func() {
 			channel := fmt.Sprintf("test-pubsub-closed-%d", GinkgoParallelProcess())
 
 			publisher, err := provider.NewPubSubPublisher(ctx, channel)
@@ -165,7 +165,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("When ... it should return an error when subscribing on a closed subscriber", func() {
+		It("When the subscriber is closed it should return an error on subscribe", func() {
 			channel := fmt.Sprintf("test-pubsub-closed-sub-%d", GinkgoParallelProcess())
 
 			subscriber, err := provider.NewPubSubSubscriber(ctx, channel)
@@ -178,7 +178,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("When ... it should support multiple subscriptions from the same subscriber", func() {
+		It("When a subscriber registers multiple handlers it should deliver to all handlers", func() {
 			channel := fmt.Sprintf("test-pubsub-multi-sub-%d", GinkgoParallelProcess())
 			payload := []byte("test message")
 
