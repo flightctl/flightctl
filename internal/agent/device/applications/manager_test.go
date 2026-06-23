@@ -1184,58 +1184,6 @@ func TestManagerResolveConsole(t *testing.T) {
 	})
 }
 
-func newTestDeviceWithDesiredState(t *testing.T, name string, details []testInlineDetails, desiredState *v1beta1.ApplicationDesiredState) *v1beta1.DeviceSpec {
-	t.Helper()
-
-	inlineSpec := v1beta1.InlineApplicationProviderSpec{
-		Inline: make([]v1beta1.ApplicationContent, len(details)),
-	}
-	for i, d := range details {
-		inlineSpec.Inline[i] = v1beta1.ApplicationContent{
-			Content: lo.ToPtr(d.Content),
-			Path:    d.Path,
-		}
-	}
-
-	var composeApp v1beta1.ComposeApplication
-	require.NoError(t, composeApp.FromInlineApplicationProviderSpec(inlineSpec))
-	composeApp.AppType = v1beta1.AppTypeCompose
-	composeApp.Name = lo.ToPtr(name)
-	composeApp.DesiredState = desiredState
-
-	var providerSpec v1beta1.ApplicationProviderSpec
-	require.NoError(t, providerSpec.FromComposeApplication(composeApp))
-
-	applications := []v1beta1.ApplicationProviderSpec{providerSpec}
-	return &v1beta1.DeviceSpec{Applications: &applications}
-}
-
-func newTestDeviceWithRestartGeneration(t *testing.T, name string, details []testInlineDetails, restartGeneration int) *v1beta1.DeviceSpec {
-	t.Helper()
-
-	inlineSpec := v1beta1.InlineApplicationProviderSpec{
-		Inline: make([]v1beta1.ApplicationContent, len(details)),
-	}
-	for i, d := range details {
-		inlineSpec.Inline[i] = v1beta1.ApplicationContent{
-			Content: lo.ToPtr(d.Content),
-			Path:    d.Path,
-		}
-	}
-
-	var composeApp v1beta1.ComposeApplication
-	require.NoError(t, composeApp.FromInlineApplicationProviderSpec(inlineSpec))
-	composeApp.AppType = v1beta1.AppTypeCompose
-	composeApp.Name = lo.ToPtr(name)
-	composeApp.RestartGeneration = lo.ToPtr(restartGeneration)
-
-	var providerSpec v1beta1.ApplicationProviderSpec
-	require.NoError(t, providerSpec.FromComposeApplication(composeApp))
-
-	applications := []v1beta1.ApplicationProviderSpec{providerSpec}
-	return &v1beta1.DeviceSpec{Applications: &applications}
-}
-
 func mockExecPodmanComposeStop(mockExec *executer.MockExecuter, name string) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
 	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)

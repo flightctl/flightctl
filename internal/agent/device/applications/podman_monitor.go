@@ -455,25 +455,7 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 	}
 
 	// Dispatch explicit lifecycle actions queued by QueueLifecycle.
-	for _, a := range actions {
-		switch a.Type {
-		case lifecycle.ActionStop:
-			m.log.Infof("Stopping application %s", a.Name)
-			if err := m.StopApp(ctx, a.ID); err != nil {
-				m.log.Warnf("Failed to stop application %s: %v", a.Name, err)
-			}
-		case lifecycle.ActionStart:
-			m.log.Infof("Starting application %s", a.Name)
-			if err := m.StartApp(ctx, a.ID); err != nil {
-				m.log.Warnf("Failed to start application %s: %v", a.Name, err)
-			}
-		case lifecycle.ActionRestart:
-			m.log.Infof("Restarting application %s", a.Name)
-			if err := m.RestartApp(ctx, a.ID); err != nil {
-				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
-			}
-		}
-	}
+	m.dispatchLifecycleActions(ctx, actions)
 
 	m.updateLastSuccessTime(time.Now())
 
@@ -504,6 +486,29 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 	}
 
 	return nil
+}
+
+// dispatchLifecycleActions dispatches explicit stop/start/restart lifecycle actions.
+func (m *PodmanMonitor) dispatchLifecycleActions(ctx context.Context, actions []lifecycle.Action) {
+	for _, a := range actions {
+		switch a.Type {
+		case lifecycle.ActionStop:
+			m.log.Infof("Stopping application %s", a.Name)
+			if err := m.StopApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to stop application %s: %v", a.Name, err)
+			}
+		case lifecycle.ActionStart:
+			m.log.Infof("Starting application %s", a.Name)
+			if err := m.StartApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to start application %s: %v", a.Name, err)
+			}
+		case lifecycle.ActionRestart:
+			m.log.Infof("Restarting application %s", a.Name)
+			if err := m.RestartApp(ctx, a.ID); err != nil {
+				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
+			}
+		}
+	}
 }
 
 // drainActions returns a copy of the current actions and clears the existing. this
