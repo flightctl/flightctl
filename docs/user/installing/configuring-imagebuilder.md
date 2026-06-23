@@ -457,7 +457,7 @@ Apply:
 
 ```bash
 helm upgrade flightctl flightctl-chart.tgz \
-    --reuse-values \
+    --reset-then-reuse-values \
     -f disconnected-values.yaml
 ```
 

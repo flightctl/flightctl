@@ -422,10 +422,10 @@ Procedure:
 
    ```console
    helm upgrade flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
-     -n flightctl -f values.yaml --reuse-values
+     -n flightctl -f values.yaml --reset-then-reuse-values
    ```
 
-   The `--reuse-values` flag preserves all existing configuration and only updates the values specified in `values.yaml`.
+   The `--reset-then-reuse-values` flag applies new chart defaults first, then merges existing configuration on top, ensuring new chart values are not lost on upgrade.
 
 Verification:
 

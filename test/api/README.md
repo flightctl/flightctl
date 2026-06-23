@@ -21,7 +21,7 @@ Run the curl command to reproduce the failure and read the response body for det
 - To apply API test overrides (rate limits, rendered spec poll timeout) to the running deployment:
 
   ```bash
-  helm upgrade flightctl ./deploy/helm/flightctl/ -n flightctl-external --reuse-values --values test/api/values.api-tests.yaml
+  helm upgrade flightctl ./deploy/helm/flightctl/ -n flightctl-external --reset-then-reuse-values --values test/api/values.api-tests.yaml
   ```
 
 - `make test-api` builds the schemathesis container image and runs `test/api/run_tests.sh`.
