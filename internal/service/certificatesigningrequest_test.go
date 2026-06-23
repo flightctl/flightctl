@@ -82,49 +82,43 @@ func TestUpdateCertificateSigningRequestApprovalServerSvc(t *testing.T) {
 		name       string
 		ctx        context.Context
 		signerName string
-		approved   bool
 		wantErr    bool
 	}{
 		{
 			name:       "When server svc signer approval is by super-admin it should be accepted",
 			ctx:        superAdminCtx,
 			signerName: cfg.ServerSvcSignerName,
-			approved:   true,
 			wantErr:    false,
 		},
 		{
 			name:       "When server svc signer approval is by non-super-admin it should be rejected",
 			ctx:        nonAdminCtx,
 			signerName: cfg.ServerSvcSignerName,
-			approved:   true,
 			wantErr:    true,
 		},
 		{
 			name:       "When server svc signer approval is without identity it should be rejected",
 			ctx:        context.Background(),
 			signerName: cfg.ServerSvcSignerName,
-			approved:   true,
 			wantErr:    true,
 		},
 		{
-			name:       "When server svc signer denial is by non-super-admin it should be accepted",
+			name:       "When server svc signer denial is by non-super-admin it should be rejected",
 			ctx:        nonAdminCtx,
 			signerName: cfg.ServerSvcSignerName,
-			approved:   false,
-			wantErr:    false,
+			wantErr:    true,
 		},
 		{
 			name:       "When non-server-svc signer approval is by non-super-admin it should be accepted",
 			ctx:        nonAdminCtx,
 			signerName: cfg.DeviceEnrollmentSignerName,
-			approved:   true,
 			wantErr:    false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := checkServerSvcApprovalPrivilege(tc.ctx, tc.signerName, cfg.ServerSvcSignerName, tc.approved)
+			err := checkServerSvcApprovalPrivilege(tc.ctx, tc.signerName, cfg.ServerSvcSignerName)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}
