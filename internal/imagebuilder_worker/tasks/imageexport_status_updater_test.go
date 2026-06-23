@@ -285,8 +285,7 @@ func TestImageExportStatusUpdater_updateCondition(t *testing.T) {
 
 	updater.updateCondition(condition)
 
-	// Give goroutine time to process (condition updates are processed immediately)
-	time.Sleep(200 * time.Millisecond)
+	// updateCondition with a terminal condition blocks until fully processed.
 
 	// Should have called Get and UpdateStatus
 	assert.GreaterOrEqual(t, mockService.getCallsCount(), 1)
@@ -502,8 +501,7 @@ func TestImageExportStatusUpdater_updateStatus_withFailedCondition(t *testing.T)
 
 	updater.updateCondition(failedCondition)
 
-	// Give goroutine time to process
-	time.Sleep(200 * time.Millisecond)
+	// updateCondition with a terminal condition blocks until fully processed.
 
 	// Should have persisted logs when condition is Failed
 	assert.GreaterOrEqual(t, mockService.getUpdateLogsCallsCount(), 1)
@@ -587,8 +585,7 @@ func TestImageExportStatusUpdater_completedConditionWritesMarker(t *testing.T) {
 
 	updater.updateCondition(completedCondition)
 
-	// Give goroutine time to process
-	time.Sleep(200 * time.Millisecond)
+	// updateCondition with a terminal condition blocks until fully processed.
 
 	// Should have written completion marker to Redis
 	pushedValues := mockKVStore.getPushedValues()

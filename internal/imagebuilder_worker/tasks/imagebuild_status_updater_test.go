@@ -375,8 +375,8 @@ func TestStatusUpdater_updateCondition(t *testing.T) {
 
 	updater.UpdateCondition(condition)
 
-	// Give goroutine time to process (condition updates are processed immediately)
-	time.Sleep(200 * time.Millisecond)
+	// UpdateCondition with a terminal condition blocks until the goroutine has fully
+	// processed the update (via done channel), so no sleep is needed here.
 
 	// Should have called Get and UpdateStatus
 	assert.GreaterOrEqual(t, mockService.getCallsCount(), 1)
@@ -671,8 +671,7 @@ func TestStatusUpdater_completedConditionWritesMarker(t *testing.T) {
 
 	updater.UpdateCondition(completedCondition)
 
-	// Give goroutine time to process
-	time.Sleep(200 * time.Millisecond)
+	// UpdateCondition with a terminal condition blocks until fully processed.
 
 	// Should have written completion marker to Redis
 	pushedValues := mockKVStore.getPushedValues()
@@ -815,8 +814,7 @@ func TestStatusUpdater_cancelingStateAllowsTerminalConditions(t *testing.T) {
 
 			updater.UpdateCondition(terminalCondition)
 
-			// Give goroutine time to process
-			time.Sleep(200 * time.Millisecond)
+			// UpdateCondition with a terminal condition blocks until fully processed.
 
 			// Verify status changed to terminal state
 			mockService.mu.RLock()
