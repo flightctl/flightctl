@@ -64,6 +64,11 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 			ServiceConfigKey: "vulnerabilityReporting",
 			Transform:        nil,
 		},
+		{
+			RenderedKey:      "dependenciesSync",
+			ServiceConfigKey: "dependenciesSync",
+			Transform:        nil,
+		},
 	},
 }
 
