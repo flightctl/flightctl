@@ -661,6 +661,16 @@ func (v *VMInLibvirt) performRevertCore(name string) error {
 
 // performRevertOperation performs a single revert operation attempt
 func (v *VMInLibvirt) performRevertOperation(name string) error {
+	// Wait for SSH to be ready before attempting verification data creation.
+	// Uses a shorter timeout than the full WaitForSSHToBeReady since this runs
+	// inside a retry loop with exponential backoff.
+	origTimeout := v.TestVM.SSHWaitTimeout
+	v.TestVM.SSHWaitTimeout = 30 * time.Second
+	defer func() { v.TestVM.SSHWaitTimeout = origTimeout }()
+	if err := v.TestVM.WaitForSSHToBeReady(); err != nil {
+		return fmt.Errorf("SSH not ready before revert verification: %w", err)
+	}
+
 	err := v.createRevertVerificationData()
 	if err != nil {
 		return fmt.Errorf("failed to create revert verification data: %w", err)
