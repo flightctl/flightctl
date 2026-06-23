@@ -28,12 +28,6 @@ const (
 	// before the next exec call. This reduces podman exec frequency (and the
 	// resulting journal noise) while keeping state changes detectable within one TTL.
 	vmStatusCacheTTL = 30 * time.Second
-
-	// virtLauncherDomainNamespace is the Kubernetes namespace prefix that
-	// KubeVirt's virt-launcher uses when naming the libvirt domain:
-	// "{namespace}_{vmName}". In standalone (non-Kubernetes) deployments the
-	// namespace is always "default".
-	virtLauncherDomainNamespace = "default"
 )
 
 // vmDomainState is the raw domain state string returned by virsh domstate.
@@ -64,16 +58,17 @@ type vmStatusPoller struct {
 }
 
 // newVMStatusPoller returns a vmStatusPoller for the given application.
-// containerName is the Podman container name for the virt-launcher container
-// (e.g. "virt-launcher-{appName}-compute"), provided by the caller so that
-// the naming convention is centralised in the provider layer.
-func newVMStatusPoller(exec ContainerExecer, log *log.PrefixLogger, appName, containerName string) *vmStatusPoller {
+// containerName is the fully-qualified Podman container name (e.g.
+// "{appID}-virt-launcher-{vmName}-compute") and domainName is the virsh
+// domain identifier (e.g. "default_{vmName}"). Both are provided by the
+// caller so the naming conventions live in the provider layer.
+func newVMStatusPoller(exec ContainerExecer, log *log.PrefixLogger, appName, containerName, domainName string) *vmStatusPoller {
 	return &vmStatusPoller{
 		exec:          exec,
 		log:           log,
 		appName:       appName,
 		containerName: containerName,
-		domainName:    virtLauncherDomainNamespace + "_" + appName,
+		domainName:    domainName,
 		maxFailures:   vmConsecutiveFailureThreshold,
 	}
 }

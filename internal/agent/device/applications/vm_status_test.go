@@ -63,7 +63,7 @@ func TestMapDomainState(t *testing.T) {
 func TestVMStatusPollerPoll(t *testing.T) {
 	const appName = "fedora-vm"
 	const expectedContainer = "virt-launcher-fedora-vm-compute"
-	const expectedDomain = virtLauncherDomainNamespace + "_" + appName
+	const expectedDomain = "default_fedora-vm"
 
 	tests := []struct {
 		name                  string
@@ -147,7 +147,7 @@ func TestVMStatusPollerPoll(t *testing.T) {
 				Return(tt.virshStdout, tt.virshStderr, tt.virshExitCode)
 
 			podman := client.NewPodman(log.NewPrefixLogger(""), mockExec, readWriter, util.NewPollConfig())
-			poller := newVMStatusPoller(podman, log.NewPrefixLogger(""), appName, expectedContainer)
+			poller := newVMStatusPoller(podman, log.NewPrefixLogger(""), appName, expectedContainer, expectedDomain)
 			poller.consecutiveFailures = tt.initialFailures
 
 			status := poller.Poll(context.Background())
