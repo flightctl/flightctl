@@ -201,6 +201,9 @@ func TestPostBatchWithRetry_EventualSuccess(t *testing.T) {
 	port := uint(server.Listener.Addr().(*net.TCPAddr).Port) //nolint:gosec // safe conversion in test
 
 	client := NewAlertmanagerClient(hostname, port, logger, nil)
+	// Override default 500ms base delay so the two retry backoffs don't add ~1.5s of sleep.
+	client.baseDelay = 1 * time.Millisecond
+	client.maxDelay = 1 * time.Millisecond
 
 	// Test data
 	batch := []AlertmanagerAlert{
