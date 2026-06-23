@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -31,8 +32,16 @@ type podSpecInner struct {
 	Volumes        []podVolume    `yaml:"volumes"`
 }
 
+type podEnvVar struct {
+	Name  string `yaml:"name"`
+	Value string `yaml:"value"`
+}
+
 type podContainer struct {
-	Image string `yaml:"image"`
+	Name    string      `yaml:"name"`
+	Image   string      `yaml:"image"`
+	Command []string    `yaml:"command"`
+	Env     []podEnvVar `yaml:"env"`
 }
 
 type podVolume struct {
@@ -48,21 +57,65 @@ const (
 	annotationDefaultContainer = "kubectl.kubernetes.io/default-container"
 	annotationKubeVirtDomain   = "kubevirt.io/domain"
 
-	// virtLauncherDomainNamespace is the libvirt namespace prefix used by
-	// KubeVirt virt-launcher in standalone (non-Kubernetes) deployments.
-	virtLauncherDomainNamespace = "default"
+	// virtLauncherNamespaceFlag is the CLI flag that virt-launcher-monitor
+	// receives to identify the libvirt namespace (e.g. "--namespace default").
+	virtLauncherNamespaceFlag = "--namespace"
+
+	// standaloneVMIEnvVar is the env var name carrying the serialized VMI JSON.
+	// Used as a fallback source for the namespace when the command flag is absent.
+	standaloneVMIEnvVar = "STANDALONE_VMI"
+
+	// defaultVirtLauncherNamespace is the last-resort fallback namespace.
+	defaultVirtLauncherNamespace = "default"
 )
+
+// standaloneVMIMeta is a minimal struct for extracting the namespace from the
+// STANDALONE_VMI environment variable, which holds a JSON-encoded VMI object.
+type standaloneVMIMeta struct {
+	Metadata struct {
+		Namespace string `json:"namespace"`
+	} `json:"metadata"`
+}
 
 // VMContainerInfo holds the resolved container and domain names parsed from the
 // pod YAML produced by kubevirt-vm-to-pod, before appID namespacing is applied.
 type VMContainerInfo struct {
-	// OriginalPodName is metadata.name from the pod YAML (e.g. "virt-launcher-demo-vm").
+	// OriginalPodName is metadata.name from the pod YAML (e.g. "virt-launcher-fedora-vm").
 	// The caller must apply appID namespacing to get the final Podman pod name.
 	OriginalPodName string
-	// ContainerName is the default container (kubectl.kubernetes.io/default-container annotation).
+	// ContainerName is the default container name (kubectl.kubernetes.io/default-container annotation).
 	ContainerName string
-	// KubeVirtDomain is the libvirt domain identifier (kubevirt.io/domain annotation).
-	KubeVirtDomain string
+	// DomainName is the fully-qualified virsh domain name ("{namespace}_{vmName}"),
+	// assembled from the kubevirt.io/domain annotation and the --namespace flag in
+	// the virt-launcher-monitor command, falling back to "default" when the flag is absent.
+	DomainName string
+}
+
+// parseNamespaceFromCommand scans args for "--namespace <value>" and returns the
+// value, or "" when the flag is absent or has no following argument.
+func parseNamespaceFromCommand(args []string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == virtLauncherNamespaceFlag {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// parseNamespaceFromEnv scans env for the STANDALONE_VMI variable, unmarshals
+// its JSON value, and returns metadata.namespace. Returns "" on any failure.
+func parseNamespaceFromEnv(env []podEnvVar) string {
+	for _, e := range env {
+		if e.Name != standaloneVMIEnvVar {
+			continue
+		}
+		var vmi standaloneVMIMeta
+		if err := json.Unmarshal([]byte(e.Value), &vmi); err != nil {
+			return ""
+		}
+		return vmi.Metadata.Namespace
+	}
+	return ""
 }
 
 // parseVMContainerInfo extracts container and domain information from a pod YAML
@@ -82,15 +135,35 @@ func parseVMContainerInfo(podYAML []byte) (VMContainerInfo, error) {
 		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationDefaultContainer)
 	}
 
-	domain := pod.Metadata.Annotations[annotationKubeVirtDomain]
-	if domain == "" {
+	vmName := pod.Metadata.Annotations[annotationKubeVirtDomain]
+	if vmName == "" {
 		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationKubeVirtDomain)
+	}
+
+	namespace := ""
+	found := false
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name != containerName {
+			continue
+		}
+		found = true
+		namespace = parseNamespaceFromCommand(pod.Spec.Containers[i].Command)
+		if namespace == "" {
+			namespace = parseNamespaceFromEnv(pod.Spec.Containers[i].Env)
+		}
+		break
+	}
+	if !found {
+		return VMContainerInfo{}, fmt.Errorf("pod YAML has no container named %q (expected from %s annotation)", containerName, annotationDefaultContainer)
+	}
+	if namespace == "" {
+		namespace = defaultVirtLauncherNamespace
 	}
 
 	return VMContainerInfo{
 		OriginalPodName: pod.Metadata.Name,
 		ContainerName:   containerName,
-		KubeVirtDomain:  domain,
+		DomainName:      namespace + "_" + vmName,
 	}, nil
 }
 

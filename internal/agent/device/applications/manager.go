@@ -79,10 +79,10 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 // newAppFromProvider creates the appropriate Application type for the given provider.
-// For VM workloads (IsVMWorkload == true) it wires a vmStatusPoller; otherwise it
-// returns a standard application using workload-count-based status logic.
+// For VM workloads (VM != nil) it wires a vmStatusPoller; otherwise it returns a
+// standard application using workload-count-based status logic.
 func (m *manager) newAppFromProvider(p provider.Provider) (Application, error) {
-	if !p.Spec().IsVMWorkload {
+	if p.Spec().VM == nil {
 		return NewApplication(p), nil
 	}
 	podman, err := m.podmanFactory(p.Spec().User)
