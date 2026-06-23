@@ -302,15 +302,18 @@ func TestCloneCachedGitRepoToIgnition_StaleFingerprint(t *testing.T) {
 	)
 
 	orgId := uuid.New()
-	// Use an unreachable URL so the clone attempt fails after cache deletion.
-	repo := makeGitRepository(repoName, "https://invalid.local/repo.git")
+	// Use a loopback address with a refused port so the clone fails instantly
+	// (no DNS lookup, immediate connection refused) rather than waiting for a
+	// DNS timeout on an invalid domain.
+	const unreachableURL = "http://127.0.0.1:1/repo.git"
+	repo := makeGitRepository(repoName, unreachableURL)
 
 	gitRevKey := kvstore.GitRevisionKey{OrgID: orgId, Fleet: fleet, TemplateVersion: templateVersion, Repository: repoName, TargetRevision: targetRevision}
 	gitDataKey := kvstore.GitContentsKey{OrgID: orgId, Fleet: fleet, TemplateVersion: templateVersion, Repository: repoName, TargetRevision: targetRevision, Path: configPath}
 	repoURLKey := kvstore.RepositoryUrlKey{OrgID: orgId, Fleet: fleet, TemplateVersion: templateVersion, Repository: repoName}
 
 	kv := newTestKVStore()
-	kv.seed(repoURLKey.ComposeKey(), []byte("https://invalid.local/repo.git"))
+	kv.seed(repoURLKey.ComposeKey(), []byte(unreachableURL))
 	kv.seed(gitRevKey.ComposeKey(), []byte(oldSHA))
 	kv.seed(gitDataKey.ComposeKey(), []byte(`{"ignition":{"version":"3.4.0"}}`))
 
