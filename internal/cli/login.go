@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -149,9 +150,17 @@ func formatTLSErrorForAuth(errorInfo TLSErrorInfo) string {
 		"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 }
 
+type credentialsFile struct {
+	Token    string `json:"token"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// LoginOptions holds the options for the login command.
 type LoginOptions struct {
 	GlobalOptions
 	AccessToken        string
+	CredentialsFile    string
 	Provider           string
 	InsecureSkipVerify bool
 	CAFile             string
@@ -167,10 +176,12 @@ type LoginOptions struct {
 	clientConfig       *client.Config
 }
 
+// DefaultLoginOptions returns a LoginOptions with default values.
 func DefaultLoginOptions() *LoginOptions {
 	return &LoginOptions{
 		GlobalOptions:      DefaultGlobalOptions(),
 		AccessToken:        "",
+		CredentialsFile:    "",
 		Provider:           "",
 		InsecureSkipVerify: false,
 		CAFile:             "",
@@ -225,6 +236,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
 	fs.StringVarP(&o.AccessToken, "token", "t", o.AccessToken, "Bearer token for authentication to the API server")
+	fs.StringVarP(&o.CredentialsFile, "credentials-file", "", o.CredentialsFile, "Path to a JSON file containing credentials (token, username, password). Takes precedence over flags and environment variables")
 	fs.StringVarP(&o.Provider, "provider", "", o.Provider, "Name of the authentication provider to use")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
@@ -241,6 +253,11 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
 		return err
 	}
+
+	if err := o.resolveCredentials(); err != nil {
+		return err
+	}
+
 	defaultConfigPath, err := client.DefaultFlightctlClientConfigPath()
 	if err != nil {
 		return fmt.Errorf("could not get user config directory: %w", err)
@@ -255,6 +272,46 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 			trimmedURL = "https://" + trimmedURL
 		}
 		args[0] = trimmedURL
+	}
+
+	return nil
+}
+
+func (o *LoginOptions) resolveCredentials() error {
+	if o.AccessToken == "" {
+		if v := os.Getenv("FLIGHTCTL_TOKEN"); v != "" {
+			o.AccessToken = v
+		}
+	}
+	if o.Username == "" {
+		if v := os.Getenv("FLIGHTCTL_USERNAME"); v != "" {
+			o.Username = v
+		}
+	}
+	if o.Password == "" {
+		if v := os.Getenv("FLIGHTCTL_PASSWORD"); v != "" {
+			o.Password = v
+		}
+	}
+
+	if o.CredentialsFile != "" {
+		data, err := os.ReadFile(o.CredentialsFile)
+		if err != nil {
+			return fmt.Errorf("reading credentials file %s: %w", o.CredentialsFile, err)
+		}
+		var creds credentialsFile
+		if err := json.Unmarshal(data, &creds); err != nil {
+			return fmt.Errorf("parsing credentials file %s: %w", o.CredentialsFile, err)
+		}
+		if creds.Token != "" {
+			o.AccessToken = creds.Token
+		}
+		if creds.Username != "" {
+			o.Username = creds.Username
+		}
+		if creds.Password != "" {
+			o.Password = creds.Password
+		}
 	}
 
 	return nil
