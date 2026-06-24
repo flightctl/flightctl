@@ -780,10 +780,14 @@ ignore_chown_errors = "true"
 	// Start the worker container in detached mode
 	log.Info("Starting worker container")
 	startArgs := []string{
-		"run", "-d", "--rm",
+		"run", "-d", "--rm", // -d for detached, --rm to clean up when killed
 		"--name", containerName,
+		"--security-opt", "seccomp=unconfined",
+		"--security-opt", "label=disable",
 		"--storage-driver", "overlay",
+		"--net=host",
 		"--cgroups=disabled",
+		"--userns=host",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpDir, containerBuildDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
@@ -793,21 +797,15 @@ ignore_chown_errors = "true"
 		"-v", "/dev/random:/dev/random:rw",
 		"-v", "/dev/urandom:/dev/urandom:rw",
 		"-v", "/dev/full:/dev/full:rw",
-		"-v", "/dev/tty:/dev/tty:rw",
+		"-v", "/dev/tty:/dev/tty:rw", // Good practice for build logs
 	}
 
-	// Copy entitlement certs to the build context instead of bind-mounting from host
+	// Auto-detect and mount entitlement certs if present (for RHEL subscription repos)
 	hasEntitlementCerts := false
 	if _, err := os.Stat(entitlementCertsPath); err == nil {
-		entitlementDestDir := filepath.Join(tmpDir, "entitlement-certs")
-		if err := copyDirFiles(entitlementCertsPath, entitlementDestDir); err != nil {
-			os.RemoveAll(tmpDir)
-			os.RemoveAll(tmpOutDir)
-			os.RemoveAll(tmpContainerStorage)
-			return nil, fmt.Errorf("failed to copy entitlement certs: %w", err)
-		}
+		startArgs = append(startArgs, "-v", fmt.Sprintf("%s:%s:ro,Z", entitlementCertsPath, entitlementCertsPath))
 		hasEntitlementCerts = true
-		log.Debug("Copied entitlement certificates to build context")
+		log.Debug("Mounting entitlement certificates (auto-detected)")
 	}
 
 	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
@@ -985,34 +983,6 @@ func (c *Consumer) getOciRepoSpec(ctx context.Context, orgID uuid.UUID, repoName
 	return &ociSpec, nil
 }
 
-// copyDirFiles copies all regular files from srcDir to dstDir.
-// The destination directory is created with restrictive permissions.
-func copyDirFiles(srcDir, dstDir string) error {
-	if err := os.MkdirAll(dstDir, 0700); err != nil {
-		return fmt.Errorf("creating directory %q: %w", dstDir, err)
-	}
-
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return fmt.Errorf("reading directory %q: %w", srcDir, err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(srcDir, entry.Name()))
-		if err != nil {
-			return fmt.Errorf("reading file %q: %w", entry.Name(), err)
-		}
-		if err := os.WriteFile(filepath.Join(dstDir, entry.Name()), data, 0600); err != nil {
-			return fmt.Errorf("writing file %q: %w", entry.Name(), err)
-		}
-	}
-
-	return nil
-}
-
 // writeBuildContextFiles writes the containerfile and associated files to the build directory.
 func writeBuildContextFiles(tmpDir string, containerfileResult *ContainerfileResult) error {
 	// Write Containerfile
@@ -1166,10 +1136,9 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("DNF_SKIP_UNAVAILABLE=%t", args.DNFSkipUnavailable),
 	)
 
-	// Mount entitlement certs from build context if available (for RHEL subscription repos)
+	// Mount entitlement certs into the build if available (for RHEL subscription repos)
 	if podmanWorker.HasEntitlementCerts {
-		containerEntitlementDir := filepath.Join("/build", "entitlement-certs")
-		podmanBuildArgs = append(podmanBuildArgs, "--volume", fmt.Sprintf("%s:%s:ro", containerEntitlementDir, entitlementCertsPath))
+		podmanBuildArgs = append(podmanBuildArgs, "--volume", fmt.Sprintf("%s:%s:ro", entitlementCertsPath, entitlementCertsPath))
 	}
 
 	podmanBuildArgs = append(podmanBuildArgs,

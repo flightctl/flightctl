@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -408,79 +406,6 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 
 	// Verify Publickey is nil when no user configuration
 	require.Nil(t, result.Publickey)
-}
-
-func TestCopyDirFiles(t *testing.T) {
-	t.Run("When source has files it should copy them with restrictive permissions", func(t *testing.T) {
-		srcDir := t.TempDir()
-		dstDir := filepath.Join(t.TempDir(), "dest")
-
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "cert.pem"), []byte("certificate-data"), 0600))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "key.pem"), []byte("key-data"), 0600))
-
-		err := copyDirFiles(srcDir, dstDir)
-		require.NoError(t, err)
-
-		certData, err := os.ReadFile(filepath.Join(dstDir, "cert.pem"))
-		require.NoError(t, err)
-		require.Equal(t, "certificate-data", string(certData))
-
-		keyData, err := os.ReadFile(filepath.Join(dstDir, "key.pem"))
-		require.NoError(t, err)
-		require.Equal(t, "key-data", string(keyData))
-
-		info, err := os.Stat(filepath.Join(dstDir, "cert.pem"))
-		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0600), info.Mode().Perm())
-	})
-
-	t.Run("When source has subdirectories it should skip them", func(t *testing.T) {
-		srcDir := t.TempDir()
-		dstDir := filepath.Join(t.TempDir(), "dest")
-
-		require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("data"), 0600))
-
-		err := copyDirFiles(srcDir, dstDir)
-		require.NoError(t, err)
-
-		_, err = os.Stat(filepath.Join(dstDir, "subdir"))
-		require.True(t, os.IsNotExist(err))
-
-		_, err = os.Stat(filepath.Join(dstDir, "file.txt"))
-		require.NoError(t, err)
-	})
-
-	t.Run("When source is empty it should create empty destination", func(t *testing.T) {
-		srcDir := t.TempDir()
-		dstDir := filepath.Join(t.TempDir(), "dest")
-
-		err := copyDirFiles(srcDir, dstDir)
-		require.NoError(t, err)
-
-		entries, err := os.ReadDir(dstDir)
-		require.NoError(t, err)
-		require.Empty(t, entries)
-	})
-
-	t.Run("When source does not exist it should return error", func(t *testing.T) {
-		err := copyDirFiles("/nonexistent/path", t.TempDir())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "reading directory")
-	})
-
-	t.Run("When destination parent does not exist it should create it", func(t *testing.T) {
-		srcDir := t.TempDir()
-		dstDir := filepath.Join(t.TempDir(), "nested", "deep", "dest")
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "f.txt"), []byte("x"), 0600))
-
-		err := copyDirFiles(srcDir, dstDir)
-		require.NoError(t, err)
-
-		data, err := os.ReadFile(filepath.Join(dstDir, "f.txt"))
-		require.NoError(t, err)
-		require.Equal(t, "x", string(data))
-	})
 }
 
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {
