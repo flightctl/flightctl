@@ -534,6 +534,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "description": "Enable remote access service" },
+        "logLevel": { "type": "string", "description": "Log level for the remote access service" },
         "image": {
           "type": "object",
           "additionalProperties": false,

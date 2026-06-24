@@ -15,6 +15,8 @@ const (
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS = "certificatesigningrequests"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
 	API_RESOURCE_DEVICES = "devices"
+	API_RESOURCE_DEVICES_APPLICATIONS_CONSOLE = "devices/applications/console"
+	API_RESOURCE_DEVICES_CONSOLE = "devices/console"
 	API_RESOURCE_DEVICES_DECOMMISSION = "devices/decommission"
 	API_RESOURCE_DEVICES_LASTSEEN = "devices/lastseen"
 	API_RESOURCE_DEVICES_RENDERED = "devices/rendered"
@@ -815,6 +817,22 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		Action:      "list",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/ws/v1/devices/{name}/applications/{appname}/console": {
+		OperationID: "getDeviceApplicationConsole",
+		Resource:    "devices/applications/console",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/ws/v1/devices/{name}/console": {
+		OperationID: "getDeviceConsole",
+		Resource:    "devices/console",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
 }

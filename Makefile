@@ -357,6 +357,8 @@ push-containers: login
 	podman push flightctl-userinfo-proxy:latest
 	podman push flightctl-telemetry-gateway:latest
 	podman push flightctl-imagebuilder-api:latest
+	podman push flightctl-imagebuilder-worker:latest
+	podman push flightctl-remote-access:latest
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers

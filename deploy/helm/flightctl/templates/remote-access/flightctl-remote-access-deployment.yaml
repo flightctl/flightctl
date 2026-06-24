@@ -44,15 +44,19 @@ spec:
               name: agent-api
               protocol: TCP
           livenessProbe:
-            tcpSocket:
-              port: agent-api
+            httpGet:
+              path: /healthz
+              port: service-api
+              scheme: HTTPS
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 10
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /readyz
               port: service-api
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5

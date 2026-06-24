@@ -27,7 +27,7 @@ rules:
     then:
       function: pattern
       functionOptions:
-        match: '^(/[a-z0-9/]+|/{name}|/{fleet}|/{catalog})+$'
+        match: '^(/[a-z0-9/]+|/\{[a-z][a-z0-9]*\})+$'
 
   ## Allowed and required verbs
   collection-verbs-required:
@@ -590,6 +590,18 @@ overrides:
       - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D~1log"
     rules:
       response-media-type-2xx: off
+  # WebSocket upgrade endpoints return 101 (1xx) on success, not a 2xx.
+  # Error responses intentionally have no body (http.Error sends text/plain; changing
+  # that would break existing clients). Exempt from operation-success-response which
+  # requires at least one 2xx/3xx, and from the 4xx/5xx content-type/schema rules
+  # since error responses carry no structured body.
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1ws~1v1~1devices~1%7Bname%7D~1console"
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1ws~1v1~1devices~1%7Bname%7D~1applications~1%7Bappname%7D~1console"
+    rules:
+      operation-success-response: off
+      response-media-type-4xx-5xx: off
+      response-schema-4xx-5xx: off
   # Schema examples reference conditions whose ConditionType enum has intentional
   # duplicates (same string for different resource kinds, see duplicated-entry-in-enum: off).
   # oas3-valid-schema-example fails because JSON Schema rejects duplicate enum items.

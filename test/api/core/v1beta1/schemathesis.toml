@@ -49,6 +49,11 @@ enabled = true
 include-method = "PATCH"
 enabled = false
 
+# WebSocket upgrade endpoints cannot be tested by Schemathesis (HTTP-only client)
+[[operations]]
+include-path-regex = "^/ws/"
+enabled = false
+
 [[operations]]
 include-path = "/enrollmentrequests/{name}/approval"
 [operations.checks.response_schema_conformance]

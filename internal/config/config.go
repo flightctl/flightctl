@@ -25,6 +25,7 @@ const (
 type Config struct {
 	Database               *dbConfig                  `json:"database,omitempty"`
 	Service                *svcConfig                 `json:"service,omitempty"`
+	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
 	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
 	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
 	KV                     *kvConfig                  `json:"kv,omitempty"`
@@ -165,6 +166,49 @@ type ImageBuilderServiceConfig struct {
 	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
 	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
 	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
+}
+
+// RemoteAccessServiceConfig holds configuration specific to the flightctl-remote-access service.
+type RemoteAccessServiceConfig struct {
+	Address               string        `json:"address,omitempty"`
+	AgentEndpointAddress  string        `json:"agentEndpointAddress,omitempty"`
+	LogLevel              string        `json:"logLevel,omitempty"`
+	DisableTLS            bool          `json:"disableTLS,omitempty"`
+	HttpReadTimeout       util.Duration `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout util.Duration `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout      util.Duration `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout       util.Duration `json:"httpIdleTimeout,omitempty"`
+	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
+	// RateLimit configures rate limiting for the WebSocket console endpoint.
+	// Defaults to 100 requests/minute; set to nil or Enabled=false to disable.
+	RateLimit    *RateLimitConfig `json:"rateLimit,omitempty"`
+	HealthChecks *HealthChecks    `json:"healthChecks,omitempty"`
+}
+
+// NewDefaultRemoteAccessServiceConfig returns a default remote-access service configuration.
+func NewDefaultRemoteAccessServiceConfig() *RemoteAccessServiceConfig {
+	return &RemoteAccessServiceConfig{
+		Address:               ":3444",
+		AgentEndpointAddress:  ":7444",
+		LogLevel:              "info",
+		DisableTLS:            false,
+		HttpReadTimeout:       util.Duration(5 * time.Minute),
+		HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+		HttpWriteTimeout:      util.Duration(5 * time.Minute),
+		HttpIdleTimeout:       util.Duration(5 * time.Minute),
+		HttpMaxHeaderBytes:    32 * 1024, // 32KB
+		RateLimit: &RateLimitConfig{
+			Enabled:  true,
+			Requests: 100,
+			Window:   util.Duration(time.Minute),
+		},
+		HealthChecks: &HealthChecks{
+			Enabled:          true,
+			ReadinessPath:    "/readyz",
+			LivenessPath:     "/healthz",
+			ReadinessTimeout: util.Duration(2 * time.Second),
+		},
+	}
 }
 
 // serviceImageConfig holds image and skip-TLS settings for a single builder image (podman or bootc-image-builder).
@@ -815,6 +859,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
+		RemoteAccessService: NewDefaultRemoteAccessServiceConfig(),
 		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
 		ImageBuilderWorker:  NewDefaultImageBuilderWorkerConfig(),
 		KV: &kvConfig{

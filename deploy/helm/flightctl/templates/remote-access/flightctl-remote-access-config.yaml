@@ -9,9 +9,10 @@ metadata:
     flightctl.service: flightctl-remote-access
 data:
   config.yaml: |-
-    service:
+    remoteAccessService:
         address: :3444
         agentEndpointAddress: :7444
+        logLevel: {{ default "info" .Values.remoteAccess.logLevel }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
