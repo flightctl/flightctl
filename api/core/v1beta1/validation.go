@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1736,11 +1737,22 @@ func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider)
 	return allErrs
 }
 
+// validateHTTPSURL returns an error if the value is not a valid URL with a scheme and host.
+func validateHTTPSURL(fieldName, value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%s must be a valid URL with scheme and host", fieldName)
+	}
+	return nil
+}
+
 func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
 		allErrs = append(allErrs, ErrIssuerRequired)
+	} else if err := validateHTTPSURL("issuer", o.Issuer); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
@@ -1760,15 +1772,26 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 
 	if o.AuthorizationUrl == "" {
 		allErrs = append(allErrs, ErrAuthorizationUrlRequired)
+	} else if err := validateHTTPSURL("authorizationUrl", o.AuthorizationUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.TokenUrl == "" {
 		allErrs = append(allErrs, ErrTokenUrlRequired)
+	} else if err := validateHTTPSURL("tokenUrl", o.TokenUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.UserinfoUrl == "" {
 		allErrs = append(allErrs, ErrUserinfoUrlRequired)
+	} else if err := validateHTTPSURL("userinfoUrl", o.UserinfoUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+	if o.Issuer != nil && *o.Issuer != "" {
+		if err := validateHTTPSURL("issuer", *o.Issuer); err != nil {
+			allErrs = append(allErrs, err)
+		}
 	}
 
 	// Validate introspection field is present

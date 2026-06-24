@@ -85,8 +85,11 @@ func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMid
 	return authNProvider, nil
 }
 func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
-	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
-	log.Infof("OIDC auth enabled: %s", oidcUrl)
+	normalizedIssuer, err := authprovider.NormalizeIssuerURL(cfg.Auth.OIDC.Issuer)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OIDC issuer URL: %w", err)
+	}
+	log.Infof("OIDC auth enabled: %s", normalizedIssuer)
 
 	providerName := "oidc"
 	metadata := api.ObjectMeta{
@@ -96,7 +99,9 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 		},
 	}
 
-	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg), log)
+	spec := *cfg.Auth.OIDC
+	spec.Issuer = normalizedIssuer
+	authNProvider, err := authn.NewOIDCAuth(metadata, spec, getTlsConfig(cfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
@@ -112,7 +117,9 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewAapGatewayAuth(metadata, *cfg.Auth.AAP, getTlsConfig(cfg))
+	spec := *cfg.Auth.AAP
+	spec.ApiUrl = gatewayUrl
+	authNProvider, err := authn.NewAapGatewayAuth(metadata, spec, getTlsConfig(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
 	}

@@ -68,7 +68,10 @@ func (o *AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 	if o.Metadata.Name == nil {
 		return nil, fmt.Errorf("provider name is required")
 	}
-	tokenProxyURL := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	tokenProxyURL, err := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	config := &osincli.ClientConfig{
 		ClientId:                 o.Spec.ClientId,
