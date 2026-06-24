@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.25.8-1774618351 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.25.9-1778675803 as build
 WORKDIR /app
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
