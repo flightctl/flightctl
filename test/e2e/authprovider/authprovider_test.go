@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,9 +64,10 @@ const (
 	oauth2LoginSuccessOutput     = "Login successful."
 	keycloakAccountAudience      = "account"
 	maskedSecretValue            = "*****"
-	pamOAuth2FallbackSecret      = "e2e-unused-pam-oauth2-client-secret"
+	pamIssuerIdentifier          = "pam-issuer"
 	cypressMissingSubstring      = "Cypress is not installed"
 	npmMissingSubstring          = "npm is not available"
+	publicClientPlaceholderBytes = 32
 	authConfigHTTPTimeout        = 10 * time.Second
 	loginURLTimeout              = 30 * time.Second
 	loginPipeDrainTimeout        = 500 * time.Millisecond
@@ -213,17 +216,15 @@ var _ = Describe("Auth provider browser login", func() {
 			providerPath := authProviderManifestPath(keycloakOAuth2ProviderName)
 			registerAuthProviderManifestCleanup(harness, keycloakOAuth2ProviderName, providerPath)
 
-			authProviderYAML := buildKeycloakOAuth2AuthProviderYAML(
+			authProviderYAML, usePAMOAuth2, buildErr := buildOAuth2AuthProviderForDeployment(
+				ctx,
+				apiEndpoint,
 				keycloakOAuth2ProviderName,
 				auxSvcs.Keycloak.IssuerURL(),
 				keycloakOAuth2ClientID,
 				auxiliary.KeycloakE2EOAuth2ClientSecret,
 			)
-			if infra.DetectEnvironment() == infra.EnvironmentQuadlet {
-				var buildErr error
-				authProviderYAML, buildErr = buildQuadletPAMOAuth2AuthProviderYAML(ctx, apiEndpoint, keycloakOAuth2ProviderName)
-				Expect(buildErr).ToNot(HaveOccurred(), "build quadlet PAM-backed OAuth2 authprovider")
-			}
+			Expect(buildErr).ToNot(HaveOccurred(), "build OAuth2 authprovider for deployment")
 
 			By("creating a dynamic OAuth2 provider")
 			out, err := writeAndApplyAuthProviderManifest(
@@ -239,7 +240,7 @@ var _ = Describe("Auth provider browser login", func() {
 				WithTimeout(authProviderLifecycleTimeout).WithPolling(authProviderPollingInterval).
 				Should(BeTrue(), "OAuth2 provider must appear in login --show-providers")
 
-			if infra.DetectEnvironment() == infra.EnvironmentQuadlet {
+			if usePAMOAuth2 {
 				By("logging in through the PAM-backed OAuth2 password flow")
 				scenario := pamBrowserScenario()
 				out, err = runProviderPasswordLoginCLI(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName, scenario.username, scenario.password)
@@ -732,7 +733,10 @@ func fetchAuthConfig(ctx context.Context, apiEndpoint string) (*api.AuthConfig, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("get auth config returned %d and response body could not be read: %w", resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("get auth config returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1253,24 +1257,43 @@ func buildKeycloakOAuth2AuthProviderYAML(name, issuerURL, clientID, clientSecret
 	return buildOAuth2AuthProviderYAML(name, issuerURL, authorizationURL, tokenURL, userinfoURL, jwksURL, clientID, clientSecret, clientID, keycloakAccountAudience)
 }
 
-// buildQuadletPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the quadlet PAM issuer.
-func buildQuadletPAMOAuth2AuthProviderYAML(ctx context.Context, apiEndpoint, name string) (string, error) {
+// buildOAuth2AuthProviderForDeployment selects PAM-backed OAuth2 when the deployment advertises the bundled PAM issuer.
+func buildOAuth2AuthProviderForDeployment(
+	ctx context.Context,
+	apiEndpoint, name, keycloakIssuerURL, keycloakClientID, keycloakClientSecret string,
+) (string, bool, error) {
+	keycloakYAML := buildKeycloakOAuth2AuthProviderYAML(name, keycloakIssuerURL, keycloakClientID, keycloakClientSecret)
+
 	authConfig, err := fetchAuthConfig(ctx, apiEndpoint)
 	if err != nil {
-		return "", err
+		return "", false, fmt.Errorf("detect deployment auth config: %w", err)
 	}
 	pamProvider, err := findAuthProvider(authConfig, staticOIDCProviderName)
 	if err != nil {
-		return "", err
+		logrus.Infof("[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v", err)
+		return keycloakYAML, false, nil
 	}
 	pamSpec, err := pamProvider.Spec.AsOIDCProviderSpec()
 	if err != nil {
-		return "", fmt.Errorf("parse PAM OIDC provider spec: %w", err)
+		return "", false, fmt.Errorf("parse static OIDC provider spec: %w", err)
+	}
+	if !strings.Contains(strings.ToLower(pamSpec.Issuer), pamIssuerIdentifier) {
+		logrus.Infof("[authprovider] static OIDC issuer %q is not the bundled PAM issuer; using Keycloak OAuth2", pamSpec.Issuer)
+		return keycloakYAML, false, nil
 	}
 
-	clientSecret := pamSpec.ClientSecret
-	if clientSecret == "" || clientSecret == maskedSecretValue {
-		clientSecret = pamOAuth2FallbackSecret
+	pamYAML, err := buildPAMOAuth2AuthProviderYAML(name, pamSpec)
+	if err != nil {
+		return "", false, fmt.Errorf("render PAM-backed OAuth2 authprovider: %w", err)
+	}
+	return pamYAML, true, nil
+}
+
+// buildPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the bundled PAM issuer.
+func buildPAMOAuth2AuthProviderYAML(name string, pamSpec api.OIDCProviderSpec) (string, error) {
+	clientSecret, err := resolvePAMClientSecret(pamSpec.ClientSecret)
+	if err != nil {
+		return "", fmt.Errorf("resolve PAM client secret: %w", err)
 	}
 	issuerURL := strings.TrimRight(pamSpec.Issuer, "/")
 	return buildOAuth2AuthProviderYAML(
@@ -1284,6 +1307,46 @@ func buildQuadletPAMOAuth2AuthProviderYAML(ctx context.Context, apiEndpoint, nam
 		clientSecret,
 		pamSpec.ClientId,
 	), nil
+}
+
+// resolvePAMClientSecret returns the configured PAM secret when public auth config hides or omits it.
+func resolvePAMClientSecret(publicClientSecret string) (string, error) {
+	if publicClientSecret != "" && publicClientSecret != maskedSecretValue {
+		return publicClientSecret, nil
+	}
+
+	providers := setup.GetDefaultProviders()
+	if providers == nil || providers.Infra == nil {
+		return "", fmt.Errorf("infra provider is required to resolve masked PAM client secret")
+	}
+	apiConfigYAML, err := providers.Infra.GetServiceConfig(infra.ServiceAPI)
+	if err != nil {
+		return "", fmt.Errorf("read API service config for PAM client secret: %w", err)
+	}
+
+	var apiConfig struct {
+		Auth struct {
+			OIDC struct {
+				ClientSecret string `yaml:"clientSecret"`
+			} `yaml:"oidc"`
+		} `yaml:"auth"`
+	}
+	if err := yaml.Unmarshal([]byte(apiConfigYAML), &apiConfig); err != nil {
+		return "", fmt.Errorf("parse API service config for PAM client secret: %w", err)
+	}
+	if apiConfig.Auth.OIDC.ClientSecret != "" {
+		return apiConfig.Auth.OIDC.ClientSecret, nil
+	}
+	return generatePublicClientPlaceholder()
+}
+
+// generatePublicClientPlaceholder creates a runtime-only value for public PAM clients whose secret is intentionally unset.
+func generatePublicClientPlaceholder() (string, error) {
+	placeholderBytes := make([]byte, publicClientPlaceholderBytes)
+	if _, err := rand.Read(placeholderBytes); err != nil {
+		return "", fmt.Errorf("generate public PAM client placeholder: %w", err)
+	}
+	return hex.EncodeToString(placeholderBytes), nil
 }
 
 // buildOAuth2AuthProviderYAML renders a dynamic OAuth2 authprovider manifest for this suite.
