@@ -81,6 +81,7 @@ func TestMergeTasksWithConfig(t *testing.T) {
 
 			for taskType, defaultMeta := range periodicTasks {
 				if taskType == PeriodicTaskTypeVulnerabilitySync {
+					require.NotContains(t, result, taskType)
 					continue
 				}
 				require.Contains(t, result, taskType)

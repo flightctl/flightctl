@@ -71,13 +71,13 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 		merged[k] = v
 	}
 
-	if cfg == nil {
+	vulnEnabled := cfg != nil && cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled
+	if !vulnEnabled {
 		delete(merged, PeriodicTaskTypeVulnerabilitySync)
-		return merged
 	}
 
-	if cfg.VulnerabilityReporting == nil || !cfg.VulnerabilityReporting.Enabled {
-		delete(merged, PeriodicTaskTypeVulnerabilitySync)
+	if cfg == nil {
+		return merged
 	}
 
 	if cfg.Periodic != nil {
@@ -89,7 +89,7 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 		}
 	}
 
-	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.SyncInterval > 0 {
+	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {
 		meta := merged[PeriodicTaskTypeVulnerabilitySync]
 		meta.Interval = time.Duration(cfg.VulnerabilityReporting.SyncInterval)
 		merged[PeriodicTaskTypeVulnerabilitySync] = meta
