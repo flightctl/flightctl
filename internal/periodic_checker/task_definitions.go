@@ -72,7 +72,12 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 	}
 
 	if cfg == nil {
+		delete(merged, PeriodicTaskTypeVulnerabilitySync)
 		return merged
+	}
+
+	if cfg.VulnerabilityReporting == nil || !cfg.VulnerabilityReporting.Enabled {
+		delete(merged, PeriodicTaskTypeVulnerabilitySync)
 	}
 
 	if cfg.Periodic != nil {
