@@ -50,6 +50,7 @@ jobs:
         env:
           REPORTS_DEPLOY_KEY: ${{ secrets.REPORTS_DEPLOY_KEY }}
         run: |
+          set -euo pipefail
           [ -z "$REPORTS_DEPLOY_KEY" ] && { echo "REPORTS_DEPLOY_KEY not set, skipping."; exit 0; }
           REPORT_SRC="test/scripts/e2e-health/e2e-health-report.html"
           [ ! -f "$REPORT_SRC" ] && { echo "Report file not found, skipping publish."; exit 0; }
