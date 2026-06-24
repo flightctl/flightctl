@@ -27,9 +27,9 @@ func newTestAuthTokenProxy(discoveryClient *http.Client) *AuthTokenProxy {
 // slash in the issuer never produces a double-slash path.
 func TestAuthTokenProxy_discoverTokenEndpoint_TrailingSlash(t *testing.T) {
 	tests := []struct {
-		name         string
-		issuerSuffix string
-		validPath    string
+		name          string
+		issuerSuffix  string
+		validPath     string
 		tokenEndpoint string
 	}{
 		{

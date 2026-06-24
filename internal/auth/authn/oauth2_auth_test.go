@@ -1067,10 +1067,10 @@ func TestOAuth2Auth_introspectJWT_IssuerNormalization(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		configIssuer    string
-		tokenIssuer     string
-		wantErr         bool
+		name         string
+		configIssuer string
+		tokenIssuer  string
+		wantErr      bool
 	}{
 		{
 			name:         "When config and token issuer are identical it should pass",

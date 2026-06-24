@@ -35,7 +35,7 @@ func setupOIDCDiscoveryServer(t *testing.T, validPaths map[string]bool) (server 
 				JwksUri:                          server.URL + "/jwks",
 				SubjectTypesSupported:            []string{"public"},
 				ResponseTypesSupported:           []string{"code"},
-				IdTokenSigningAlgValuesSupported:  []string{"RS256"},
+				IdTokenSigningAlgValuesSupported: []string{"RS256"},
 			}
 			_ = json.NewEncoder(w).Encode(discovery)
 		} else {
