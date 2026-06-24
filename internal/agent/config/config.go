@@ -156,10 +156,6 @@ type Config struct {
 	// ImagePruning holds all image/artifact pruning-related configuration
 	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
 
-	// Warnings collects non-fatal issues encountered during config loading
-	// (e.g., skipped drop-ins) so they can be surfaced in device status.
-	Warnings []string `json:"-"`
-
 	readWriter fileio.ReadWriter
 }
 
@@ -436,24 +432,16 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	}
 	sort.Strings(yamlFiles)
 
-	// Apply drop-ins in order (later files override earlier ones).
-	// Invalid drop-ins are skipped with a warning so the agent can still
-	// start and perform spec rollback if needed.
+	// Apply drop-ins in order (later files override earlier ones)
 	for _, filename := range yamlFiles {
 		overrideCfg := &Config{}
 		overridePath := filepath.Join(confSubdir, filename)
 		contents, err := cfg.readWriter.ReadFile(overridePath)
 		if err != nil {
-			msg := fmt.Sprintf("Skipping unreadable override config %s: %v", overridePath, err)
-			logrus.Warn(msg)
-			cfg.Warnings = append(cfg.Warnings, msg)
-			continue
+			return fmt.Errorf("reading override config %s: %w", overridePath, err)
 		}
 		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
-			msg := fmt.Sprintf("Skipping invalid override config %s: %v", overridePath, err)
-			logrus.Warn(msg)
-			cfg.Warnings = append(cfg.Warnings, msg)
-			continue
+			return fmt.Errorf("unmarshalling override config %s: %w", overridePath, err)
 		}
 		mergeConfigs(cfg, overrideCfg)
 	}

@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -106,8 +105,6 @@ func newQuadletProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
-	isVM := quadletApp.Annotations != nil && (*quadletApp.Annotations)[v1beta1.AnnotationWorkloadType] == v1beta1.WorkloadTypeVM
-
 	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, user, volumes)
 	if err != nil {
 		return nil, err
@@ -133,18 +130,6 @@ func newQuadletProvider(
 		volumeManager.AddVolumes(quadletVolumes)
 	}
 
-	var vmSpec *VMSpec
-	if isVM {
-		info, err := lookupVMContainerInfo(inlineContent)
-		if err != nil {
-			return nil, fmt.Errorf("resolving VM container names for %q: %w", appName, err)
-		}
-		vmSpec = &VMSpec{
-			ContainerName: namespacedQuadlet(appID, info.OriginalPodName) + "-" + info.ContainerName,
-			DomainName:    info.DomainName,
-		}
-	}
-
 	p := &quadletProvider{
 		log:            log,
 		podman:         podman,
@@ -159,7 +144,6 @@ func newQuadletProvider(
 			AppType:    v1beta1.AppTypeQuadlet,
 			Path:       appPath,
 			EnvVars:    envVars,
-			VM:         vmSpec,
 			QuadletApp: &quadletApp,
 			Volume:     volumeManager,
 		},
@@ -380,24 +364,6 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 		for _, quad := range quadletSpec {
 			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider, p.spec.User)...)
 		}
-
-		// Collect OCI targets from any .kube inline files referencing a pod YAML.
-		// ParseQuadletReferencesFromSpec processes .kube files but extractQuadletTargets
-		// does not parse the pod YAML — that is done here via collectKubePodTargets.
-		for i := range p.inlineContent {
-			if filepath.Ext(p.inlineContent[i].Path) != quadlet.KubeExtension {
-				continue
-			}
-			kubeContent, err := p.inlineContent[i].ContentsDecoded()
-			if err != nil {
-				return nil, fmt.Errorf("decoding kube unit %q: %w", p.inlineContent[i].Path, err)
-			}
-			kubeTargets, err := collectKubePodTargets(kubeContent, p.inlineContent, configProvider, p.spec.User)
-			if err != nil {
-				return nil, fmt.Errorf("%w: collecting pod OCI targets from %q: %w", errors.WithElement(p.spec.Name), p.inlineContent[i].Path, err)
-			}
-			targets = targets.Add(p.spec.User, kubeTargets...)
-		}
 	}
 	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider, p.spec.User)
 	if err != nil {
@@ -569,12 +535,6 @@ func (q *quadletInstaller) install() error {
 					quadletBasenames[strings.TrimSuffix(svcName, ".service")] = struct{}{}
 				}
 
-				if ext == quadlet.KubeExtension {
-					if err := q.namespacePodYAML(filename); err != nil {
-						return fmt.Errorf("namespacing pod YAML for %s: %w", filename, err)
-					}
-				}
-
 				if err := q.namespaceQuadletFile(filename); err != nil {
 					return fmt.Errorf("namespacing %s: %w", filename, err)
 				}
@@ -662,60 +622,6 @@ func (q *quadletInstaller) namespaceQuadletFile(filename string) error {
 	}
 
 	return nil
-}
-
-// namespacePodYAML rewrites metadata.name in the pod YAML referenced by a .kube quadlet file
-// so that container names produced by `podman kube play` are prefixed with the appID.
-// This makes Podman events from kube workloads discoverable by the existing event routing
-// which matches on the {appID}-* name pattern.
-func (q *quadletInstaller) namespacePodYAML(kubeFilename string) error {
-	contents, err := q.readWriter.ReadFile(filepath.Join(q.appUnitPath, kubeFilename))
-	if err != nil {
-		return fmt.Errorf("reading kube file: %w", err)
-	}
-
-	unit, err := quadlet.NewUnit(contents)
-	if err != nil {
-		return fmt.Errorf("parsing kube unit: %w", err)
-	}
-
-	cleanPath, found, err := lookupKubeYamlPath(unit)
-	if err != nil {
-		return fmt.Errorf("looking up pod YAML path in %q: %w", kubeFilename, err)
-	}
-	if !found {
-		return nil
-	}
-
-	yamlPath := filepath.Join(q.appUnitPath, cleanPath)
-	yamlContent, err := q.readWriter.ReadFile(yamlPath)
-	if err != nil {
-		return fmt.Errorf("reading pod YAML %q: %w", cleanPath, err)
-	}
-
-	var podObj map[string]interface{}
-	if err := yaml.Unmarshal(yamlContent, &podObj); err != nil {
-		return fmt.Errorf("parsing pod YAML: %w", err)
-	}
-
-	metadata, ok := podObj["metadata"].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	name, ok := metadata["name"].(string)
-	if !ok || name == "" || isNamespaced(name, q.appID) {
-		return nil
-	}
-
-	metadata["name"] = namespacedQuadlet(q.appID, name)
-
-	newContent, err := yaml.Marshal(podObj)
-	if err != nil {
-		return fmt.Errorf("serializing pod YAML: %w", err)
-	}
-
-	return q.readWriter.WriteFile(yamlPath, newContent, fileio.DefaultFilePermissions)
 }
 
 // namespaceDropInDirectory renames drop-in directories to match namespaced quadlet files
@@ -806,12 +712,6 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 	switch extension {
 	case quadlet.ImageExtension:
 		// no labels for Image quadlets
-	case quadlet.KubeExtension:
-		// [Kube] does not support Label=; pods/containers are cleaned up by
-		// podman kube down (ExecStop). Add boot-lifecycle settings instead.
-		unit.Add("Service", "Restart", "on-failure").
-			Add("Service", "RestartSec", "5").
-			Add("Install", "WantedBy", "default.target")
 	case quadlet.PodExtension:
 		// Pod quadlets don't have first class support for the LabelKey until v5.6
 		unit.Add(sectionName, quadlet.PodmanArgsKey, fmt.Sprintf("--label=%s=%s", client.QuadletProjectLabelKey, q.appID))
@@ -848,8 +748,6 @@ func defaultServiceName(basename, ext string) (string, error) {
 		return fmt.Sprintf("%s-network.service", basename), nil
 	case quadlet.ImageExtension:
 		return fmt.Sprintf("%s-image.service", basename), nil
-	case quadlet.KubeExtension:
-		return fmt.Sprintf("%s.service", basename), nil
 	default:
 		return "", fmt.Errorf("%w: %s", common.ErrUnsupportedQuadletType, ext)
 	}
@@ -1150,14 +1048,6 @@ var quadletNamespaceRules = map[string][]struct {
 			key: quadlet.NetworkNameKey,
 			transform: func(appID string) quadlet.UnitEntryTransformFn {
 				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
-			},
-		},
-	},
-	quadlet.KubeGroup: {
-		{
-			key: quadlet.NetworkKey,
-			transform: func(appID string) quadlet.UnitEntryTransformFn {
-				return func(val string) (string, error) { return namespaceNetworkName(val, appID), nil }
 			},
 		},
 	},

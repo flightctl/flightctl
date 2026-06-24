@@ -9,7 +9,6 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -50,79 +49,11 @@ func TestKubernetesDeployer_BackupDatabase_ExternalDB(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "db directory should not be created for external DB")
 }
 
-func TestKubernetesDeployer_BackupDatabase_ExternalDB_WithSecret(t *testing.T) {
-	log, _ := test.NewNullLogger()
-
-	// Secret exists but no Deployment → external DB (detected before creating directories)
-	secret := dbAppSecret("flightctl-internal", "flightctl_app", "secret")
-
-	fakeClient := fake.NewSimpleClientset(secret)
-	deployer := NewKubernetesDeployer(log,
-		WithInternalNamespace("flightctl-internal"),
-		WithClientset(fakeClient),
-	)
-	ctx := context.Background()
-	outputDir := t.TempDir()
-
-	err := deployer.BackupDatabase(ctx, outputDir)
-
-	require.ErrorIs(t, err, ErrExternalDatabase, "should return ErrExternalDatabase when no Deployment exists")
-
-	// No directory should be created - external DB detected early
-	dbDir := filepath.Join(outputDir, "db")
-	_, err = os.Stat(dbDir)
-	require.True(t, os.IsNotExist(err), "db directory should not be created for external DB")
-}
-
-func TestKubernetesDeployer_BackupDatabase_BuiltinDB_PodUnavailable(t *testing.T) {
-	log, _ := test.NewNullLogger()
-
-	// Helm-managed Deployment exists but no DB pod → builtin DB failure (pod crashed)
-	secret := dbAppSecret("flightctl-internal", "flightctl_app", "secret")
-
-	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "flightctl-db",
-			Namespace: "flightctl-internal",
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm", // Helm-managed builtin DB
-			},
-		},
-	}
-
-	fakeClient := fake.NewSimpleClientset(secret, deployment)
-	deployer := NewKubernetesDeployer(log,
-		WithInternalNamespace("flightctl-internal"),
-		WithClientset(fakeClient),
-	)
-	ctx := context.Background()
-	outputDir := t.TempDir()
-
-	err := deployer.BackupDatabase(ctx, outputDir)
-
-	require.Error(t, err, "should return hard error when builtin DB pod is unavailable")
-	require.NotErrorIs(t, err, ErrExternalDatabase, "should NOT return ErrExternalDatabase for unavailable builtin DB")
-	require.Contains(t, err.Error(), "database pod not found", "error should indicate pod not found")
-	require.Contains(t, err.Error(), "builtin database configured", "error should indicate builtin DB")
-	require.Contains(t, err.Error(), "incomplete backup would result", "error should warn about incomplete backup")
-}
-
 func TestKubernetesDeployer_BackupDatabase_InternalDB_DirectoryCreation(t *testing.T) {
 	log, _ := test.NewNullLogger()
 
-	// Secret and Helm-managed Deployment present → builtin DB; DB pod absent → error before directory creation
-	secret := dbAppSecret("flightctl-internal", "flightctl_app", "secret")
-	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "flightctl-db",
-			Namespace: "flightctl-internal",
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
-	}
-
-	fakeClient := fake.NewSimpleClientset(secret, deployment)
+	// Secret present → internal DB; DB pod absent → error after directory creation
+	fakeClient := fake.NewSimpleClientset(dbAppSecret("flightctl-internal", "flightctl_app", "secret"))
 	deployer := NewKubernetesDeployer(log,
 		WithInternalNamespace("flightctl-internal"),
 		WithClientset(fakeClient),
@@ -130,14 +61,12 @@ func TestKubernetesDeployer_BackupDatabase_InternalDB_DirectoryCreation(t *testi
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
-	// Error is expected (no DB pod); test validates directory creation happens before pod check
-	err := deployer.BackupDatabase(ctx, outputDir)
-	require.Error(t, err, "should return error when builtin DB pod is unavailable")
+	_ = deployer.BackupDatabase(ctx, outputDir)
 
-	// Directory should be created - builtin DB detected, directory created, then pod check fails
+	// Directory should be created even though the pod lookup will fail
 	dbDir := filepath.Join(outputDir, "db")
 	stat, statErr := os.Stat(dbDir)
-	require.NoError(t, statErr, "db directory should be created for builtin DB before pod check")
+	require.NoError(t, statErr, "db directory should be created when credentials are found")
 	require.True(t, stat.IsDir(), "db should be a directory")
 }
 
@@ -148,12 +77,12 @@ func TestKubernetesDeployer_BackupDatabase_CredentialExtraction(t *testing.T) {
 		namespace string
 	}{
 		{
-			name:      "When Helm-managed Deployment exists with credentials it should proceed past credential extraction",
+			name:      "When credentials exist in internalNamespace it should proceed past credential extraction",
 			user:      "flightctl_app",
 			namespace: "flightctl-internal",
 		},
 		{
-			name:      "When Helm-managed Deployment exists with custom user it should proceed past credential extraction",
+			name:      "When credentials exist with custom user it should proceed past credential extraction",
 			user:      "custom_user",
 			namespace: "flightctl",
 		},
@@ -162,18 +91,7 @@ func TestKubernetesDeployer_BackupDatabase_CredentialExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log, _ := test.NewNullLogger()
-			secret := dbAppSecret(tt.namespace, tt.user, "testpass")
-			deployment := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "flightctl-db",
-					Namespace: tt.namespace,
-					Labels: map[string]string{
-						"app.kubernetes.io/managed-by": "Helm",
-					},
-				},
-			}
-
-			fakeClient := fake.NewSimpleClientset(secret, deployment)
+			fakeClient := fake.NewSimpleClientset(dbAppSecret(tt.namespace, tt.user, "testpass"))
 			deployer := NewKubernetesDeployer(log,
 				WithInternalNamespace(tt.namespace),
 				WithClientset(fakeClient),
@@ -183,15 +101,15 @@ func TestKubernetesDeployer_BackupDatabase_CredentialExtraction(t *testing.T) {
 
 			err := deployer.BackupDatabase(ctx, outputDir)
 
-			// dbDir should be created - builtin DB detected, credentials extracted, directory created
+			// dbDir should be created — error occurs later when no DB pod is found
 			dbDir := filepath.Join(outputDir, "db")
 			stat, statErr := os.Stat(dbDir)
 			require.NoError(t, statErr, "db directory should be created")
 			require.True(t, stat.IsDir())
 
-			// Error expected since no DB pod exists (but it should NOT be ErrExternalDatabase)
-			require.Error(t, err, "should return error when DB pod is not found")
-			require.NotErrorIs(t, err, ErrExternalDatabase, "should NOT return ErrExternalDatabase for builtin DB")
+			// Error expected since there is no DB pod in the fake cluster
+			require.Error(t, err, "should fail when DB pod is not found")
+			require.Contains(t, err.Error(), "database pod not found")
 		})
 	}
 }
@@ -236,7 +154,6 @@ func TestKubernetesDeployer_BackupConfig_DirectoryPermissions(t *testing.T) {
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
-	// Error is expected (no Helm secrets); test validates directory creation despite failure
 	_ = deployer.BackupConfig(ctx, outputDir)
 
 	configDir := filepath.Join(outputDir, "config")

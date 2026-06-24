@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -340,9 +339,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
-	if len(a.config.Warnings) > 0 {
-		statusManager.RegisterStatusExporter(newConfigWarningExporter(a.config.Warnings))
-	}
 
 	// create config controller
 	configController := config.NewController(
@@ -531,26 +527,5 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	}
 
 	log.Info("Successfully wiped certificate and restarted flightctl-agent service")
-	return nil
-}
-
-// configWarningExporter surfaces config loading warnings (e.g. skipped drop-ins)
-// in the device summary on every status collection cycle.
-type configWarningExporter struct {
-	msg string
-}
-
-func newConfigWarningExporter(warnings []string) *configWarningExporter {
-	return &configWarningExporter{
-		msg: log.Truncate(strings.Join(warnings, "; "), status.MaxMessageLength),
-	}
-}
-
-func (e *configWarningExporter) Status(_ context.Context, s *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
-	if s.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil
-	}
-	s.Summary.Status = v1beta1.DeviceSummaryStatusDegraded
-	s.Summary.Info = &e.msg
 	return nil
 }

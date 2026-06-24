@@ -279,8 +279,8 @@ func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
 }
 
 func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
-	// Container and VM apps both use the quadlet action handler.
-	if appType == v1beta1.AppTypeContainer || appType == v1beta1.AppTypeVm {
+	// utilize the quadlet handler for containers
+	if appType == v1beta1.AppTypeContainer {
 		return v1beta1.AppTypeQuadlet
 	}
 	return appType

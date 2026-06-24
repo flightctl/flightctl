@@ -120,22 +120,12 @@ func Restore(
 		return fmt.Errorf("failed to retrieve service credentials: %w", err)
 	}
 
-	var dbHost string
-	var dbPort int
-	if metadata.DatabaseIncluded {
-		log.Info("Exposing database for post-restoration device preparation")
-		var dbCleanup func()
-		dbHost, dbPort, dbCleanup, err = deployer.ExposeService(ctx, "flightctl-db")
-		if err != nil {
-			return fmt.Errorf("failed to expose database service: %w", err)
-		}
-		defer dbCleanup()
-	} else {
-		log.Info("Skipping database exposure (external database)")
-		// External database - use credentials from config
-		dbHost = cfg.Database.Hostname
-		dbPort = int(cfg.Database.Port)
+	log.Info("Exposing database for post-restoration device preparation")
+	dbHost, dbPort, dbCleanup, err := deployer.ExposeService(ctx, "flightctl-db")
+	if err != nil {
+		return fmt.Errorf("failed to expose database service: %w", err)
 	}
+	defer dbCleanup()
 
 	log.Info("Exposing KV store for post-restoration device preparation")
 	kvHost, kvPort, kvCleanup, err := deployer.ExposeService(ctx, "flightctl-kv")
@@ -149,22 +139,6 @@ func Restore(
 	exposedCfg.Database.Port = uint(dbPort)
 	exposedCfg.KV.Hostname = kvHost
 	exposedCfg.KV.Port = uint(kvPort)
-
-	// For external database with TLS, prepare certificates.
-	// Kubernetes: extracts certs from ConfigMap/Secret to temporary files.
-	// Podman: no-op (certs already accessible as filesystem paths).
-	var certCleanup func()
-	if !metadata.DatabaseIncluded && exposedCfg.Database.SSLMode == "verify-full" {
-		log.Info("External database with TLS - preparing certificates")
-		var err error
-		certCleanup, err = deployer.SetupExternalDBCerts(ctx, &exposedCfg)
-		if err != nil {
-			return fmt.Errorf("failed to setup external database certificates: %w", err)
-		}
-		if certCleanup != nil {
-			defer certCleanup()
-		}
-	}
 
 	db, err := store.InitDB(&exposedCfg, log)
 	if err != nil {

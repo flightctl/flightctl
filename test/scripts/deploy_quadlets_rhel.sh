@@ -325,7 +325,7 @@ EOF2
   # Start flightctl services
   sudo systemctl start flightctl.target
   cd $USER_HOME/flightctl
-  flightctl login https://localhost -k
+  flightctl login https://localhost:3443 -k
 EOF
 
 # Clean up

@@ -53,7 +53,6 @@ type Publisher interface {
 	Watch() Watcher
 	SetClient(client.Management)
 	SetOnConflictPausedInvalidator(LastStatusInvalidator)
-	ResetVersion(version string)
 }
 
 type publisher struct {
@@ -82,12 +81,6 @@ func newPublisher(deviceName string,
 		deviceNotFoundHandler: deviceNotFoundHandler,
 		log:                   log,
 	}
-}
-
-func (n *publisher) ResetVersion(version string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.lastKnownVersion = version
 }
 
 func (n *publisher) getRenderedFromManagementAPIWithRetry(

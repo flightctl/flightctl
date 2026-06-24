@@ -169,12 +169,6 @@ type Deployer interface {
 	// reconstructs the chart and user values from the release data, and runs helm upgrade.
 	// StopServices must be called before RestoreConfig.
 	RestoreConfig(ctx context.Context, extractDir string) error
-	// SetupExternalDBCerts prepares TLS certificates for connecting to an external database.
-	// For Kubernetes: extracts certificates from ConfigMap/Secret to temporary files and
-	// updates the config to point to those files. Returns a cleanup function to remove temp files.
-	// For Podman: no-op (certificates are already accessible as filesystem paths in service-config.yaml).
-	// Returns nil cleanup function when no temporary files were created.
-	SetupExternalDBCerts(ctx context.Context, cfg *config.Config) (cleanup func(), err error)
 }
 
 // PodmanRestoreDeployer implements Deployer for Podman/quadlet deployments.
@@ -827,15 +821,6 @@ func (p *PodmanRestoreDeployer) RestoreConfig(ctx context.Context, extractDir st
 	return nil
 }
 
-// SetupExternalDBCerts is a no-op for Podman deployments.
-// TLS certificate paths are already specified in service-config.yaml as filesystem paths
-// (e.g., /etc/flightctl/certs/ca.crt) and are directly accessible to the restore tool
-// running on the same host.
-func (p *PodmanRestoreDeployer) SetupExternalDBCerts(ctx context.Context, cfg *config.Config) (func(), error) {
-	// No-op: certificates are already accessible as filesystem paths
-	return nil, nil
-}
-
 // KubernetesRestoreDeployer implements Deployer for Kubernetes/Helm deployments.
 type KubernetesRestoreDeployer struct {
 	log               logrus.FieldLogger
@@ -1049,25 +1034,14 @@ func (k *KubernetesRestoreDeployer) GetConfig(ctx context.Context) (*config.Conf
 		return nil, fmt.Errorf("failed to read KV password: %w", err)
 	}
 
-	// Read actual database hostname from api config (handles both internal and external DB)
-	apiConfigMap, err := k.clientset.CoreV1().ConfigMaps(k.namespace).Get(ctx, "flightctl-api-config", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read flightctl-api-config: %w", err)
-	}
-
-	configYAML, ok := apiConfigMap.Data["config.yaml"]
-	if !ok {
-		return nil, fmt.Errorf("config.yaml not found in flightctl-api-config ConfigMap")
-	}
-
-	cfg := &config.Config{}
-	if err := yaml.Unmarshal([]byte(configYAML), cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config.yaml from ConfigMap: %w", err)
-	}
-
-	// Override with credentials from secrets (config may have placeholders)
+	cfg := config.NewDefault()
+	cfg.Database.Hostname = "flightctl-db"
+	cfg.Database.Port = dbInternalPort
+	cfg.Database.Name = "flightctl"
 	cfg.Database.User = dbUser
 	cfg.Database.Password = api.SecureString(dbPassword)
+	cfg.KV.Hostname = "flightctl-kv"
+	cfg.KV.Port = kvInternalPort
 	cfg.KV.Password = api.SecureString(kvPassword)
 
 	k.cachedCfg = cfg
@@ -1644,149 +1618,4 @@ func getFreePort() (int, error) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 	return port, nil
-}
-
-// setupExternalDBCerts extracts TLS certificates from Kubernetes ConfigMap/Secret and writes
-// them to temporary files for external database connections. The config is updated to reference
-// the temp file paths. Returns a cleanup function to delete the temp files when done.
-//
-// Based on Helm values structure:
-//   db.external.tlsConfigMapName: postgres-ca-cert (CA certificate in ca-cert.pem key)
-//   db.external.tlsSecretName: postgres-client-certs (client cert/key in tls.crt and tls.key)
-//
-// This is a Kubernetes-specific implementation detail, not part of the Deployer interface.
-func (k *KubernetesRestoreDeployer) SetupExternalDBCerts(ctx context.Context, cfg *config.Config) (cleanup func(), err error) {
-	// If no TLS root cert configured, nothing to extract
-	if cfg.Database.SSLRootCert == "" {
-		return nil, nil
-	}
-
-	// Get Helm release to find the ConfigMap/Secret names
-	secrets, err := k.clientset.CoreV1().Secrets(k.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "owner=helm,status=deployed",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list Helm release Secrets: %w", err)
-	}
-	if len(secrets.Items) == 0 {
-		// No Helm release found - can't determine TLS resource names
-		return nil, nil
-	}
-
-	helmSecret := &secrets.Items[0]
-	releaseBytes, ok := helmSecret.Data["release"]
-	if !ok {
-		return nil, fmt.Errorf("no 'release' key in Helm Secret")
-	}
-
-	// Helm encodes release data as base64(gzip(json(release)))
-	gzipBytes, err := base64.StdEncoding.DecodeString(string(releaseBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to base64-decode Helm release: %w", err)
-	}
-	gr, err := gzip.NewReader(bytes.NewReader(gzipBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to gunzip Helm release: %w", err)
-	}
-	defer gr.Close()
-
-	var release helmReleaseJSON
-	if err := json.NewDecoder(gr).Decode(&release); err != nil {
-		return nil, fmt.Errorf("failed to decode Helm release JSON: %w", err)
-	}
-
-	// Extract db.external.tlsConfigMapName and db.external.tlsSecretName from Helm values
-	var tlsConfigMapName, tlsSecretName string
-	if release.Config != nil {
-		if db, ok := release.Config["db"].(map[string]interface{}); ok {
-			if external, ok := db["external"].(map[string]interface{}); ok {
-				if name, ok := external["tlsConfigMapName"].(string); ok {
-					tlsConfigMapName = name
-				}
-				if name, ok := external["tlsSecretName"].(string); ok {
-					tlsSecretName = name
-				}
-			}
-		}
-	}
-
-	if tlsConfigMapName == "" && tlsSecretName == "" {
-		// No TLS resources configured in Helm values
-		return nil, nil
-	}
-
-	// Create temp directory for certs
-	tempDir, err := os.MkdirTemp("", "flightctl-db-certs-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp directory for certs: %w", err)
-	}
-
-	cleanup = func() {
-		os.RemoveAll(tempDir)
-	}
-
-	// Extract CA cert from ConfigMap if configured
-	if tlsConfigMapName != "" {
-		caCM, err := k.clientset.CoreV1().ConfigMaps(k.namespace).Get(ctx, tlsConfigMapName, metav1.GetOptions{})
-		if err != nil {
-			cleanup()
-			return nil, fmt.Errorf("failed to read TLS ConfigMap %s: %w", tlsConfigMapName, err)
-		}
-
-		caCert, ok := caCM.Data["ca-cert.pem"]
-		if !ok {
-			cleanup()
-			return nil, fmt.Errorf("ca-cert.pem not found in ConfigMap %s", tlsConfigMapName)
-		}
-
-		caPath := filepath.Join(tempDir, "ca-cert.pem")
-		if err := os.WriteFile(caPath, []byte(caCert), 0600); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("failed to write CA cert to temp file: %w", err)
-		}
-		cfg.Database.SSLRootCert = caPath
-		k.log.Infof("Extracted CA certificate to %s", caPath)
-	}
-
-	// Extract client cert and key from Secret if configured
-	if tlsSecretName != "" {
-		certSecret, err := k.clientset.CoreV1().Secrets(k.namespace).Get(ctx, tlsSecretName, metav1.GetOptions{})
-		if err != nil {
-			cleanup()
-			return nil, fmt.Errorf("failed to read TLS Secret %s: %w", tlsSecretName, err)
-		}
-
-		// Try common key names for client certificates
-		clientCert, hasCert := certSecret.Data["tls.crt"]
-		clientKey, hasKey := certSecret.Data["tls.key"]
-		if !hasCert {
-			// Try alternative key name
-			clientCert, hasCert = certSecret.Data["client-cert.pem"]
-		}
-		if !hasKey {
-			// Try alternative key name
-			clientKey, hasKey = certSecret.Data["client-key.pem"]
-		}
-		if !hasCert || !hasKey {
-			cleanup()
-			return nil, fmt.Errorf("client certificate or key not found in Secret %s (expected tls.crt/tls.key or client-cert.pem/client-key.pem)", tlsSecretName)
-		}
-
-		certPath := filepath.Join(tempDir, "tls.crt")
-		keyPath := filepath.Join(tempDir, "tls.key")
-		if err := os.WriteFile(certPath, clientCert, 0600); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("failed to write client cert to temp file: %w", err)
-		}
-		if err := os.WriteFile(keyPath, clientKey, 0600); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("failed to write client key to temp file: %w", err)
-		}
-
-		cfg.Database.SSLCert = certPath
-		cfg.Database.SSLKey = keyPath
-		k.log.Infof("Extracted client certificate and key to %s and %s", certPath, keyPath)
-	}
-
-	return cleanup, nil
 }

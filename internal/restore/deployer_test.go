@@ -824,30 +824,11 @@ func TestKubernetesRestoreDeployer_GetConfig_Success(t *testing.T) {
 			"password": []byte("kvsecret"),
 		},
 	}
-	apiConfigMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "flightctl-api-config",
-			Namespace: "flightctl",
-		},
-		Data: map[string]string{
-			"config.yaml": `database:
-  hostname: flightctl-db
-  name: flightctl
-  port: 5432
-  user: placeholder
-  password: placeholder
-kv:
-  hostname: flightctl-kv
-  port: 6379
-  password: placeholder
-`,
-		},
-	}
 
 	log, _ := test.NewNullLogger()
 	d := NewKubernetesRestoreDeployer(log,
 		WithRestoreNamespace("flightctl"),
-		WithRestoreClientset(fake.NewSimpleClientset(dbSecret, kvSecret, apiConfigMap)),
+		WithRestoreClientset(fake.NewSimpleClientset(dbSecret, kvSecret)),
 		WithRestoreRestConfig(&rest.Config{}),
 	)
 
@@ -856,9 +837,7 @@ kv:
 	require.Equal(t, "flightctl_app", cfg.Database.User)
 	require.Equal(t, "dbsecret", string(cfg.Database.Password))
 	require.Equal(t, "kvsecret", string(cfg.KV.Password))
-	require.Equal(t, "flightctl-db", cfg.Database.Hostname)
 	require.Equal(t, "flightctl", cfg.Database.Name)
 	require.Equal(t, uint(dbInternalPort), cfg.Database.Port)
-	require.Equal(t, "flightctl-kv", cfg.KV.Hostname)
 	require.Equal(t, uint(kvInternalPort), cfg.KV.Port)
 }

@@ -545,20 +545,6 @@ image-pruning:
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Trigger an additional prune cycle to handle CRI images that failed removal while pods were terminating")
-			time.Sleep(util.SPECK_UPDATE_DELAY)
-			pruneRetryConfig, err := e2e.NewInlineConfigSpec("prune-retry", []v1beta1.FileSpec{
-				{
-					Content: "# triggers an additional reconciliation and prune cycle\n",
-					Path:    "/etc/flightctl/conf.d/prune-retry-trigger",
-				},
-			})
-			Expect(err).ToNot(HaveOccurred())
-			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{pruningConfig, pruneRetryConfig}
-			})
-			Expect(err).ToNot(HaveOccurred())
-
 			By("Verify shared image is pruned after all apps are removed")
 			Eventually(func() bool {
 				exists, err := harness.CrictlImageExists(sharedImage)

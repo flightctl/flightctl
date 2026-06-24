@@ -134,7 +134,7 @@ clean-quadlets-vm:
 	@echo "quadlets-vm cleanup completed"
 
 bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
-	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl IPV6_ONLY=${IPV6_ONLY} QUADLET_HOST=${E2E_SSH_HOST} test/scripts/inject_agent_files_into_qcow.sh
+	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl IPV6_ONLY=${IPV6_ONLY} test/scripts/inject_agent_files_into_qcow.sh
 	touch bin/.e2e-agent-injected
 
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
