@@ -209,6 +209,7 @@ func TestApplyAuthProviderDefaults_OIDC(t *testing.T) {
 
 func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
 	rfc7662 := func(t *testing.T) *domain.OAuth2Introspection {
+		t.Helper()
 		i := &domain.OAuth2Introspection{}
 		require.NoError(t, i.FromRfc7662IntrospectionSpec(domain.Rfc7662IntrospectionSpec{
 			Type: domain.IntrospectionTypeRfc7662,
