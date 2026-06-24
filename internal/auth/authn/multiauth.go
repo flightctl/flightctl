@@ -383,9 +383,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		}
 
 		// Compare all fields including client secret
-		existingNormalizedIssuer, _ := authprovider.NormalizeIssuerURL(existingOidcSpec.Issuer)
-		newNormalizedIssuer, _ := authprovider.NormalizeIssuerURL(newOidcSpec.Issuer)
-		if existingNormalizedIssuer != newNormalizedIssuer {
+		// If normalization fails for either URL (malformed), treat as changed — safer than silently skipping a real change.
+		existingNormalizedIssuer, existingNormErr := authprovider.NormalizeIssuerURL(existingOidcSpec.Issuer)
+		newNormalizedIssuer, newNormErr := authprovider.NormalizeIssuerURL(newOidcSpec.Issuer)
+		if existingNormErr != nil || newNormErr != nil || existingNormalizedIssuer != newNormalizedIssuer {
 			m.log.Debugf("Provider %s: changed (OIDC Issuer: existing=%q, new=%q)", providerName, existingOidcSpec.Issuer, newOidcSpec.Issuer)
 			return true, nil
 		}
@@ -459,15 +460,17 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			return true, nil
 		}
 		if existingOauth2Spec.Issuer != nil && newOauth2Spec.Issuer != nil {
-			existingNormalizedIssuer, _ := authprovider.NormalizeIssuerURL(*existingOauth2Spec.Issuer)
-			newNormalizedIssuer, _ := authprovider.NormalizeIssuerURL(*newOauth2Spec.Issuer)
-			if existingNormalizedIssuer != newNormalizedIssuer {
+			// If normalization fails for either URL (malformed), treat as changed — safer than missing a real change.
+			existingNormalizedIssuer, existingNormErr := authprovider.NormalizeIssuerURL(*existingOauth2Spec.Issuer)
+			newNormalizedIssuer, newNormErr := authprovider.NormalizeIssuerURL(*newOauth2Spec.Issuer)
+			if existingNormErr != nil || newNormErr != nil || existingNormalizedIssuer != newNormalizedIssuer {
 				return true, nil
 			}
 		}
-		existingNormalizedAuthzURL, _ := authprovider.NormalizeIssuerURL(existingOauth2Spec.AuthorizationUrl)
-		newNormalizedAuthzURL, _ := authprovider.NormalizeIssuerURL(newOauth2Spec.AuthorizationUrl)
-		if existingNormalizedAuthzURL != newNormalizedAuthzURL {
+		// If normalization fails for either URL (malformed), treat as changed.
+		existingNormalizedAuthzURL, existingAuthzNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.AuthorizationUrl)
+		newNormalizedAuthzURL, newAuthzNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.AuthorizationUrl)
+		if existingAuthzNormErr != nil || newAuthzNormErr != nil || existingNormalizedAuthzURL != newNormalizedAuthzURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 AuthorizationUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.AuthorizationUrl, newOauth2Spec.AuthorizationUrl)
 			return true, nil
 		}

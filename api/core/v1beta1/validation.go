@@ -1761,8 +1761,8 @@ func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider)
 	return allErrs
 }
 
-// validateHTTPSURL returns an error if the value is not a valid URL with a scheme and host.
-func validateHTTPSURL(fieldName, value string) error {
+// validateAbsoluteURL returns an error if the value is not a valid absolute URL with a scheme and host.
+func validateAbsoluteURL(fieldName, value string) error {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("%s must be a valid URL with scheme and host", fieldName)
@@ -1775,7 +1775,7 @@ func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error 
 
 	if o.Issuer == "" {
 		allErrs = append(allErrs, ErrIssuerRequired)
-	} else if err := validateHTTPSURL("issuer", o.Issuer); err != nil {
+	} else if err := validateAbsoluteURL("issuer", o.Issuer); err != nil {
 		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
@@ -1796,24 +1796,24 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 
 	if o.AuthorizationUrl == "" {
 		allErrs = append(allErrs, ErrAuthorizationUrlRequired)
-	} else if err := validateHTTPSURL("authorizationUrl", o.AuthorizationUrl); err != nil {
+	} else if err := validateAbsoluteURL("authorizationUrl", o.AuthorizationUrl); err != nil {
 		allErrs = append(allErrs, err)
 	}
 	if o.TokenUrl == "" {
 		allErrs = append(allErrs, ErrTokenUrlRequired)
-	} else if err := validateHTTPSURL("tokenUrl", o.TokenUrl); err != nil {
+	} else if err := validateAbsoluteURL("tokenUrl", o.TokenUrl); err != nil {
 		allErrs = append(allErrs, err)
 	}
 	if o.UserinfoUrl == "" {
 		allErrs = append(allErrs, ErrUserinfoUrlRequired)
-	} else if err := validateHTTPSURL("userinfoUrl", o.UserinfoUrl); err != nil {
+	} else if err := validateAbsoluteURL("userinfoUrl", o.UserinfoUrl); err != nil {
 		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
 	if o.Issuer != nil && *o.Issuer != "" {
-		if err := validateHTTPSURL("issuer", *o.Issuer); err != nil {
+		if err := validateAbsoluteURL("issuer", *o.Issuer); err != nil {
 			allErrs = append(allErrs, err)
 		}
 	}

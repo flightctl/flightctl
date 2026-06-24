@@ -52,7 +52,10 @@ func sanitizeSchemaError(err error) string {
 func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
 	discriminator, err := spec.Discriminator()
 	if err != nil {
-		return nil // Not a valid provider, nothing to do
+		// Unknown or malformed provider type — skip normalization. Validation (called after this)
+		// will reject the spec with a descriptive error, so surfacing the discriminator error here
+		// would only add noise.
+		return nil
 	}
 
 	switch discriminator {
@@ -274,7 +277,10 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// Normalize URL fields before validation
+	// Normalize URL fields before validation.
+	// Note: if the resource does not exist, this delegates to CreateAuthProvider which also calls
+	// normalizeAuthProviderURLs. The function is idempotent (normalizing an already-normalized URL
+	// is a no-op), so the double call is safe.
 	if err := normalizeAuthProviderURLs(&authProvider.Spec); err != nil {
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}
