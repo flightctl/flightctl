@@ -51,13 +51,18 @@ jobs:
           REPORTS_DEPLOY_KEY: ${{ secrets.REPORTS_DEPLOY_KEY }}
         run: |
           set -euo pipefail
-          [ -z "$REPORTS_DEPLOY_KEY" ] && { echo "REPORTS_DEPLOY_KEY not set, skipping."; exit 0; }
+          [ -z "$REPORTS_DEPLOY_KEY" ] && { echo "::error::REPORTS_DEPLOY_KEY not set"; exit 1; }
           REPORT_SRC="test/scripts/e2e-health/e2e-health-report.html"
-          [ ! -f "$REPORT_SRC" ] && { echo "Report file not found, skipping publish."; exit 0; }
+          [ ! -f "$REPORT_SRC" ] && { echo "::error::Report file not found: $REPORT_SRC"; exit 1; }
           install -d -m 700 ~/.ssh
           echo "$REPORTS_DEPLOY_KEY" > ~/.ssh/reports_deploy_key
           chmod 600 ~/.ssh/reports_deploy_key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # Use GitHub's pinned host keys instead of trust-on-first-use ssh-keyscan
+          cat >> ~/.ssh/known_hosts <<'EOF'
+github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SoTKygFR7H6H+TuK4P8PCAP2iBNt89f6MkLjGXS8kWw/Ps2V4+S5FBl7GITMHJXoOGLidnxFWGwkOmSe5e36PBo/tUyLwopZe2aiBBlvOhVs2nOE4blnP8qMIxY3L6n6CbMKcgO91PJXJL3HHF6L5WjMuEpocLHO+3t9D2IFLe2rHq3l0Yf16r3CAnH/2vlvG/6RrCNcsBq8Ai4C7zCAAvAAAAADAQAB
+github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+EOF
           GIT_SSH_COMMAND="ssh -i ~/.ssh/reports_deploy_key -o IdentitiesOnly=yes" \
             git clone --depth=1 git@github.com:flightctl/flightctl-reports.git /tmp/flightctl-reports
           DATE="$(date -u +%Y-%m-%d)"
