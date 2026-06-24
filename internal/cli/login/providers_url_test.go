@@ -46,8 +46,8 @@ func assertNoDoubleSlash(t *testing.T, paths []string, label string) {
 func TestOAuth2_getOAuth2Client_TokenProxyURL(t *testing.T) {
 	scopes := []string{"openid"}
 	tests := []struct {
-		name             string
-		apiServerSuffix  string
+		name            string
+		apiServerSuffix string
 	}{
 		{
 			name:            "When API server URL has no trailing slash it should produce the correct token proxy URL",
@@ -231,12 +231,12 @@ func TestOIDC_getOIDCClient_TokenProxyURL(t *testing.T) {
 				if r.URL.Path == "/.well-known/openid-configuration" {
 					w.Header().Set("Content-Type", "application/json")
 					discovery := OIDCDiscoveryResponse{
-						Issuer:                          server.URL,
-						AuthorizationEndpoint:           server.URL + "/authorize",
-						TokenEndpoint:                   server.URL + "/token",
-						JwksUri:                         server.URL + "/jwks",
-						SubjectTypesSupported:           []string{"public"},
-						ResponseTypesSupported:          []string{"code"},
+						Issuer:                           server.URL,
+						AuthorizationEndpoint:            server.URL + "/authorize",
+						TokenEndpoint:                    server.URL + "/token",
+						JwksUri:                          server.URL + "/jwks",
+						SubjectTypesSupported:            []string{"public"},
+						ResponseTypesSupported:           []string{"code"},
 						IdTokenSigningAlgValuesSupported: []string{"RS256"},
 					}
 					_ = json.NewEncoder(w).Encode(discovery)

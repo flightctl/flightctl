@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,9 +51,9 @@ func TestNormalizeAuthProviderURLs_OIDC(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := api.AuthProviderSpec{}
-			oidcSpec := api.OIDCProviderSpec{
-				ProviderType: api.Oidc,
+			spec := domain.AuthProviderSpec{}
+			oidcSpec := domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
 				Issuer:       tt.issuer,
 				ClientId:     "test-client",
 			}
@@ -118,14 +118,14 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rfc7662 := &api.OAuth2Introspection{}
-			require.NoError(t, rfc7662.FromRfc7662IntrospectionSpec(api.Rfc7662IntrospectionSpec{
-				Type: api.Rfc7662,
+			rfc7662 := &domain.OAuth2Introspection{}
+			require.NoError(t, rfc7662.FromRfc7662IntrospectionSpec(domain.Rfc7662IntrospectionSpec{
+				Type: domain.IntrospectionTypeRfc7662,
 				Url:  "https://idp.example.com/introspect",
 			}))
-			spec := api.AuthProviderSpec{}
-			oauth2Spec := api.OAuth2ProviderSpec{
-				ProviderType:     api.Oauth2,
+			spec := domain.AuthProviderSpec{}
+			oauth2Spec := domain.OAuth2ProviderSpec{
+				ProviderType:     domain.Oauth2,
 				AuthorizationUrl: tt.authorizationUrl,
 				TokenUrl:         "https://idp.example.com/token",
 				UserinfoUrl:      "https://idp.example.com/userinfo",
@@ -157,9 +157,9 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 
 func TestNormalizeAuthProviderURLs_NonURLTypes(t *testing.T) {
 	t.Run("When AAP provider type it should be a no-op", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromAapProviderSpec(api.AapProviderSpec{
-			ProviderType:     api.Aap,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromAapProviderSpec(domain.AapProviderSpec{
+			ProviderType:     domain.Aap,
 			ApiUrl:           "https://aap.example.com/",
 			AuthorizationUrl: "https://aap.example.com/authorize",
 			TokenUrl:         "https://aap.example.com/token",
@@ -178,9 +178,9 @@ func TestNormalizeAuthProviderURLs_NonURLTypes(t *testing.T) {
 
 func TestApplyAuthProviderDefaults_OIDC(t *testing.T) {
 	t.Run("When UsernameClaim is nil it should default to preferred_username", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOIDCProviderSpec(api.OIDCProviderSpec{
-			ProviderType: api.Oidc,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+			ProviderType: domain.Oidc,
 			Issuer:       "https://idp.example.com",
 			ClientId:     "test-client",
 		})
@@ -192,9 +192,9 @@ func TestApplyAuthProviderDefaults_OIDC(t *testing.T) {
 	})
 
 	t.Run("When UsernameClaim is already set it should not be overwritten", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOIDCProviderSpec(api.OIDCProviderSpec{
-			ProviderType:  api.Oidc,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+			ProviderType:  domain.Oidc,
 			Issuer:        "https://idp.example.com",
 			ClientId:      "test-client",
 			UsernameClaim: lo.ToPtr([]string{"email"}),
@@ -208,19 +208,19 @@ func TestApplyAuthProviderDefaults_OIDC(t *testing.T) {
 }
 
 func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
-	rfc7662 := func() *api.OAuth2Introspection {
-		i := &api.OAuth2Introspection{}
-		_ = i.FromRfc7662IntrospectionSpec(api.Rfc7662IntrospectionSpec{
-			Type: api.Rfc7662,
+	rfc7662 := func() *domain.OAuth2Introspection {
+		i := &domain.OAuth2Introspection{}
+		_ = i.FromRfc7662IntrospectionSpec(domain.Rfc7662IntrospectionSpec{
+			Type: domain.IntrospectionTypeRfc7662,
 			Url:  "https://idp.example.com/introspect",
 		})
 		return i
 	}
 
 	t.Run("When Issuer is nil it should be set to AuthorizationUrl", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOAuth2ProviderSpec(api.OAuth2ProviderSpec{
-			ProviderType:     api.Oauth2,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+			ProviderType:     domain.Oauth2,
 			AuthorizationUrl: "https://idp.example.com/authorize",
 			TokenUrl:         "https://idp.example.com/token",
 			UserinfoUrl:      "https://idp.example.com/userinfo",
@@ -236,9 +236,9 @@ func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
 
 	t.Run("When Issuer is already set it should not be overwritten", func(t *testing.T) {
 		explicitIssuer := "https://idp.example.com"
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOAuth2ProviderSpec(api.OAuth2ProviderSpec{
-			ProviderType:     api.Oauth2,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+			ProviderType:     domain.Oauth2,
 			AuthorizationUrl: "https://idp.example.com/authorize",
 			TokenUrl:         "https://idp.example.com/token",
 			UserinfoUrl:      "https://idp.example.com/userinfo",
@@ -254,9 +254,9 @@ func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
 	})
 
 	t.Run("When Introspection is nil and token URL is a GitHub URL it should infer GitHub introspection", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOAuth2ProviderSpec(api.OAuth2ProviderSpec{
-			ProviderType:     api.Oauth2,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+			ProviderType:     domain.Oauth2,
 			AuthorizationUrl: "https://github.com/login/oauth/authorize",
 			TokenUrl:         "https://github.com/login/oauth/access_token",
 			UserinfoUrl:      "https://api.github.com/user",
@@ -268,13 +268,13 @@ func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
 		require.NotNil(t, got.Introspection)
 		discriminator, err := got.Introspection.Discriminator()
 		require.NoError(t, err)
-		assert.Equal(t, string(api.Github), discriminator)
+		assert.Equal(t, string(domain.IntrospectionTypeGithub), discriminator)
 	})
 
 	t.Run("When Introspection is nil and token URL is a standard URL it should infer RFC 7662 introspection", func(t *testing.T) {
-		spec := api.AuthProviderSpec{}
-		_ = spec.FromOAuth2ProviderSpec(api.OAuth2ProviderSpec{
-			ProviderType:     api.Oauth2,
+		spec := domain.AuthProviderSpec{}
+		_ = spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+			ProviderType:     domain.Oauth2,
 			AuthorizationUrl: "https://idp.example.com/authorize",
 			TokenUrl:         "https://idp.example.com/oauth2/token",
 			UserinfoUrl:      "https://idp.example.com/userinfo",
@@ -286,7 +286,7 @@ func TestApplyAuthProviderDefaults_OAuth2(t *testing.T) {
 		require.NotNil(t, got.Introspection)
 		discriminator, err := got.Introspection.Discriminator()
 		require.NoError(t, err)
-		assert.Equal(t, string(api.Rfc7662), discriminator)
+		assert.Equal(t, string(domain.IntrospectionTypeRfc7662), discriminator)
 	})
 }
 
