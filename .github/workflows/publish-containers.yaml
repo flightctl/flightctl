@@ -113,7 +113,7 @@ jobs:
     strategy:
       matrix:
         os: ['el9', 'el10']
-        image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway', 'imagebuilder-api', 'imagebuilder-worker']
+        image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway', 'imagebuilder-api', 'imagebuilder-worker', 'remote-access']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:

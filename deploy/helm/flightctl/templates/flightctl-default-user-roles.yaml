@@ -86,6 +86,7 @@ rules:
       - flightctl.io
     resources:
       - devices/console
+      - devices/applications/console
       - devices/lastseen
       - imagebuilds/log
       - imageexports/log

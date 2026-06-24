@@ -93,6 +93,7 @@ ifndef SKIP_BUILD
 	podman save flightctl-imagebuilder-worker-$(OS):latest | sudo podman load
 	podman save flightctl-userinfo-proxy-$(OS):latest | sudo podman load
 	podman save flightctl-telemetry-gateway-$(OS):latest | sudo podman load
+	podman save flightctl-remote-access-$(OS):latest | sudo podman load
 endif
 	$(MAKE) build-standalone
 	sudo -E OS="$(OS)" deploy/scripts/deploy_quadlets.sh

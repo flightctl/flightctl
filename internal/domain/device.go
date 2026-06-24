@@ -36,6 +36,7 @@ type DeviceUpdatePolicySpec = v1beta1.DeviceUpdatePolicySpec
 
 // ========== Operations ==========
 
+type DeviceRemoteSession = v1beta1.DeviceRemoteSession
 type DeviceConsole = v1beta1.DeviceConsole
 type DeviceDecommission = v1beta1.DeviceDecommission
 type DeviceResumeRequest = v1beta1.DeviceResumeRequest

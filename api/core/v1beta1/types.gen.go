@@ -557,6 +557,11 @@ const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
 )
 
+// Defines values for GetDeviceApplicationConsoleParamsConsoleType.
+const (
+	Serial GetDeviceApplicationConsoleParamsConsoleType = "serial"
+)
+
 // AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
 type AapProviderSpec struct {
 	// ApiUrl The internal AAP API URL.
@@ -3380,6 +3385,15 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// GetDeviceApplicationConsoleParams defines parameters for GetDeviceApplicationConsole.
+type GetDeviceApplicationConsoleParams struct {
+	// ConsoleType The type of console session to open. Currently only "serial" is supported.
+	ConsoleType GetDeviceApplicationConsoleParamsConsoleType `form:"consoleType" json:"consoleType"`
+}
+
+// GetDeviceApplicationConsoleParamsConsoleType defines parameters for GetDeviceApplicationConsole.
+type GetDeviceApplicationConsoleParamsConsoleType string
 
 // AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
 type AuthTokenJSONRequestBody = TokenRequest

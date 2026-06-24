@@ -378,6 +378,12 @@ type ClientInterface interface {
 
 	// GetVersion request
 	GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDeviceApplicationConsole request
+	GetDeviceApplicationConsole(ctx context.Context, name string, appname string, params *GetDeviceApplicationConsoleParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDeviceConsole request
+	GetDeviceConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1654,6 +1660,30 @@ func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body Repl
 
 func (c *Client) GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetVersionRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetDeviceApplicationConsole(ctx context.Context, name string, appname string, params *GetDeviceApplicationConsoleParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceApplicationConsoleRequest(c.Server, name, appname, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetDeviceConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceConsoleRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -5258,6 +5288,99 @@ func NewGetVersionRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetDeviceApplicationConsoleRequest generates requests for GetDeviceApplicationConsole
+func NewGetDeviceApplicationConsoleRequest(server string, name string, appname string, params *GetDeviceApplicationConsoleParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/ws/v1/devices/%s/applications/%s/console", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "consoleType", runtime.ParamLocationQuery, params.ConsoleType); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetDeviceConsoleRequest generates requests for GetDeviceConsole
+func NewGetDeviceConsoleRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/ws/v1/devices/%s/console", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -5586,6 +5709,12 @@ type ClientWithResponsesInterface interface {
 
 	// GetVersionWithResponse request
 	GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error)
+
+	// GetDeviceApplicationConsoleWithResponse request
+	GetDeviceApplicationConsoleWithResponse(ctx context.Context, name string, appname string, params *GetDeviceApplicationConsoleParams, reqEditors ...RequestEditorFn) (*GetDeviceApplicationConsoleResponse, error)
+
+	// GetDeviceConsoleWithResponse request
+	GetDeviceConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceConsoleResponse, error)
 }
 
 type AuthConfigResponse struct {
@@ -7603,6 +7732,48 @@ func (r GetVersionResponse) StatusCode() int {
 	return 0
 }
 
+type GetDeviceApplicationConsoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDeviceApplicationConsoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDeviceApplicationConsoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetDeviceConsoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDeviceConsoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDeviceConsoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // AuthConfigWithResponse request returning *AuthConfigResponse
 func (c *ClientWithResponses) AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error) {
 	rsp, err := c.AuthConfig(ctx, reqEditors...)
@@ -8529,6 +8700,24 @@ func (c *ClientWithResponses) GetVersionWithResponse(ctx context.Context, reqEdi
 		return nil, err
 	}
 	return ParseGetVersionResponse(rsp)
+}
+
+// GetDeviceApplicationConsoleWithResponse request returning *GetDeviceApplicationConsoleResponse
+func (c *ClientWithResponses) GetDeviceApplicationConsoleWithResponse(ctx context.Context, name string, appname string, params *GetDeviceApplicationConsoleParams, reqEditors ...RequestEditorFn) (*GetDeviceApplicationConsoleResponse, error) {
+	rsp, err := c.GetDeviceApplicationConsole(ctx, name, appname, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDeviceApplicationConsoleResponse(rsp)
+}
+
+// GetDeviceConsoleWithResponse request returning *GetDeviceConsoleResponse
+func (c *ClientWithResponses) GetDeviceConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceConsoleResponse, error) {
+	rsp, err := c.GetDeviceConsole(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDeviceConsoleResponse(rsp)
 }
 
 // ParseAuthConfigResponse parses an HTTP response from a AuthConfigWithResponse call
@@ -13415,6 +13604,38 @@ func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
 		}
 		response.JSON503 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseGetDeviceApplicationConsoleResponse parses an HTTP response from a GetDeviceApplicationConsoleWithResponse call
+func ParseGetDeviceApplicationConsoleResponse(rsp *http.Response) (*GetDeviceApplicationConsoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDeviceApplicationConsoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetDeviceConsoleResponse parses an HTTP response from a GetDeviceConsoleWithResponse call
+func ParseGetDeviceConsoleResponse(rsp *http.Response) (*GetDeviceConsoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDeviceConsoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil

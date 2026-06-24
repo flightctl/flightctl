@@ -23,6 +23,7 @@ const (
 	DeviceListKind   = "DeviceList"
 
 	DeviceAnnotationConsole         = "device-controller/console"
+	DeviceAnnotationRemoteSession   = "device-controller/remote-session"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
 	// Used After database restore , all devices will be marked with this annotation
 	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"

@@ -76,15 +76,19 @@ db:
   # To use external PostgreSQL database replace `builtin` with `external` and set an appropriate `external:` block
   type: "builtin"
 
+remoteAccessService:
+  # Enable or disable the remote access service.
+  enabled: true
+  logLevel: info
+  # Rate limiting for the WebSocket console endpoint currently uses service.rateLimit below.
+
 service:
   # Optional: TPM manufacturer / swtpm CA PEM paths for device enrollment (rendered into flightctl-api config).
   # Must be a YAML list, e.g.:
   # tpmCAPaths:
   #   - /etc/flightctl/tpm-cas/swtpm-localca-rootca-cert.pem
   #   - /etc/flightctl/tpm-cas/issuercert.pem
-  # Rate limiting configuration
-  # Note: Only flightctl-api and flightctl-alertmanager-proxy services use rate limiting
-  # Other services ignore this configuration
+  # Rate limiting configuration (applied per-service where enabled).
   rateLimit:
     enabled: true
     requests: 300
