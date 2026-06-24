@@ -29,11 +29,11 @@ import (
 // Future stories will replace the stubs with real console-bridging logic.
 type Server struct {
 	pb.UnimplementedRouterServiceServer
-	log            logrus.FieldLogger
-	cfg            *config.Config
-	grpcServer     *grpc.Server
-	httpListener   net.Listener
-	agentListener  net.Listener
+	log             logrus.FieldLogger
+	cfg             *config.Config
+	grpcServer      *grpc.Server
+	httpListener    net.Listener
+	agentListener   net.Listener
 	serverTLSConfig *tls.Config
 	agentTLSConfig  *tls.Config
 }
