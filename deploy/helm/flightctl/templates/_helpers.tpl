@@ -735,6 +735,7 @@ Usage: {{- $result := include "flightctl.getRemoteAccessDNSSans" . | fromJson }}
 {{- define "flightctl.getRemoteAccessDNSSans" }}
   {{- $sans := list }}
   {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "remote-access.%s" $baseDomain) }}
   {{- $sans = append $sans (printf "agent-remote-access.%s" $baseDomain) }}
   {{- $sans = append $sans "flightctl-remote-access" }}
   {{- $sans = append $sans "flightctl-remote-access-agent" }}
