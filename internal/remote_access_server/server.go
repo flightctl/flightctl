@@ -34,7 +34,8 @@ type Server struct {
 	grpcServer     *grpc.Server
 	httpListener   net.Listener
 	agentListener  net.Listener
-	agentTLSConfig *tls.Config
+	serverTLSConfig *tls.Config
+	agentTLSConfig  *tls.Config
 }
 
 // New creates a Server with an HTTP listener at cfg.Service.Address (TLS
@@ -42,7 +43,7 @@ type Server struct {
 // when DisableTLS is true for deployments where TLS is handled upstream) and an
 // mTLS gRPC+HTTP mux listener at cfg.Service.AgentEndpointAddress.
 func New(log logrus.FieldLogger, cfg *config.Config, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig) (*Server, error) {
-	_, agentTLSConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+	serverTLSConfig, agentTLSConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		return nil, fmt.Errorf("building agent TLS config: %w", err)
 	}
@@ -73,12 +74,13 @@ func New(log logrus.FieldLogger, cfg *config.Config, ca *crypto.CAClient, server
 	)
 
 	s := &Server{
-		log:            log,
-		cfg:            cfg,
-		grpcServer:     grpcServer,
-		httpListener:   httpListener,
-		agentListener:  agentListener,
-		agentTLSConfig: agentTLSConfig,
+		log:             log,
+		cfg:             cfg,
+		grpcServer:      grpcServer,
+		httpListener:    httpListener,
+		agentListener:   agentListener,
+		serverTLSConfig: serverTLSConfig,
+		agentTLSConfig:  agentTLSConfig,
 	}
 	pb.RegisterRouterServiceServer(grpcServer, s)
 	return s, nil
@@ -112,7 +114,7 @@ func (s *Server) Run(ctx context.Context) error {
 		if s.cfg.Service.DisableTLS {
 			err = httpSrv.Serve(s.httpListener)
 		} else {
-			httpSrv.TLSConfig = s.agentTLSConfig
+			httpSrv.TLSConfig = s.serverTLSConfig
 			err = httpSrv.ServeTLS(s.httpListener, "", "")
 		}
 		if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
