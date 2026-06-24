@@ -1031,3 +1031,112 @@ func TestOAuth2Auth_TLSConfig(t *testing.T) {
 	assert.NotNil(t, oauth2Auth.tlsConfig)
 	assert.True(t, oauth2Auth.tlsConfig.InsecureSkipVerify)
 }
+
+// TestOAuth2Auth_introspectJWT_IssuerNormalization verifies that the JWT issuer comparison
+// normalizes both sides so that a trailing slash difference between the configured issuer
+// and the JWT iss claim does not cause authentication to fail.
+func TestOAuth2Auth_introspectJWT_IssuerNormalization(t *testing.T) {
+	testKey, err := jwk.FromRaw([]byte("test-secret-key-that-is-at-least-32-bytes-long"))
+	require.NoError(t, err)
+	require.NoError(t, testKey.Set(jwk.KeyIDKey, "test-key-id"))
+	require.NoError(t, testKey.Set(jwk.AlgorithmKey, jwa.HS256))
+
+	testKeySet := jwk.NewSet()
+	require.NoError(t, testKeySet.AddKey(testKey))
+
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jwksBytes, _ := json.Marshal(testKeySet)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jwksBytes)
+	}))
+	defer jwksServer.Close()
+
+	buildToken := func(issuer string) string {
+		now := time.Now()
+		tok, err := jwt.NewBuilder().
+			Issuer(issuer).
+			Subject("test-user").
+			Audience([]string{"test-client-id"}).
+			IssuedAt(now).
+			Expiration(now.Add(time.Hour)).
+			Build()
+		require.NoError(t, err)
+		signed, err := jwt.Sign(tok, jwt.WithKey(jwa.HS256, testKey))
+		require.NoError(t, err)
+		return string(signed)
+	}
+
+	tests := []struct {
+		name            string
+		configIssuer    string
+		tokenIssuer     string
+		wantErr         bool
+	}{
+		{
+			name:         "When config and token issuer are identical it should pass",
+			configIssuer: "https://test-issuer.com",
+			tokenIssuer:  "https://test-issuer.com",
+			wantErr:      false,
+		},
+		{
+			name:         "When config has no trailing slash but token iss does it should pass",
+			configIssuer: "https://test-issuer.com",
+			tokenIssuer:  "https://test-issuer.com/",
+			wantErr:      false,
+		},
+		{
+			name:         "When config has trailing slash but token iss does not it should pass",
+			configIssuer: "https://test-issuer.com/",
+			tokenIssuer:  "https://test-issuer.com",
+			wantErr:      false,
+		},
+		{
+			name:         "When both have trailing slash it should pass",
+			configIssuer: "https://test-issuer.com/",
+			tokenIssuer:  "https://test-issuer.com/",
+			wantErr:      false,
+		},
+		{
+			name:         "When config has path with trailing slash but token iss does not it should pass",
+			configIssuer: "https://test-issuer.com/realms/myrealm/",
+			tokenIssuer:  "https://test-issuer.com/realms/myrealm",
+			wantErr:      false,
+		},
+		{
+			name:         "When config has path without trailing slash but token iss has it it should pass",
+			configIssuer: "https://test-issuer.com/realms/myrealm",
+			tokenIssuer:  "https://test-issuer.com/realms/myrealm/",
+			wantErr:      false,
+		},
+		{
+			name:         "When issuers are genuinely different it should fail",
+			configIssuer: "https://test-issuer.com",
+			tokenIssuer:  "https://other-issuer.com",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := createBasicOAuth2Spec()
+			spec.Issuer = lo.ToPtr(tt.configIssuer)
+			introspection := &api.OAuth2Introspection{}
+			jwtSpec := api.JwtIntrospectionSpec{
+				Type:    api.Jwt,
+				JwksUrl: jwksServer.URL,
+			}
+			require.NoError(t, introspection.FromJwtIntrospectionSpec(jwtSpec))
+			spec.Introspection = introspection
+
+			oauth2Auth := createTestOAuth2Auth(t, spec)
+			defer oauth2Auth.Stop()
+
+			err := oauth2Auth.ValidateToken(context.Background(), buildToken(tt.tokenIssuer))
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err, "issuer comparison should ignore trailing slash difference")
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -527,16 +528,29 @@ func (o *OAuth2Auth) introspectJWT(ctx context.Context, token string, spec api.J
 		return fmt.Errorf("failed to validate JWT token: %w", err)
 	}
 
-	// Validate issuer if specified, otherwise use OAuth2ProviderSpec issuer
-	expectedIssuer := ""
+	// Validate issuer if specified, otherwise use OAuth2ProviderSpec issuer.
+	// Both sides are normalized so that a trailing-slash difference (e.g. the IdP
+	// mints tokens with "https://issuer.com/realm/" but the config stores
+	// "https://issuer.com/realm") does not cause spurious authentication failures.
+	rawExpectedIssuer := ""
 	if spec.Issuer != nil && *spec.Issuer != "" {
-		expectedIssuer = *spec.Issuer
+		rawExpectedIssuer = *spec.Issuer
 	} else if o.spec.Issuer != nil && *o.spec.Issuer != "" {
-		expectedIssuer = *o.spec.Issuer
+		rawExpectedIssuer = *o.spec.Issuer
 	}
 
-	if expectedIssuer != "" && parsedToken.Issuer() != expectedIssuer {
-		return fmt.Errorf("token issuer '%s' does not match expected issuer '%s'", parsedToken.Issuer(), expectedIssuer)
+	if rawExpectedIssuer != "" {
+		normalizedExpected, err := authprovider.NormalizeIssuerURL(rawExpectedIssuer)
+		if err != nil {
+			return fmt.Errorf("invalid configured issuer URL %q: %w", rawExpectedIssuer, err)
+		}
+		normalizedActual, err := authprovider.NormalizeIssuerURL(parsedToken.Issuer())
+		if err != nil {
+			return fmt.Errorf("invalid token issuer URL %q: %w", parsedToken.Issuer(), err)
+		}
+		if normalizedActual != normalizedExpected {
+			return fmt.Errorf("token issuer '%s' does not match expected issuer '%s'", parsedToken.Issuer(), rawExpectedIssuer)
+		}
 	}
 
 	// Validate audience if specified, otherwise use OAuth2ProviderSpec clientId

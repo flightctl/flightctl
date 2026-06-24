@@ -3,6 +3,7 @@ package login
 import (
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -72,9 +73,13 @@ type ValidateArgs struct {
 }
 
 // getTokenProxyURL returns the Flight Control API server's token proxy endpoint
-// for the given provider name
-func getTokenProxyURL(apiServerURL, providerName string) string {
-	return fmt.Sprintf("%s/api/v1/auth/%s/token", apiServerURL, providerName)
+// for the given provider name. Returns an error if apiServerURL is not a valid URL.
+func getTokenProxyURL(apiServerURL, providerName string) (string, error) {
+	u, err := url.Parse(apiServerURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid API server URL %q: %w", apiServerURL, err)
+	}
+	return u.JoinPath("api", "v1", "auth", providerName, "token").String(), nil
 }
 
 type AuthProvider interface {
