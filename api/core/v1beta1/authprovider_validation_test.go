@@ -39,7 +39,7 @@ func validOIDCSpec(issuer string) OIDCProviderSpec {
 	}
 }
 
-func TestValidateHTTPSURL(t *testing.T) {
+func TestValidateAbsoluteURL(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     string
@@ -57,7 +57,7 @@ func TestValidateHTTPSURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateHTTPSURL("field", tt.value)
+			err := validateAbsoluteURL("field", tt.value)
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {

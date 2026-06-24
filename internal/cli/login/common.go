@@ -76,8 +76,11 @@ type ValidateArgs struct {
 // for the given provider name. Returns an error if apiServerURL is not a valid URL.
 func getTokenProxyURL(apiServerURL, providerName string) (string, error) {
 	u, err := url.Parse(apiServerURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil {
 		return "", fmt.Errorf("invalid API server URL %q: %w", apiServerURL, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid API server URL %q: missing scheme or host", apiServerURL)
 	}
 	return u.JoinPath("api", "v1", "auth", providerName, "token").String(), nil
 }
