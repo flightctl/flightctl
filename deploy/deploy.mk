@@ -51,7 +51,7 @@ redeploy-imagebuilder-api: flightctl-imagebuilder-api-container
 
 
 ifndef SKIP_BUILD
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container flightctl-remote-access-container
 endif
 deploy-helm:
 	kubectl config set-context kind-kind
