@@ -6059,6 +6059,8 @@ components:
         - "Error"
         - "Unknown"
         - "Completed"
+        - "Stopped"
+        - "Stopping"
       x-enum-varnames:
         - "ApplicationStatusPreparing"
         - "ApplicationStatusStarting"
@@ -6066,6 +6068,8 @@ components:
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
         - "ApplicationStatusCompleted"
+        - "ApplicationStatusStopped"
+        - "ApplicationStatusStopping"
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.

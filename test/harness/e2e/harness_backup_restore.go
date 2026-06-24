@@ -17,7 +17,16 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 )
 
-// BackupRestore performs backup/restore operations. Create with Harness.NewBackupRestore.
+const (
+	vmBackupBinaryPath  = "/tmp/flightctl-backup"
+	vmRestoreBinaryPath = "/tmp/flightctl-restore"
+	vmRestoreArchive    = "/tmp/flightctl-restore.tar.gz"
+)
+
+// BackupRestore performs backup/restore operations using the production flightctl-backup
+// and flightctl-restore binaries. The binaries read credentials from the deployment
+// environment (K8s Secrets or /etc/flightctl/service-config.yaml for Podman).
+// Create with Harness.NewBackupRestore.
 type BackupRestore struct {
 	*Harness
 	providers *infra.Providers
@@ -61,8 +70,6 @@ func (br *BackupRestore) VerifyAllServicesRunning() error {
 // ScaleUpFlightCtlServices scales API, worker, periodic, alert-exporter, and alertmanager-proxy
 // back up to 1 replica. Used as a safety net after restore in case the binary is killed before
 // its own deferred startup.
-// DEPRECATED: This method is kept for backward compatibility but should not be used in new tests.
-// Tests should verify that the restore binary itself restarts all services via VerifyAllServicesRunning.
 func (br *BackupRestore) ScaleUpFlightCtlServices() error {
 	services := []infra.ServiceName{
 		infra.ServiceAPI,
@@ -84,169 +91,89 @@ func (br *BackupRestore) ScaleUpFlightCtlServices() error {
 	return nil
 }
 
-// RunFlightCtlBackup runs the flightctl-backup binary. Credentials are read directly from the
-// cluster (K8s Secrets or /etc/flightctl/service-config.yaml for Podman). Returns the path to
-// the generated archive and a cleanup function that removes the work directory.
-func (br *BackupRestore) RunFlightCtlBackup() (archivePath string, cleanup func(), err error) {
+// RunFlightCtlBackup runs the flightctl-backup binary.
+// For quadlet: copies binary to the VM via base64, runs there, downloads archive via base64.
+// For K8s: runs locally (binary uses kubeconfig to connect to cluster).
+// The binary auto-detects deployment type and reads credentials from the environment.
+func (br *BackupRestore) RunFlightCtlBackup(outputDir string) (archivePath string, checksumPath string, err error) {
 	backupBinary := br.GetFlightctlBackupPath()
-	if _, err := os.Stat(backupBinary); os.IsNotExist(err) {
-		return "", func() {}, fmt.Errorf("binary not found: %s (build with: make flightctl-backup)", backupBinary)
+	if _, statErr := os.Stat(backupBinary); os.IsNotExist(statErr) {
+		return "", "", fmt.Errorf("binary not found: %s (build with: make flightctl-backup)", backupBinary)
 	}
 
 	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
 	defer cancel()
 
-	workDir, err := os.MkdirTemp("", "flightctl-backup-e2e-")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("create work dir: %w", err)
-	}
-	workDirCleanup := func() { os.RemoveAll(workDir) }
-
-	outputDir := filepath.Join(workDir, "output")
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		workDirCleanup()
-		return "", func() {}, fmt.Errorf("create output dir: %w", err)
-	}
-
-	var backupCmd *exec.Cmd
-	// For quadlet deployments, run backup inside the VM.
-	// Note: This is test infrastructure automation. External users should manually
-	// SSH into their VM and run the backup command there (see error message guidance
-	// in internal/backup/deployer.go for user-facing instructions).
 	if br.providers.Infra.GetEnvironmentType() == infra.EnvironmentQuadlet {
-		// Type assert to quadlet provider to access RunCommand
-		quadletProvider, ok := br.providers.Infra.(*quadlet.InfraProvider)
-		if !ok {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("expected quadlet provider but got different type")
-		}
-
-		// Use random temp dir inside VM for backup output to avoid cross-test conflicts
-		vmOutputDir := fmt.Sprintf("/tmp/flightctl-backup-%d", time.Now().UnixNano())
-		vmArgs := []string{"--output", vmOutputDir, "--deployment-type", "podman"}
-		if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
-			vmArgs = append(vmArgs, "--namespace", ns)
-		}
-		if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
-			vmArgs = append(vmArgs, "--internal-namespace", ns)
-		}
-
-		// Run backup inside the VM using the infra provider (handles SSH automatically)
-		// All commands use context for proper timeout/cancellation handling
-
-		// Copy flightctl-backup binary from host to VM for testing
-		// Edge devices don't have CLI tools pre-installed, but tests need them
-		vmBackupBinary := "/tmp/flightctl-backup"
-		backupBinaryData, err := os.ReadFile(backupBinary)
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to read backup binary: %w", err)
-		}
-		// Use stdin to pipe binary data (too large for command args)
-		encodedBinary := base64.StdEncoding.EncodeToString(backupBinaryData)
-		copyCmd := fmt.Sprintf("base64 -d > %s && chmod +x %s", vmBackupBinary, vmBackupBinary)
-		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedBinary), "sh", "-c", copyCmd); err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to copy backup binary to VM: %w", err)
-		}
-
-		mkdirCmd := []string{"mkdir", "-p", vmOutputDir}
-		if _, err := quadletProvider.RunCommandContext(ctx, mkdirCmd...); err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to create output dir in VM: %w", err)
-		}
-
-		// Use the binary we just copied to the VM
-		backupCmdArgs := append([]string{vmBackupBinary}, vmArgs...)
-		output, err := quadletProvider.RunCommandContext(ctx, backupCmdArgs...)
-		fmt.Fprint(ginkgo.GinkgoWriter, output)
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("flightctl-backup failed: %w", err)
-		}
-
-		// Copy backup archive from VM to host
-		// Find the archive name using find command
-		findOutput, err := quadletProvider.RunCommandContext(ctx, "find", vmOutputDir, "-name", "*.tar.gz", "-print", "-quit")
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to find backup archive: %w", err)
-		}
-		vmArchive := strings.TrimSpace(findOutput)
-		if vmArchive == "" {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("no backup archive found in %s", vmOutputDir)
-		}
-
-		// Read the archive content from VM using base64 encoding to safely transfer binary data
-		base64Output, err := quadletProvider.RunCommandContext(ctx, "base64", vmArchive)
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to encode backup archive from VM: %w", err)
-		}
-
-		// Decode base64 to get the binary archive data
-		archiveBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(base64Output))
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to decode backup archive: %w", err)
-		}
-
-		// Write it to the host
-		archiveName := filepath.Base(vmArchive)
-		hostArchivePath := filepath.Join(outputDir, archiveName)
-		if err := os.WriteFile(hostArchivePath, archiveBytes, 0600); err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to write backup archive: %w", err)
-		}
-
-		// Copy checksum file (.sha256) from VM to host
-		vmChecksumPath := vmArchive + ".sha256"
-		checksumOutput, err := quadletProvider.RunCommandContext(ctx, "base64", vmChecksumPath)
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to encode checksum from VM: %w", err)
-		}
-		checksumBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(checksumOutput))
-		if err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to decode checksum: %w", err)
-		}
-		hostChecksumPath := hostArchivePath + ".sha256"
-		if err := os.WriteFile(hostChecksumPath, checksumBytes, 0600); err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("failed to write checksum file: %w", err)
-		}
-
-		return hostArchivePath, workDirCleanup, nil
-	} else {
-		args := []string{"--output", outputDir}
-		if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
-			args = append(args, "--namespace", ns)
-		}
-		if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
-			args = append(args, "--internal-namespace", ns)
-		}
-		backupCmd = exec.CommandContext(ctx, backupBinary, args...)
-		backupCmd.Stdout = ginkgo.GinkgoWriter
-		backupCmd.Stderr = ginkgo.GinkgoWriter
-		if err := backupCmd.Run(); err != nil {
-			workDirCleanup()
-			return "", func() {}, fmt.Errorf("flightctl-backup failed: %w", err)
-		}
+		return br.runBackupOnQuadlet(ctx, backupBinary, outputDir)
 	}
 
-	matches, err := filepath.Glob(filepath.Join(outputDir, "*.tar.gz"))
-	if err != nil || len(matches) == 0 {
-		workDirCleanup()
-		return "", func() {}, fmt.Errorf("no archive found in %s after backup", outputDir)
+	args := []string{"--output", outputDir}
+	if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
+		args = append(args, "--namespace", ns)
 	}
-	return matches[0], workDirCleanup, nil
+	if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
+		args = append(args, "--internal-namespace", ns)
+	}
+	backupCmd := exec.CommandContext(ctx, backupBinary, args...)
+	backupCmd.Stdout = ginkgo.GinkgoWriter
+	backupCmd.Stderr = ginkgo.GinkgoWriter
+	if err := backupCmd.Run(); err != nil {
+		return "", "", fmt.Errorf("flightctl-backup failed: %w", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(outputDir, "flightctl-backup-*.tar.gz"))
+	if err != nil {
+		return "", "", fmt.Errorf("glob backup archives: %w", err)
+	}
+	if len(matches) == 0 {
+		return "", "", fmt.Errorf("no backup archive found in %s", outputDir)
+	}
+
+	archivePath = matches[0]
+	checksumPath = archivePath + ".sha256"
+	return archivePath, checksumPath, nil
 }
 
-// RunFlightCtlRestore runs the flightctl-restore binary with the given archive path.
-// The binary reads credentials from the cluster and handles service stop/start internally.
-func (br *BackupRestore) RunFlightCtlRestore(archivePath string) error {
+// RunFlightCtlBackupRaw runs the flightctl-backup binary with the given arguments.
+// Useful for negative tests (bad flags, missing args, etc.).
+// Returns combined stdout+stderr and any execution error.
+func (br *BackupRestore) RunFlightCtlBackupRaw(args ...string) (output string, err error) {
+	backupBinary := br.GetFlightctlBackupPath()
+	if _, statErr := os.Stat(backupBinary); os.IsNotExist(statErr) {
+		return "", fmt.Errorf("binary not found: %s (build with: make flightctl-backup)", backupBinary)
+	}
+
+	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, backupBinary, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// RunFlightCtlRestoreRaw runs the flightctl-restore binary with the given arguments.
+// Useful for negative tests (bad args, corrupted archives, etc.).
+// Returns combined stdout+stderr and any execution error.
+func (br *BackupRestore) RunFlightCtlRestoreRaw(args ...string) (output string, err error) {
+	restoreBinary := br.GetFlightctlRestorePath()
+	if _, statErr := os.Stat(restoreBinary); os.IsNotExist(statErr) {
+		return "", fmt.Errorf("binary not found: %s (build with: make flightctl-restore)", restoreBinary)
+	}
+
+	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, restoreBinary, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// RunFlightCtlRestoreFromArchive runs the flightctl-restore binary with the given archive path.
+// For quadlet: copies binary+archive to the VM via base64, runs there.
+// For K8s: runs locally (binary uses kubeconfig to connect to cluster).
+// The binary reads credentials from the environment and handles service stop/start internally.
+func (br *BackupRestore) RunFlightCtlRestoreFromArchive(archivePath string) error {
 	restoreBinary := br.GetFlightctlRestorePath()
 	if _, err := os.Stat(restoreBinary); os.IsNotExist(err) {
 		return fmt.Errorf("binary not found: %s (build with: make flightctl-restore)", restoreBinary)
@@ -255,89 +182,164 @@ func (br *BackupRestore) RunFlightCtlRestore(archivePath string) error {
 	ctx, cancel := context.WithTimeout(br.Context, util.DURATION_TIMEOUT)
 	defer cancel()
 
-	var restoreCmd *exec.Cmd
-	// For quadlet deployments, run restore inside the VM.
-	// Note: This is test infrastructure automation. External users should manually
-	// copy their backup archive to the VM and run restore there.
 	if br.providers.Infra.GetEnvironmentType() == infra.EnvironmentQuadlet {
-		// Type assert to quadlet provider to access RunCommand
-		quadletProvider, ok := br.providers.Infra.(*quadlet.InfraProvider)
-		if !ok {
-			return fmt.Errorf("expected quadlet provider but got different type")
-		}
-
-		// Copy backup archive from host to VM
-		vmArchivePath := "/tmp/flightctl-restore.tar.gz"
-
-		// Read archive from host
-		archiveContent, err := os.ReadFile(archivePath)
-		if err != nil {
-			return fmt.Errorf("failed to read backup archive: %w", err)
-		}
-
-		// Copy flightctl-restore binary from host to VM for testing
-		// Edge devices don't have CLI tools pre-installed, but tests need them
-		vmRestoreBinary := "/tmp/flightctl-restore"
-		restoreBinaryData, err := os.ReadFile(restoreBinary)
-		if err != nil {
-			return fmt.Errorf("failed to read restore binary: %w", err)
-		}
-		// Use stdin to pipe binary data (too large for command args)
-		encodedRestoreBinary := base64.StdEncoding.EncodeToString(restoreBinaryData)
-		copyRestoreCmd := fmt.Sprintf("base64 -d > %s && chmod +x %s", vmRestoreBinary, vmRestoreBinary)
-		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedRestoreBinary), "sh", "-c", copyRestoreCmd); err != nil {
-			return fmt.Errorf("failed to copy restore binary to VM: %w", err)
-		}
-
-		// Write archive to VM using stdin for safe binary transfer
-		encoded := base64.StdEncoding.EncodeToString(archiveContent)
-		decodeCmd := fmt.Sprintf("base64 -d > %s", vmArchivePath)
-		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encoded), "sh", "-c", decodeCmd); err != nil {
-			return fmt.Errorf("failed to copy backup to VM: %w", err)
-		}
-
-		// Copy checksum file (.sha256) to VM
-		checksumPath := archivePath + ".sha256"
-		checksumContent, err := os.ReadFile(checksumPath)
-		if err != nil {
-			return fmt.Errorf("failed to read checksum file: %w", err)
-		}
-		encodedChecksum := base64.StdEncoding.EncodeToString(checksumContent)
-		checksumCmd := fmt.Sprintf("base64 -d > %s", vmArchivePath+".sha256")
-		if _, err := quadletProvider.RunCommandWithStdinContext(ctx, strings.NewReader(encodedChecksum), "sh", "-c", checksumCmd); err != nil {
-			return fmt.Errorf("failed to copy checksum to VM: %w", err)
-		}
-
-		// Run restore inside the VM using the binary we copied
-		restoreCmdArgs := []string{vmRestoreBinary, vmArchivePath}
-		if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
-			restoreCmdArgs = append(restoreCmdArgs, "--namespace", ns)
-		}
-		if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
-			restoreCmdArgs = append(restoreCmdArgs, "--internal-namespace", ns)
-		}
-
-		output, err := quadletProvider.RunCommandContext(ctx, restoreCmdArgs...)
-		fmt.Fprint(ginkgo.GinkgoWriter, output)
-		if err != nil {
-			return fmt.Errorf("flightctl-restore failed: %w", err)
-		}
-		return nil
-	} else {
-		args := []string{archivePath}
-		if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
-			args = append(args, "--namespace", ns)
-		}
-		if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
-			args = append(args, "--internal-namespace", ns)
-		}
-		restoreCmd = exec.CommandContext(ctx, restoreBinary, args...)
+		return br.runRestoreOnQuadlet(ctx, restoreBinary, archivePath)
 	}
 
+	args := []string{archivePath}
+	if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
+		args = append(args, "--namespace", ns)
+	}
+	if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
+		args = append(args, "--internal-namespace", ns)
+	}
+	restoreCmd := exec.CommandContext(ctx, restoreBinary, args...)
 	restoreCmd.Stdout = ginkgo.GinkgoWriter
 	restoreCmd.Stderr = ginkgo.GinkgoWriter
 	if err := restoreCmd.Run(); err != nil {
 		return fmt.Errorf("flightctl-restore failed: %w", err)
+	}
+	return nil
+}
+
+// --- Quadlet helpers (binary copy via base64) ---
+
+// runBackupOnQuadlet copies the backup binary to the quadlet VM, runs it there,
+// and downloads the resulting archive and checksum via base64 encoding.
+func (br *BackupRestore) runBackupOnQuadlet(ctx context.Context, backupBinary, outputDir string) (string, string, error) {
+	quadletProvider, ok := br.providers.Infra.(*quadlet.InfraProvider)
+	if !ok {
+		return "", "", fmt.Errorf("expected quadlet provider but got different type")
+	}
+
+	vmOutputDir := fmt.Sprintf("/tmp/flightctl-backup-%d", time.Now().UnixNano())
+	vmArgs := []string{"--output", vmOutputDir, "--deployment-type", "podman"}
+	if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
+		vmArgs = append(vmArgs, "--namespace", ns)
+	}
+	if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
+		vmArgs = append(vmArgs, "--internal-namespace", ns)
+	}
+
+	if err := copyBinaryToVM(ctx, quadletProvider, backupBinary, vmBackupBinaryPath); err != nil {
+		return "", "", err
+	}
+
+	if _, err := quadletProvider.RunCommandContext(ctx, "mkdir", "-p", vmOutputDir); err != nil {
+		return "", "", fmt.Errorf("failed to create output dir in VM: %w", err)
+	}
+
+	backupCmdArgs := append([]string{vmBackupBinaryPath}, vmArgs...)
+	output, err := quadletProvider.RunCommandContext(ctx, backupCmdArgs...)
+	fmt.Fprint(ginkgo.GinkgoWriter, output)
+	if err != nil {
+		return "", "", fmt.Errorf("flightctl-backup failed: %w", err)
+	}
+
+	findOutput, err := quadletProvider.RunCommandContext(ctx, "find", vmOutputDir, "-name", "*.tar.gz", "-print", "-quit")
+	if err != nil {
+		return "", "", fmt.Errorf("failed to find backup archive: %w", err)
+	}
+	vmArchive := strings.TrimSpace(findOutput)
+	if vmArchive == "" {
+		return "", "", fmt.Errorf("no backup archive found in %s", vmOutputDir)
+	}
+
+	hostArchivePath := filepath.Join(outputDir, filepath.Base(vmArchive))
+	if err := downloadFileFromVM(ctx, quadletProvider, vmArchive, hostArchivePath, 0600); err != nil {
+		return "", "", fmt.Errorf("download archive: %w", err)
+	}
+
+	hostChecksumPath := hostArchivePath + ".sha256"
+	if err := downloadFileFromVM(ctx, quadletProvider, vmArchive+".sha256", hostChecksumPath, 0644); err != nil { //nolint:gosec // G306: checksum is non-sensitive
+		return "", "", fmt.Errorf("download checksum: %w", err)
+	}
+
+	return hostArchivePath, hostChecksumPath, nil
+}
+
+// runRestoreOnQuadlet copies the restore binary and archive to the quadlet VM, then runs restore there.
+func (br *BackupRestore) runRestoreOnQuadlet(ctx context.Context, restoreBinary, archivePath string) error {
+	quadletProvider, ok := br.providers.Infra.(*quadlet.InfraProvider)
+	if !ok {
+		return fmt.Errorf("expected quadlet provider but got different type")
+	}
+
+	if err := copyBinaryToVM(ctx, quadletProvider, restoreBinary, vmRestoreBinaryPath); err != nil {
+		return err
+	}
+
+	archiveContent, err := os.ReadFile(archivePath)
+	if err != nil {
+		return fmt.Errorf("failed to read backup archive: %w", err)
+	}
+	if len(archiveContent) == 0 {
+		return fmt.Errorf("backup archive %s is empty", archivePath)
+	}
+	if err := uploadFileToVM(ctx, quadletProvider, archiveContent, vmRestoreArchive); err != nil {
+		return fmt.Errorf("failed to copy backup to VM: %w", err)
+	}
+
+	checksumContent, err := os.ReadFile(archivePath + ".sha256")
+	if err != nil {
+		return fmt.Errorf("failed to read checksum file: %w", err)
+	}
+	if err := uploadFileToVM(ctx, quadletProvider, checksumContent, vmRestoreArchive+".sha256"); err != nil {
+		return fmt.Errorf("failed to copy checksum to VM: %w", err)
+	}
+
+	restoreCmdArgs := []string{vmRestoreBinaryPath, vmRestoreArchive}
+	if ns := br.providers.Infra.GetExternalNamespace(); ns != "" {
+		restoreCmdArgs = append(restoreCmdArgs, "--namespace", ns)
+	}
+	if ns := br.providers.Infra.GetInternalNamespace(); ns != "" {
+		restoreCmdArgs = append(restoreCmdArgs, "--internal-namespace", ns)
+	}
+
+	output, err := quadletProvider.RunCommandContext(ctx, restoreCmdArgs...)
+	fmt.Fprint(ginkgo.GinkgoWriter, output)
+	if err != nil {
+		return fmt.Errorf("flightctl-restore failed: %w", err)
+	}
+	return nil
+}
+
+// copyBinaryToVM reads a local binary and copies it to the VM via base64-encoded stdin.
+func copyBinaryToVM(ctx context.Context, qp *quadlet.InfraProvider, localPath, remotePath string) error {
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to read binary %s: %w", localPath, err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	cmd := fmt.Sprintf("base64 -d > %s && chmod +x %s", remotePath, remotePath)
+	if _, err := qp.RunCommandWithStdinContext(ctx, strings.NewReader(encoded), "sh", "-c", cmd); err != nil {
+		return fmt.Errorf("failed to copy binary to VM at %s: %w", remotePath, err)
+	}
+	return nil
+}
+
+// uploadFileToVM uploads raw content to a file on the VM via base64-encoded stdin.
+func uploadFileToVM(ctx context.Context, qp *quadlet.InfraProvider, content []byte, remotePath string) error {
+	encoded := base64.StdEncoding.EncodeToString(content)
+	cmd := fmt.Sprintf("base64 -d > %s", remotePath)
+	if _, err := qp.RunCommandWithStdinContext(ctx, strings.NewReader(encoded), "sh", "-c", cmd); err != nil {
+		return fmt.Errorf("failed to upload file to VM at %s: %w", remotePath, err)
+	}
+	return nil
+}
+
+// downloadFileFromVM reads a file from the VM via base64 encoding and writes it locally.
+func downloadFileFromVM(ctx context.Context, qp *quadlet.InfraProvider, remotePath, localPath string, perm os.FileMode) error {
+	base64Output, err := qp.RunCommandContext(ctx, "base64", remotePath)
+	if err != nil {
+		return fmt.Errorf("failed to encode %s from VM: %w", remotePath, err)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(base64Output))
+	if err != nil {
+		return fmt.Errorf("failed to decode %s: %w", remotePath, err)
+	}
+	if err := os.WriteFile(localPath, data, perm); err != nil {
+		return fmt.Errorf("failed to write %s: %w", localPath, err)
 	}
 	return nil
 }
