@@ -18,6 +18,7 @@ concurrency:
 permissions:
   contents: read
   actions: read  # jobs API + artifact download
+  # publish step uses REPORTS_DEPLOY_KEY (SSH deploy key) to write to flightctl/flightctl-reports
 
 jobs:
   report:
@@ -44,31 +45,29 @@ jobs:
             test/scripts/e2e-health/e2e-health-report.html
             test/scripts/e2e-health/e2e-health-summary.json
 
-      - name: Notify Slack
-        if: always()
+      - name: Publish report to flightctl-reports
+        if: always() && github.event_name != 'pull_request'
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPORTS_DEPLOY_KEY: ${{ secrets.REPORTS_DEPLOY_KEY }}
         run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          SUMMARY_FILE="test/scripts/e2e-health/e2e-health-summary.json"
-          if [ -f "$SUMMARY_FILE" ]; then
-            MSG=$(jq -r '
-              def mins: (. / 60 + 0.5 | floor | tostring) + "m";
-              "E2E Health Report  (\(.analyzed_runs) runs, \(.inferred_shards) shards)\n" +
-              "• Pipeline:  wall \(.wall_time_seconds | mins)  =  prepare \(.prepare_time_seconds | mins)  +  tests \(.testing_time_seconds | mins)\n" +
-              "• Specs:  \(.total_specs_tracked) tracked  ·  \(.flaky_tests) flaky  ·  \(.consistently_failing) always failing  ·  \(.never_failed) clean" +
-              (if .infra_instability_events > 0 then "  (\(.infra_instability_events) infra events excluded)" else "" end) +
-              (if .optimization_savings_seconds > 60 then
-                "\n• Potential saving: \(.optimization_savings_seconds | mins)" else "" end)
-            ' "$SUMMARY_FILE")
-          else
-            MSG="E2E Health Report — report generation failed; see run for details."
-          fi
-          [ -z "$SLACK_WEBHOOK_URL" ] && { echo "SLACK_WEBHOOK_URL not set, skipping."; exit 0; }
-          curl -sf -X POST "$SLACK_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg text "$MSG" \
-              --arg url "$RUN_URL" \
-              '{text: ($text + "\nFull report: <" + $url + "|view run artifacts>")}')"
+          [ -z "$REPORTS_DEPLOY_KEY" ] && { echo "REPORTS_DEPLOY_KEY not set, skipping."; exit 0; }
+          REPORT_SRC="test/scripts/e2e-health/e2e-health-report.html"
+          [ ! -f "$REPORT_SRC" ] && { echo "Report file not found, skipping publish."; exit 0; }
+          install -d -m 700 ~/.ssh
+          echo "$REPORTS_DEPLOY_KEY" > ~/.ssh/reports_deploy_key
+          chmod 600 ~/.ssh/reports_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/reports_deploy_key -o IdentitiesOnly=yes" \
+            git clone --depth=1 git@github.com:flightctl/flightctl-reports.git /tmp/flightctl-reports
+          DATE="$(date -u +%Y-%m-%d)"
+          mkdir -p /tmp/flightctl-reports/e2e-health-report
+          cp "$REPORT_SRC" /tmp/flightctl-reports/e2e-health-report/index.html
+          cp "$REPORT_SRC" "/tmp/flightctl-reports/e2e-health-report/${DATE}.html"
+          cd /tmp/flightctl-reports
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add e2e-health-report/
+          git diff --cached --quiet && { echo "No changes to publish."; exit 0; }
+          git commit -m "e2e-health-report: publish ${DATE} report"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/reports_deploy_key -o IdentitiesOnly=yes" git push
         shell: bash
