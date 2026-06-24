@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 
@@ -12,30 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// setupTokenProxyServer creates a test server that records every path requested.
-// It always returns 200 so that client creation can complete past the token proxy step.
-func setupTokenProxyServer(t *testing.T) (server *httptest.Server, requestedPaths *[]string, mu *sync.Mutex) {
-	t.Helper()
-	paths := []string{}
-	var m sync.Mutex
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.Lock()
-		paths = append(paths, r.URL.Path)
-		m.Unlock()
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(server.Close)
-	return server, &paths, &m
-}
-
-// assertNoDoubleSlash asserts that none of the captured request paths contain "//".
-func assertNoDoubleSlash(t *testing.T, paths []string, label string) {
-	t.Helper()
-	for _, p := range paths {
-		assert.NotContains(t, p, "//", "%s: request path must not contain double slash, got: %q", label, p)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // OAuth2
@@ -61,7 +38,10 @@ func TestOAuth2_getOAuth2Client_TokenProxyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, requestedPaths, mu := setupTokenProxyServer(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
 			apiServerURL := server.URL + tt.apiServerSuffix
 
 			o := &OAuth2{
@@ -82,11 +62,12 @@ func TestOAuth2_getOAuth2Client_TokenProxyURL(t *testing.T) {
 			_, err := o.getOAuth2Client("http://localhost:8080/callback")
 			require.NoError(t, err, "getOAuth2Client should succeed for API server URL %q", apiServerURL)
 
-			mu.Lock()
-			paths := append([]string{}, *requestedPaths...)
-			mu.Unlock()
-
-			assertNoDoubleSlash(t, paths, "OAuth2 token proxy URL")
+			// Directly verify that the token proxy URL path computed for this provider contains no double slashes.
+			tokenURL, err := getTokenProxyURL(apiServerURL, *o.Metadata.Name)
+			require.NoError(t, err)
+			parsed, err := url.Parse(tokenURL)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed.Path, "//", "OAuth2 token proxy URL path must not contain double slash, got: %q", tokenURL)
 		})
 	}
 }
@@ -114,7 +95,10 @@ func TestOpenShift_getOAuth2Client_TokenProxyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, requestedPaths, mu := setupTokenProxyServer(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
 			apiServerURL := server.URL + tt.apiServerSuffix
 
 			o := &OpenShift{
@@ -132,11 +116,12 @@ func TestOpenShift_getOAuth2Client_TokenProxyURL(t *testing.T) {
 			_, err := o.getOAuth2Client("http://localhost:8080/callback")
 			require.NoError(t, err, "getOAuth2Client should succeed for API server URL %q", apiServerURL)
 
-			mu.Lock()
-			paths := append([]string{}, *requestedPaths...)
-			mu.Unlock()
-
-			assertNoDoubleSlash(t, paths, "OpenShift token proxy URL")
+			// Directly verify that the token proxy URL path computed for this provider contains no double slashes.
+			tokenURL, err := getTokenProxyURL(apiServerURL, *o.Metadata.Name)
+			require.NoError(t, err)
+			parsed, err := url.Parse(tokenURL)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed.Path, "//", "OpenShift token proxy URL path must not contain double slash, got: %q", tokenURL)
 		})
 	}
 }
@@ -164,7 +149,10 @@ func TestAAPOAuth_getOAuth2Client_TokenProxyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, requestedPaths, mu := setupTokenProxyServer(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
 			apiServerURL := server.URL + tt.apiServerSuffix
 
 			o := &AAPOAuth{
@@ -184,11 +172,12 @@ func TestAAPOAuth_getOAuth2Client_TokenProxyURL(t *testing.T) {
 			_, err := o.getOAuth2Client("http://localhost:8080/callback")
 			require.NoError(t, err, "getOAuth2Client should succeed for API server URL %q", apiServerURL)
 
-			mu.Lock()
-			paths := append([]string{}, *requestedPaths...)
-			mu.Unlock()
-
-			assertNoDoubleSlash(t, paths, "AAP token proxy URL")
+			// Directly verify that the token proxy URL path computed for this provider contains no double slashes.
+			tokenURL, err := getTokenProxyURL(apiServerURL, *o.Metadata.Name)
+			require.NoError(t, err)
+			parsed, err := url.Parse(tokenURL)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed.Path, "//", "AAP token proxy URL path must not contain double slash, got: %q", tokenURL)
 		})
 	}
 }
@@ -217,8 +206,6 @@ func TestOIDC_getOIDCClient_TokenProxyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We need both: a valid OIDC discovery endpoint AND a token proxy endpoint.
-			// Use one server for both, serving the discovery doc on /.well-known/openid-configuration.
 			var mu sync.Mutex
 			var requestedPaths []string
 
@@ -264,11 +251,20 @@ func TestOIDC_getOIDCClient_TokenProxyURL(t *testing.T) {
 			_, err := o.getOIDCClient("http://localhost:8080/callback")
 			require.NoError(t, err, "getOIDCClient should succeed for API server URL %q", apiServerURL)
 
+			// Verify the OIDC discovery request paths have no double slashes.
 			mu.Lock()
 			paths := append([]string{}, requestedPaths...)
 			mu.Unlock()
+			for _, p := range paths {
+				assert.NotContains(t, p, "//", "OIDC discovery request path must not contain double slash, got: %q", p)
+			}
 
-			assertNoDoubleSlash(t, paths, "OIDC token proxy URL")
+			// Directly verify that the token proxy URL path computed for this provider contains no double slashes.
+			tokenURL, err := getTokenProxyURL(apiServerURL, *o.Metadata.Name)
+			require.NoError(t, err)
+			parsed, err := url.Parse(tokenURL)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed.Path, "//", "OIDC token proxy URL path must not contain double slash, got: %q", tokenURL)
 		})
 	}
 }
