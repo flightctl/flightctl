@@ -78,6 +78,7 @@ func main() {
 	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
 	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
+	skipAutoEnrollment := pflag.Bool("skip-auto-enrollment", false, "skip automatic enrollment approval of simulated devices")
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
 	pflag.Usage = printUsage
@@ -199,13 +200,14 @@ func main() {
 	}
 
 	launchParams := agentLaunchParams{
-		agents:          agents,
-		agentFolders:    agentsFolders,
-		log:             log,
-		serviceClient:   serviceClient.ClientWithResponses,
-		formattedLabels: formattedLables,
-		sem:             sem,
-		jitterDuration:  jitterDuration,
+		agents:             agents,
+		agentFolders:       agentsFolders,
+		log:                log,
+		serviceClient:      serviceClient.ClientWithResponses,
+		formattedLabels:    formattedLables,
+		sem:                sem,
+		jitterDuration:     jitterDuration,
+		skipAutoEnrollment: *skipAutoEnrollment,
 	}
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
@@ -237,7 +239,9 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 	// leave the agent process running in the background
 	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
 	go startAgent(ctx, params.agents[i], params.log, i)
-	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+	if !params.skipAutoEnrollment {
+		approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+	}
 }
 
 func reportVersion(versionFormat *string) error {
@@ -339,13 +343,14 @@ type createAgentsConfig struct {
 }
 
 type agentLaunchParams struct {
-	agents          []*agent.Agent
-	agentFolders    []string
-	log             *logrus.Logger
-	serviceClient   *apiClient.ClientWithResponses
-	formattedLabels *map[string]string
-	sem             *semaphore.Weighted
-	jitterDuration  time.Duration
+	agents             []*agent.Agent
+	agentFolders       []string
+	log                *logrus.Logger
+	serviceClient      *apiClient.ClientWithResponses
+	formattedLabels    *map[string]string
+	sem                *semaphore.Weighted
+	jitterDuration     time.Duration
+	skipAutoEnrollment bool
 }
 
 func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
