@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"math"
 	"os"
@@ -85,6 +86,36 @@ func (caClient *CAClient) PeerCertificateSignerFromCtx(ctx context.Context) sign
 
 func CertStorePath(fileName string, store string) string {
 	return filepath.Join(store, fileName)
+}
+
+// LoadCACertsFromFile reads a PEM file and returns all X.509 certificates
+// it contains. Used by services that only need to verify mTLS client
+// certificates and do not require signing keys.
+func LoadCACertsFromFile(path string) ([]*x509.Certificate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading CA certs from %s: %w", path, err)
+	}
+	var certs []*x509.Certificate
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing certificate in %s: %w", path, err)
+		}
+		certs = append(certs, cert)
+	}
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no certificates found in %s", path)
+	}
+	return certs, nil
 }
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig

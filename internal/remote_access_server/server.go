@@ -2,6 +2,7 @@ package remote_access_server
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -34,12 +35,12 @@ import (
 // and a gRPC RouterService that bridges agent streams to active AppConsoleSessions.
 type Server struct {
 	pb.UnimplementedRouterServiceServer
-	log            logrus.FieldLogger
-	cfg            *config.Config
-	ca             *crypto.CAClient
-	serverCerts    *crypto.TLSCertificateConfig
-	dataStore      store.Store
-	publisher      console.RenderedVersionPublisher
+	log           logrus.FieldLogger
+	cfg           *config.Config
+	caBundleCerts []*x509.Certificate
+	serverCerts   *crypto.TLSCertificateConfig
+	dataStore     store.Store
+	publisher     console.RenderedVersionPublisher
 	pendingStreams *sync.Map
 }
 
@@ -62,7 +63,7 @@ func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UU
 func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	ca *crypto.CAClient,
+	caBundleCerts []*x509.Certificate,
 	serverCerts *crypto.TLSCertificateConfig,
 	dataStore store.Store,
 	publisher console.RenderedVersionPublisher,
@@ -71,12 +72,12 @@ func New(
 		return nil, fmt.Errorf("remoteAccessService config section is required")
 	}
 	return &Server{
-		log:            log,
-		cfg:            cfg,
-		ca:             ca,
-		serverCerts:    serverCerts,
-		dataStore:      dataStore,
-		publisher:      publisher,
+		log:           log,
+		cfg:           cfg,
+		caBundleCerts: caBundleCerts,
+		serverCerts:   serverCerts,
+		dataStore:     dataStore,
+		publisher:     publisher,
 		pendingStreams: &sync.Map{},
 	}, nil
 }
@@ -86,7 +87,7 @@ func New(
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing remote-access server")
 
-	serverTLSConfig, agentTLSConfig, err := crypto.TLSConfigForServer(s.ca.GetCABundleX509(), s.serverCerts)
+	serverTLSConfig, agentTLSConfig, err := crypto.TLSConfigForServer(s.caBundleCerts, s.serverCerts)
 	if err != nil {
 		return fmt.Errorf("building TLS config: %w", err)
 	}
