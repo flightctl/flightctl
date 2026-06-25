@@ -124,14 +124,16 @@ func (s *Server) Run(ctx context.Context) error {
 
 	authErrCh := make(chan error, 1)
 	go func() {
-		if err := authN.Start(ctx); err != nil {
+		err := authN.Start(ctx)
+		if err == nil && ctx.Err() == nil {
+			err = fmt.Errorf("auth provider loader stopped unexpectedly")
+		}
+		if err != nil && ctx.Err() == nil {
 			select {
 			case authErrCh <- fmt.Errorf("auth provider loader failed: %w", err):
 			default:
 			}
-			return
 		}
-		s.log.Warn("Auth provider loader stopped unexpectedly")
 	}()
 
 	// Identity mapper.
