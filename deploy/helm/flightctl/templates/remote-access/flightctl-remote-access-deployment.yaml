@@ -66,6 +66,21 @@ spec:
           env:
             - name: HOME
               value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: user
             {{- if .Values.remoteAccess.env }}
             {{- range $key, $value := .Values.remoteAccess.env }}
             - name: {{ $key }}
@@ -76,14 +91,6 @@ spec:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-remote-access-config
               subPath: config.yaml
-              readOnly: true
-            - mountPath: /root/.flightctl/certs/client-signer.crt
-              name: flightctl-client-signer
-              subPath: tls.crt
-              readOnly: true
-            - mountPath: /root/.flightctl/certs/client-signer.key
-              name: flightctl-client-signer
-              subPath: tls.key
               readOnly: true
             - mountPath: /root/.flightctl/certs/server.crt
               name: flightctl-remote-access-server-tls
@@ -102,9 +109,6 @@ spec:
         - name: flightctl-remote-access-config
           configMap:
             name: flightctl-remote-access-config
-        - name: flightctl-client-signer
-          secret:
-            secretName: flightctl-client-signer-ca
         - name: flightctl-remote-access-server-tls
           secret:
             secretName: flightctl-remote-access-server-tls
