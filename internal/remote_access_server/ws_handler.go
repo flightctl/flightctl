@@ -53,6 +53,11 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		return
 	}
 
+	if !websocket.IsWebSocketUpgrade(r) {
+		http.Error(w, "expected a WebSocket upgrade request", http.StatusBadRequest)
+		return
+	}
+
 	orgId := transport.OrgIDFromContext(r.Context())
 
 	session, status := h.appConsoleSessionManager.StartSession(r.Context(), orgId, deviceName, appName, consoleType)
@@ -99,6 +104,10 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		http.Error(w,
 			fmt.Sprintf("timed out waiting for protocol for device: %s app: %s", deviceName, appName),
 			http.StatusGatewayTimeout)
+		return
+	case <-r.Context().Done():
+		close(session.SendCh)
+		h.log.Infof("client disconnected while waiting for protocol for device: %s app: %s", deviceName, appName)
 		return
 	}
 

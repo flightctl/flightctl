@@ -2048,6 +2048,8 @@ paths:
             type: string
             enum:
               - serial
+            x-enum-varnames:
+              - ConsoleTypeSerial
       responses:
         "101":
           description: Switching Protocols
