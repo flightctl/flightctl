@@ -48,8 +48,8 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		http.Error(w, "consoleType is required", http.StatusBadRequest)
 		return
 	}
-	if consoleType != string(api.Serial) {
-		http.Error(w, fmt.Sprintf("invalid consoleType %q: must be %q", consoleType, api.Serial), http.StatusBadRequest)
+	if consoleType != string(api.ConsoleTypeSerial) {
+		http.Error(w, fmt.Sprintf("invalid consoleType %q: must be %q", consoleType, api.ConsoleTypeSerial), http.StatusBadRequest)
 		return
 	}
 
