@@ -265,6 +265,11 @@ func TestListenForEvents(t *testing.T) {
 					}
 				}
 			}()
+			defer func() {
+				writer.Close()
+				<-writeDone
+				reader.Close()
+			}()
 
 			timeoutDuration := 5 * time.Second
 			retryDuration := 100 * time.Millisecond
@@ -307,11 +312,6 @@ func TestListenForEvents(t *testing.T) {
 					return true
 				}, timeoutDuration, retryDuration, "data was not processed in time")
 			}
-
-			// ensure the writer goroutine exits before test cleanup
-			writer.Close()
-			<-writeDone
-			reader.Close()
 		})
 	}
 }
