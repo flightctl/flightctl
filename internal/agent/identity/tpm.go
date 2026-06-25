@@ -287,8 +287,6 @@ func (t *tpmProvider) createGRPCConnection(config *base_client.Config, clientCer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
-	// grpc.NewClient automatically handles HTTP CONNECT proxying via its
-	// delegating resolver, which reads HTTPS_PROXY/HTTP_PROXY/NO_PROXY.
 	conn, err := grpc.NewClient(grpcEndpoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -441,6 +439,7 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			}
 		}
 
+		// Proxy coverage verified by manual Squid test (EDM-4246); unit testing not feasible due to TPM dependencies.
 		httpClient := &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: tlsConfig,

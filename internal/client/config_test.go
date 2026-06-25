@@ -93,7 +93,7 @@ func TestFlattenedConfig(t *testing.T) {
 	require.Equal(config.Service.CertificateAuthorityData, []byte(certData))
 }
 
-func TestNewHTTPClientForServer_SetsProxyFromEnvironment(t *testing.T) {
+func TestNewHTTPClientForServerSetsProxyFromEnvironment(t *testing.T) {
 	require := require.New(t)
 
 	config := &Config{
