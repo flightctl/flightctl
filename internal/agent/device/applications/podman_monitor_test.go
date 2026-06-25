@@ -243,6 +243,7 @@ func TestListenForEvents(t *testing.T) {
 				}
 				writeErrs <- nil
 			}()
+			defer reader.Close()
 
 			// wait for all events to be written before checking assertions
 			require.NoError(<-writeErrs, "failed to write events to pipe")
@@ -283,8 +284,6 @@ func TestListenForEvents(t *testing.T) {
 					return true
 				}, timeoutDuration, retryDuration, "data was not processed in time")
 			}
-
-			reader.Close()
 		})
 	}
 }
