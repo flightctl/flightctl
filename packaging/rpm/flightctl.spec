@@ -635,6 +635,7 @@ fi
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
     %{_datadir}/flightctl/flightctl-remote-access/config.yaml.template
+    %{_datadir}/flightctl/flightctl-remote-access/env.template
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
