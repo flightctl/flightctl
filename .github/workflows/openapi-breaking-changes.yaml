@@ -57,6 +57,7 @@ jobs:
           base: base-api/agent/v1beta1/openapi.yaml
           revision: api/agent/v1beta1/openapi.yaml
           fail-on: ERR
+          allow-external-refs: true
         continue-on-error: true
 
       - name: Breaking Changes Summary
