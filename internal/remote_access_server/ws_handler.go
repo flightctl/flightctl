@@ -86,6 +86,7 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 	select {
 	case selectedProtocol, ok = <-session.ProtocolCh:
 		if !ok {
+			close(session.SendCh)
 			h.log.Errorf("failed selecting protocol for device: %s app: %s", deviceName, appName)
 			http.Error(w,
 				fmt.Sprintf("failed selecting protocol for device: %s app: %s", deviceName, appName),
@@ -93,6 +94,7 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 			return
 		}
 	case <-timer.C:
+		close(session.SendCh)
 		h.log.Errorf("timed out waiting for protocol for device: %s app: %s", deviceName, appName)
 		http.Error(w,
 			fmt.Sprintf("timed out waiting for protocol for device: %s app: %s", deviceName, appName),
@@ -114,6 +116,7 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		h.log.Errorf("failed to upgrade connection to WebSocket for device %s app %s: %v", deviceName, appName, err)
 		return
 	}
+	conn.SetReadLimit(1 << 20)
 
 	stopWriter := make(chan struct{})
 	writerDone := make(chan struct{})

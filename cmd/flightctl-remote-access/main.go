@@ -8,7 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -30,6 +29,9 @@ func main() {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
+	if cfg.RemoteAccessService == nil {
+		cfg.RemoteAccessService = config.NewDefaultRemoteAccessServiceConfig()
+	}
 	log := log.InitLogs(cfg.RemoteAccessService.LogLevel)
 	log.Println("Starting remote-access service")
 	defer log.Println("Remote-access service stopped")
@@ -87,12 +89,7 @@ func main() {
 		log.Fatalf("starting rendered version bus: %v", err)
 	}
 
-	multiAuth, err := auth.InitMultiAuth(cfg, log, nil)
-	if err != nil {
-		log.Fatalf("initializing auth: %v", err)
-	}
-
-	server, err := remoteaccessserver.New(log, cfg, caClient, serverCerts, dataStore, rendered.Bus.Instance(), multiAuth)
+	server, err := remoteaccessserver.New(log, cfg, caClient, serverCerts, dataStore, rendered.Bus.Instance())
 	if err != nil {
 		log.Fatalf("initializing remote-access server: %v", err)
 	}

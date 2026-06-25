@@ -110,6 +110,9 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 			}
 			return domain.StatusInternalServerError(err.Error())
 		}
+		if newValue == value {
+			return domain.StatusOK()
+		}
 		if newValue == "" {
 			delete(*device.Metadata.Annotations, domain.DeviceAnnotationRemoteSession)
 		} else {
@@ -170,17 +173,23 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 func removeAppSession(sessionID string) func(string) (string, error) {
 	return func(existing string) (string, error) {
 		if existing == "" {
-			return "", nil
+			return existing, nil
 		}
 		var sessions []domain.DeviceRemoteSession
 		if err := json.Unmarshal([]byte(existing), &sessions); err != nil {
 			return "", err
 		}
 		filtered := sessions[:0]
+		removed := false
 		for _, s := range sessions {
 			if s.SessionID != sessionID {
 				filtered = append(filtered, s)
+			} else {
+				removed = true
 			}
+		}
+		if !removed {
+			return existing, nil
 		}
 		if len(filtered) == 0 {
 			return "", nil
