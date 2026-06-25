@@ -222,7 +222,7 @@ jobs:
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --reuse-values \
+            --reset-then-reuse-values \
             --dry-run=server \
             --output=dyff \
             --debug
@@ -233,7 +233,7 @@ jobs:
           # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --reuse-values \
+            --reset-then-reuse-values \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
@@ -305,7 +305,7 @@ jobs:
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --reuse-values \
+            --reset-then-reuse-values \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"

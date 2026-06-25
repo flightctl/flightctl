@@ -32,9 +32,11 @@ case $IMAGE in
     imagebuilder-api)
         NAMESPACE=flightctl-external
         ;;
+    remote-access)
+        NAMESPACE=flightctl-external
+        ;;
 
-
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|imagebuilder-api>"
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|imagebuilder-api|remote-access>"
        exit 1
 esac
 

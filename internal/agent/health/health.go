@@ -22,8 +22,8 @@ const (
 	// to be considered healthy.
 	defaultStabilityWindow = 60 * time.Second
 
-	// pollInterval is how often we check the service status.
-	pollInterval = 5 * time.Second
+	// defaultPollInterval is how often we check the service status.
+	defaultPollInterval = 5 * time.Second
 )
 
 // checker performs health checks on the agent.
@@ -32,6 +32,7 @@ type checker struct {
 	systemd         *client.Systemd
 	timeout         time.Duration
 	stabilityWindow time.Duration
+	pollInterval    time.Duration
 	verbose         bool
 	output          io.Writer
 }
@@ -67,6 +68,13 @@ func WithOutput(w io.Writer) Option {
 	}
 }
 
+// WithPollInterval sets how often the service status is polled.
+func WithPollInterval(d time.Duration) Option {
+	return func(c *checker) {
+		c.pollInterval = d
+	}
+}
+
 // WithSystemdClient sets a custom systemd client (for testing).
 func WithSystemdClient(systemd *client.Systemd) Option {
 	return func(c *checker) {
@@ -80,6 +88,7 @@ func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 		log:             log,
 		timeout:         150 * time.Second,
 		stabilityWindow: defaultStabilityWindow,
+		pollInterval:    defaultPollInterval,
 		output:          os.Stdout,
 	}
 	for _, opt := range opts {
@@ -119,7 +128,7 @@ func (c *checker) Run(ctx context.Context) error {
 	}
 
 	// Phase 2: Monitor stability window (separate timeout)
-	phase2Ctx, cancel2 := context.WithTimeout(ctx, c.stabilityWindow+pollInterval)
+	phase2Ctx, cancel2 := context.WithTimeout(ctx, c.stabilityWindow+c.pollInterval)
 	defer cancel2()
 
 	if err := c.monitorStability(phase2Ctx); err != nil {
@@ -136,7 +145,7 @@ func (c *checker) Run(ctx context.Context) error {
 func (c *checker) waitForServiceActive(ctx context.Context) error {
 	c.printInfo("Waiting for %s to become active (timeout: %v)...", serviceName, c.timeout)
 
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 
 	// Check immediately, then poll
@@ -178,7 +187,7 @@ func (c *checker) monitorStability(ctx context.Context) error {
 	c.printInfo("Monitoring service stability for %v...", c.stabilityWindow)
 
 	stabilityDeadline := time.Now().Add(c.stabilityWindow)
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 
 	for {

@@ -135,6 +135,7 @@ func TestWaitForServiceActive(t *testing.T) {
 			checker := NewChecker(
 				logger,
 				WithTimeout(30*time.Second),
+				WithPollInterval(10*time.Millisecond),
 				WithVerbose(true),
 				WithOutput(output),
 				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
@@ -206,7 +207,8 @@ func TestMonitorStability(t *testing.T) {
 			checker := NewChecker(
 				logger,
 				WithTimeout(30*time.Second),
-				WithStabilityWindow(10*time.Second), // Short window for testing
+				WithStabilityWindow(50*time.Millisecond),
+				WithPollInterval(10*time.Millisecond),
 				WithVerbose(true),
 				WithOutput(output),
 				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
@@ -289,7 +291,8 @@ func TestRun(t *testing.T) {
 			checker := NewChecker(
 				logger,
 				WithTimeout(30*time.Second),
-				WithStabilityWindow(10*time.Second),
+				WithStabilityWindow(50*time.Millisecond),
+				WithPollInterval(10*time.Millisecond),
 				WithVerbose(true),
 				WithOutput(output),
 				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
@@ -358,6 +361,7 @@ func TestNewDefaults(t *testing.T) {
 
 	require.Equal(150*time.Second, checker.timeout)
 	require.Equal(defaultStabilityWindow, checker.stabilityWindow)
+	require.Equal(defaultPollInterval, checker.pollInterval)
 	require.NotNil(checker.output)
 	require.NotNil(checker.systemd)
 	require.False(checker.verbose)

@@ -322,6 +322,28 @@ periodic:
     # -- Address for the metrics HTTP server
     address: ":15690"
 
+# -- Remote Access Configuration
+remoteAccess:
+  # -- Enable remote access service
+  enabled: true
+  image:
+    # -- Remote access container image
+    image: quay.io/flightctl/flightctl-remote-access-el9
+    # -- Remote access image tag (leave empty to use chart appVersion)
+    tag: ""
+    # -- Image pull policy for remote access container
+    pullPolicy: ""
+  # -- Additional environment variables for the remote access container
+  env: {}
+  # -- Resource requests and limits for the remote access container
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
 # -- Alert Exporter Configuration
 alertExporter:
   # -- Enable alert exporter service

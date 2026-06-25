@@ -117,9 +117,12 @@ func TestOIDCAuth_parseAndCreateIdentity(t *testing.T) {
 		errorContains    string
 	}{
 		{
-			name:          "jwk fetch failure",
-			ctx:           context.Background(),
-			uri:           "http://invalid-url-that-does-not-exist",
+			name: "jwk fetch failure",
+			ctx:  context.Background(),
+			// Use loopback with a refused port so the fetch fails instantly
+			// (no DNS lookup, immediate connection refused) rather than waiting
+			// for a DNS timeout on an invalid hostname.
+			uri:           "http://127.0.0.1:1",
 			token:         string(validTokenBytes),
 			expectError:   true,
 			errorContains: "failed to get JWK set from cache",

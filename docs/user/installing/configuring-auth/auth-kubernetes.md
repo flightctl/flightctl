@@ -141,6 +141,8 @@ flightctl login https://flightctl.example.com --token=$TOKEN
 
 **Note:** When creating RoleBindings for users or service accounts, remember to reference the namespace-specific ClusterRole names (e.g., `flightctl-admin-<namespace>`) in the RoleBinding's `roleRef.name` field.
 
+> **Tip:** For automation and scripting, you can use the `FLIGHTCTL_TOKEN` environment variable or `--credentials-file` instead of passing `--token` on the command line. This avoids exposing the token in process arguments. See [Logging in Non-Interactively](../../using/cli/logging-in.md#logging-in-non-interactively-automation-and-scripting).
+
 ## Related Documentation
 
 - [Authentication Overview](overview.md) - Overview of all authentication methods

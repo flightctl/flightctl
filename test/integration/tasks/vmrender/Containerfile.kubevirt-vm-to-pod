@@ -1,5 +1,5 @@
 # Build stage: compile kubevirt-vm-to-pod in an isolated toolset image.
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25.8-1774618347 AS build
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25.9-1778675823 AS build
 USER 0
 ARG KUBEVIRT_VM_TO_POD_COMMIT=d64fa7fd95361fdcc5ddd6c4c2714600821482a1
 RUN git clone https://github.com/vladikr/kubevirt-vm-to-pod /src && \

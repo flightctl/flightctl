@@ -1983,6 +1983,92 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /ws/v1/devices/{name}/console:
+    x-resource: devices/console
+    get:
+      tags:
+        - device
+      description: Open a WebSocket console session to the Device.
+      operationId: getDeviceConsole
+      x-rbac:
+        resource: devices/console
+        action: get
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "429":
+          description: Too Many Requests
+        "500":
+          description: Internal Server Error
+        "504":
+          description: Gateway Timeout
+  /ws/v1/devices/{name}/applications/{appname}/console:
+    x-resource: devices/applications/console
+    get:
+      tags:
+        - device
+      description: Open a WebSocket console session to an application running on the Device.
+      operationId: getDeviceApplicationConsole
+      x-rbac:
+        resource: devices/applications/console
+        action: get
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application to connect to.
+          required: true
+          schema:
+            type: string
+        - name: consoleType
+          in: query
+          required: true
+          description: The type of console session to open. Currently only "serial" is supported.
+          schema:
+            type: string
+            enum:
+              - serial
+            x-enum-varnames:
+              - ConsoleTypeSerial
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "409":
+          description: Conflict
+        "429":
+          description: Too Many Requests
+        "500":
+          description: Internal Server Error
+        "504":
+          description: Gateway Timeout
   /deviceactions/resume:
     x-resource: devices/resume
     post:

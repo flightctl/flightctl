@@ -14,6 +14,7 @@ IMAGEBUILDER_API_SANS=()
 PROMETHEUS_SANS=()
 GRAFANA_SANS=()
 USERINFO_PROXY_SANS=()
+REMOTE_ACCESS_SANS=()
 NAMESPACE=""
 INTERNAL_NAMESPACE=""
 CREATE_K8S_SECRETS="false"
@@ -38,6 +39,7 @@ Optional:
   --prometheus-san <dns>        DNS SAN for flightctl-prometheus (can be specified multiple times)
   --grafana-san <dns>           DNS SAN for flightctl-grafana (can be specified multiple times)
   --userinfo-proxy-san <dns>    DNS SAN for flightctl-userinfo-proxy (can be specified multiple times)
+  --remote-access-san <dns>     DNS SAN for flightctl-remote-access (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
   --internal-namespace <ns>      Internal namespace to copy CA secrets to (optional)
@@ -94,6 +96,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --userinfo-proxy-san)
             USERINFO_PROXY_SANS+=("$2")
+            shift 2
+            ;;
+        --remote-access-san)
+            REMOTE_ACCESS_SANS+=("$2")
             shift 2
             ;;
         --create-k8s-secrets)
@@ -330,6 +336,8 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
         "$CERT_DIR/flightctl-ui/server.crt" "$CERT_DIR/flightctl-ui/server.key"
     restore_tls_secret "flightctl-cli-artifacts-server-tls" \
         "$CERT_DIR/flightctl-cli-artifacts/server.crt" "$CERT_DIR/flightctl-cli-artifacts/server.key"
+    restore_tls_secret "flightctl-remote-access-server-tls" \
+        "$CERT_DIR/flightctl-remote-access/server.crt" "$CERT_DIR/flightctl-remote-access/server.key"
 
     # Restore CA bundle (generic secret, not TLS)
     if $K8S_CLI get secret "flightctl-ca-bundle" -n "$NAMESPACE" &>/dev/null; then
@@ -607,6 +615,26 @@ else
     echo "Skipped generation of UserInfo Proxy TLS certificate (no SANs specified)"
 fi
 
+# Remote Access TLS certificate
+if [[ ${#REMOTE_ACCESS_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-remote-access"
+
+    REMOTE_ACCESS_KEY="$CERT_DIR/flightctl-remote-access/server.key"
+    REMOTE_ACCESS_CERT="$CERT_DIR/flightctl-remote-access/server.crt"
+
+    if [[ -f "$REMOTE_ACCESS_CERT" ]] && [[ -f "$REMOTE_ACCESS_KEY" ]] && cert_has_expected_sans "$REMOTE_ACCESS_CERT" "${REMOTE_ACCESS_SANS[@]}"; then
+        echo "Skipped generation of Remote Access TLS certificate (already exists with correct SANs)"
+    else
+        generate_server_cert "flightctl-remote-access" \
+            "$REMOTE_ACCESS_KEY" "$REMOTE_ACCESS_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${REMOTE_ACCESS_SANS[@]}"
+        echo "Generated Remote Access TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "Skipped generation of Remote Access TLS certificate (no SANs specified)"
+fi
+
 # CA Bundle
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
 
@@ -702,6 +730,16 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
             --namespace="$NAMESPACE" \
             --cert="$CLI_ARTIFACTS_CERT" \
             --key="$CLI_ARTIFACTS_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
+    # Create flightctl-remote-access-server-tls secret (only if certificate was generated)
+    if [[ ${#REMOTE_ACCESS_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-remote-access-server-tls"
+        $K8S_CLI create secret tls flightctl-remote-access-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$REMOTE_ACCESS_CERT" \
+            --key="$REMOTE_ACCESS_KEY" \
             --dry-run=client -o yaml | $K8S_CLI apply -f -
     fi
 

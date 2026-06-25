@@ -162,7 +162,7 @@ Verification:
 2. Verify that Prometheus is successfully scraping Flight Control metrics:
 
    ```console
-   sudo podman exec flightctl-prometheus wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | \
+   sudo podman exec flightctl-prometheus curl -s http://localhost:9090/api/v1/targets 2>/dev/null | \
      jq -r '.data.activeTargets[] | select(.labels.job | contains("flightctl")) | {job: .labels.job, health: .health}'
    ```
 
@@ -197,7 +197,7 @@ Troubleshooting:
    Check Prometheus targets and verify Flight Control services are running:
 
    ```console
-   sudo podman exec flightctl-prometheus wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | jq .
+   sudo podman exec flightctl-prometheus curl -s http://localhost:9090/api/v1/targets 2>/dev/null | jq .
    sudo systemctl status flightctl.target
    ```
 

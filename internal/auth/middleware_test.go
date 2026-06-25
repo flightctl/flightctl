@@ -94,6 +94,12 @@ var requests []TestRequest = []TestRequest{
 		op:       "get",
 	},
 	{
+		url:      "wss://fctl.io/ws/v1/devices/foo/applications/app1/console",
+		method:   http.MethodGet,
+		resource: "devices/applications/console",
+		op:       "get",
+	},
+	{
 		url:      "https://fctl.io/api/v1/fleets/foo/templateVersions/bar",
 		method:   http.MethodGet,
 		resource: "fleets/templateversions",
