@@ -439,7 +439,6 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			}
 		}
 
-		// Proxy coverage verified by manual Squid test (EDM-4246); unit testing not feasible due to TPM dependencies.
 		httpClient := &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: tlsConfig,
