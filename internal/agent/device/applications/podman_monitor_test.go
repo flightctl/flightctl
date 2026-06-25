@@ -225,34 +225,42 @@ func TestListenForEvents(t *testing.T) {
 
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
-			defer reader.Close()
 
 			go podmanMonitor.listenForEvents(context.Background(), reader)
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).AnyTimes()
 
 			// simulate events being written to the pipe
+			writeErrs := make(chan error, 1)
 			go func() {
 				defer writer.Close()
 				for i := range tc.events {
 					event := tc.events[i]
-					err := writeEvent(writer, &event)
-					require.NoError(err)
+					if err := writeEvent(writer, &event); err != nil {
+						writeErrs <- err
+						return
+					}
 				}
+				writeErrs <- nil
 			}()
+			defer reader.Close()
+
+			// wait for all events to be written before checking assertions
+			require.NoError(<-writeErrs, "failed to write events to pipe")
 
 			timeoutDuration := 5 * time.Second
 			retryDuration := 100 * time.Millisecond
 			for _, testApp := range tc.apps {
 				require.Eventually(func() bool {
-					// get app
-					app, exists := podmanMonitor.getByID(testApp.ID())
+					podmanMonitor.mu.Lock()
+					app, exists := podmanMonitor.apps[testApp.ID()]
 					if !exists {
+						podmanMonitor.mu.Unlock()
 						t.Logf("app not found: %s", testApp.Name())
 						return false
 					}
-					// check app status
 					status, summary, err := app.Status()
+					podmanMonitor.mu.Unlock()
 					require.NoError(err)
 					if status == nil {
 						t.Logf("app has no status: %s", testApp.Name())
