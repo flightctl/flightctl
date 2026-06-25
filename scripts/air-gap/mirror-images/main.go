@@ -53,17 +53,26 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// repoRoot attempts to resolve the flightctl repository root relative to the
-// running binary's location.
+// installedDataDir is the system-wide data directory used when the binary is
+// installed via RPM (e.g. to /usr/bin). Data files are installed here by the
+// RPM package so the tool is self-contained without requiring a source checkout.
+const installedDataDir = "/usr/share/flightctl"
+
+// repoRoot returns the root directory containing the tool's data files
+// (deploy/helm/helm-chart-opts.yaml, packaging/, etc.).
 //
-// The binary is expected to be built from scripts/air-gap/flightctl-mirror-images/, so
-// the repo root is three directories above the binary:
-//
-//	bin/flightctl-mirror-images → bin/ → repo root      (when run via `go build -o bin/`)
-//
-// If os.Executable() fails we fall back to the current working directory so
-// that `go run ./scripts/air-gap/flightctl-mirror-images` still works from the repo root.
+// Search order:
+//  1. installedDataDir (/usr/share/flightctl) — used when installed via RPM
+//  2. Binary-relative path (../bin/) — used during development from a source checkout
+//  3. "." — fallback when os.Executable() fails (e.g. go run)
 func repoRoot() string {
+	// Prefer the installed data directory when present (RPM installation).
+	if _, err := os.Stat(filepath.Join(installedDataDir, "deploy/helm/helm-chart-opts.yaml")); err == nil {
+		return installedDataDir
+	}
+
+	// Fall back to binary-relative lookup for development/source-checkout use.
+	// The binary is expected at <repo-root>/bin/flightctl-mirror-images.
 	exe, err := os.Executable()
 	if err != nil {
 		return "."

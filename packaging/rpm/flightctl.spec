@@ -303,6 +303,19 @@ fi
     cp bin/flightctl-backup %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
     cp bin/flightctl-mirror-images %{buildroot}/usr/bin
+    mkdir -p %{buildroot}/usr/share/flightctl/deploy/helm/flightctl
+    mkdir -p %{buildroot}/usr/share/flightctl/packaging/images/el9
+    mkdir -p %{buildroot}/usr/share/flightctl/packaging/images/el10
+    mkdir -p %{buildroot}/usr/share/flightctl/packaging/images/rhel9
+    mkdir -p %{buildroot}/usr/share/flightctl/packaging/images/rhel10
+    mkdir -p %{buildroot}/usr/share/flightctl/packaging/rpm
+    install -m 0644 deploy/helm/helm-chart-opts.yaml %{buildroot}/usr/share/flightctl/deploy/helm/helm-chart-opts.yaml
+    install -m 0644 deploy/helm/flightctl/Chart.yaml %{buildroot}/usr/share/flightctl/deploy/helm/flightctl/Chart.yaml
+    install -m 0644 packaging/images/el9/images.yaml %{buildroot}/usr/share/flightctl/packaging/images/el9/images.yaml
+    install -m 0644 packaging/images/el10/images.yaml %{buildroot}/usr/share/flightctl/packaging/images/el10/images.yaml
+    install -m 0644 packaging/images/rhel9/images.yaml %{buildroot}/usr/share/flightctl/packaging/images/rhel9/images.yaml
+    install -m 0644 packaging/images/rhel10/images.yaml %{buildroot}/usr/share/flightctl/packaging/images/rhel10/images.yaml
+    install -m 0644 packaging/rpm/flightctl.spec %{buildroot}/usr/share/flightctl/packaging/rpm/flightctl.spec
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
@@ -473,6 +486,19 @@ fi
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
+    %dir /usr/share/flightctl/deploy/helm/flightctl
+    /usr/share/flightctl/deploy/helm/helm-chart-opts.yaml
+    /usr/share/flightctl/deploy/helm/flightctl/Chart.yaml
+    %dir /usr/share/flightctl/packaging/images/el9
+    %dir /usr/share/flightctl/packaging/images/el10
+    %dir /usr/share/flightctl/packaging/images/rhel9
+    %dir /usr/share/flightctl/packaging/images/rhel10
+    %dir /usr/share/flightctl/packaging/rpm
+    /usr/share/flightctl/packaging/images/el9/images.yaml
+    /usr/share/flightctl/packaging/images/el10/images.yaml
+    /usr/share/flightctl/packaging/images/rhel9/images.yaml
+    /usr/share/flightctl/packaging/images/rhel10/images.yaml
+    /usr/share/flightctl/packaging/rpm/flightctl.spec
 
 %files agent
     %license LICENSE
