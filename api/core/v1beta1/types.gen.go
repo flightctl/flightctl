@@ -559,7 +559,7 @@ const (
 
 // Defines values for GetDeviceApplicationConsoleParamsConsoleType.
 const (
-	Serial GetDeviceApplicationConsoleParamsConsoleType = "serial"
+	ConsoleTypeSerial GetDeviceApplicationConsoleParamsConsoleType = "serial"
 )
 
 // AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
