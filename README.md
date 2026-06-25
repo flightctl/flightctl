@@ -94,7 +94,7 @@ Certificates and client configuration are written to `~/.flightctl/`.
 
 | Tool | Minimum version | Notes |
 |------|----------------|-------|
-| `go` | 1.24 | Required to build |
+| `go` | 1.25 | Required to build |
 | `make` | any | Build orchestration |
 | `podman` | any | Container builds and integration tests |
 | `openssl` / `openssl-devel` | any | TLS certificate generation |
