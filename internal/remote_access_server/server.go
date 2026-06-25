@@ -35,12 +35,12 @@ import (
 // and a gRPC RouterService that bridges agent streams to active AppConsoleSessions.
 type Server struct {
 	pb.UnimplementedRouterServiceServer
-	log           logrus.FieldLogger
-	cfg           *config.Config
-	caBundleCerts []*x509.Certificate
-	serverCerts   *crypto.TLSCertificateConfig
-	dataStore     store.Store
-	publisher     console.RenderedVersionPublisher
+	log            logrus.FieldLogger
+	cfg            *config.Config
+	caBundleCerts  []*x509.Certificate
+	serverCerts    *crypto.TLSCertificateConfig
+	dataStore      store.Store
+	publisher      console.RenderedVersionPublisher
 	pendingStreams *sync.Map
 }
 
@@ -72,12 +72,12 @@ func New(
 		return nil, fmt.Errorf("remoteAccessService config section is required")
 	}
 	return &Server{
-		log:           log,
-		cfg:           cfg,
-		caBundleCerts: caBundleCerts,
-		serverCerts:   serverCerts,
-		dataStore:     dataStore,
-		publisher:     publisher,
+		log:            log,
+		cfg:            cfg,
+		caBundleCerts:  caBundleCerts,
+		serverCerts:    serverCerts,
+		dataStore:      dataStore,
+		publisher:      publisher,
 		pendingStreams: &sync.Map{},
 	}, nil
 }
