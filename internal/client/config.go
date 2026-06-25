@@ -742,8 +742,6 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
-	// grpc.NewClient automatically handles HTTP CONNECT proxying via its
-	// delegating resolver, which reads HTTPS_PROXY/HTTP_PROXY/NO_PROXY.
 	client, err := grpc.NewClient(grpcEndpoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
