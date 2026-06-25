@@ -225,21 +225,27 @@ func TestListenForEvents(t *testing.T) {
 
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
-			defer reader.Close()
 
 			go podmanMonitor.listenForEvents(context.Background(), reader)
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).AnyTimes()
 
 			// simulate events being written to the pipe
+			writeErrs := make(chan error, 1)
 			go func() {
 				defer writer.Close()
 				for i := range tc.events {
 					event := tc.events[i]
-					err := writeEvent(writer, &event)
-					require.NoError(err)
+					if err := writeEvent(writer, &event); err != nil {
+						writeErrs <- err
+						return
+					}
 				}
+				writeErrs <- nil
 			}()
+
+			// wait for all events to be written before checking assertions
+			require.NoError(<-writeErrs, "failed to write events to pipe")
 
 			timeoutDuration := 5 * time.Second
 			retryDuration := 100 * time.Millisecond
@@ -277,6 +283,8 @@ func TestListenForEvents(t *testing.T) {
 					return true
 				}, timeoutDuration, retryDuration, "data was not processed in time")
 			}
+
+			reader.Close()
 		})
 	}
 }
