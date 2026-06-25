@@ -252,14 +252,15 @@ func TestListenForEvents(t *testing.T) {
 			retryDuration := 100 * time.Millisecond
 			for _, testApp := range tc.apps {
 				require.Eventually(func() bool {
-					// get app
-					app, exists := podmanMonitor.getByID(testApp.ID())
+					podmanMonitor.mu.Lock()
+					app, exists := podmanMonitor.apps[testApp.ID()]
 					if !exists {
+						podmanMonitor.mu.Unlock()
 						t.Logf("app not found: %s", testApp.Name())
 						return false
 					}
-					// check app status
 					status, summary, err := app.Status()
+					podmanMonitor.mu.Unlock()
 					require.NoError(err)
 					if status == nil {
 						t.Logf("app has no status: %s", testApp.Name())
