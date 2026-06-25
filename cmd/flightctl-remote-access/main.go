@@ -37,11 +37,11 @@ func main() {
 	defer log.Println("Remote-access service stopped")
 	log.Printf("Using config: %s", cfg)
 
-	ca, err := crypto.LoadInternalCA(cfg.CA)
+	caBundlePath := crypto.CertStorePath(cfg.CA.InternalConfig.CABundleFile, cfg.CA.InternalConfig.CertStore)
+	caBundleCerts, err := crypto.LoadCACertsFromFile(caBundlePath)
 	if err != nil {
-		log.Fatalf("loading CA certificates: %v", err)
+		log.Fatalf("loading CA bundle: %v", err)
 	}
-	caClient := crypto.NewCAClient(cfg.CA, ca)
 
 	serverCerts, err := config.LoadServerCertificates(cfg, log)
 	if err != nil {
@@ -89,7 +89,7 @@ func main() {
 		log.Fatalf("starting rendered version bus: %v", err)
 	}
 
-	server, err := remoteaccessserver.New(log, cfg, caClient, serverCerts, dataStore, rendered.Bus.Instance())
+	server, err := remoteaccessserver.New(log, cfg, caBundleCerts, serverCerts, dataStore, rendered.Bus.Instance())
 	if err != nil {
 		log.Fatalf("initializing remote-access server: %v", err)
 	}
