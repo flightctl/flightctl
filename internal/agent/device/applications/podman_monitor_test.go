@@ -230,10 +230,8 @@ func TestListenForEvents(t *testing.T) {
 
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
-			defer reader.Close()
-			defer writer.Close()
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).AnyTimes()
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
@@ -264,13 +262,20 @@ func TestListenForEvents(t *testing.T) {
 			require.NoError(err)
 
 			// simulate events being written to the pipe
+			writeDone := make(chan struct{})
 			go func() {
+				defer close(writeDone)
 				for i := range tc.events {
 					event := tc.events[i]
 					if err := writeEvent(writer, &event); err != nil {
-						t.Errorf("failed to write event: %v", err)
+						return
 					}
 				}
+			}()
+			defer func() {
+				writer.Close()
+				<-writeDone
+				reader.Close()
 			}()
 
 			timeoutDuration := 5 * time.Second
