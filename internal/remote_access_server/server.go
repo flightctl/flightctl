@@ -2,7 +2,6 @@ package remote_access_server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -15,7 +14,6 @@ import (
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -36,19 +34,13 @@ import (
 // and a gRPC RouterService that bridges agent streams to active AppConsoleSessions.
 type Server struct {
 	pb.UnimplementedRouterServiceServer
-	log             logrus.FieldLogger
-	cfg             *config.Config
-	dataStore       store.Store
-	grpcServer      *grpc.Server
-	httpListener    net.Listener
-	agentListener   net.Listener
-	serverTLSConfig *tls.Config
-	agentTLSConfig  *tls.Config
-	pendingStreams  *sync.Map
-	// httpHandler serves port 3444: user-facing WebSocket console (API-like middleware).
-	httpHandler http.Handler
-	// identityMapper maps authenticated identities to DB organisations; must be Start()ed in Run().
-	identityMapper *service.IdentityMapper
+	log            logrus.FieldLogger
+	cfg            *config.Config
+	ca             *crypto.CAClient
+	serverCerts    *crypto.TLSCertificateConfig
+	dataStore      store.Store
+	publisher      console.RenderedVersionPublisher
+	pendingStreams *sync.Map
 }
 
 // storeAppConsoleService adapts store.Device to console.AppConsoleDeviceService.
@@ -65,11 +57,8 @@ func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UU
 	return s.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, false, nil, nil)
 }
 
-// New creates a Server with an HTTP listener at cfg.RemoteAccessService.Address (TLS terminated
-// at the service when cfg.RemoteAccessService.DisableTLS is false, or plain HTTP when true for
-// deployments where TLS is handled upstream) and an mTLS gRPC+HTTP mux listener at
-// cfg.RemoteAccessService.AgentEndpointAddress. The db store, KV-backed rendered.Publisher, and
-// auth config are needed for annotation management and auth enforcement.
+// New returns a new Server. All initialisation requiring a context (listeners,
+// auth, router) is deferred to Run(), matching the imagebuilder-api pattern.
 func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
@@ -77,32 +66,81 @@ func New(
 	serverCerts *crypto.TLSCertificateConfig,
 	dataStore store.Store,
 	publisher console.RenderedVersionPublisher,
-	multiAuth *authn.MultiAuth,
 ) (*Server, error) {
 	if cfg.RemoteAccessService == nil {
 		return nil, fmt.Errorf("remoteAccessService config section is required")
 	}
+	return &Server{
+		log:            log,
+		cfg:            cfg,
+		ca:             ca,
+		serverCerts:    serverCerts,
+		dataStore:      dataStore,
+		publisher:      publisher,
+		pendingStreams: &sync.Map{},
+	}, nil
+}
 
-	serverTLSConfig, agentTLSConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+// Run initialises all runtime components (listeners, auth, router, gRPC) and
+// blocks until ctx is cancelled or a listener exits unexpectedly.
+func (s *Server) Run(ctx context.Context) error {
+	s.log.Println("Initializing remote-access server")
+
+	serverTLSConfig, agentTLSConfig, err := crypto.TLSConfigForServer(s.ca.GetCABundleX509(), s.serverCerts)
 	if err != nil {
-		return nil, fmt.Errorf("building agent TLS config: %w", err)
+		return fmt.Errorf("building TLS config: %w", err)
 	}
 
-	// Plain TCP listener; ServeTLS is called in Run() when DisableTLS is false
-	// so the service terminates TLS itself (e.g. OCP/Helm passthrough route).
-	httpListener, err := net.Listen("tcp", cfg.RemoteAccessService.Address)
+	// Bind both listeners early so port conflicts surface before auth/DB work.
+	httpListener, err := net.Listen("tcp", s.cfg.RemoteAccessService.Address)
 	if err != nil {
-		return nil, fmt.Errorf("listening on service address %q: %w", cfg.RemoteAccessService.Address, err)
+		return fmt.Errorf("listening on service address %q: %w", s.cfg.RemoteAccessService.Address, err)
+	}
+	defer httpListener.Close()
+
+	agentListener, err := net.Listen("tcp", s.cfg.RemoteAccessService.AgentEndpointAddress)
+	if err != nil {
+		return fmt.Errorf("listening on agent endpoint address %q: %w", s.cfg.RemoteAccessService.AgentEndpointAddress, err)
+	}
+	defer agentListener.Close()
+
+	// Auth — matches imagebuilder-api: tracing-wrapped store-backed service,
+	// InitMultiAuth, then Start(ctx) in a goroutine with an error channel.
+	authProviderSvc := service.WrapWithTracing(service.NewAuthProviderServiceHandler(s.dataStore, s.log))
+	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderSvc)
+	if err != nil {
+		return fmt.Errorf("initializing authentication: %w", err)
 	}
 
-	// Plain TCP listener — ServeTLS is called in Run() so that Go's net/http
-	// stack configures HTTP/2 (ALPN "h2") automatically, which gRPC requires.
-	agentListener, err := net.Listen("tcp", cfg.RemoteAccessService.AgentEndpointAddress)
+	authZ, err := auth.InitMultiAuthZ(s.cfg, s.log)
 	if err != nil {
-		_ = httpListener.Close()
-		return nil, fmt.Errorf("listening on agent endpoint address %q: %w", cfg.RemoteAccessService.AgentEndpointAddress, err)
+		return fmt.Errorf("initializing authorization: %w", err)
+	}
+	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		s.log.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
+	authErrCh := make(chan error, 1)
+	go func() {
+		if err := authN.Start(ctx); err != nil {
+			select {
+			case authErrCh <- fmt.Errorf("auth provider loader failed: %w", err):
+			default:
+			}
+			return
+		}
+		s.log.Warn("Auth provider loader stopped unexpectedly")
+	}()
+
+	// Identity mapper.
+	orgProvisioner := service.NewOrgProvisioner(s.dataStore, s.log)
+	identityMapper := service.NewIdentityMapper(s.dataStore, orgProvisioner, s.log)
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+	identityMapper.Start()
+	defer identityMapper.Stop()
+
+	// gRPC server.
 	grpcServer := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(fcmiddleware.GrpcAuthMiddleware)),
@@ -112,80 +150,38 @@ func New(
 			Timeout:           20 * time.Second,
 		}),
 	)
-
-	// Identity mapper: created here, started in Run() to manage its lifecycle with the context.
-	orgProvisioner := service.NewOrgProvisioner(dataStore, log)
-	identityMapper := service.NewIdentityMapper(dataStore, orgProvisioner, log)
-	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, log)
-
-	s := &Server{
-		log:             log,
-		cfg:             cfg,
-		dataStore:       dataStore,
-		grpcServer:      grpcServer,
-		httpListener:    httpListener,
-		agentListener:   agentListener,
-		serverTLSConfig: serverTLSConfig,
-		agentTLSConfig:  agentTLSConfig,
-		pendingStreams:  &sync.Map{},
-		identityMapper:  identityMapper,
-	}
 	pb.RegisterRouterServiceServer(grpcServer, s)
 
-	svc := &storeAppConsoleService{deviceStore: dataStore.Device()}
-	appConsoleMgr := console.NewAppConsoleSessionManager(svc, log, s, publisher)
-	appConsoleHandler := NewAppConsoleHandler(log, appConsoleMgr)
+	// App console.
+	svc := &storeAppConsoleService{deviceStore: s.dataStore.Device()}
+	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.publisher)
+	appConsoleHandler := NewAppConsoleHandler(s.log, appConsoleMgr)
 
-	authZ, err := auth.InitMultiAuthZ(cfg, log)
-	if err != nil {
-		_ = agentListener.Close()
-		_ = httpListener.Close()
-		return nil, fmt.Errorf("initializing authorization: %w", err)
-	}
-
-	// Port 3444: user-facing WebSocket console.
-	// Middleware mirrors flightctl-api: AuthN → IdentityMapping → OrgExtraction → AuthZ.
+	// HTTP router — mirrors flightctl-api: AuthN → IdentityMapping → OrgExtraction → AuthZ.
 	r := chi.NewRouter()
-
-	// Health check endpoints bypass auth and rate limiting.
 	r.Group(func(r chi.Router) {
-		hc := cfg.RemoteAccessService.HealthChecks
+		hc := s.cfg.RemoteAccessService.HealthChecks
 		if hc != nil && hc.Enabled {
 			r.Method(http.MethodGet, hc.LivenessPath, apiserver.HealthzHandler())
 			r.Method(http.MethodGet, hc.ReadinessPath,
-				apiserver.ReadyzHandler(time.Duration(hc.ReadinessTimeout), dataStore))
+				apiserver.ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.dataStore))
 		}
 	})
-
 	r.Group(func(r chi.Router) {
-		if multiAuth != nil {
-			r.Use(auth.CreateAuthNMiddleware(multiAuth, log))
-		}
+		r.Use(auth.CreateAuthNMiddleware(authN, s.log))
 		r.Use(identityMappingMiddleware.MapIdentityToDB)
-		r.Use(fcmiddleware.ExtractAndValidateOrg(fcmiddleware.QueryOrgIDExtractor, log))
-		r.Use(auth.CreateAuthZMiddleware(authZ, log))
-		apiserver.ConfigureRateLimiterFromConfig(r, cfg.RemoteAccessService.RateLimit, apiserver.RateLimitScopeGeneral)
+		r.Use(fcmiddleware.ExtractAndValidateOrg(fcmiddleware.QueryOrgIDExtractor, s.log))
+		r.Use(auth.CreateAuthZMiddleware(authZ, s.log))
+		apiserver.ConfigureRateLimiterFromConfig(r, s.cfg.RemoteAccessService.RateLimit, apiserver.RateLimitScopeGeneral)
 		appConsoleHandler.RegisterRoutes(r)
 	})
+	httpHandler := otelhttp.NewHandler(r, "remote-access-http-server")
 
-	s.httpHandler = otelhttp.NewHandler(r, "remote-access-http-server")
-
-	return s, nil
-}
-
-// Run starts both listeners concurrently and blocks until ctx is cancelled or a
-// listener exits unexpectedly.
-func (s *Server) Run(ctx context.Context) error {
-	s.identityMapper.Start()
-	defer s.identityMapper.Stop()
-
+	// HTTP servers.
 	svcCfg := s.cfg.RemoteAccessService
-	// Port 7444: agent gRPC endpoint.
-	// HTTP fallback returns 404 — agents connect via gRPC only; gRPC auth is
-	// handled by the GrpcAuthMiddleware interceptor on the grpcServer.
 	agentSrv := &http.Server{
 		Addr:              svcCfg.AgentEndpointAddress,
-		Handler:           grpcMuxHandlerFunc(s.grpcServer, s.httpHandler, s.log),
+		Handler:           grpcMuxHandlerFunc(grpcServer, http.NotFoundHandler(), s.log),
 		ReadTimeout:       time.Duration(svcCfg.HttpReadTimeout),
 		ReadHeaderTimeout: time.Duration(svcCfg.HttpReadHeaderTimeout),
 		WriteTimeout:      time.Duration(svcCfg.HttpWriteTimeout),
@@ -193,10 +189,9 @@ func (s *Server) Run(ctx context.Context) error {
 		MaxHeaderBytes:    svcCfg.HttpMaxHeaderBytes,
 		ConnContext:       fcmiddleware.TLSClientCertConnContext(s.log),
 	}
-
 	httpSrv := &http.Server{
 		Addr:              svcCfg.Address,
-		Handler:           s.httpHandler,
+		Handler:           httpHandler,
 		ReadTimeout:       time.Duration(svcCfg.HttpReadTimeout),
 		ReadHeaderTimeout: time.Duration(svcCfg.HttpReadHeaderTimeout),
 		WriteTimeout:      time.Duration(svcCfg.HttpWriteTimeout),
@@ -205,23 +200,21 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	serveErrCh := make(chan error, 2)
-
 	go func() {
-		s.log.Printf("Remote-access agent listener on %s", s.agentListener.Addr())
-		agentSrv.TLSConfig = s.agentTLSConfig
-		if err := agentSrv.ServeTLS(s.agentListener, "", ""); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+		s.log.Printf("Remote-access agent listener on %s", agentListener.Addr())
+		agentSrv.TLSConfig = agentTLSConfig
+		if err := agentSrv.ServeTLS(agentListener, "", ""); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 			serveErrCh <- err
 		}
 	}()
-
 	go func() {
-		s.log.Printf("Remote-access HTTP listener on %s (disableTLS=%v)", s.httpListener.Addr(), s.cfg.RemoteAccessService.DisableTLS)
+		s.log.Printf("Remote-access HTTP listener on %s (disableTLS=%v)", httpListener.Addr(), s.cfg.RemoteAccessService.DisableTLS)
 		var err error
 		if s.cfg.RemoteAccessService.DisableTLS {
-			err = httpSrv.Serve(s.httpListener)
+			err = httpSrv.Serve(httpListener)
 		} else {
-			httpSrv.TLSConfig = s.serverTLSConfig
-			err = httpSrv.ServeTLS(s.httpListener, "", "")
+			httpSrv.TLSConfig = serverTLSConfig
+			err = httpSrv.ServeTLS(httpListener, "", "")
 		}
 		if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 			serveErrCh <- err
@@ -234,6 +227,8 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Println("Shutdown signal received:", ctx.Err())
 	case runErr = <-serveErrCh:
 		s.log.Errorf("listener exited unexpectedly: %v", runErr)
+	case runErr = <-authErrCh:
+		s.log.Errorf("auth provider loader failed: %v", runErr)
 	}
 
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), apiserver.GracefulShutdownTimeout)
@@ -243,13 +238,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	grpcStopCh := make(chan struct{})
 	go func() {
-		s.grpcServer.GracefulStop()
+		grpcServer.GracefulStop()
 		close(grpcStopCh)
 	}()
 	select {
 	case <-grpcStopCh:
 	case <-ctxTimeout.Done():
-		s.grpcServer.Stop()
+		grpcServer.Stop()
 	}
 
 	return runErr
