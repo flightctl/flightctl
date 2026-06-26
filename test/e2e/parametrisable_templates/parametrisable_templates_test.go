@@ -341,7 +341,7 @@ var (
 	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
 	deviceAlias           = "base"
 	branchTargetRevision  = "demo"
-	gitRepoConfigPath     = "/demos/basic-nginx-demo/configuration"
+	gitRepoConfigPath     = "/demos/quadlet-wordpress-demo/configuration"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
 	configLabelValue      = "fedora-bootc"
