@@ -99,6 +99,17 @@ grafana_sans=(
 )
 grafana_sans+=("${host_ips[@]}")
 
+# Remote Access certificate SANs
+remote_access_sans=(
+    "remote-access.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-remote-access"
+    "localhost"
+)
+remote_access_sans+=("${host_ips[@]}")
+
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -120,6 +131,10 @@ done
 
 for san in "${grafana_sans[@]}"; do
     cert_gen_args+=("--grafana-san" "$san")
+done
+
+for san in "${remote_access_sans[@]}"; do
+    cert_gen_args+=("--remote-access-san" "$san")
 done
 
 # Generate certificates

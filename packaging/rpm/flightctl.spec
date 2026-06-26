@@ -565,6 +565,7 @@ fi
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/pki/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-remote-access
     %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
@@ -576,6 +577,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-remote-access
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-periodic
     %dir %{_sysconfdir}/flightctl/flightctl-ui
@@ -605,6 +607,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-remote-access
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-telemetry-gateway
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-builds
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
@@ -631,6 +634,8 @@ fi
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
+    %{_datadir}/flightctl/flightctl-remote-access/config.yaml.template
+    %{_datadir}/flightctl/flightctl-remote-access/env.template
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
@@ -649,6 +654,7 @@ fi
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
+    %{_datadir}/containers/systemd/flightctl-remote-access.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
@@ -790,6 +796,28 @@ if [ "$1" -eq 0 ]; then
 fi
 
 # If contexts were managed via policy, no cleanup is needed here.
+
+%posttrans services
+# Reload systemd after all file operations (install + old-file removal) are
+# complete.  The daemon-reload in %%post runs before the old package's files
+# are deleted, so quadlet files removed in this version are still visible to
+# systemd at that point.  A second reload here picks up those removals.
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+# Clean up stale systemd units from quadlet files removed in previous
+# versions.  Each unit may still be in systemd's active state from the
+# prior version; stop + reset-failed clears it so it no longer appears
+# in "systemctl list-units".
+# This block can be removed once all deployments have upgraded past this fix.
+#   flightctl-cli-artifacts-init      — removed in EDM-3783 (shipped in 1.0.0–1.1.2)
+#   flightctl-alertmanager-proxy-init — removed in EDM-2304 (shipped in 0.10.0)
+for unit in \
+    flightctl-cli-artifacts-init.service \
+    flightctl-alertmanager-proxy-init.service \
+; do
+    /usr/bin/systemctl stop "$unit" 2>/dev/null || :
+    /usr/bin/systemctl reset-failed "$unit" 2>/dev/null || :
+done
 
 %changelog
 * Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1

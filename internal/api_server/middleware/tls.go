@@ -30,11 +30,22 @@ func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, 
 
 func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
 	server := NewHTTPServer(router, log, address, cfg)
-	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
-		tc := c.(*tls.Conn)
+	server.ConnContext = TLSClientCertConnContext(log)
+	return server
+}
+
+// TLSClientCertConnContext returns a ConnContext function that extracts the peer
+// TLS certificate from a completed handshake and stores it in the request context.
+// Use this when creating an http.Server that requires mTLS client certificate access.
+func TLSClientCertConnContext(log logrus.FieldLogger) func(context.Context, net.Conn) context.Context {
+	return func(ctx context.Context, c net.Conn) context.Context {
+		tc, ok := c.(*tls.Conn)
+		if !ok {
+			return ctx
+		}
 		// We need to ensure TLS handshake is complete before
-		// we try to get anything useful from the ConnectionState
-		// tls delays handshake until the first Read of Write
+		// we try to get anything useful from the ConnectionState.
+		// tls delays handshake until the first Read or Write.
 		err := tc.HandshakeContext(ctx)
 		if err != nil {
 			remoteAddr := tc.RemoteAddr().String()
@@ -51,7 +62,6 @@ func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, ad
 		peerCertificate := cs.PeerCertificates[0]
 		return context.WithValue(ctx, consts.TLSPeerCertificateCtxKey, peerCertificate)
 	}
-	return server
 }
 
 // NewTLSListener returns a new TLS listener. If the address is empty, it will

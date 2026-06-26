@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control Gateway service
-After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
-Requires=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service
+After=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-remote-access.service
+Requires=flightctl-certs-init.service flightctl-api.service flightctl-telemetry-gateway.service flightctl-ui.service flightctl-pam-issuer.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-remote-access.service
 PartOf=flightctl.target
 
 [Container]
@@ -24,6 +24,7 @@ PublishPort=443:8443
 # These are published unconditionally; nginx controls whether they are served based on suppressOldPorts.
 PublishPort=3443:3443
 PublishPort=7443:7443
+PublishPort=7444:7444
 PublishPort=8445:8445
 PublishPort=4317:4317
 

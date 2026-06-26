@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
+	"sync"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -16,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/jsonpatch"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
@@ -63,13 +66,39 @@ func NilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
 // SwaggerGetter is a function that returns a parsed OpenAPI spec.
 type SwaggerGetter func() (*openapi3.T, error)
 
+// cachedRouter holds a lazily-built gorillamux router for a given swagger spec.
+type cachedRouter struct {
+	once   sync.Once
+	router routers.Router
+	err    error
+}
+
+// routerCache maps swagger getter function pointers to their cached router.
+var routerCache sync.Map // key: uintptr, value: *cachedRouter
+
+// getRouterFor returns a cached router for the given swagger getter, building it on first use.
+// The router is built with swagger.Servers = nil to skip server name validation.
+func getRouterFor(getSwagger SwaggerGetter) (routers.Router, error) {
+	ptr := reflect.ValueOf(getSwagger).Pointer()
+	entry, _ := routerCache.LoadOrStore(ptr, &cachedRouter{})
+	cr := entry.(*cachedRouter)
+	cr.once.Do(func() {
+		swagger, err := getSwagger()
+		if err != nil {
+			cr.err = err
+			return
+		}
+		swagger.Servers = nil
+		cr.router, cr.err = gorillamux.NewRouter(swagger)
+	})
+	return cr.router, cr.err
+}
+
 func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getSwagger SwaggerGetter) error {
-	swagger, err := getSwagger()
+	router, err := getRouterFor(getSwagger)
 	if err != nil {
 		return err
 	}
-	// Skip server name validation
-	swagger.Servers = nil
 
 	url, err := url.Parse(objPath)
 	if err != nil {
@@ -82,10 +111,6 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getS
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
 
-	router, err := gorillamux.NewRouter(swagger)
-	if err != nil {
-		return err
-	}
 	route, pathParams, err := router.FindRoute(httpReq)
 	if err != nil {
 		return err

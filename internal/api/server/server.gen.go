@@ -233,6 +233,12 @@ type ServerInterface interface {
 
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
+
+	// (GET /ws/v1/devices/{name}/applications/{appname}/console)
+	GetDeviceApplicationConsole(w http.ResponseWriter, r *http.Request, name string, appname string, params GetDeviceApplicationConsoleParams)
+
+	// (GET /ws/v1/devices/{name}/console)
+	GetDeviceConsole(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -597,6 +603,16 @@ func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Reques
 
 // (GET /version)
 func (_ Unimplemented) GetVersion(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /ws/v1/devices/{name}/applications/{appname}/console)
+func (_ Unimplemented) GetDeviceApplicationConsole(w http.ResponseWriter, r *http.Request, name string, appname string, params GetDeviceApplicationConsoleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /ws/v1/devices/{name}/console)
+func (_ Unimplemented) GetDeviceConsole(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2636,6 +2652,83 @@ func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// GetDeviceApplicationConsole operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceApplicationConsole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "appname" -------------
+	var appname string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appname", chi.URLParam(r, "appname"), &appname, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appname", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDeviceApplicationConsoleParams
+
+	// ------------- Required query parameter "consoleType" -------------
+
+	if paramValue := r.URL.Query().Get("consoleType"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "consoleType"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "consoleType", r.URL.Query(), &params.ConsoleType)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "consoleType", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceApplicationConsole(w, r, name, appname, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDeviceConsole operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceConsole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceConsole(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2964,6 +3057,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/version", wrapper.GetVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ws/v1/devices/{name}/applications/{appname}/console", wrapper.GetDeviceApplicationConsole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ws/v1/devices/{name}/console", wrapper.GetDeviceConsole)
 	})
 
 	return r

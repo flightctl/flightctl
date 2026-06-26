@@ -56,3 +56,6 @@ telemetry-gateway:
 userinfo-proxy:
   image: flightctl-userinfo-proxy-el9
   tag: latest
+remote-access:
+  image: flightctl-remote-access-el9
+  tag: latest

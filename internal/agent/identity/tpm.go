@@ -442,6 +442,7 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		httpClient := &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: tlsConfig,
+				Proxy:           http.ProxyFromEnvironment,
 			},
 		}
 

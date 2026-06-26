@@ -627,6 +627,7 @@ func NewHTTPClientForServer(config *Config, serverURL string, versionOpts ...ver
 	// Configure transport for HTTP/2 support
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
+		Proxy:           http.ProxyFromEnvironment,
 		// Enable HTTP/2
 		ForceAttemptHTTP2: true,
 	}

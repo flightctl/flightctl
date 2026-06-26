@@ -1,8 +1,8 @@
 module github.com/flightctl/flightctl/tools/api-metadata-extractor
 
-go 1.24.0
+go 1.25.0
 
-toolchain go1.25.8
+toolchain go1.25.9
 
 require sigs.k8s.io/yaml v1.5.0
 

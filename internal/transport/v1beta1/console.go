@@ -13,6 +13,21 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// GetDeviceConsole and GetDeviceApplicationConsole satisfy the server.Transport interface,
+// which is generated from the OpenAPI spec that declares both WS paths.
+// These stubs are unreachable at runtime: WebsocketHandler.RegisterRoutes (called from
+// internal/api_server/server.go) mounts the real handler at /ws/v1/devices/{name}/console
+// before the generated router, so requests are served by WebsocketHandler.HandleDeviceConsole.
+// Similarly, the application console endpoint is mounted by AppConsoleHandler.RegisterRoutes
+// in internal/remote_access_server/server.go, not by this stub.
+func (h *TransportHandler) GetDeviceConsole(w http.ResponseWriter, r *http.Request, _ string) {
+	http.NotFound(w, r)
+}
+
+func (h *TransportHandler) GetDeviceApplicationConsole(w http.ResponseWriter, r *http.Request, _, _ string, _ api.GetDeviceApplicationConsoleParams) {
+	http.NotFound(w, r)
+}
+
 func (h *WebsocketHandler) injectProtocolsToMetadata(metadataStr string, protocols []string) (string, error) {
 	var metadata api.DeviceConsoleSessionMetadata
 	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
@@ -84,9 +99,6 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Errorf("Failed to upgrade connection to WebSocket: %v", err)
-		http.Error(w,
-			fmt.Sprintf("Failed to upgrade connection to WebSocket: %v", err),
-			http.StatusInternalServerError)
 		return
 	}
 

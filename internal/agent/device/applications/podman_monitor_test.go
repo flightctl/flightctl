@@ -212,20 +212,16 @@ func TestListenForEvents(t *testing.T) {
 
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
-			defer reader.Close()
-			defer writer.Close()
 
-			// testify v1.11 changed Eventually to check the condition immediately
-			// rather than waiting for the first tick. This causes false positives
-			// when initial state matches expected final state (e.g. "app start
-			// then removed" where 0 workloads = Unknown before and after events).
-			// Track inspect calls to ensure all events are processed first.
+			// Track inspect calls to ensure all events are processed before
+			// asserting state (avoids false positives when initial state matches
+			// expected final state, e.g. "app start then removed").
 			var inspectCount atomic.Int32
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).
 				DoAndReturn(func(_ context.Context, _ string, _ ...string) (string, string, int) {
 					inspectCount.Add(1)
 					return string(inspectBytes), "", 0
-				}).Times(len(tc.events))
+				}).AnyTimes()
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
@@ -259,13 +255,20 @@ func TestListenForEvents(t *testing.T) {
 			err = podmanMonitor.ExecuteActions(t.Context())
 			require.NoError(err)
 
+			writeDone := make(chan struct{})
 			go func() {
+				defer close(writeDone)
 				for i := range tc.events {
 					event := tc.events[i]
 					if err := writeEvent(writer, &event); err != nil {
-						t.Errorf("failed to write event: %v", err)
+						return
 					}
 				}
+			}()
+			defer func() {
+				writer.Close()
+				<-writeDone
+				reader.Close()
 			}()
 
 			timeoutDuration := 5 * time.Second

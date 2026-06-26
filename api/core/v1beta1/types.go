@@ -17,6 +17,14 @@ type TerminalSize struct {
 	Height uint16
 }
 
+// DeviceRemoteSession records one active remote console session in the
+// DeviceAnnotationRemoteSession annotation.
+type DeviceRemoteSession struct {
+	SessionID   string `json:"sessionID"`
+	AppName     string `json:"appName"`
+	ConsoleType string `json:"consoleType"`
+}
+
 type DeviceConsoleSessionMetadata struct {
 	Term              *string        `json:"term,omitempty"`
 	InitialDimensions *TerminalSize  `json:"initialDimensions,omitempty"`

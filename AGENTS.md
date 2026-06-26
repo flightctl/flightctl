@@ -21,10 +21,11 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Build:** `make build` (requires Go ≥1.23, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
 - **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
-- **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite.
+- **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite. Two opt-out flags are available for faster local iteration: `RACE=0` disables the race detector and `COVERAGE=0` disables the coverage profile (e.g. `make unit-test RACE=0 COVERAGE=0`). Both default to `1` so CI always runs with race detection and coverage enabled.
 - **Integration tests:** `make integration-test` (uses testcontainers for Postgres/Redis/Alertmanager; requires Podman). Key options: `INTEGRATION_PROCS=N` for parallelism, `TEST_DIR=./test/integration/store` for specific suites, `INTEGRATION_GINKGO_FOCUS="pattern"` for specific tests.
 - **E2E tests:** `make e2e-test` or `make in-cluster-e2e-test`; see [test/AGENTS.md](test/AGENTS.md).
 - **Lint:** `make lint` (do not invoke golangci-lint directly; `make lint` installs and configures it automatically), `make lint-openapi`, `make lint-docs`, `make lint-helm`, `make rpmlint`, `make lint-diagrams`.
+- **Lint with auto-fix:** `make lint-fix` runs golangci-lint with `--fix`, writing fixes directly back to the working tree. Auto-fixes formatting (`gofmt`, `gci`), typos (`misspell`), and unnecessary type conversions (`unconvert`). Issues requiring human judgment (`gosec`, `staticcheck`, `govet`, `errcheck`, `depguard`, `unused`, `gocyclo`) are still reported but not auto-fixed.
 - **Documentation checks:** `make spellcheck-docs` to check spelling, `make fix-spelling` for interactive fixing.
 - **Code formatting:** Format Go imports with `gci write --skip-generated -s standard -s default .` (required for `make lint` to pass). Import order: standard library, then all other imports.
 - **Dependency management:** `make tidy` to tidy go.mod files after adding/removing dependencies.
@@ -50,7 +51,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run `make lint-docs` (and `make spellcheck-docs` for user docs).
 2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
 3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying go.mod files.
-4. **Run lint** – Run `make lint` before committing and fix any issues.
+4. **Run lint** – Run `make lint` before committing and fix any issues. Use `make lint-fix` to auto-fix formatting, typos, and unnecessary conversions.
 5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they use testcontainers for Postgres/Redis/Alertmanager). Fix any failures before pushing.
 
 ## Pointers to area-specific guidance
