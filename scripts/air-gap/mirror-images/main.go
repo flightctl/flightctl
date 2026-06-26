@@ -5,6 +5,17 @@
 //
 //	./flightctl-mirror-images --variant <variant> --dest-registry <host:port> [--execute]
 //
+// # How it works
+//
+// All image and RPM data is resolved at build time by "make generate-mirror-embed"
+// (see scripts/air-gap/generate-embed/) and compiled into the binary.  The runtime
+// tool simply reads the pre-resolved manifest, applies --tag-override if requested,
+// and generates skopeo commands — no source checkout or data files required.
+//
+// To use a custom manifest (e.g. to pre-stage images for a future release):
+//
+//	MIRROR_MANIFEST=/path/to/custom-manifest.json flightctl-mirror-images --variant rhem-el9 ...
+//
 // # Stories
 //
 //	EDM-3957  CLI scaffold and argument parsing
@@ -17,7 +28,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -43,69 +53,10 @@ var schemeRE = regexp.MustCompile(`(?i)^https?://`)
 // the bash script's use of a global $DEST_REGISTRY.
 var destRegistry string
 
-// envOr returns the value of the environment variable named key, or fallback
-// if the variable is unset or empty.  This mirrors the bash ${VAR:-default}
-// pattern and lets the test suite override file paths without touching defaults.
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// repoRoot attempts to resolve the flightctl repository root relative to the
-// running binary's location.
-//
-// The binary is expected to be built from scripts/air-gap/flightctl-mirror-images/, so
-// the repo root is three directories above the binary:
-//
-//	bin/flightctl-mirror-images → bin/ → repo root      (when run via `go build -o bin/`)
-//
-// If os.Executable() fails we fall back to the current working directory so
-// that `go run ./scripts/air-gap/flightctl-mirror-images` still works from the repo root.
-func repoRoot() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	// Resolve symlinks (e.g. go run places a temp binary elsewhere)
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		return "."
-	}
-	// Walk up: binary dir → repo root (bin/ is one level below root)
-	return filepath.Clean(filepath.Join(filepath.Dir(exe), ".."))
-}
-
 func main() {
 	if err := NewRootCommand().Execute(); err != nil {
 		// cobra already printed the error; just set the exit code.
 		os.Exit(1)
-	}
-}
-
-// inputPaths holds resolved paths for all YAML/spec input files.
-type inputPaths struct {
-	helmChartOpts string
-	chartYAML     string
-	obsEl9        string
-	obsEl10       string
-	obsRhel9      string
-	obsRhel10     string
-	rpmSpec       string
-}
-
-// resolveInputPaths builds the canonical input file paths from the repo root,
-// allowing test suites to override each via environment variables.
-func resolveInputPaths(root string) inputPaths {
-	return inputPaths{
-		helmChartOpts: envOr("HELM_CHART_OPTS", filepath.Join(root, "deploy/helm/helm-chart-opts.yaml")),
-		chartYAML:     envOr("CHART_YAML", filepath.Join(root, "deploy/helm/flightctl/Chart.yaml")),
-		obsEl9:        envOr("OBS_IMAGES_EL9", filepath.Join(root, "packaging/images/el9/images.yaml")),
-		obsEl10:       envOr("OBS_IMAGES_EL10", filepath.Join(root, "packaging/images/el10/images.yaml")),
-		obsRhel9:      envOr("OBS_IMAGES_RHEL9", filepath.Join(root, "packaging/images/rhel9/images.yaml")),
-		obsRhel10:     envOr("OBS_IMAGES_RHEL10", filepath.Join(root, "packaging/images/rhel10/images.yaml")),
-		rpmSpec:       envOr("RPM_SPEC", filepath.Join(root, "packaging/rpm/flightctl.spec")),
 	}
 }
 
@@ -145,10 +96,6 @@ func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpm
 // pre-release suffixes so they sort before the release version; container image
 // tags use hyphens instead.  A plain release version like "1.2.0" is unchanged.
 func imageTagToRPMVersion(tag string) string {
-	// Replace the first hyphen before a pre-release label (rc, alpha, beta) with a tilde.
-	// "1.2.0-rc3"    → "1.2.0~rc3"
-	// "1.2.0-main-5" → "1.2.0~main-5"  (dev build suffix)
-	// "1.2.0"        → "1.2.0"          (release — unchanged)
 	for i := 0; i < len(tag); i++ {
 		if tag[i] == '-' {
 			return tag[:i] + "~" + tag[i+1:]
@@ -244,7 +191,7 @@ func ensureSkopeoInRPMs(rpmPackages []string) []string {
 }
 
 // runBundleMode creates a self-contained offline archive with images and optional RPMs.
-func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant string, bundleRPMs bool, rpmPackages, installPackages []string, rpmRepoURL string, rpmReposync, rpmCreaterepo bool, rpmSpecPath string, exec executer.Executer) error {
+func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant string, bundleRPMs bool, rpmPackages, installPackages []string, rpmRepoURL string, rpmReposync, rpmCreaterepo bool, manifestRPMs []string, exec executer.Executer) error {
 	tmpDir, err := os.MkdirTemp("", "flightctl-bundle-*")
 	if err != nil {
 		return fmt.Errorf("create temp bundle dir: %w", err)
@@ -274,14 +221,9 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 		}
 	}
 
-	rpms, err := ParseRPMRequires(rpmSpecPath)
-	if err != nil {
-		logWarn("Could not parse RPM requires from spec: %v", err)
-		rpms = nil
-	}
 	origDir, _ := os.Getwd()
 	if chErr := os.Chdir(tmpDir); chErr == nil {
-		if mErr := WriteManifest(variant, bundleImages, rpms); mErr != nil {
+		if mErr := WriteManifest(variant, bundleImages, manifestRPMs); mErr != nil {
 			logWarn("write manifest: %v", mErr)
 		}
 		_ = os.Chdir(origDir)
@@ -314,9 +256,18 @@ func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flightctl-mirror-images --variant <variant> [--dest-registry <host:port>] [--bundle <path>] [--execute] [--insecure]",
 		Short: "Enumerate RHEM artifacts and generate skopeo mirror commands for air-gapped installation.",
-		Long: `flightctl-mirror-images reads the flightctl Helm chart options and observability image files,
-generates skopeo copy commands for all referenced container images, and writes a
-machine-readable artifact manifest to the current directory.
+		Long: `flightctl-mirror-images reads a pre-resolved image manifest embedded at build time
+and generates skopeo copy commands for all referenced container images.
+
+The binary is self-contained — no source checkout or data files are required.
+Image and RPM lists for all variants are compiled in when the binary is built,
+version-matched to the release by construction.
+
+To use a custom manifest (e.g. to pre-stage images for a future RHEM upgrade
+before the corresponding RPM is installed):
+
+  MIRROR_MANIFEST=/path/to/custom-manifest.json \
+    flightctl-mirror-images --variant rhem-el9 --dest-registry registry.example.com:5000
 
 Live-push mode (--execute):
   Copies images directly to a running registry. Requires --dest-registry.
@@ -363,18 +314,9 @@ Examples:
   flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms --rpm-createrepo
 
-  # Server bundle: download agent RPM for image building but skip auto-install on server
-  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
-    --bundle-rpms --rpm-createrepo --rpm-exclude flightctl-agent
-
   # Bundle with explicit version pin — image tags and RPM version stay in sync automatically
   flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
-    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3
-
-  # Bundle pointing to a custom RPM repo (e.g. COPR) with explicit version pin
-  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
-    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3 \
-    --rpm-repo-url https://copr.fedorainfracloud.org/coprs/g/redhat-et/flightctl/repo/epel-9/group_redhat-et-flightctl-epel-9.repo`,
+    --bundle-rpms --rpm-createrepo --tag-override 1.2.0-rc3`,
 
 		// SilenceUsage prevents cobra from printing the full usage block on every
 		// RunE error — our logError calls provide targeted messages instead.
@@ -414,11 +356,9 @@ Examples:
 				return fmt.Errorf("--dest-registry must not include a URL scheme (https:// or http://)\nexample: local-registry.example.com:5000")
 			}
 
-			paths := resolveInputPaths(repoRoot())
-			for _, p := range []string{paths.helmChartOpts, paths.chartYAML, paths.rpmSpec} {
-				if _, err := os.Stat(p); err != nil {
-					return fmt.Errorf("required file not found: %s\nRun from the flightctl repository root or ensure the repo is up to date", p)
-				}
+			m, err := loadBuildManifest()
+			if err != nil {
+				return fmt.Errorf("load mirror manifest: %w", err)
 			}
 
 			// Check skopeo availability — required for both --execute and --bundle
@@ -450,10 +390,7 @@ Examples:
 				logInfo("  Insecure (HTTP):  %v", insecure)
 			}
 
-			appVersion, err := ReadAppVersion(paths.chartYAML)
-			if err != nil {
-				return fmt.Errorf("read chart version: %w", err)
-			}
+			appVersion := m.AppVersion
 			logInfo("  Chart appVersion: %s", appVersion)
 
 			effectiveTag := appVersion
@@ -464,47 +401,33 @@ Examples:
 				logWarn("appVersion is 'latest' — images without explicit tags will be mirrored as :latest.")
 				logWarn("This will NOT match quadlet files from versioned RPMs (e.g. v1.1.2).")
 				logWarn("Find the target RPM version: rpm -q --qf '%%{VERSION}' flightctl-agent")
-				logWarn("Then re-run with --tag-override, or from a release-tagged checkout:")
+				logWarn("Then re-run with --tag-override:")
 				if bundle != "" {
-					logWarn("  ./bin/flightctl-mirror-images --variant %s --bundle %s --tag-override <version>", variant, bundle)
-					logWarn("  OR: git checkout v<version> && ./bin/flightctl-mirror-images --variant %s --bundle %s", variant, bundle)
+					logWarn("  flightctl-mirror-images --variant %s --bundle %s --tag-override <version>", variant, bundle)
 				} else {
-					logWarn("  ./bin/flightctl-mirror-images --variant %s --dest-registry %s --tag-override <version>", variant, destRegistry)
-					logWarn("  OR: git checkout v<version> && ./bin/flightctl-mirror-images --variant %s --dest-registry %s", variant, destRegistry)
+					logWarn("  flightctl-mirror-images --variant %s --dest-registry %s --tag-override <version>", variant, destRegistry)
 				}
 			} else {
 				logInfo("  Effective tag:    %s (for untagged images)", effectiveTag)
 			}
 
-			helmPairs, err := ParseHelmChartOpts(paths.helmChartOpts, variant, effectiveTag)
+			unique, manifestRPMs, err := resolveVariant(m, variant, effectiveTag)
 			if err != nil {
-				return fmt.Errorf("parse helm-chart-opts: %w", err)
+				return err
 			}
 
-			obsPairs, err := ParseObsImages(paths.obsEl9, paths.obsEl10, paths.obsRhel9, paths.obsRhel10, variant, effectiveTag)
-			if err != nil {
-				return fmt.Errorf("parse observability images: %w", err)
-			}
-
-			unique := Dedup(append(helmPairs, obsPairs...))
 			ctx := context.Background()
 			exec := executer.NewCommonExecuter()
 
 			if bundle != "" {
-				return runBundleMode(ctx, unique, bundle, variant, bundleRPMs, rpmPackages, installPackages, rpmRepoURL, rpmReposync, rpmCreaterepo, paths.rpmSpec, exec)
+				return runBundleMode(ctx, unique, bundle, variant, bundleRPMs, rpmPackages, installPackages, rpmRepoURL, rpmReposync, rpmCreaterepo, manifestRPMs, exec)
 			}
 
 			if err := GenerateCommands(ctx, unique, execute, insecure, exec); err != nil {
 				return fmt.Errorf("generate commands: %w", err)
 			}
 
-			rpms, err := ParseRPMRequires(paths.rpmSpec)
-			if err != nil {
-				logWarn("Could not parse RPM requires from spec: %v", err)
-				rpms = nil
-			}
-
-			if err := WriteManifest(variant, unique, rpms); err != nil {
+			if err := WriteManifest(variant, unique, manifestRPMs); err != nil {
 				return fmt.Errorf("write manifest: %w", err)
 			}
 
@@ -524,7 +447,7 @@ Examples:
 	cmd.Flags().StringVar(&destRegistry, "dest-registry", "", "Destination registry URL — no scheme, no trailing slash (e.g. local-registry.example.com:5000)")
 	cmd.Flags().BoolVar(&execute, "execute", false, "Execute skopeo commands immediately in addition to printing them")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS verification for the destination registry (required for HTTP registries)")
-	cmd.Flags().StringVar(&tagOverride, "tag-override", "", "Tag to use for flightctl service images (e.g. v1.1.2, latest). Overrides appVersion from Chart.yaml. Use to select a release version when running from a dev branch, or pass 'latest' to force latest on a release-tagged checkout.")
+	cmd.Flags().StringVar(&tagOverride, "tag-override", "", "Tag to use for flightctl service images (e.g. v1.1.2, latest). Overrides appVersion for images without a pinned tag. Use to select a release version when running from a dev branch.")
 	cmd.Flags().StringVar(&bundle, "bundle", "", "Create an offline bundle archive (.tar.gz) at the specified path (mutually exclusive with --execute)")
 	cmd.Flags().BoolVar(&bundleRPMs, "bundle-rpms", false, "Include RPMs in the bundle for bare-metal quadlet installation (requires --bundle)")
 	cmd.Flags().StringSliceVar(&rpmPackages, "rpm-packages", []string{"flightctl-services", "flightctl-cli", "flightctl-agent"}, "RPM package names to download into the bundle (comma-separated). The default includes flightctl-cli for server-side fleet management and flightctl-agent for offline image building — the agent RPM is not enabled on the server but is available in the bundle rpms/ directory for embedding into device OS images.")

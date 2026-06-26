@@ -31,3 +31,6 @@ __pycache__/
 .mcp.json
 test/scripts/test-timings.json
 test/scripts/e2e-health/
+
+# Generated at build time by make generate-mirror-embed
+scripts/air-gap/mirror-images/embedded_data_generated.go

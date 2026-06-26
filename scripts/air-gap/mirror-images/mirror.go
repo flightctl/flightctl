@@ -17,25 +17,6 @@ type ImagePair struct {
 	Dest   string // e.g. "localhost:5000/flightctl/flightctl-api-el9:latest"
 }
 
-// normalizeDockerImage expands Docker Hub official image names to their
-// canonical form by inserting the implicit "library/" namespace.
-//
-// Docker Hub stores official images (redis, nginx, postgres, etc.) under the
-// "library" organization.  Podman and other runtimes resolve "docker.io/redis"
-// as "docker.io/library/redis" at pull time, so a mirror that stores the image
-// at registry/redis:tag will not be found.  This function makes the namespace
-// explicit so both the skopeo source and destination paths are canonical.
-//
-// Only single-component docker.io paths are affected; multi-component paths
-// (docker.io/grafana/grafana) and all other registries are returned unchanged.
-func normalizeDockerImage(image string) string {
-	parts := strings.SplitN(image, "/", 2)
-	if len(parts) == 2 && parts[0] == "docker.io" && !strings.Contains(parts[1], "/") {
-		return "docker.io/library/" + parts[1]
-	}
-	return image
-}
-
 // ImageToDest strips the source registry hostname from image and returns the
 // full destination reference by prepending destRegistry.
 //
