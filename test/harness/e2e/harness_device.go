@@ -830,10 +830,12 @@ func (h *Harness) SetupDeviceWithTPM(workerID int) error {
 		return fmt.Errorf("failed to stop agent: %w", err)
 	}
 
-	// Clean CSR from non-TPM agent start to avoid device ID mismatch
-	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	// Wipe all agent identity state from the non-TPM start so the agent
+	// enrolls fresh with a TPM-derived device name. Leaving agent.key
+	// behind causes a device-name mismatch between the CSR and metadata.
+	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-rf", "/var/lib/flightctl/certs/"}, nil)
 	if err != nil {
-		logrus.Warnf("Failed to clean stale CSR: %v", err)
+		logrus.Warnf("Failed to clean stale identity state: %v", err)
 	}
 
 	// 3. Wait for TPM hardware initialization
