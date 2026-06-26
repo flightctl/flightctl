@@ -1,6 +1,6 @@
 <domain type="kvm" xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0">
   <name>{{.Name}}</name>
-  <memory unit="MiB">512</memory>
+  <memory unit="MiB">2048</memory>
   <memoryBacking>
     <source type="memfd"/>
     <access mode="shared"/>
