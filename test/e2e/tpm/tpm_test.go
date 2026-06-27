@@ -119,7 +119,7 @@ var _ = Describe("TPM Device Authentication", func() {
 		// - FLIGHTCTL_REAL_TPM=true: Real hardware TPM - expects "Verified" verification status
 		// Virtual TPM verification shows "Failed" due to lack of chain of trust (expected behavior)
 		// Test validates TPM enrollment and attestation functionality works correctly in both cases
-		It("Should enroll device with TPM enabled and verify attestation", Label("83974", "tpm", "sanity"), func() {
+		It("Should enroll device with TPM enabled and verify attestation", Label("83974", "tpm"), func() {
 			By("verifying TPM device presence")
 			stdout, err := harness.VM.RunSSH([]string{"ls", "-la", "/dev/tpm*"}, nil)
 			Expect(err).ToNot(HaveOccurred())
