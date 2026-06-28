@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/util"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -381,4 +382,42 @@ func (h *Harness) EnrollDeviceForDecommissionTest(loginFn LoginFunc, deviceCount
 		deviceName = parts[0]
 	}
 	return deviceName, cmd, nil
+}
+
+// CountEnrollmentRequestsByLabel returns the number of enrollment requests matching the given test-id label.
+func (h *Harness) CountEnrollmentRequestsByLabel(testID string) int {
+	if testID == "" {
+		return 0
+	}
+	labelSelector := fmt.Sprintf("test-id=%s", testID)
+	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1beta1.ListEnrollmentRequestsParams{
+		LabelSelector: &labelSelector,
+	})
+	if err != nil || resp.JSON200 == nil {
+		return 0
+	}
+	return len(resp.JSON200.Items)
+}
+
+// GetUnapprovedEnrollmentRequests returns the names of enrollment requests that have not been approved.
+func (h *Harness) GetUnapprovedEnrollmentRequests(testID string) []string {
+	if testID == "" {
+		return nil
+	}
+	labelSelector := fmt.Sprintf("test-id=%s", testID)
+	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1beta1.ListEnrollmentRequestsParams{
+		LabelSelector: &labelSelector,
+	})
+	if err != nil || resp.JSON200 == nil {
+		return nil
+	}
+	var unapproved []string
+	for _, er := range resp.JSON200.Items {
+		if er.Status == nil || er.Status.Approval == nil || !er.Status.Approval.Approved {
+			if er.Metadata.Name != nil {
+				unapproved = append(unapproved, *er.Metadata.Name)
+			}
+		}
+	}
+	return unapproved
 }
