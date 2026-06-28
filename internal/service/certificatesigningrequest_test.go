@@ -31,9 +31,9 @@ func TestValidateAllowedSignersForCSRService(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "When server svc signer is used it should be accepted",
+			name:       "When server svc signer is used it should be rejected",
 			signerName: cfg.ServerSvcSignerName,
-			wantErr:    false,
+			wantErr:    true,
 		},
 		{
 			name:       "When enrollment signer is used it should be accepted",
