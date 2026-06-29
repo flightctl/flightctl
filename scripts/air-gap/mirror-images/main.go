@@ -221,12 +221,18 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 		}
 	}
 
-	origDir, _ := os.Getwd()
-	if chErr := os.Chdir(tmpDir); chErr == nil {
-		if mErr := WriteManifest(variant, bundleImages, manifestRPMs); mErr != nil {
-			logWarn("write manifest: %v", mErr)
-		}
-		_ = os.Chdir(origDir)
+	origDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		return fmt.Errorf("change to bundle temp dir: %w", err)
+	}
+	if mErr := WriteManifest(variant, bundleImages, manifestRPMs); mErr != nil {
+		logWarn("write manifest: %v", mErr)
+	}
+	if err := os.Chdir(origDir); err != nil {
+		return fmt.Errorf("restore working directory: %w", err)
 	}
 
 	if err := CreateArchive(tmpDir, bundle); err != nil {

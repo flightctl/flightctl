@@ -62,7 +62,7 @@ func resolveVariant(m *pkgmanifest.Build, variant, effectiveTag string) ([]Image
 		})
 	}
 
-	return pairs, v.RPMs, nil
+	return Dedup(pairs), v.RPMs, nil
 }
 
 // supportedVariantList returns a human-readable comma-separated list of
