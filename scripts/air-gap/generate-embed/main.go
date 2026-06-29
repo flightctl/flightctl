@@ -218,6 +218,9 @@ func resolveImages(cv chartVariant, obsData []byte, variant string) []pkgmanifes
 				}
 				ref := normalizeDockerImage(spec.Image)
 				tag := canonicalTag(spec.Tag)
+				if !strings.Contains(variant, "rhem") && strings.HasPrefix(ref, "registry.redhat.io") {
+					warnf("%s: community variant references registry.redhat.io image %q — requires downstream registry access", variant, ref)
+				}
 				if !seen[ref] {
 					seen[ref] = true
 					images = append(images, pkgmanifest.Image{Ref: ref, Tag: tag})
@@ -282,6 +285,10 @@ func parseRPMRequires(data []byte) []string {
 		if pkg != "" {
 			seen[pkg] = struct{}{}
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fatalf("scanning RPM spec: %v", err)
 	}
 
 	result := make([]string, 0, len(seen))

@@ -53,7 +53,7 @@ func resolveVariant(m *pkgmanifest.Build, variant, effectiveTag string) ([]Image
 	pairs := make([]ImagePair, 0, len(v.Images))
 	for _, img := range v.Images {
 		tag := img.Tag
-		if tag == "" {
+		if tag == "" || tag == "latest" {
 			tag = effectiveTag
 		}
 		pairs = append(pairs, ImagePair{

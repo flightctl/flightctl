@@ -142,7 +142,7 @@ help:
 publish: build-containers
 	hack/publish_containers.sh
 
-generate:
+generate: generate-mirror-embed
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
 generate-proto:
@@ -243,9 +243,11 @@ MIRROR_EMBED_SOURCES := deploy/helm/helm-chart-opts.yaml \
 
 MIRROR_EMBED_OUT := scripts/air-gap/mirror-images/embedded_data_generated.go
 
-generate-mirror-embed: $(MIRROR_EMBED_SOURCES)
+$(MIRROR_EMBED_OUT): $(MIRROR_EMBED_SOURCES)
 	@echo "  GEN     $(MIRROR_EMBED_OUT)"
-	go run ./scripts/air-gap/generate-embed/ $(MIRROR_EMBED_SOURCES) > $(MIRROR_EMBED_OUT)
+	go run ./scripts/air-gap/generate-embed/ $(MIRROR_EMBED_SOURCES) > $(MIRROR_EMBED_OUT).tmp && mv $(MIRROR_EMBED_OUT).tmp $(MIRROR_EMBED_OUT)
+
+generate-mirror-embed: $(MIRROR_EMBED_OUT)
 
 build-mirror-images: generate-mirror-embed bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN)/flightctl-mirror-images ./scripts/air-gap/mirror-images
