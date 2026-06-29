@@ -64,7 +64,7 @@ jobs:
 
       - name: Cache Go modules
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache DNF packages
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             /var/cache/dnf
@@ -86,7 +86,7 @@ jobs:
 
       - name: Cache bootc-image-builder
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             bin/dnf-cache
