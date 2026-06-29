@@ -29,13 +29,6 @@ spec:
         - name: flightctl-remote-access
           image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.remoteAccess.image.image) }}:{{ default .Chart.AppVersion .Values.remoteAccess.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.remoteAccess.image.pullPolicy }}
-          securityContext:
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
           ports:
             - containerPort: 3444
               name: service-api
@@ -104,6 +97,7 @@ spec:
               name: flightctl-ca-bundle
               subPath: ca-bundle.crt
               readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
         - name: flightctl-remote-access-config
@@ -115,4 +109,5 @@ spec:
         - name: flightctl-ca-bundle
           secret:
             secretName: flightctl-ca-bundle
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

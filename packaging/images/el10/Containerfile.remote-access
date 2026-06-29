@@ -48,5 +48,5 @@ LABEL \
   name="flightctl-remote-access" \
   summary="Flight Control Edge management service, remote access gateway"
 COPY --from=build /app/bin/flightctl-remote-access .
-USER 1001
+
 CMD ["./flightctl-remote-access"]
