@@ -229,6 +229,9 @@ var (
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
+		// helm / kubernetes connectivity
+		"timed out waiting for the condition": context.DeadlineExceeded,
+		"Kubernetes cluster unreachable":      ErrNetwork,
 		// container image resolution
 		"short-name resolution enforced": ErrImageShortName,
 		// no such object
