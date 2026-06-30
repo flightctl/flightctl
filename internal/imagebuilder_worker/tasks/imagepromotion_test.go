@@ -378,6 +378,21 @@ func makeCompletedBuild(name, digest string) *domain.ImageBuild {
 	}
 }
 
+func makeTerminalExport(name, buildRef string, format domain.ExportFormatType, reason domain.ImageExportConditionReason) *domain.ImageExport {
+	now := time.Now()
+	src := api.ImageExportSource{}
+	_ = src.FromImageBuildRefSource(api.ImageBuildRefSource{Type: api.ImageBuildRefSourceTypeImageBuild, ImageBuildRef: buildRef})
+	return &api.ImageExport{
+		Metadata: v1beta1.ObjectMeta{Name: lo.ToPtr(name), CreationTimestamp: &now},
+		Spec:     api.ImageExportSpec{Source: src, Format: format},
+		Status: &api.ImageExportStatus{
+			Conditions: &[]api.ImageExportCondition{
+				{Type: api.ImageExportConditionTypeReady, Status: coredomain.ConditionStatusFalse, Reason: string(reason)},
+			},
+		},
+	}
+}
+
 func makeCompletedExport(name, buildRef string, format domain.ExportFormatType, digest string) *domain.ImageExport {
 	now := time.Now()
 	src := api.ImageExportSource{}
@@ -562,6 +577,36 @@ func (s *testExportSvc) ListCompletedForBuild(ctx context.Context, orgId uuid.UU
 		}
 		ready := domain.FindImageExportStatusCondition(*e.Status.Conditions, domain.ImageExportConditionTypeReady)
 		if ready != nil && ready.Reason == string(domain.ImageExportConditionReasonCompleted) {
+			var cp domain.ImageExport
+			deepCopyJSON(e, &cp)
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *testExportSvc) ListTerminalNonCompletedForBuild(_ context.Context, _ uuid.UUID, imageBuildRef string, format domain.ExportFormatType) (*domain.ImageExport, error) {
+	terminalReasons := map[string]bool{
+		string(domain.ImageExportConditionReasonFailed):   true,
+		string(domain.ImageExportConditionReasonCanceled): true,
+	}
+	for _, e := range s.store.data {
+		srcType, err := e.Spec.Source.Discriminator()
+		if err != nil || srcType != string(domain.ImageExportSourceTypeImageBuild) {
+			continue
+		}
+		src, err := e.Spec.Source.AsImageBuildRefSource()
+		if err != nil || src.ImageBuildRef != imageBuildRef {
+			continue
+		}
+		if string(e.Spec.Format) != string(format) {
+			continue
+		}
+		if e.Status == nil || e.Status.Conditions == nil {
+			continue
+		}
+		ready := domain.FindImageExportStatusCondition(*e.Status.Conditions, domain.ImageExportConditionTypeReady)
+		if ready != nil && terminalReasons[ready.Reason] {
 			var cp domain.ImageExport
 			deepCopyJSON(e, &cp)
 			return &cp, nil
@@ -1013,5 +1058,146 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
 
 		requirePromotionReasonWorker(t, svc.promotions, "promo", domain.ImagePromotionConditionReasonFailed)
+	})
+}
+
+// TestEvaluator_TerminalExportFailsPromotion verifies that when a required export is in a terminal
+// non-completed state (Canceled or Failed), the promotion transitions to Failed immediately rather
+// than waiting indefinitely in WaitingForArtifacts.
+func TestEvaluator_TerminalExportFailsPromotion(t *testing.T) {
+	ctx := context.Background()
+	orgID := uuid.New()
+
+	makePromoWithFormats := func(name, buildRef string, formats []domain.ExportFormatType) *domain.ImagePromotion {
+		target := api.ImagePromotionTarget{}
+		_ = target.FromNewCatalogItemTarget(api.NewCatalogItemTarget{
+			Type: api.NewCatalogItem, CatalogName: "cat", CatalogItemName: "item", Version: "1.0.0",
+		})
+		p := &api.ImagePromotion{
+			Metadata: v1beta1.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec: api.ImagePromotionSpec{
+				Source: api.ImagePromotionSource{
+					ImageBuildRef: buildRef,
+					ExportFormats: lo.ToPtr(formats),
+				},
+				Target: target,
+			},
+			Status: &api.ImagePromotionStatus{},
+		}
+		setPromotionReadyCondition(p, domain.ImagePromotionConditionReasonWaitingForArtifacts,
+			conditionMessageForReasonWorker(domain.ImagePromotionConditionReasonWaitingForArtifacts))
+		return p
+	}
+
+	requireFailedWithMessage := func(t *testing.T, store *inMemoryPromotionStore, name string, substrings ...string) {
+		t.Helper()
+		requirePromotionReasonWorker(t, store, name, domain.ImagePromotionConditionReasonFailed)
+		p, _ := store.Get(ctx, store.orgID, name)
+		require.NotNil(t, p)
+		cond := domain.FindImagePromotionStatusCondition(*p.Status.Conditions, domain.ImagePromotionConditionTypeReady)
+		require.NotNil(t, cond)
+		for _, s := range substrings {
+			require.Contains(t, cond.Message, s)
+		}
+	}
+
+	t.Run("When a single export is canceled it should fail the promotion", func(t *testing.T) {
+		svc := newTestIBService(orgID)
+		catalogWriter := newDummyCatalogItemWriter()
+		catalogWriter.AddCatalog("cat")
+		coreStore := &dummyCoreStore{writer: catalogWriter}
+
+		build := makeCompletedBuild("build-1", "sha256:aabb")
+		_, _ = svc.builds.Create(ctx, orgID, build)
+
+		export := makeTerminalExport("exp-iso-canceled", "build-1", domain.ExportFormatTypeISO, domain.ImageExportConditionReasonCanceled)
+		_, _ = svc.exports.Create(ctx, orgID, export)
+
+		promotion := makePromoWithFormats("promo", "build-1", []domain.ExportFormatType{domain.ExportFormatTypeISO})
+		_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+
+		requireFailedWithMessage(t, svc.promotions, "promo", string(domain.ExportFormatTypeISO), "build-1")
+	})
+
+	t.Run("When a single export is failed it should fail the promotion", func(t *testing.T) {
+		svc := newTestIBService(orgID)
+		catalogWriter := newDummyCatalogItemWriter()
+		catalogWriter.AddCatalog("cat")
+		coreStore := &dummyCoreStore{writer: catalogWriter}
+
+		build := makeCompletedBuild("build-2", "sha256:bbcc")
+		_, _ = svc.builds.Create(ctx, orgID, build)
+
+		export := makeTerminalExport("exp-vmdk-failed", "build-2", domain.ExportFormatTypeVMDK, domain.ImageExportConditionReasonFailed)
+		_, _ = svc.exports.Create(ctx, orgID, export)
+
+		promotion := makePromoWithFormats("promo", "build-2", []domain.ExportFormatType{domain.ExportFormatTypeVMDK})
+		_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+
+		requireFailedWithMessage(t, svc.promotions, "promo", string(domain.ExportFormatTypeVMDK), "build-2")
+	})
+
+	t.Run("When multiple exports are terminal it should fail the promotion listing all formats", func(t *testing.T) {
+		svc := newTestIBService(orgID)
+		catalogWriter := newDummyCatalogItemWriter()
+		catalogWriter.AddCatalog("cat")
+		coreStore := &dummyCoreStore{writer: catalogWriter}
+
+		build := makeCompletedBuild("build-3", "sha256:ccdd")
+		_, _ = svc.builds.Create(ctx, orgID, build)
+
+		_, _ = svc.exports.Create(ctx, orgID, makeTerminalExport("exp-iso", "build-3", domain.ExportFormatTypeISO, domain.ImageExportConditionReasonCanceled))
+		_, _ = svc.exports.Create(ctx, orgID, makeTerminalExport("exp-vmdk", "build-3", domain.ExportFormatTypeVMDK, domain.ImageExportConditionReasonFailed))
+
+		promotion := makePromoWithFormats("promo", "build-3", []domain.ExportFormatType{domain.ExportFormatTypeISO, domain.ExportFormatTypeVMDK})
+		_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+
+		requireFailedWithMessage(t, svc.promotions, "promo", string(domain.ExportFormatTypeISO), string(domain.ExportFormatTypeVMDK), "build-3")
+	})
+
+	t.Run("When one format is terminal and another has no export yet it should fail immediately", func(t *testing.T) {
+		svc := newTestIBService(orgID)
+		catalogWriter := newDummyCatalogItemWriter()
+		catalogWriter.AddCatalog("cat")
+		coreStore := &dummyCoreStore{writer: catalogWriter}
+
+		build := makeCompletedBuild("build-4", "sha256:ddee")
+		_, _ = svc.builds.Create(ctx, orgID, build)
+
+		// ISO is canceled, but QCOW2 has no export yet (still pending).
+		_, _ = svc.exports.Create(ctx, orgID, makeTerminalExport("exp-iso", "build-4", domain.ExportFormatTypeISO, domain.ImageExportConditionReasonCanceled))
+
+		promotion := makePromoWithFormats("promo", "build-4", []domain.ExportFormatType{domain.ExportFormatTypeISO, domain.ExportFormatTypeQCOW2})
+		_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+
+		requireFailedWithMessage(t, svc.promotions, "promo", string(domain.ExportFormatTypeISO), "build-4")
+	})
+
+	t.Run("When a completed export exists for a format it should not be treated as terminal", func(t *testing.T) {
+		svc := newTestIBService(orgID)
+		catalogWriter := newDummyCatalogItemWriter()
+		catalogWriter.AddCatalog("cat")
+		coreStore := &dummyCoreStore{writer: catalogWriter}
+
+		build := makeCompletedBuild("build-5", "sha256:eeff")
+		_, _ = svc.builds.Create(ctx, orgID, build)
+
+		// QCOW2 is completed; no other exports are present.
+		_, _ = svc.exports.Create(ctx, orgID, makeCompletedExport("exp-qcow2", "build-5", domain.ExportFormatTypeQCOW2, "sha256:qcow2digest"))
+
+		promotion := makePromoWithFormats("promo", "build-5", []domain.ExportFormatType{domain.ExportFormatTypeQCOW2})
+		_, _ = svc.promotions.Create(ctx, orgID, promotion)
+
+		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+
+		requirePromotionReasonWorker(t, svc.promotions, "promo", domain.ImagePromotionConditionReasonCompleted)
 	})
 }
