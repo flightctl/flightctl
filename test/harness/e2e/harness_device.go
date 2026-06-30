@@ -506,13 +506,18 @@ func (h *Harness) PrepareNextDeviceVersionFromCurrentStatus(deviceID string) (in
 	return cur + 1, nil
 }
 
-func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
+func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int, timeout ...string) (err error) {
+	t := LONGTIMEOUT
+	if len(timeout) > 0 {
+		t = timeout[0]
+	}
+
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
 		res, err := h.GetDeviceWithStatusSummary(deviceId)
 		Expect(err).ToNot(HaveOccurred())
 		return res
-	}, LONGTIMEOUT, POLLING).ShouldNot(BeEmpty())
+	}, t, POLLING).ShouldNot(BeEmpty())
 	logrus.Infof("The device %s was approved", deviceId)
 
 	// Wait for the device to pickup the new config and report measurements on device status.
@@ -557,7 +562,7 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 			}
 
 			return false
-		}, LONGTIMEOUT)
+		}, t)
 
 	return nil
 }
@@ -640,7 +645,7 @@ func (h *Harness) WaitForDeviceNewRenderedVersionWithReboot(deviceId string, new
 }
 
 // UpdateDeviceAndWaitForVersion updates the device and waits for the new rendered version
-func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func(device *v1beta1.Device)) error {
+func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func(device *v1beta1.Device), timeout ...string) error {
 	newRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
 	if err != nil {
 		return fmt.Errorf("failed to prepare next device version: %w", err)
@@ -652,7 +657,7 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	}
 
 	GinkgoWriter.Printf("Waiting for device to pick up config version %d\n", newRenderedVersion)
-	err = h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+	err = h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion, timeout...)
 	if err != nil {
 		return fmt.Errorf("failed to wait for new rendered version: %w", err)
 	}
