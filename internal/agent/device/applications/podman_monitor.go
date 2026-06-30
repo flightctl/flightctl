@@ -27,6 +27,7 @@ import (
 const (
 	expectedPodmanSigTermExitCode = 1
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
+	podmanHealthStatusEvent       = "health_status"
 )
 
 type PodmanMonitor struct {
@@ -484,6 +485,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	if event.Status == podmanHealthStatusEvent {
+		return
+	}
+
 	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
 	if !ok {
 		m.log.Errorf("Could not find systemd unit label in event %v", event)

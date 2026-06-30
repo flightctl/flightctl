@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -122,6 +121,8 @@ type Application interface {
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
 	// ActionSpec returns the type-specific action configuration for this application.
 	ActionSpec() lifecycle.ActionSpec
+	// VM returns VM-specific metadata for Quadlet VM workloads, or nil for non-VM apps.
+	VM() *provider.VMSpec
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -140,7 +141,7 @@ type application struct {
 	volume     provider.VolumeManager
 	status     *v1beta1.DeviceApplicationStatus
 	actionSpec lifecycle.ActionSpec
-	vmPoller   *vmStatusPoller
+	vm         *provider.VMSpec
 }
 
 // NewApplication creates a new application from an application provider.
@@ -157,17 +158,8 @@ func NewApplication(p provider.Provider) *application {
 			RunAs:    spec.User,
 		},
 		volume: spec.Volume,
+		vm:     spec.VM,
 	}
-}
-
-// NewVMApplication creates an application for a VM workload with a vmStatusPoller
-// wired to the given ContainerExecer. Status() on the returned application calls
-// virsh domstate rather than the workload-count-based logic.
-func NewVMApplication(p provider.Provider, exec ContainerExecer, log *log.PrefixLogger) *application {
-	a := NewApplication(p)
-	a.status.AppType = v1beta1.AppTypeVm
-	a.vmPoller = newVMStatusPoller(exec, log, p.Spec().Name, p.Spec().VM.ContainerName, p.Spec().VM.DomainName)
-	return a
 }
 
 // NewHelmApplication creates a new application with Helm-specific configuration.
@@ -264,46 +256,15 @@ func (a *application) IsEmbedded() bool {
 	return a.status.Embedded
 }
 
+func (a *application) VM() *provider.VMSpec {
+	return a.vm
+}
+
 func (a *application) Volume() provider.VolumeManager {
 	return a.volume
 }
 
-// vmStatus polls the libvirt domain state and maps it to a DeviceApplicationStatus.
-// Called by Status() when the application has a vmPoller (i.e. VM != nil).
-func (a *application) vmStatus() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), vmStatusPollTimeout)
-	defer cancel()
-
-	appStatus := a.vmPoller.Poll(ctx)
-	a.status.Status = appStatus
-
-	var summary v1beta1.DeviceApplicationsSummaryStatus
-	switch appStatus {
-	case v1beta1.ApplicationStatusRunning:
-		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-		a.status.Ready = "1/1"
-	case v1beta1.ApplicationStatusStopped:
-		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-		a.status.Ready = "0/1"
-	case v1beta1.ApplicationStatusStopping, v1beta1.ApplicationStatusStarting:
-		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-		a.status.Ready = "0/1"
-	case v1beta1.ApplicationStatusError:
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
-		a.status.Ready = "0/1"
-	default:
-		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-		a.status.Ready = "0/1"
-	}
-
-	a.volume.Status(a.status)
-	return a.status, summary, nil
-}
-
 func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
-	if a.vmPoller != nil {
-		return a.vmStatus()
-	}
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
