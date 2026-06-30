@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -132,86 +131,63 @@ func TestPathExists(t *testing.T) {
 	}
 }
 
-func TestIsInternalDB(t *testing.T) {
+func TestParseServiceConfigDB(t *testing.T) {
 	tests := []struct {
 		name     string
-		hostname string
-		want     bool
+		yaml     string
+		wantType string
+		wantName string
 	}{
 		{
-			name:     "localhost is internal",
-			hostname: "localhost",
-			want:     true,
+			name:     "external db type",
+			yaml:     "db:\n  type: external\n  name: flightctl\n",
+			wantType: "external",
+			wantName: "flightctl",
 		},
 		{
-			name:     "127.0.0.1 is internal",
-			hostname: "127.0.0.1",
-			want:     true,
+			name:     "builtin db type",
+			yaml:     "db:\n  type: builtin\n  name: mydb\n",
+			wantType: "builtin",
+			wantName: "mydb",
 		},
 		{
-			name:     "flightctl-db is internal",
-			hostname: "flightctl-db",
-			want:     true,
+			name:     "missing db section",
+			yaml:     "service:\n  address: :3443\n",
+			wantType: "",
+			wantName: "",
 		},
 		{
-			name:     "flightctl-db.flightctl-internal is internal",
-			hostname: "flightctl-db.flightctl-internal",
-			want:     true,
+			name:     "missing type field",
+			yaml:     "db:\n  name: flightctl\n",
+			wantType: "",
+			wantName: "flightctl",
 		},
 		{
-			name:     "flightctl-db with full DNS is internal",
-			hostname: "flightctl-db.flightctl-internal.svc.cluster.local",
-			want:     true,
+			name:     "empty yaml",
+			yaml:     "",
+			wantType: "",
+			wantName: "",
 		},
 		{
-			name:     "flightctl-db in custom namespace is internal",
-			hostname: "flightctl-db.my-namespace",
-			want:     true,
+			name:     "invalid yaml",
+			yaml:     ": invalid: yaml: [",
+			wantType: "",
+			wantName: "",
 		},
 		{
-			name:     "external database hostname",
-			hostname: "db.example.com",
-			want:     false,
-		},
-		{
-			name:     "external IP address",
-			hostname: "192.168.1.10",
-			want:     false,
-		},
-		{
-			name:     "external cloud database",
-			hostname: "mydb.rds.amazonaws.com",
-			want:     false,
-		},
-		{
-			name:     "empty hostname is external",
-			hostname: "",
-			want:     false,
-		},
-		{
-			name:     "flightctl-db.evil.com should be rejected (security)",
-			hostname: "flightctl-db.evil.com",
-			want:     false,
-		},
-		{
-			name:     "flightctl-db.namespace.evil.com should be rejected (security)",
-			hostname: "flightctl-db.namespace.evil.com",
-			want:     false,
-		},
-		{
-			name:     "flightctl-db.namespace.svc.cluster.evil should be rejected (security)",
-			hostname: "flightctl-db.namespace.svc.cluster.evil",
-			want:     false,
+			name:     "type with whitespace",
+			yaml:     "db:\n  type: \"  External  \"\n",
+			wantType: "external",
+			wantName: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.NewDefault()
-			cfg.Database.Hostname = tt.hostname
-
-			got := isInternalDB(cfg)
-			require.Equal(t, tt.want, got)
+			log, _ := test.NewNullLogger()
+			got := parseServiceConfigDB([]byte(tt.yaml), log)
+			require.Equal(t, tt.wantType, got.Type)
+			require.Equal(t, tt.wantName, got.Name)
 		})
 	}
 }

@@ -60,6 +60,8 @@ func createDumpViaBackup(ctx context.Context, log *logrus.Logger, cfgPath, dbNam
 		backup.WithContainerCLI(containers.RuntimeCLIName()),
 		backup.WithServiceConfigPath(cfgPath),
 		backup.WithDBName(dbName),
+		backup.WithDBUser(testdb.IntegrationPostgresAdminUser()),
+		backup.WithDBPassword(string(testdb.IntegrationPostgresAdminPassword())),
 	)
 	Expect(deployer.BackupDatabase(ctx, outputDir)).To(Succeed())
 	dumpPath := filepath.Join(outputDir, "db", "dump.sql")

@@ -43,6 +43,8 @@ func newIntegrationDeployer(log *logrus.Logger, svcCfgPath, dbName string) backu
 		backup.WithContainerCLI(containers.RuntimeCLIName()),
 		backup.WithServiceConfigPath(svcCfgPath),
 		backup.WithDBName(dbName),
+		backup.WithDBUser(testdb.IntegrationPostgresAdminUser()),
+		backup.WithDBPassword(string(testdb.IntegrationPostgresAdminPassword())),
 	)
 }
 
@@ -108,15 +110,16 @@ var _ = Describe("PodmanDeployer Integration", func() {
 		})
 
 		It("should return ErrExternalDatabase for external database", func() {
-			externalCfg := config.NewDefault()
-			externalCfg.Database.Hostname = "external-db.example.com"
-			externalCfgPath, err := writeServiceConfig(externalCfg)
-			Expect(err).NotTo(HaveOccurred())
-			defer os.RemoveAll(filepath.Dir(externalCfgPath))
+			dir := GinkgoT().TempDir()
+			externalCfgPath := filepath.Join(dir, "service-config.yaml")
+			Expect(os.WriteFile(externalCfgPath, []byte(`db:
+  type: external
+  name: flightctl
+`), 0600)).To(Succeed())
 
 			externalDeployer := backup.NewPodmanDeployer(log, backup.WithServiceConfigPath(externalCfgPath))
 
-			err = externalDeployer.BackupDatabase(ctx, outputDir)
+			err := externalDeployer.BackupDatabase(ctx, outputDir)
 			Expect(err).To(MatchError(backup.ErrExternalDatabase))
 
 			dumpFile := filepath.Join(outputDir, "db", "dump.sql")
