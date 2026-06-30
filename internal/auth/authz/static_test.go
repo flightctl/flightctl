@@ -91,7 +91,28 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "operator can get any resource",
+			name:     "operator cannot list enrollmentrequests",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "enrollmentrequests",
+			op:       "list",
+			expected: false,
+		},
+		{
+			name:     "operator cannot get enrollmentrequests",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "enrollmentrequests",
+			op:       "get",
+			expected: false,
+		},
+		{
+			name:     "operator cannot list events",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "events",
+			op:       "list",
+			expected: false,
+		},
+		{
+			name:     "operator can get repositories",
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "repositories",
 			op:       "get",
@@ -441,6 +462,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "repositories/check-oci-image",
 					Operations: []string{"create"},
+				},
+				{
+					Resource:   "enrollmentrequests",
+					Operations: []string{},
 				},
 				{
 					Resource:   "resourcesyncs",
