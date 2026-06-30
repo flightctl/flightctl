@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/quadlet"
 )
 
 const (
@@ -76,11 +78,18 @@ func parseTarFiles(data []byte) (map[string]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading TAR entry: %w", err)
 		}
+		if hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+		if strings.HasPrefix(hdr.Name, "/") || strings.Contains(hdr.Name, "../") || hdr.Name == ".." {
+			return nil, fmt.Errorf("vm-to-quadlet produced TAR entry with unsafe path %q", hdr.Name)
+		}
+		name := strings.TrimPrefix(hdr.Name, "./")
 		content, err := io.ReadAll(tr)
 		if err != nil {
 			return nil, fmt.Errorf("reading TAR entry %q: %w", hdr.Name, err)
 		}
-		files[hdr.Name] = string(content)
+		files[name] = string(content)
 	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("vm-to-quadlet produced no output files")
@@ -151,13 +160,16 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	if vmApp.PublishPorts != nil {
 		publishPorts = *vmApp.PublishPorts
 	}
-	injectPublishPorts(quadletFiles, name, publishPorts)
+	if err := injectPublishPorts(quadletFiles, name, publishPorts); err != nil {
+		return nil, err
+	}
 
 	inline := make([]domain.ApplicationContent, 0, len(quadletFiles))
 	for filename, content := range quadletFiles {
 		c := content
 		inline = append(inline, domain.ApplicationContent{Path: filename, Content: &c})
 	}
+	sort.Slice(inline, func(i, j int) bool { return inline[i].Path < inline[j].Path })
 
 	annotations := map[string]string{vmWorkloadTypeAnnotationKey: vmWorkloadTypeAnnotationValue}
 	quadlet := domain.QuadletApplication{
@@ -177,33 +189,30 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	return &appSpec, nil
 }
 
-// injectPublishPorts stamps PublishPort= lines into the {vmName}.pod unit file
-// before the [Install] section.
-func injectPublishPorts(files map[string]string, vmName string, publishPorts []string) {
+// injectPublishPorts adds PublishPort= entries to the [Pod] section of the
+// {vmName}.pod unit file using the quadlet unit parser.
+func injectPublishPorts(files map[string]string, vmName string, publishPorts []string) error {
 	if len(publishPorts) == 0 {
-		return
+		return nil
 	}
 	podFileName := vmName + ".pod"
 	content, ok := files[podFileName]
 	if !ok {
-		return
+		return fmt.Errorf("injectPublishPorts: %q not found in vm-to-quadlet output", podFileName)
 	}
-	extra := ""
-	for _, p := range publishPorts {
-		extra += fmt.Sprintf("PublishPort=%s\n", p)
+	u, err := quadlet.NewUnit([]byte(content))
+	if err != nil {
+		return fmt.Errorf("injectPublishPorts: parsing %q: %w", podFileName, err)
 	}
-	files[podFileName] = insertBeforeSection(content, "Install", extra)
-}
-
-// insertBeforeSection inserts extra lines immediately before the named INI
-// section header. Falls back to appending at the end if the section is not found.
-func insertBeforeSection(content, section, extra string) string {
-	marker := "\n[" + section + "]"
-	idx := strings.Index(content, marker)
-	if idx == -1 {
-		return content + "\n" + extra
+	for _, port := range publishPorts {
+		u.Add(quadlet.PodGroup, quadlet.PublishPortKey, port)
 	}
-	return content[:idx] + "\n" + extra + content[idx:]
+	updated, err := u.Write()
+	if err != nil {
+		return fmt.Errorf("injectPublishPorts: serializing %q: %w", podFileName, err)
+	}
+	files[podFileName] = string(updated)
+	return nil
 }
 
 // convertVmYAML converts vm.yaml to a set of Quadlet unit files using the KV

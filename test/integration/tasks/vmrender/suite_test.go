@@ -101,7 +101,7 @@ func buildVmToQuadletBinary(ctx context.Context) (string, func(), error) {
 			KeepImage:  true, // reuse across test runs; rebuilds only on Containerfile changes
 		},
 		// Keep the container alive so CopyFileFromContainer can read from it.
-		Cmd: []string{"/bin/bash", "-c", "sleep infinity"},
+		Cmd: []string{"/bin/sh", "-c", "sleep infinity"},
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ProviderType:     containers.GetProviderType(),

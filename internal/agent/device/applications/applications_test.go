@@ -309,7 +309,6 @@ func TestNewAppFromProvider(t *testing.T) {
 	mock.EXPECT().Spec().Return(spec).AnyTimes()
 
 	m := &manager{log: log.NewPrefixLogger("")}
-	app, err := m.newAppFromProvider(mock)
-	require.NoError(err)
-	_ = app.(*application)
+	app := m.newAppFromProvider(mock)
+	require.NotNil(app)
 }

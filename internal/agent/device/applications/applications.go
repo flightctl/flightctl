@@ -121,8 +121,6 @@ type Application interface {
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
 	// ActionSpec returns the type-specific action configuration for this application.
 	ActionSpec() lifecycle.ActionSpec
-	// VM returns VM-specific metadata for Quadlet VM workloads, or nil for non-VM apps.
-	VM() *provider.VMSpec
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -141,7 +139,6 @@ type application struct {
 	volume     provider.VolumeManager
 	status     *v1beta1.DeviceApplicationStatus
 	actionSpec lifecycle.ActionSpec
-	vm         *provider.VMSpec
 }
 
 // NewApplication creates a new application from an application provider.
@@ -158,7 +155,6 @@ func NewApplication(p provider.Provider) *application {
 			RunAs:    spec.User,
 		},
 		volume: spec.Volume,
-		vm:     spec.VM,
 	}
 }
 
@@ -254,10 +250,6 @@ func (a *application) Path() string {
 
 func (a *application) IsEmbedded() bool {
 	return a.status.Embedded
-}
-
-func (a *application) VM() *provider.VMSpec {
-	return a.vm
 }
 
 func (a *application) Volume() provider.VolumeManager {

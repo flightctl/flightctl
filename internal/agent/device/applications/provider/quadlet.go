@@ -118,11 +118,6 @@ func newQuadletProvider(
 
 	appID := lifecycle.GenerateAppID(appName, user)
 
-	var vmSpec *VMSpec
-	if quadletApp.Annotations != nil && (*quadletApp.Annotations)[v1beta1.AnnotationWorkloadType] == v1beta1.WorkloadTypeVM {
-		vmSpec = &VMSpec{ContainerName: extractVMComputeContainerName(inlineContent, appID)}
-	}
-
 	// For inline apps, extract volumes immediately since content is available
 	// For image-based apps, volume extraction is deferred to Install() after content is extracted
 	if imageRef == "" {
@@ -150,7 +145,6 @@ func newQuadletProvider(
 			AppType:    v1beta1.AppTypeQuadlet,
 			Path:       appPath,
 			EnvVars:    envVars,
-			VM:         vmSpec,
 			QuadletApp: &quadletApp,
 			Volume:     volumeManager,
 		},
@@ -1270,19 +1264,6 @@ func quadletAppPath(appName string, user v1beta1.Username) (string, error) {
 		}
 		return filepath.Join(homeDir, ".config/containers/systemd", appName), nil
 	}
-}
-
-// extractVMComputeContainerName scans inline Quadlet content for a file ending in
-// "-compute.container" and returns the namespaced Podman container name (appID-<stem>).
-func extractVMComputeContainerName(inlineContent []v1beta1.ApplicationContent, appID string) string {
-	for _, item := range inlineContent {
-		name := filepath.Base(item.Path)
-		if strings.HasSuffix(name, "-compute.container") {
-			containerName := strings.TrimSuffix(name, ".container")
-			return appID + "-" + containerName
-		}
-	}
-	return ""
 }
 
 func quadletSystemdTargetPath(user v1beta1.Username, id string) string {

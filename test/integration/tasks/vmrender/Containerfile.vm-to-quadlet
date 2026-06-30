@@ -7,6 +7,6 @@ RUN git clone https://github.com/flightctl/vm-to-quadlet /src && \
     CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
 
 # Final stage: copy only the binary; no toolchain, non-root user.
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 COPY --from=build /out/vm-to-quadlet /usr/local/bin/vm-to-quadlet
 USER 1000

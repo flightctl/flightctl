@@ -78,8 +78,8 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 	return nil
 }
 
-func (m *manager) newAppFromProvider(p provider.Provider) (Application, error) {
-	return NewApplication(p), nil
+func (m *manager) newAppFromProvider(p provider.Provider) Application {
+	return NewApplication(p)
 }
 
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
@@ -95,11 +95,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		app, err := m.newAppFromProvider(provider)
-		if err != nil {
-			return err
-		}
-		return m.podmanMonitor.Ensure(ctx, app)
+		return m.podmanMonitor.Ensure(ctx, m.newAppFromProvider(provider))
 	case v1beta1.AppTypeHelm:
 		if m.kubernetesMonitor.Has(provider.Spec().ID) {
 			return nil
@@ -150,11 +146,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		app, err := m.newAppFromProvider(provider)
-		if err != nil {
-			return err
-		}
-		return m.podmanMonitor.QueueUpdate(app)
+		return m.podmanMonitor.QueueUpdate(m.newAppFromProvider(provider))
 	case v1beta1.AppTypeHelm:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)

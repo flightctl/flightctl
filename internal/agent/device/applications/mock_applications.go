@@ -423,20 +423,6 @@ func (mr *MockApplicationMockRecorder) Volume() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Volume", reflect.TypeOf((*MockApplication)(nil).Volume))
 }
 
-// VM mocks base method.
-func (m *MockApplication) VM() *provider.VMSpec {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "VM")
-	ret0, _ := ret[0].(*provider.VMSpec)
-	return ret0
-}
-
-// VM indicates an expected call of VM.
-func (mr *MockApplicationMockRecorder) VM() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VM", reflect.TypeOf((*MockApplication)(nil).VM))
-}
-
 // Workload mocks base method.
 func (m *MockApplication) Workload(name string) (*Workload, bool) {
 	m.ctrl.T.Helper()

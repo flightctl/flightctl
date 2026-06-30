@@ -1112,21 +1112,21 @@ func TestValidateApplications(t *testing.T) {
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with invalid port format - not numbers",
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"abc:def"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with invalid port format - too many colons",
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080:80:90"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with valid CPU formats",

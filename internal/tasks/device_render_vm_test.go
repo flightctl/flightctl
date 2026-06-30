@@ -66,7 +66,8 @@ spec:
 }
 
 // makeTar returns a TAR archive containing the given filename→content map.
-func makeTar(files map[string]string) []byte {
+func makeTar(t *testing.T, files map[string]string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for name, content := range files {
@@ -75,17 +76,23 @@ func makeTar(files map[string]string) []byte {
 			Mode: 0644,
 			Size: int64(len(content)),
 		}
-		_ = tw.WriteHeader(hdr)
-		_, _ = tw.Write([]byte(content))
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write([]byte(content))
+		require.NoError(t, err)
 	}
-	_ = tw.Close()
+	require.NoError(t, tw.Close())
 	return buf.Bytes()
 }
 
-// stubbedConverter returns a VmConverterFn that always emits a fixed set of Quadlet files.
+// stubbedConverter returns a VmConverterFn that always emits a copy of the given Quadlet files.
+// A copy is returned on each call to prevent parallel subtests from racing on the shared map.
 func stubbedConverter(files map[string]string) VmConverterFn {
 	return func(_ context.Context, _ []byte) (map[string]string, string, error) {
-		return files, "", nil
+		out := make(map[string]string, len(files))
+		for k, v := range files {
+			out[k] = v
+		}
+		return out, "", nil
 	}
 }
 
@@ -303,7 +310,11 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	callCount := 0
 	converter := func(_ context.Context, _ []byte) (map[string]string, string, error) {
 		callCount++
-		return fakeQuadletFiles, "", nil
+		out := make(map[string]string, len(fakeQuadletFiles))
+		for k, v := range fakeQuadletFiles {
+			out[k] = v
+		}
+		return out, "", nil
 	}
 
 	vmYAML := minimalVmYAML("my-vm")
@@ -368,7 +379,7 @@ func TestParseTarFiles(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			data := makeTar(tc.input)
+			data := makeTar(t, tc.input)
 			got, err := parseTarFiles(data)
 			if tc.wantErr {
 				assert.Error(t, err)
@@ -390,6 +401,7 @@ func TestInjectPublishPorts(t *testing.T) {
 		vmName       string
 		publishPorts []string
 		wantPodHas   []string
+		wantErr      string
 	}{
 		{
 			name:         "When publishPorts is empty it should not modify any file",
@@ -398,7 +410,7 @@ func TestInjectPublishPorts(t *testing.T) {
 			publishPorts: nil,
 		},
 		{
-			name:         "When publishPorts has one port it should inject before [Install]",
+			name:         "When publishPorts has one port it should inject into the Pod section",
 			files:        map[string]string{"my-vm.pod": "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target\n"},
 			vmName:       "my-vm",
 			publishPorts: []string{"8080:80"},
@@ -412,10 +424,11 @@ func TestInjectPublishPorts(t *testing.T) {
 			wantPodHas:   []string{"PublishPort=8080:80", "PublishPort=8443:443/tcp"},
 		},
 		{
-			name:         "When .pod file is absent it should be a no-op",
+			name:         "When .pod file is absent it should return an error",
 			files:        map[string]string{"my-vm-compute.container": "[Container]\n"},
 			vmName:       "my-vm",
 			publishPorts: []string{"8080:80"},
+			wantErr:      "my-vm.pod",
 		},
 	}
 	for _, tc := range tests {
@@ -426,7 +439,12 @@ func TestInjectPublishPorts(t *testing.T) {
 			for k, v := range tc.files {
 				files[k] = v
 			}
-			injectPublishPorts(files, tc.vmName, tc.publishPorts)
+			err := injectPublishPorts(files, tc.vmName, tc.publishPorts)
+			if tc.wantErr != "" {
+				assert.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			assert.NoError(t, err)
 			if len(tc.wantPodHas) > 0 {
 				podContent := files[tc.vmName+".pod"]
 				for _, want := range tc.wantPodHas {
