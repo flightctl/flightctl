@@ -93,7 +93,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By(fmt.Sprintf("Starting 3 device simulators (%d devices each) as admin", devicesPerUser))
 			for i := 0; i < 3; i++ {
 				initialIndex := i * devicesPerUser
-				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, users.admin.name, initialIndex, devicesPerUser, false)
+				// Use default auto-approval for bulk enrollment.
+				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, users.admin.name, initialIndex, devicesPerUser)
 				Expect(simErr).ToNot(HaveOccurred(), fmt.Sprintf("Failed to start simulator batch %d", i))
 				simulatorCmds = append(simulatorCmds, cmd)
 				GinkgoWriter.Printf("Simulator batch %d started (devices %d-%d)\n",
@@ -196,7 +197,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			setupSharedOrgSimulatorConfig(harness)
 
-			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "operator-er-rbac", 0, 1, true)
+			// Keep the enrollment request pending for RBAC approval checks.
+			erSimCmd, simErr := harness.StartLabeledSimulatorWithOptions(harness.Context, testID, "operator-er-rbac", 0, 1, e2e.StartLabeledSimulatorOptions{SkipAutoApprove: true})
 			Expect(simErr).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, erSimCmd)
 
@@ -297,7 +299,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			setupSharedOrgSimulatorConfig(harness)
 
-			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "viewer-er-rbac", 0, 1, true)
+			// Keep the enrollment request pending for RBAC approval checks.
+			erSimCmd, simErr := harness.StartLabeledSimulatorWithOptions(harness.Context, testID, "viewer-er-rbac", 0, 1, e2e.StartLabeledSimulatorOptions{SkipAutoApprove: true})
 			Expect(simErr).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, erSimCmd)
 
@@ -392,7 +395,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			setupSharedOrgSimulatorConfig(harness)
 
-			simCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "console-rbac", 0, 1, false)
+			// Use default auto-approval for console RBAC device checks.
+			simCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "console-rbac", 0, 1)
 			Expect(simErr).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, simCmd)
 
@@ -509,7 +513,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			setupSharedOrgSimulatorConfig(harness)
 
-			erSimCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "installer-er-rbac", 0, 1, true)
+			// Keep the enrollment request pending for RBAC approval checks.
+			erSimCmd, simErr := harness.StartLabeledSimulatorWithOptions(harness.Context, testID, "installer-er-rbac", 0, 1, e2e.StartLabeledSimulatorOptions{SkipAutoApprove: true})
 			Expect(simErr).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, erSimCmd)
 
