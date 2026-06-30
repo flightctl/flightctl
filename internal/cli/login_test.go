@@ -816,3 +816,70 @@ func TestLoginOptions_CompleteCredentialPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestDeriveRemoteAccessService(t *testing.T) {
+	caData := []byte("fake-ca-data")
+	tests := []struct {
+		name        string
+		mainService client.Service
+		wantServer  string
+		wantErr     bool
+	}{
+		{
+			name:        "When main service is in route mode it should replace api. prefix with remote-access.",
+			mainService: client.Service{Server: "https://api.example.com"},
+			wantServer:  "https://remote-access.example.com",
+		},
+		{
+			name:        "When main service is in route mode with standard port 443 it should replace api. prefix",
+			mainService: client.Service{Server: "https://api.example.com:443"},
+			wantServer:  "https://remote-access.example.com",
+		},
+		{
+			name:        "When main service is in nodePort mode port 3443 it should use port 3444",
+			mainService: client.Service{Server: "https://myhost:3443"},
+			wantServer:  "https://myhost:3444",
+		},
+		{
+			name:        "When main service uses an unknown port it should use the gateway path",
+			mainService: client.Service{Server: "https://myhost:8443"},
+			wantServer:  "https://myhost:8443/_/remote-access",
+		},
+		{
+			name:        "When main service has no api. prefix it should use the gateway path",
+			mainService: client.Service{Server: "https://flightctl.example.com"},
+			wantServer:  "https://flightctl.example.com/_/remote-access",
+		},
+		{
+			name: "When main service has CA data it should be copied to remote access service",
+			mainService: client.Service{
+				Server:                   "https://api.example.com",
+				CertificateAuthorityData: caData,
+				InsecureSkipVerify:       true,
+				TLSServerName:            "myserver",
+			},
+			wantServer: "https://remote-access.example.com",
+		},
+		{
+			name:        "When main service URL is invalid it should return an error",
+			mainService: client.Service{Server: "://bad-url"},
+			wantErr:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := deriveRemoteAccessService(tt.mainService)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantServer, got.Server)
+			assert.Equal(t, tt.mainService.TLSServerName, got.TLSServerName)
+			assert.Equal(t, tt.mainService.CertificateAuthority, got.CertificateAuthority)
+			assert.Equal(t, tt.mainService.CertificateAuthorityData, got.CertificateAuthorityData)
+			assert.Equal(t, tt.mainService.InsecureSkipVerify, got.InsecureSkipVerify)
+		})
+	}
+}
