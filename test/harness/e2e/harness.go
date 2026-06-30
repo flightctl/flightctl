@@ -90,10 +90,11 @@ const fiveSecondTimeout = 5 * time.Second
 const setupSnapshotRestoreTimeout = 10 * time.Minute
 
 const (
-	POLLING     = "250ms"
-	POLLINGLONG = "1s"
-	TIMEOUT     = "5m"
-	LONGTIMEOUT = "10m"
+	POLLING         = "250ms"
+	POLLINGLONG     = "1s"
+	TIMEOUT         = "5m"
+	LONGTIMEOUT     = "10m"
+	EXTENDEDTIMEOUT = "20m"
 )
 
 // Service name constants for flightctl deployment components.

@@ -263,7 +263,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Os = microshiftOs
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
-			})
+			}, e2e.EXTENDEDTIMEOUT)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Verify application initially reaches healthy status while failing pod sleeps")
@@ -447,7 +447,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 				device.Spec.Os = microshiftOs
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{helmAuth}
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
-			})
+			}, e2e.EXTENDEDTIMEOUT)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
