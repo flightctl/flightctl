@@ -1,20 +1,21 @@
 package tasks
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/quadlet"
 )
 
 const (
-	kubevirtVmToPodBinary         = "kubevirt-vm-to-pod"
+	vmToQuadletBinary             = "vm-to-quadlet"
 	vmWorkloadTypeAnnotationKey   = "flightctl.io/workload-type"
 	vmWorkloadTypeAnnotationValue = "vm"
 	vmYamlFileName                = "vm.yaml"
@@ -31,17 +32,19 @@ func truncateStderr(s string) string {
 	return s
 }
 
-// VmConverterFn accepts KubeVirt VM YAML on stdin and returns pod YAML and
-// stderr output. Passed explicitly to renderVmApplication — no package-level
+// VmConverterFn accepts KubeVirt VM YAML on stdin and returns a map of Quadlet
+// unit filename → content, read from the TAR stream that vm-to-quadlet writes
+// to stdout. Passed explicitly to renderVmApplication — no package-level
 // variable is used so tests can inject stubs without sharing state.
-type VmConverterFn func(ctx context.Context, vmYAML []byte) (podYAML []byte, stderr string, err error)
+type VmConverterFn func(ctx context.Context, vmYAML []byte) (files map[string]string, stderr string, err error)
 
-// NewVmConverter returns a VmConverterFn that invokes the kubevirt-vm-to-pod
-// binary at binaryPath. binaryPath may be an absolute path or a bare binary
-// name resolved via PATH. Exported so integration tests can point the converter
-// at a binary extracted to a temporary directory.
+// NewVmConverter returns a VmConverterFn that invokes the vm-to-quadlet binary
+// at binaryPath. The binary reads VM YAML from stdin and writes a TAR archive
+// of Quadlet unit files to stdout. binaryPath may be an absolute path or a
+// bare binary name resolved via PATH. Exported so integration tests can point
+// the converter at a binary extracted to a temporary directory.
 func NewVmConverter(binaryPath string) VmConverterFn {
-	return func(ctx context.Context, vmYAML []byte) ([]byte, string, error) {
+	return func(ctx context.Context, vmYAML []byte) (map[string]string, string, error) {
 		cmd := exec.CommandContext(ctx, binaryPath)
 		cmd.Stdin = bytes.NewReader(vmYAML)
 
@@ -52,56 +55,52 @@ func NewVmConverter(binaryPath string) VmConverterFn {
 		if err := cmd.Run(); err != nil {
 			return nil, stderrBuf.String(), err
 		}
-		return stdoutBuf.Bytes(), stderrBuf.String(), nil
-	}
-}
 
-// defaultVmConverter is the production converter backed by the
-// kubevirt-vm-to-pod binary that must be present in PATH at runtime.
-var defaultVmConverter = NewVmConverter(kubevirtVmToPodBinary)
-
-// buildKubeUnit returns the Quadlet .kube unit file content with Yaml=pod.yaml
-// always set. When kubeContent is non-nil it is parsed and any existing Yaml=
-// directive is overridden; otherwise the minimal default unit is used.
-// Yaml= is always forced to pod.yaml because renderVmApplication always emits
-// the converted pod YAML under that name.
-func buildKubeUnit(kubeContent *string) (string, error) {
-	var u *quadlet.Unit
-	if kubeContent != nil {
-		var err error
-		u, err = quadlet.NewUnit([]byte(*kubeContent))
+		files, err := parseTarFiles(stdoutBuf.Bytes())
 		if err != nil {
-			return "", fmt.Errorf("parsing .kube unit: %w", err)
+			return nil, stderrBuf.String(), fmt.Errorf("parsing vm-to-quadlet output: %w", err)
 		}
-	} else {
-		u = quadlet.NewEmptyUnit()
+		return files, stderrBuf.String(), nil
 	}
-
-	yamlSet := false
-	_ = u.Transform(quadlet.KubeGroup, quadlet.KubeYamlKey, func(_ string) (string, error) {
-		yamlSet = true
-		return "pod.yaml", nil
-	})
-	if !yamlSet {
-		u.Add(quadlet.KubeGroup, quadlet.KubeYamlKey, "pod.yaml")
-	}
-
-	b, err := u.Write()
-	if err != nil {
-		return "", fmt.Errorf("serializing .kube unit: %w", err)
-	}
-	return string(b), nil
 }
+
+// parseTarFiles reads a TAR archive and returns a filename → content map.
+func parseTarFiles(data []byte) (map[string]string, error) {
+	tr := tar.NewReader(bytes.NewReader(data))
+	files := make(map[string]string)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading TAR entry: %w", err)
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("reading TAR entry %q: %w", hdr.Name, err)
+		}
+		files[hdr.Name] = string(content)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("vm-to-quadlet produced no output files")
+	}
+	return files, nil
+}
+
+// defaultVmConverter is the production converter backed by the vm-to-quadlet
+// binary that must be present in PATH at runtime.
+var defaultVmConverter = NewVmConverter(vmToQuadletBinary)
 
 // renderVmApplication converts a VmApplication (inline: provider) into a
 // QuadletApplication by:
 //  1. Extracting vm.yaml from the VmApplication inline set.
 //  2. Checking the KV-store cache (SHA-256 of vm.yaml content); returning
-//     the cached pod.yaml directly on a hit.
-//  3. On a cache miss: invoking the kubevirt-vm-to-pod subprocess via the
+//     the cached Quadlet files directly on a hit.
+//  3. On a cache miss: invoking the vm-to-quadlet subprocess via the
 //     provided converter, then storing the result in the cache.
-//  4. Extracting the .kube file from the inline set (if present) or
-//     generating a minimal default unit.
+//  4. Injecting PublishPort= directives from VmApplication.publishPorts into
+//     the generated .pod unit file.
 //  5. Emitting a QuadletApplication with the flightctl.io/workload-type: vm
 //     annotation so the agent can identify the workload without inspecting
 //     image names.
@@ -119,19 +118,13 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 		return nil, fmt.Errorf("extracting inline spec from vm application: %w", err)
 	}
 
-	// Locate vm.yaml and optional .kube file in the inline set.
+	// Locate vm.yaml in the inline set.
 	var vmYAMLContent *string
-	var kubeContent *string
 	for i := range inlineSpec.Inline {
 		f := &inlineSpec.Inline[i]
-		switch {
-		case f.Path == vmYamlFileName:
+		if f.Path == vmYamlFileName {
 			vmYAMLContent = f.Content
-		case strings.HasSuffix(f.Path, ".kube"):
-			if kubeContent != nil {
-				return nil, fmt.Errorf("VmApplication inline set contains multiple .kube files; only one is allowed")
-			}
-			kubeContent = f.Content
+			break
 		}
 	}
 	if vmYAMLContent == nil {
@@ -141,15 +134,9 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 		return nil, fmt.Errorf("vm.yaml content is empty in VmApplication inline set")
 	}
 
-	podYAMLBytes, err := convertVmYAML(ctx, []byte(*vmYAMLContent), converter, kvStore)
+	quadletFiles, err := convertVmYAML(ctx, []byte(*vmYAMLContent), converter, kvStore)
 	if err != nil {
 		return nil, err
-	}
-
-	podYAMLStr := string(podYAMLBytes)
-	kubeUnit, err := buildKubeUnit(kubeContent)
-	if err != nil {
-		return nil, fmt.Errorf("building .kube unit: %w", err)
 	}
 
 	name := ""
@@ -160,11 +147,16 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 		return nil, fmt.Errorf("VmApplication must have a non-empty name")
 	}
 
-	outInlineSpec := domain.InlineApplicationProviderSpec{
-		Inline: []domain.ApplicationContent{
-			{Path: "pod.yaml", Content: &podYAMLStr},
-			{Path: name + ".kube", Content: &kubeUnit},
-		},
+	var publishPorts []string
+	if vmApp.PublishPorts != nil {
+		publishPorts = *vmApp.PublishPorts
+	}
+	injectPublishPorts(quadletFiles, name, publishPorts)
+
+	inline := make([]domain.ApplicationContent, 0, len(quadletFiles))
+	for filename, content := range quadletFiles {
+		c := content
+		inline = append(inline, domain.ApplicationContent{Path: filename, Content: &c})
 	}
 
 	annotations := map[string]string{vmWorkloadTypeAnnotationKey: vmWorkloadTypeAnnotationValue}
@@ -173,7 +165,7 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 		Name:        vmApp.Name,
 		Annotations: &annotations,
 	}
-	if err := quadlet.FromInlineApplicationProviderSpec(outInlineSpec); err != nil {
+	if err := quadlet.FromInlineApplicationProviderSpec(domain.InlineApplicationProviderSpec{Inline: inline}); err != nil {
 		return nil, fmt.Errorf("building QuadletApplication: %w", err)
 	}
 
@@ -185,20 +177,52 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	return &appSpec, nil
 }
 
-// convertVmYAML converts vm.yaml to pod.yaml using the KV cache and the
-// converter subprocess. On a cache hit the subprocess is skipped entirely.
-func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, kvStore kvstore.KVStore) ([]byte, error) {
-	sum := sha256.Sum256(vmYAML)
-	sha256hex := fmt.Sprintf("%x", sum)
-	cacheKey := (&kvstore.VmPodYamlKey{Sha256: sha256hex}).ComposeKey()
+// injectPublishPorts stamps PublishPort= lines into the {vmName}.pod unit file
+// before the [Install] section.
+func injectPublishPorts(files map[string]string, vmName string, publishPorts []string) {
+	if len(publishPorts) == 0 {
+		return
+	}
+	podFileName := vmName + ".pod"
+	content, ok := files[podFileName]
+	if !ok {
+		return
+	}
+	extra := ""
+	for _, p := range publishPorts {
+		extra += fmt.Sprintf("PublishPort=%s\n", p)
+	}
+	files[podFileName] = insertBeforeSection(content, "Install", extra)
+}
+
+// insertBeforeSection inserts extra lines immediately before the named INI
+// section header. Falls back to appending at the end if the section is not found.
+func insertBeforeSection(content, section, extra string) string {
+	marker := "\n[" + section + "]"
+	idx := strings.Index(content, marker)
+	if idx == -1 {
+		return content + "\n" + extra
+	}
+	return content[:idx] + "\n" + extra + content[idx:]
+}
+
+// convertVmYAML converts vm.yaml to a set of Quadlet unit files using the KV
+// cache and the converter subprocess. On a cache hit the subprocess is skipped
+// entirely. The cached value is a JSON-encoded map[string]string.
+func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, kvStore kvstore.KVStore) (map[string]string, error) {
+	cacheKey := (&kvstore.VmQuadletFilesKey{}).ComposeKey(vmYAML)
 
 	if kvStore != nil {
 		cached, err := kvStore.Get(ctx, cacheKey)
 		if err != nil {
-			return nil, fmt.Errorf("checking vm pod YAML cache: %w", err)
+			return nil, fmt.Errorf("checking vm quadlet files cache: %w", err)
 		}
 		if len(cached) > 0 {
-			return cached, nil
+			var files map[string]string
+			if err := json.Unmarshal(cached, &files); err != nil {
+				return nil, fmt.Errorf("decoding cached vm quadlet files: %w", err)
+			}
+			return files, nil
 		}
 	}
 
@@ -206,19 +230,23 @@ func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, 
 		return nil, fmt.Errorf("vm converter function is required but was not provided")
 	}
 
-	podYAML, stderr, err := converter(ctx, vmYAML)
+	files, stderr, err := converter(ctx, vmYAML)
 	if err != nil {
-		return nil, fmt.Errorf("kubevirt-vm-to-pod: %s: %w", truncateStderr(stderr), err)
+		return nil, fmt.Errorf("vm-to-quadlet: %s: %w", truncateStderr(stderr), err)
 	}
-	if len(podYAML) == 0 {
-		return nil, fmt.Errorf("kubevirt-vm-to-pod produced empty output")
+	if len(files) == 0 {
+		return nil, fmt.Errorf("vm-to-quadlet produced no output files")
 	}
 
 	if kvStore != nil {
-		if _, err := kvStore.SetNX(ctx, cacheKey, podYAML); err != nil {
-			return nil, fmt.Errorf("storing vm pod YAML in cache: %w", err)
+		encoded, err := json.Marshal(files)
+		if err != nil {
+			return nil, fmt.Errorf("encoding vm quadlet files for cache: %w", err)
+		}
+		if _, err := kvStore.SetNX(ctx, cacheKey, encoded); err != nil {
+			return nil, fmt.Errorf("storing vm quadlet files in cache: %w", err)
 		}
 	}
 
-	return podYAML, nil
+	return files, nil
 }

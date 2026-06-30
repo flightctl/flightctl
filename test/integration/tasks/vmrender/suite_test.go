@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	kubevirtVmToPodImageRepo = "flightctl/kubevirt-vm-to-pod-test"
-	kubevirtVmToPodImageTag  = "latest"
+	vmToQuadletImageRepo = "flightctl/vm-to-quadlet-test"
+	vmToQuadletImageTag  = "latest"
 )
 
 var (
@@ -45,11 +45,11 @@ func TestVmRender(t *testing.T) {
 // once (on proc 1). The resulting path is broadcast as []byte to all procs,
 // which each initialise their own vmConverter, Redis connection, and tracer.
 var _ = SynchronizedBeforeSuite(
-	// Proc 1 only: extract the kubevirt-vm-to-pod binary from a container.
+	// Proc 1 only: extract the vm-to-quadlet binary from a container.
 	func(ctx context.Context) []byte {
 		Expect(integrationstack.EnsureRunning(ctx)).To(Succeed())
-		binaryPath, cleanup, err := buildKubevirtVmToPodBinary(ctx)
-		Expect(err).ToNot(HaveOccurred(), "failed to extract kubevirt-vm-to-pod binary")
+		binaryPath, cleanup, err := buildVmToQuadletBinary(ctx)
+		Expect(err).ToNot(HaveOccurred(), "failed to extract vm-to-quadlet binary")
 		vmBinaryCleanup = cleanup
 		return []byte(binaryPath)
 	},
@@ -82,13 +82,12 @@ var _ = SynchronizedAfterSuite(
 	},
 )
 
-// buildKubevirtVmToPodBinary builds the kubevirt-vm-to-pod image from the
-// Containerfile.kubevirt-vm-to-pod that lives alongside this test (same
-// ubi9/go-toolset base as the production worker). The built image is kept so
-// subsequent runs skip the build. The binary is copied out of the running
-// container via CopyFileFromContainer, written to a temp directory, and the
-// container is terminated. Returns the absolute binary path and a cleanup func.
-func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
+// buildVmToQuadletBinary builds the vm-to-quadlet image from the
+// Containerfile.vm-to-quadlet that lives alongside this test. The built image
+// is kept so subsequent runs skip the build. The binary is copied out of the
+// running container via CopyFileFromContainer, written to a temp directory, and
+// the container is terminated. Returns the absolute binary path and a cleanup func.
+func buildVmToQuadletBinary(ctx context.Context) (string, func(), error) {
 	containers.ConfigureDockerHost()
 
 	req := testcontainers.ContainerRequest{
@@ -96,9 +95,9 @@ func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
 			// The Containerfile lives alongside this test file; Go tests run
 			// with cwd set to the package directory.
 			Context:    ".",
-			Dockerfile: "Containerfile.kubevirt-vm-to-pod",
-			Repo:       kubevirtVmToPodImageRepo,
-			Tag:        kubevirtVmToPodImageTag,
+			Dockerfile: "Containerfile.vm-to-quadlet",
+			Repo:       vmToQuadletImageRepo,
+			Tag:        vmToQuadletImageTag,
 			KeepImage:  true, // reuse across test runs; rebuilds only on Containerfile changes
 		},
 		// Keep the container alive so CopyFileFromContainer can read from it.
@@ -110,11 +109,11 @@ func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
 		Started:          true,
 	})
 	if err != nil {
-		return "", nil, fmt.Errorf("start kubevirt-vm-to-pod container: %w", err)
+		return "", nil, fmt.Errorf("start vm-to-quadlet container: %w", err)
 	}
 	cleanup := func() { _ = c.Terminate(ctx) }
 
-	rc, err := c.CopyFileFromContainer(ctx, "/usr/local/bin/kubevirt-vm-to-pod")
+	rc, err := c.CopyFileFromContainer(ctx, "/usr/local/bin/vm-to-quadlet")
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("copy binary from container: %w", err)
@@ -126,7 +125,7 @@ func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
 		return "", nil, fmt.Errorf("read binary: %w", err)
 	}
 
-	tmpDir, err := os.MkdirTemp("", "flightctl-kubevirt-vm-to-pod-*")
+	tmpDir, err := os.MkdirTemp("", "flightctl-vm-to-quadlet-*")
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("create temp dir: %w", err)
@@ -136,7 +135,7 @@ func buildKubevirtVmToPodBinary(ctx context.Context) (string, func(), error) {
 		_ = os.RemoveAll(tmpDir)
 	}
 
-	binaryPath := filepath.Join(tmpDir, "kubevirt-vm-to-pod")
+	binaryPath := filepath.Join(tmpDir, "vm-to-quadlet")
 	if err := os.WriteFile(binaryPath, data, 0700); err != nil { //nolint:gosec // executable binary requires execute permission
 		combinedCleanup()
 		return "", nil, fmt.Errorf("write binary: %w", err)
