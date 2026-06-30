@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -332,9 +333,6 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if errs := newCSR.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if err := h.validateAllowedSignersForCSRService(&csr); err != nil {
-		return nil, domain.StatusBadRequest(err.Error())
-	}
 	if name != *newCSR.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
@@ -362,6 +360,10 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	oldCSR, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+	}
+
+	if err := checkServerSvcApprovalPrivilege(ctx, oldCSR.Spec.SignerName, h.ca.Cfg.ServerSvcSignerName); err != nil {
+		return nil, domain.StatusForbidden(err.Error())
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
@@ -436,9 +438,22 @@ func populateConditionTimestamps(newCSR, oldCSR *domain.CertificateSigningReques
 	}
 }
 
+func checkServerSvcApprovalPrivilege(ctx context.Context, signerName, serverSvcSignerName string) error {
+	if signerName == serverSvcSignerName {
+		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok || !mappedIdentity.IsSuperAdmin() {
+			return fmt.Errorf("approving or denying CSRs with signer name %q requires super-admin privileges", signerName)
+		}
+	}
+	return nil
+}
+
 func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.CertificateSigningRequest) error {
 	if csr.Spec.SignerName == h.ca.Cfg.DeviceManagementSignerName {
 		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
+	}
+	if csr.Spec.SignerName == h.ca.Cfg.ServerSvcSignerName {
+		return fmt.Errorf("signer name %q requires super-admin privileges", csr.Spec.SignerName)
 	}
 	return nil
 }

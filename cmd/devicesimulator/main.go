@@ -77,6 +77,7 @@ func main() {
 	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of source IP addresses for device management HTTP connections")
 	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
 	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
+	skipAutoApprove := pflag.Bool("skip-auto-approve", false, "do not auto-approve enrollment requests (agents wait for manual approval)")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
@@ -177,6 +178,7 @@ func main() {
 		agentConfigTemplate: agentConfigTemplate,
 		parsedSourceIPs:     parsedSourceIPs,
 		maxConcurrency:      *maxConcurrency,
+		simulatorLabels:     formattedLables,
 	})
 
 	sigShutdown := make(chan os.Signal, 1)
@@ -206,6 +208,7 @@ func main() {
 		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
+		skipAutoApprove: *skipAutoApprove,
 	}
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
@@ -237,7 +240,31 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 	// leave the agent process running in the background
 	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
 	go startAgent(ctx, params.agents[i], params.log, i)
+	if params.skipAutoApprove {
+		waitForEnrollmentRequest(ctx, params.log, params.agentFolders[i])
+		return
+	}
 	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+}
+
+func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
+		log.Infof("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
+		bannerFileData, err := readBannerFile(agentDir)
+		if err != nil {
+			return false, nil
+		}
+		enrollmentID := testutil.GetEnrollmentIdFromText(bannerFileData)
+		if enrollmentID == "" {
+			log.Warnf("No enrollment id found in banner file %s", bannerFileData)
+			return false, nil
+		}
+		log.Infof("Enrollment request visible for agent %s (id: %s)", filepath.Base(agentDir), enrollmentID)
+		return true, nil
+	})
+	if err != nil && ctx.Err() == nil {
+		log.Errorf("Error waiting for enrollment request: %v", err)
+	}
 }
 
 func reportVersion(versionFormat *string) error {
@@ -336,6 +363,7 @@ type createAgentsConfig struct {
 	agentConfigTemplate *agent_config.Config
 	parsedSourceIPs     []net.IP
 	maxConcurrency      int
+	simulatorLabels     *map[string]string
 }
 
 type agentLaunchParams struct {
@@ -346,6 +374,7 @@ type agentLaunchParams struct {
 	formattedLabels *map[string]string
 	sem             *semaphore.Weighted
 	jitterDuration  time.Duration
+	skipAutoApprove bool
 }
 
 func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
@@ -382,6 +411,11 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 		copyAgentFiles(logger, certDir, agentDir)
 
 		cfg := agent_config.NewDefault()
+		if agentCfg.simulatorLabels != nil {
+			for k, v := range *agentCfg.simulatorLabels {
+				cfg.DefaultLabels[k] = v
+			}
+		}
 		cfg.DefaultLabels["alias"] = agentName
 		cfg.ConfigDir = agent_config.DefaultConfigDir
 		cfg.DataDir = agent_config.DefaultConfigDir
