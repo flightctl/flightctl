@@ -5401,14 +5401,23 @@ components:
 
     VmApplication:
       type: object
-      description: >
+      description: >-
         A VM workload managed by the FlightCtl agent. The VM definition may be
         delivered either as an OCI image/artifact or as inline application content.
         For inline providers, the package must contain a KubeVirt VirtualMachine YAML
-        file named vm.yaml. An optional Quadlet unit override file (*.kube) may also
-        be included, following the same application package model as QuadletApplication.
+        file named vm.yaml.
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
+        - type: object
+          properties:
+            publishPorts:
+              type: array
+              description: >-
+                List of host-to-guest port mappings for the VM. Each entry must follow
+                the format "hostPort:guestPort" or "hostPort:guestPort/protocol"
+                (e.g. "8080:80" or "8080:80/tcp").
+              items:
+                type: string
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'

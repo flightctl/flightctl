@@ -3181,8 +3181,11 @@ type VmApplication struct {
 	AppType AppType `json:"appType"`
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
-	Name  *string `json:"name,omitempty"`
-	union json.RawMessage
+	Name *string `json:"name,omitempty"`
+
+	// PublishPorts List of host-to-guest port mappings for the VM. Each entry must follow the format "hostPort:guestPort" or "hostPort:guestPort/protocol" (e.g. "8080:80" or "8080:80/tcp").
+	PublishPorts *[]string `json:"publishPorts,omitempty"`
+	union        json.RawMessage
 }
 
 // VolumeMount Mount configuration for a volume.
@@ -6161,6 +6164,13 @@ func (t VmApplication) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("error marshaling 'name': %w", err)
 		}
 	}
+
+	if t.PublishPorts != nil {
+		object["publishPorts"], err = json.Marshal(t.PublishPorts)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'publishPorts': %w", err)
+		}
+	}
 	b, err = json.Marshal(object)
 	return b, err
 }
@@ -6194,6 +6204,13 @@ func (t *VmApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["publishPorts"]; found {
+		err = json.Unmarshal(raw, &t.PublishPorts)
+		if err != nil {
+			return fmt.Errorf("error reading 'publishPorts': %w", err)
 		}
 	}
 

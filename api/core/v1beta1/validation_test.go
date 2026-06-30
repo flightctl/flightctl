@@ -2647,16 +2647,6 @@ func TestValidateVmApplication(t *testing.T) {
 				})
 			},
 		},
-		{
-			name: "When inline has valid vm.yaml and one .kube file it should be valid",
-			app: func(t *testing.T) ApplicationProviderSpec {
-				return newTestVmInlineApp(t, "my-vm", map[string]string{
-					"vm.yaml":    validVmYaml("my-vm"),
-					"my-vm.kube": "[Kube]\nYaml=vm.yaml\n",
-				})
-			},
-		},
-
 		// ── Image provider — valid path ───────────────────────────────────
 		{
 			name: "When image provider has valid OCI reference it should be valid",
