@@ -142,7 +142,7 @@ help:
 publish: build-containers
 	hack/publish_containers.sh
 
-generate:
+generate: generate-mirror-embed
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
 generate-proto:
@@ -233,7 +233,23 @@ build-devicesimulator: bin
 build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
-build-mirror-images: bin
+MIRROR_EMBED_SOURCES := deploy/helm/helm-chart-opts.yaml \
+	deploy/helm/flightctl/Chart.yaml \
+	packaging/images/el9/images.yaml \
+	packaging/images/el10/images.yaml \
+	packaging/images/rhel9/images.yaml \
+	packaging/images/rhel10/images.yaml \
+	packaging/rpm/flightctl.spec
+
+MIRROR_EMBED_OUT := scripts/air-gap/mirror-images/embedded_data_generated.go
+
+$(MIRROR_EMBED_OUT): $(MIRROR_EMBED_SOURCES)
+	@echo "  GEN     $(MIRROR_EMBED_OUT)"
+	go run ./scripts/air-gap/generate-embed/ $(MIRROR_EMBED_SOURCES) > $(MIRROR_EMBED_OUT).tmp && mv $(MIRROR_EMBED_OUT).tmp $(MIRROR_EMBED_OUT)
+
+generate-mirror-embed: $(MIRROR_EMBED_OUT)
+
+build-mirror-images: generate-mirror-embed bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN)/flightctl-mirror-images ./scripts/air-gap/mirror-images
 
 # Container builds - Environment-aware caching
@@ -400,7 +416,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access build-mirror-images
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
