@@ -30,6 +30,61 @@ func sanitizeSchemaError(err error) string {
 	return errMsg
 }
 
+// normalizeAuthProviderURLs normalizes URL fields in auth provider specs before storing.
+// This ensures consistent URL representation (e.g. no trailing slashes on issuer identifiers).
+func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
+	discriminator, err := spec.Discriminator()
+	if err != nil {
+		// Unknown or malformed provider type — skip normalization. Validation (called after this)
+		// will reject the spec with a descriptive error, so surfacing the discriminator error here
+		// would only add noise.
+		return nil
+	}
+
+	switch discriminator {
+	case string(domain.Oidc):
+		oidcSpec, err := spec.AsOIDCProviderSpec()
+		if err != nil {
+			return fmt.Errorf("invalid OIDC provider spec: %w", err)
+		}
+		if oidcSpec.Issuer != "" {
+			normalized, err := authprovider.NormalizeIssuerURL(oidcSpec.Issuer)
+			if err != nil {
+				return fmt.Errorf("invalid OIDC issuer URL: %w", err)
+			}
+			oidcSpec.Issuer = normalized
+		}
+		if mergeErr := spec.MergeOIDCProviderSpec(oidcSpec); mergeErr != nil {
+			return fmt.Errorf("failed to update OIDC provider spec: %w", mergeErr)
+		}
+
+	case string(domain.Oauth2):
+		oauth2Spec, err := spec.AsOAuth2ProviderSpec()
+		if err != nil {
+			return fmt.Errorf("invalid OAuth2 provider spec: %w", err)
+		}
+		if oauth2Spec.AuthorizationUrl != "" {
+			normalized, err := authprovider.NormalizeIssuerURL(oauth2Spec.AuthorizationUrl)
+			if err != nil {
+				return fmt.Errorf("invalid OAuth2 authorizationUrl: %w", err)
+			}
+			oauth2Spec.AuthorizationUrl = normalized
+		}
+		if oauth2Spec.Issuer != nil && *oauth2Spec.Issuer != "" {
+			normalized, err := authprovider.NormalizeIssuerURL(*oauth2Spec.Issuer)
+			if err != nil {
+				return fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
+			}
+			oauth2Spec.Issuer = &normalized
+		}
+		if mergeErr := spec.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
+			return fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr)
+		}
+	}
+
+	return nil
+}
+
 // applyAuthProviderDefaults applies default values to auth provider specs during creation.
 // This includes setting UsernameClaim for OIDC and OAuth2 providers, Issuer for OAuth2,
 // and inferring Introspection for OAuth2 if not provided.
@@ -111,6 +166,11 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 
 	// don't set fields that are managed by the service
 	NilOutManagedObjectMetaProperties(&authProvider.Metadata)
+
+	// Normalize URL fields before applying defaults so defaults inherit the normalized form
+	if err := normalizeAuthProviderURLs(&authProvider.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
+	}
 
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
@@ -200,6 +260,14 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	// Normalize URL fields before validation.
+	// Note: if the resource does not exist, this delegates to CreateAuthProvider which also calls
+	// normalizeAuthProviderURLs. The function is idempotent (normalizing an already-normalized URL
+	// is a no-op), so the double call is safe.
+	if err := normalizeAuthProviderURLs(&authProvider.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
+	}
+
 	// Get the existing resource to perform update validation
 	currentObj, err := h.store.AuthProvider().Get(ctx, orgId, name)
 	if err == nil {
@@ -237,6 +305,11 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	// Forbid changing metadata.name via PATCH
 	if currentObj.Metadata.Name != nil && newObj.Metadata.Name != nil && *currentObj.Metadata.Name != *newObj.Metadata.Name {
 		return nil, domain.StatusBadRequest("metadata.name cannot be changed")
+	}
+
+	// Normalize URL fields before validation
+	if err := normalizeAuthProviderURLs(&newObj.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}
 
 	// Use ValidateUpdate to prevent deletion of required fields
