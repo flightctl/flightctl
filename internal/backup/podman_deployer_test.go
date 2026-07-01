@@ -171,7 +171,7 @@ func TestPodmanDeployer_BackupDatabase_DBNameOverride(t *testing.T) {
 }
 
 func TestPodmanDeployer_BackupDatabase_DBPortOverride(t *testing.T) {
-	log, _ := test.NewNullLogger()
+	log := logrus.New()
 	cfgPath := writeServiceConfig(t, internalDBServiceConfig())
 	outputDir := t.TempDir()
 	argsPath := filepath.Join(t.TempDir(), "container-cli-args")

@@ -1127,6 +1127,7 @@ func redactAuthProviderCredentials(output string, exactValues ...string) string 
 		regexp.MustCompile(`(?i)\b((?:[A-Z_]*USERNAME|[A-Z_]*PASSWORD|authProviderUsername|authProviderPassword)\b[[:space:]]*[:=][[:space:]]*)("[^"]*"|'[^']*'|[^[:space:]]+)`),
 		regexp.MustCompile(`(?i)([[:space:]]-[up][[:space:]]+)([^[:space:]]+)`),
 		regexp.MustCompile(`(?i)(--(?:username|password)(?:=|[[:space:]]+))([^[:space:]]+)`),
+		regexp.MustCompile(`(?i)([?&](?:access_token|code|id_token|nonce|refresh_token|session_state|state|token)=)([^&#[:space:]]+)`),
 	}
 	for _, pattern := range patterns {
 		redacted = pattern.ReplaceAllString(redacted, `${1}<REDACTED>`)
@@ -1152,7 +1153,7 @@ func fillKeycloakLoginForm(ctx context.Context, authURL, username, password stri
 	browserCtx, cancelTimeout := context.WithTimeout(browserCtx, chromedpTimeout)
 	defer cancelTimeout()
 
-	logrus.Infof("[authprovider] chromedp navigating to Keycloak login (headless=%v): %s", headless, authURL)
+	logrus.Infof("[authprovider] chromedp navigating to Keycloak login (headless=%v): %s", headless, sanitizedAuthURLForLog(authURL))
 	return chromedp.Run(browserCtx,
 		chromedp.Navigate(authURL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
@@ -1179,6 +1180,17 @@ func fillKeycloakLoginForm(ctx context.Context, authURL, username, password stri
 			}
 		}),
 	)
+}
+
+// sanitizedAuthURLForLog returns the auth URL origin/path without OAuth query or fragment session data.
+func sanitizedAuthURLForLog(authURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(authURL))
+	if err != nil {
+		return "<invalid auth URL>"
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 // resolveCypressScriptPath resolves the configured Cypress harness path to an executable file.
@@ -1266,7 +1278,9 @@ func buildOAuth2AuthProviderForDeployment(
 	}
 	pamProvider, err := findPAMOIDCProvider(authConfig)
 	if err != nil {
-		fmt.Fprintf(GinkgoWriter, "[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v\n", err)
+		if _, writeErr := fmt.Fprintf(GinkgoWriter, "[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v\n", err); writeErr != nil {
+			logrus.Warnf("[authprovider] failed to write provider selection message: %v", writeErr)
+		}
 		return keycloakYAML, false, nil
 	}
 	pamSpec, err := pamProvider.Spec.AsOIDCProviderSpec()

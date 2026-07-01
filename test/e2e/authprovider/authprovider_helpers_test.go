@@ -136,6 +136,32 @@ func TestIsPAMIssuer(t *testing.T) {
 	}
 }
 
+func TestSanitizedAuthURLForLog(t *testing.T) {
+	require.Equal(t,
+		"https://keycloak.example.com/realms/e2e/protocol/openid-connect/auth",
+		sanitizedAuthURLForLog("https://keycloak.example.com/realms/e2e/protocol/openid-connect/auth?state=sensitive&nonce=secret#fragment"),
+	)
+	require.Equal(t, "<invalid auth URL>", sanitizedAuthURLForLog("://bad-url"))
+}
+
+func TestRedactAuthProviderCredentialsRedactsOAuthURLSecrets(t *testing.T) {
+	output := `Please open this URL in your browser: https://keycloak.example.com/auth?client_id=flightctl&state=abc123&nonce=def456&code=ghi789
+callback: http://localhost:8080/callback?session_state=session-secret&access_token=token-secret`
+
+	redacted := redactAuthProviderCredentials(output)
+
+	require.NotContains(t, redacted, "abc123")
+	require.NotContains(t, redacted, "def456")
+	require.NotContains(t, redacted, "ghi789")
+	require.NotContains(t, redacted, "session-secret")
+	require.NotContains(t, redacted, "token-secret")
+	require.Contains(t, redacted, "state=<REDACTED>")
+	require.Contains(t, redacted, "nonce=<REDACTED>")
+	require.Contains(t, redacted, "code=<REDACTED>")
+	require.Contains(t, redacted, "session_state=<REDACTED>")
+	require.Contains(t, redacted, "access_token=<REDACTED>")
+}
+
 // authConfigServer serves the given AuthConfig at the path used by the CLI auth config endpoint.
 func authConfigServer(t *testing.T, authConfig api.AuthConfig) *httptest.Server {
 	t.Helper()
