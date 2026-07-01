@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -89,7 +90,6 @@ var _ = Describe("Dependency Sync", Label("dependency-sync"), func() {
 		p := setup.GetDefaultProviders()
 		Expect(p).ToNot(BeNil(), "infra providers must be initialized")
 		releaseNamespace = p.Infra.GetExternalNamespace()
-		Expect(releaseNamespace).ToNot(BeEmpty(), "could not resolve release namespace")
 		secretNamespace = p.Infra.GetInternalNamespace()
 		if secretNamespace == "" {
 			secretNamespace = releaseNamespace
@@ -351,6 +351,7 @@ var _ = Describe("Dependency Sync", Label("dependency-sync"), func() {
 		})
 
 		It("should create a new TV and update device fingerprint when a K8s secret is updated", Label("89094", "sanity", "agent"), func() {
+			infra.SkipIfNotK8s("K8s secret sync requires Kubernetes")
 			fleetName := fmt.Sprintf("dep-sync-secret-fleet-%s", testID)
 			secretName := fmt.Sprintf("dep-sync-secret-%s", testID)
 
@@ -405,6 +406,7 @@ var _ = Describe("Dependency Sync", Label("dependency-sync"), func() {
 		})
 
 		It("should re-render a standalone device when a K8s secret is updated", Label("89321", "sanity", "agent"), func() {
+			infra.SkipIfNotK8s("K8s secret sync requires Kubernetes")
 			secretName := fmt.Sprintf("ds-secret-sa-%s", testID)
 
 			By("creating a K8s secret for the test")

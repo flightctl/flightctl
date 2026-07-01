@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 // ErrExternalDatabase is returned when an external database is detected.
@@ -138,38 +139,28 @@ func ValidateDeploymentType(s string) error {
 }
 
 
-// isInternalDB returns true if the database is internal (managed by FlightCtl deployment).
-// Internal databases have hostnames: localhost, 127.0.0.1, flightctl-db, or flightctl-db.<namespace>
-// patterns (including full DNS like flightctl-db.flightctl-internal.svc.cluster.local).
-// External databases (any other hostname) must be backed up separately by the user.
-func isInternalDB(cfg *config.Config) bool {
-	if cfg == nil || cfg.Database == nil {
-		return false
-	}
-
-	hostname := cfg.Database.Hostname
-	switch hostname {
-	case "localhost", "127.0.0.1", "flightctl-db":
-		return true
-	default:
-		// Support flightctl-db in Kubernetes:
-		// - flightctl-db.<namespace> (single namespace segment)
-		// - flightctl-db.<namespace>.svc.cluster.local (full cluster DNS)
-		// Reject anything else like flightctl-db.evil.com
-		if strings.HasPrefix(hostname, "flightctl-db.") {
-			suffix := strings.TrimPrefix(hostname, "flightctl-db.")
-			// Check if it's full cluster DNS (ends with .svc.cluster.local)
-			if strings.HasSuffix(suffix, ".svc.cluster.local") {
-				return true
-			}
-			// Check if it's a simple namespace (no additional dots)
-			if !strings.Contains(suffix, ".") {
-				return true
-			}
-		}
-		return false
-	}
+// serviceConfigDB holds the db section parsed from a raw service-config.yaml.
+// The service-config.yaml uses the top-level key "db" (not "database"), which
+// does not map to config.Config.Database (JSON tag "database").
+type serviceConfigDB struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
 }
+
+// parseServiceConfigDB parses the db section from a raw service-config.yaml.
+func parseServiceConfigDB(data []byte, log logrus.FieldLogger) serviceConfigDB {
+	var root struct {
+		DB serviceConfigDB `json:"db"`
+	}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		log.Warnf("Failed to parse db section from service-config.yaml: %v", err)
+		return serviceConfigDB{}
+	}
+	root.DB.Type = strings.ToLower(strings.TrimSpace(root.DB.Type))
+	log.Debugf("Parsed db section from service-config.yaml: type=%q name=%q", root.DB.Type, root.DB.Name)
+	return root.DB
+}
+
 
 // podmanServiceIsActive returns true if the FlightCtl Podman service is running.
 // Tries systemctl directly, then falls back to sudo systemctl — matching the

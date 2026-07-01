@@ -7,9 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,6 +18,8 @@ type PodmanDeployer struct {
 	serviceConfigPath string // Optional: if empty, defaults to "/etc/flightctl/service-config.yaml"
 	dbContainerName   string
 	dbName            string
+	dbUser            string
+	dbPassword        string
 	containerCLI      string
 	kvContainerName   string
 }
@@ -63,6 +63,22 @@ func WithContainerCLI(cli string) PodmanDeployerOption {
 	}
 }
 
+// WithDBUser overrides the database user for pg_dump.
+// When empty, the container's $POSTGRESQL_USER env var is used.
+func WithDBUser(user string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbUser = user
+	}
+}
+
+// WithDBPassword overrides the database password for pg_dump.
+// When empty, the container's $PGPASSWORD env var is used.
+func WithDBPassword(password string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.dbPassword = password
+	}
+}
+
 // WithKVContainerName sets the KV container name (reserved for future use).
 func WithKVContainerName(name string) PodmanDeployerOption {
 	return func(d *PodmanDeployer) {
@@ -95,6 +111,9 @@ func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *Po
 	if d.kvContainerName == "" {
 		d.kvContainerName = "flightctl-kv"
 	}
+	if d.dbUser == "" {
+		d.dbUser = "flightctl_app"
+	}
 	return d
 }
 
@@ -108,13 +127,13 @@ func (p *PodmanDeployer) Type() DeploymentType {
 // For internal databases, executes pg_dump via podman exec and writes dump to <outputDir>/db/dump.sql.
 // For external databases, returns ErrExternalDatabase without creating a backup.
 func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) error {
-	cfg, err := config.Load(p.serviceConfigPath)
+	rawCfg, err := os.ReadFile(p.serviceConfigPath)
 	if err != nil {
-		return fmt.Errorf("failed to load service configuration from %s: %w", p.serviceConfigPath, err)
+		return fmt.Errorf("failed to read service configuration from %s: %w", p.serviceConfigPath, err)
 	}
 
-	// Check if database is external
-	if !isInternalDB(cfg) {
+	dbCfg := parseServiceConfigDB(rawCfg, p.log)
+	if dbCfg.Type == "external" {
 		return ErrExternalDatabase
 	}
 
@@ -126,10 +145,7 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 
 	p.log.Infof("Starting database backup from container %s...", p.dbContainerName)
 
-	// Build password from config
-	password := string(cfg.Database.Password)
-
-	dbName := cfg.Database.Name
+	dbName := dbCfg.Name
 	if p.dbName != "" {
 		dbName = p.dbName
 	}
@@ -144,16 +160,14 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 
 	// Execute pg_dump inside the container with password from stdin and safely escaped parameters.
 	// Output streams directly to dump file.
-	// Use shell escaping to prevent injection attacks from user/database names.
-	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p %s -U %s -d %s",
-		ShellEscape(strconv.Itoa(int(cfg.Database.Port))),
-		ShellEscape(cfg.Database.User),
+	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p 5432 -U %s -d %s",
+		ShellEscape(p.dbUser),
 		ShellEscape(dbName))
 
 	cmd := exec.CommandContext(ctx, p.containerCLI, "exec", "-i", p.dbContainerName, "sh", "-c", pgDumpCmd)
 
 	// Pass password via stdin to avoid exposing it in process argv
-	cmd.Stdin = bytes.NewReader([]byte(password))
+	cmd.Stdin = bytes.NewReader([]byte(p.dbPassword))
 
 	// Stream stdout (SQL dump) directly to file and capture stderr
 	cmd.Stdout = outFile

@@ -10,7 +10,6 @@ Image={{ .RemoteAccess.Image }}:{{ .RemoteAccess.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
-User=1001
 EnvironmentFile=/etc/flightctl/flightctl-remote-access/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
@@ -20,6 +19,7 @@ Volume=/etc/flightctl/pki/flightctl-remote-access/server.crt:/root/.flightctl/ce
 Volume=/etc/flightctl/pki/flightctl-remote-access/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/flightctl-remote-access/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
 [Service]
 Restart=always

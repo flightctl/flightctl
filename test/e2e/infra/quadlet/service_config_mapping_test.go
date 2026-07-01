@@ -320,6 +320,54 @@ vulnerabilityReporting:
 	}
 }
 
+// TestApplyServiceConfigMappings_DependenciesSync verifies that the dependenciesSync
+// section is correctly extracted from per-service config into service-config.yaml updates.
+// Equivalent to TestApplyServiceConfigMappings_VulnerabilityReporting for the dependenciesSync mapping.
+func TestApplyServiceConfigMappings_DependenciesSync(t *testing.T) {
+	configYAML := `
+dependenciesSync:
+  pollInterval: 30s
+`
+	updates, err := applyServiceConfigMappings(infra.ServicePeriodic, configYAML)
+	require.NoError(t, err)
+	require.NotNil(t, updates)
+
+	section, ok := updates["dependenciesSync"].(map[string]interface{})
+	require.True(t, ok, "updates should contain dependenciesSync")
+	assert.Equal(t, "30s", section["pollInterval"])
+}
+
+// TestApplyServiceConfigMappings_DependenciesSyncDeletion verifies that an explicit null
+// for dependenciesSync signals deletion from service-config.yaml.
+// Equivalent to TestApplyServiceConfigMappings_VulnerabilityReportingDeletion for the dependenciesSync mapping.
+func TestApplyServiceConfigMappings_DependenciesSyncDeletion(t *testing.T) {
+	configYAML := `
+dependenciesSync: null
+`
+	updates, err := applyServiceConfigMappings(infra.ServicePeriodic, configYAML)
+	require.NoError(t, err)
+	require.NotNil(t, updates, "should return updates map")
+
+	value, exists := updates["dependenciesSync"]
+	require.True(t, exists, "updates should contain dependenciesSync key")
+	assert.Nil(t, value, "value should be nil to signal deletion")
+}
+
+// TestApplyServiceConfigMappings_DependenciesSyncMissing verifies that a missing
+// dependenciesSync key does not appear in updates, leaving the existing value unchanged.
+// Equivalent to TestApplyServiceConfigMappings_VulnerabilityReportingMissing for the dependenciesSync mapping.
+func TestApplyServiceConfigMappings_DependenciesSyncMissing(t *testing.T) {
+	configYAML := `
+database: {}
+`
+	updates, err := applyServiceConfigMappings(infra.ServicePeriodic, configYAML)
+	require.NoError(t, err)
+	require.NotNil(t, updates, "should return updates map (possibly empty)")
+
+	_, exists := updates["dependenciesSync"]
+	assert.False(t, exists, "missing key should not be in updates")
+}
+
 func TestApplyServiceConfigMappings_VulnerabilityReportingDeletion(t *testing.T) {
 	// When vulnerabilityReporting key is explicitly set to null, the mapping
 	// should return nil for that key to signal deletion from service-config.yaml.

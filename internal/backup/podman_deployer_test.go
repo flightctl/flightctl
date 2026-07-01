@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -20,16 +21,7 @@ func writeServiceConfig(t *testing.T, cfg *config.Config) string {
 	return path
 }
 
-// externalDBServiceConfig returns a config with an external database hostname.
-func externalDBServiceConfig() *config.Config {
-	cfg := config.NewDefault()
-	cfg.Database.Hostname = "db.example.com"
-	cfg.Database.Port = 5432
-	cfg.Database.User = "testuser"
-	cfg.Database.Name = "testdb"
-	cfg.Database.Password = "testpass"
-	return cfg
-}
+const testDBPassword api.SecureString = "x-not-a-real-credential" //nolint:gosec // G101: throwaway test value
 
 // internalDBServiceConfig returns a config with an internal (localhost) database hostname.
 func internalDBServiceConfig() *config.Config {
@@ -38,13 +30,20 @@ func internalDBServiceConfig() *config.Config {
 	cfg.Database.Port = 5432
 	cfg.Database.User = "flightctl"
 	cfg.Database.Name = "flightctl"
-	cfg.Database.Password = "password"
+	cfg.Database.Password = testDBPassword
 	return cfg
 }
 
 func TestPodmanDeployer_BackupDatabase_ExternalDB(t *testing.T) {
 	log, _ := test.NewNullLogger()
-	cfgPath := writeServiceConfig(t, externalDBServiceConfig())
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "service-config.yaml")
+	rawYAML := `db:
+  type: "external"
+  name: flightctl
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(rawYAML), 0600))
 
 	deployer := NewPodmanDeployer(log, WithServiceConfigPath(cfgPath))
 	ctx := context.Background()
@@ -113,7 +112,7 @@ func TestPodmanDeployer_BackupDatabase_CommandConstruction(t *testing.T) {
 			cfg.Database.Port = tt.port
 			cfg.Database.User = tt.user
 			cfg.Database.Name = tt.dbname
-			cfg.Database.Password = "testpass"
+			cfg.Database.Password = testDBPassword
 			cfgPath := writeServiceConfig(t, cfg)
 
 			log, _ := test.NewNullLogger()
@@ -180,7 +179,7 @@ func TestPodmanDeployer_BackupDatabase_MissingServiceConfig(t *testing.T) {
 	err := deployer.BackupDatabase(ctx, outputDir)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to load service configuration")
+	require.Contains(t, err.Error(), "failed to read service configuration")
 }
 
 func TestPodmanDeployer_BackupPKI_Success(t *testing.T) {

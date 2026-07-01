@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
+	"github.com/flightctl/flightctl/test/e2e/infra/quadlet"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,17 +24,82 @@ const (
 	EVENTTIMEOUT  = "4m"
 
 	fastPollInterval = 30 * time.Second
+
+	// periodicTemplatePath is the host path for the periodic service's config template.
+	// ExecStartPre renders this template on every service start/restart.
+	periodicTemplatePath = "/usr/share/flightctl/flightctl-periodic/config.yaml.template"
+
+	// dependenciesSyncTemplateBlock is a Go template block appended to the periodic
+	// config template so that ExecStartPre renders dependenciesSync from service-config.yaml.
+	dependenciesSyncTemplateBlock = `{{- if .dependenciesSync}}
+dependenciesSync:
+  pollInterval: {{if .dependenciesSync.pollInterval}}{{.dependenciesSync.pollInterval}}{{else}}15m{{end}}
+{{- end}}
+`
 )
 
 var (
-	auxSvcs            *auxiliary.Services
-	originalConfigYAML string
+	auxSvcs                 *auxiliary.Services
+	originalConfigYAML      string
+	originalTemplateContent string
 )
 
 func TestDependencySync(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Dependency Sync E2E Suite")
 }
+
+var _ = SynchronizedBeforeSuite(func() []byte {
+	ctx := context.Background()
+	auxSvcs = auxiliary.Get(ctx)
+
+	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
+	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
+	auxSvcs.FileServer = fileServerSvcs.FileServer
+
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+
+	// On quadlets, the periodic config template does not include a dependenciesSync
+	// section, so ExecStartPre (which re-renders the template on every restart)
+	// would drop the patched poll interval. Patch the template before restarting.
+	providers := setup.GetDefaultProviders()
+	if providers.Infra.GetEnvironmentType() == infra.EnvironmentQuadlet {
+		Expect(managePeriodicTemplate(providers, true)).To(Succeed(), "patch periodic template for quadlet")
+	}
+
+	originalConfigYAML, err = patchPollInterval(fastPollInterval)
+	Expect(err).ToNot(HaveOccurred(), "patchPollInterval must succeed; tests assume a 30s poll interval")
+	GinkgoWriter.Printf("Lowered dependency sync poll interval to %v\n", fastPollInterval)
+	return []byte(originalConfigYAML)
+}, func(data []byte) {
+	originalConfigYAML = string(data)
+	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = SynchronizedAfterSuite(func() {
+}, func() {
+	// Restore the original periodic template on quadlets first, before
+	// restorePollInterval which restarts the service. If restore runs after
+	// and fails (e.g. restart timeout), the patched template stays on the
+	// host permanently — every future periodic restart would render a
+	// dependenciesSync section that was never part of the original deployment.
+	providers := setup.GetDefaultProviders()
+	if providers != nil && providers.Infra.GetEnvironmentType() == infra.EnvironmentQuadlet {
+		if err := managePeriodicTemplate(providers, false); err != nil {
+			GinkgoWriter.Printf("WARNING: failed to restore periodic template: %v\n", err)
+		}
+	}
+
+	err := restorePollInterval(originalConfigYAML)
+	if err != nil {
+		GinkgoWriter.Printf("WARNING: restorePollInterval failed: %v\n", err)
+	}
+
+	_ = auxiliary.StopServices([]auxiliary.Service{auxiliary.ServiceFileServer})
+	if auxSvcs != nil {
+		auxSvcs.Cleanup(context.Background())
+	}
+})
 
 // patchPollInterval lowers the dependency-sync poll interval for fast E2E testing.
 func patchPollInterval(interval time.Duration) (originalConfig string, err error) {
@@ -103,33 +169,54 @@ func restorePollInterval(original string) error {
 	return nil
 }
 
-var _ = SynchronizedBeforeSuite(func() []byte {
-	ctx := context.Background()
-	auxSvcs = auxiliary.Get(ctx)
+// managePeriodicTemplate patches or restores the periodic config template on the
+// quadlet host. When patch is true, it appends a dependenciesSync block to the
+// template so ExecStartPre renders it from service-config.yaml. When patch is
+// false, it restores the original template and removes the stale dependenciesSync
+// key from service-config.yaml.
+func managePeriodicTemplate(providers *infra.Providers, patch bool) error {
+	quadletInfra, ok := providers.Infra.(*quadlet.InfraProvider)
+	if !ok {
+		return fmt.Errorf("expected quadlet infra provider")
+	}
 
-	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
-	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
-	auxSvcs.FileServer = fileServerSvcs.FileServer
+	if patch {
+		content, err := quadletInfra.ReadHostFile(periodicTemplatePath)
+		if err != nil {
+			return fmt.Errorf("read periodic template: %w", err)
+		}
+		originalTemplateContent = content
 
-	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+		return quadletInfra.WriteHostFile(periodicTemplatePath, []byte(content+dependenciesSyncTemplateBlock))
+	}
 
-	originalConfigYAML, err = patchPollInterval(fastPollInterval)
-	Expect(err).ToNot(HaveOccurred(), "patchPollInterval must succeed; tests assume a 30s poll interval")
-	GinkgoWriter.Printf("Lowered dependency sync poll interval to %v\n", fastPollInterval)
-	return []byte(originalConfigYAML)
-}, func(data []byte) {
-	originalConfigYAML = string(data)
-	e2e.SetupWorkerHarnessOrAbort()
-})
+	// Restore the original template.
+	if originalTemplateContent == "" {
+		return nil
+	}
+	if err := quadletInfra.WriteHostFile(periodicTemplatePath, []byte(originalTemplateContent)); err != nil {
+		return fmt.Errorf("restore periodic template: %w", err)
+	}
 
-var _ = SynchronizedAfterSuite(func() {
-}, func() {
-	err := restorePollInterval(originalConfigYAML)
+	// Remove stale dependenciesSync from service-config.yaml. The mapping
+	// leaves it behind because the original config doesn't contain the key.
+	raw, err := quadletInfra.GetStandaloneServiceConfig()
 	if err != nil {
-		GinkgoWriter.Printf("WARNING: restorePollInterval failed: %v\n", err)
+		return fmt.Errorf("read service-config.yaml for cleanup: %w", err)
 	}
-	_ = auxiliary.StopServices([]auxiliary.Service{auxiliary.ServiceFileServer})
-	if auxSvcs != nil {
-		auxSvcs.Cleanup(context.Background())
+	var svcCfg map[string]interface{}
+	if err := yaml.Unmarshal([]byte(raw), &svcCfg); err != nil {
+		return fmt.Errorf("parse service-config.yaml for cleanup: %w", err)
 	}
-})
+	if _, exists := svcCfg["dependenciesSync"]; exists {
+		delete(svcCfg, "dependenciesSync")
+		out, err := yaml.Marshal(svcCfg)
+		if err != nil {
+			return fmt.Errorf("marshal service-config.yaml after cleanup: %w", err)
+		}
+		if err := quadletInfra.SetStandaloneServiceConfig(string(out)); err != nil {
+			return fmt.Errorf("write cleaned service-config.yaml: %w", err)
+		}
+	}
+	return nil
+}
