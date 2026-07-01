@@ -15,7 +15,7 @@ import (
 	"github.com/samber/lo"
 )
 
-var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
+var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift"), func() {
 	var (
 		harness        *e2e.Harness
 		services       *auxiliary.Services

@@ -36,7 +36,7 @@ export JOBS="${PARALLEL_JOBS}"
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
         export EXCLUDE_VARIANTS="v7"
-        echo "cs10: v7 excluded (no MicroShift for cs10)"
+        echo "cs10: v7 excluded (no RHOCP MicroShift for cs10)"
     elif has_rhocp_access; then
         export EXCLUDE_VARIANTS=""
         echo "RHOCP access available, enabling v7"

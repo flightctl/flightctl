@@ -128,7 +128,7 @@ jobs:
         include:
           - label_filter: 'sanity'
             ginkgo_total_nodes: 10
-          - label_filter: 'sanity && agent'
+          - label_filter: 'sanity && agent && !microshift'
             ginkgo_total_nodes: 5
     steps:
       - name: Checkout
@@ -217,10 +217,12 @@ jobs:
             backend_type: helm
             label_filter: 'sanity'
             ginkgo_total_nodes: 10
-          ## CS10: agent tests only (non-agent tests are OS-independent, covered by CS9)
+          ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
+          ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
+          ## full microshift coverage via the v12 OKD SCOS variant.
           - os_id: cs10-bootc
             backend_type: helm
-            label_filter: 'sanity && agent'
+            label_filter: 'sanity && agent && !microshift'
             ginkgo_total_nodes: 5
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
