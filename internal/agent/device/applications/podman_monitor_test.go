@@ -1430,6 +1430,6 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.NoError(err)
 		_, err = m.resolveConsole("my-vm", "vnc")
 		require.Error(err)
-		require.Contains(err.Error(), "no running compute container found")
+		require.Contains(err.Error(), "no active compute container found")
 	})
 }
