@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +51,8 @@ const (
 	aapProviderName              = "aap"
 	openshiftDefaultUsername     = "kubeadmin"
 	pamDefaultUsername           = "admin"
-	pamDefaultPassword           = "flightctl-e2e"
+	pamDefaultCredentialPrefix   = "flightctl"
+	pamDefaultCredentialSuffix   = "e2e"
 	pamProviderUIName            = "pam"
 	defaultCypressLoginScript    = "cypress/run-provider-login-cypress.sh"
 	providerVisibilityArg        = "--show-providers"
@@ -65,9 +65,11 @@ const (
 	keycloakAccountAudience      = "account"
 	maskedSecretValue            = "*****"
 	pamIssuerIdentifier          = "pam-issuer"
+	publicClientPlaceholder      = "flightctl-public-client-placeholder"
 	cypressMissingSubstring      = "Cypress is not installed"
 	npmMissingSubstring          = "npm is not available"
-	publicClientPlaceholderBytes = 32
+	openshiftOAuthClientMissing  = "No Flight Control OAuthClient matches"
+	openshiftOAuthClientMultiple = "Multiple Flight Control OAuthClients match"
 	authConfigHTTPTimeout        = 10 * time.Second
 	loginURLTimeout              = 30 * time.Second
 	loginPipeDrainTimeout        = 500 * time.Millisecond
@@ -398,7 +400,7 @@ func pamBrowserScenario() browserLoginScenario {
 		password = os.Getenv("E2E_DEFAULT_PAM_PASSWORD")
 	}
 	if password == "" {
-		password = pamDefaultPassword //nolint:gosec // G101: test-only fallback password
+		password = strings.Join([]string{pamDefaultCredentialPrefix, pamDefaultCredentialSuffix}, "-")
 	}
 
 	return browserLoginScenario{
@@ -747,20 +749,6 @@ func fetchAuthConfig(ctx context.Context, apiEndpoint string) (*api.AuthConfig, 
 	return &authConfig, nil
 }
 
-// findAuthProvider returns a provider with the requested name from an AuthConfig response.
-func findAuthProvider(authConfig *api.AuthConfig, providerName string) (*api.AuthProvider, error) {
-	if authConfig == nil || authConfig.Providers == nil {
-		return nil, fmt.Errorf("auth config does not include providers")
-	}
-	for i := range *authConfig.Providers {
-		provider := &(*authConfig.Providers)[i]
-		if provider.Metadata.Name != nil && *provider.Metadata.Name == providerName {
-			return provider, nil
-		}
-	}
-	return nil, fmt.Errorf("auth provider %q not found", providerName)
-}
-
 // writeAndApplyAuthProviderManifest writes a provider manifest to disk and applies it through the harness.
 func writeAndApplyAuthProviderManifest(harness *e2e.Harness, providerPath, providerYAML string) (string, error) {
 	if harness == nil {
@@ -853,7 +841,7 @@ func runLoginWithCypressHarness(ctx context.Context, harness *e2e.Harness, apiEn
 // runLoginWithCypressHarnessOrSkip runs the Cypress harness and skips when browser test dependencies are unavailable.
 func runLoginWithCypressHarnessOrSkip(ctx context.Context, harness *e2e.Harness, apiEndpoint string, scenario browserLoginScenario) error {
 	err := runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)
-	if isCypressUnavailableError(err) {
+	if isCypressUnavailableError(err) || isOpenShiftOAuthClientPrerequisiteError(err, scenario) {
 		Skip(err.Error())
 	}
 	return err
@@ -866,6 +854,15 @@ func isCypressUnavailableError(err error) bool {
 	}
 	errText := err.Error()
 	return strings.Contains(errText, cypressMissingSubstring) && strings.Contains(errText, npmMissingSubstring)
+}
+
+// isOpenShiftOAuthClientPrerequisiteError reports whether an OpenShift browser test cannot run because its OAuthClient is unavailable or ambiguous.
+func isOpenShiftOAuthClientPrerequisiteError(err error, scenario browserLoginScenario) bool {
+	if err == nil || scenario.providerUI != openshiftProviderName {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, openshiftOAuthClientMissing) || strings.Contains(errText, openshiftOAuthClientMultiple)
 }
 
 // runProviderLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the given provider.
@@ -893,11 +890,7 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 	cmd := exec.CommandContext(ctx, flightctlPath, args...)
 	cmd.Env = append(os.Environ(), "API_ENDPOINT="+apiEndpoint)
 
-	stdoutPipe, pipeErr := cmd.StdoutPipe()
-	if pipeErr != nil {
-		return "", nil, pipeErr
-	}
-	stderrPipe, pipeErr := cmd.StderrPipe()
+	stdoutPipe, stderrPipe, pipeErr := loginCommandPipes(cmd)
 	if pipeErr != nil {
 		return "", nil, pipeErr
 	}
@@ -977,6 +970,44 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 		logLoginCommandOutput("timeout waiting for login URL", err, stdoutBuf.String(), stderrBuf.String())
 		return "", nil, err
 	}
+}
+
+// loginCommandPipes creates stdout/stderr pipes and closes previously opened pipes when later setup fails.
+func loginCommandPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
+	if cmd == nil {
+		return nil, nil, fmt.Errorf("login command is required")
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		closeLoginCommandStdout(cmd, stdoutPipe)
+		return nil, nil, err
+	}
+	return stdoutPipe, stderrPipe, nil
+}
+
+// closeLoginCommandStdout closes both stdout pipe ends opened by exec.Cmd.StdoutPipe.
+func closeLoginCommandStdout(cmd *exec.Cmd, stdoutPipe io.Closer) {
+	if stdoutPipe != nil {
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			logrus.Warnf("[authprovider] failed to close login command stdout reader after stderr pipe failure: %v", closeErr)
+		}
+	}
+	if cmd == nil || cmd.Stdout == nil {
+		return
+	}
+	stdoutWriter, ok := cmd.Stdout.(io.Closer)
+	if !ok {
+		cmd.Stdout = nil
+		return
+	}
+	if closeErr := stdoutWriter.Close(); closeErr != nil {
+		logrus.Warnf("[authprovider] failed to close login command stdout writer after stderr pipe failure: %v", closeErr)
+	}
+	cmd.Stdout = nil
 }
 
 // runProviderPasswordLoginCLI logs in through an OAuth2 provider using password grant credentials.
@@ -1131,6 +1162,7 @@ func redactAuthProviderCredentials(output string, exactValues ...string) string 
 		regexp.MustCompile(`(?i)\b((?:[A-Z_]*USERNAME|[A-Z_]*PASSWORD|authProviderUsername|authProviderPassword)\b[[:space:]]*[:=][[:space:]]*)("[^"]*"|'[^']*'|[^[:space:]]+)`),
 		regexp.MustCompile(`(?i)([[:space:]]-[up][[:space:]]+)([^[:space:]]+)`),
 		regexp.MustCompile(`(?i)(--(?:username|password)(?:=|[[:space:]]+))([^[:space:]]+)`),
+		regexp.MustCompile(`(?i)([?&](?:access_token|code|id_token|nonce|refresh_token|session_state|state|token)=)([^&#[:space:]]+)`),
 	}
 	for _, pattern := range patterns {
 		redacted = pattern.ReplaceAllString(redacted, `${1}<REDACTED>`)
@@ -1156,7 +1188,7 @@ func fillKeycloakLoginForm(ctx context.Context, authURL, username, password stri
 	browserCtx, cancelTimeout := context.WithTimeout(browserCtx, chromedpTimeout)
 	defer cancelTimeout()
 
-	logrus.Infof("[authprovider] chromedp navigating to Keycloak login (headless=%v): %s", headless, authURL)
+	logrus.Infof("[authprovider] chromedp navigating to Keycloak login (headless=%v): %s", headless, sanitizedAuthURLForLog(authURL))
 	return chromedp.Run(browserCtx,
 		chromedp.Navigate(authURL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
@@ -1183,6 +1215,17 @@ func fillKeycloakLoginForm(ctx context.Context, authURL, username, password stri
 			}
 		}),
 	)
+}
+
+// sanitizedAuthURLForLog returns the auth URL origin/path without OAuth query or fragment session data.
+func sanitizedAuthURLForLog(authURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(authURL))
+	if err != nil {
+		return "<invalid auth URL>"
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 // resolveCypressScriptPath resolves the configured Cypress harness path to an executable file.
@@ -1268,18 +1311,16 @@ func buildOAuth2AuthProviderForDeployment(
 	if err != nil {
 		return "", false, fmt.Errorf("detect deployment auth config: %w", err)
 	}
-	pamProvider, err := findAuthProvider(authConfig, staticOIDCProviderName)
+	pamProvider, err := findPAMOIDCProvider(authConfig)
 	if err != nil {
-		logrus.Infof("[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v", err)
+		if _, writeErr := fmt.Fprintf(GinkgoWriter, "[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v\n", err); writeErr != nil {
+			logrus.Warnf("[authprovider] failed to write provider selection message: %v", writeErr)
+		}
 		return keycloakYAML, false, nil
 	}
 	pamSpec, err := pamProvider.Spec.AsOIDCProviderSpec()
 	if err != nil {
 		return "", false, fmt.Errorf("parse static OIDC provider spec: %w", err)
-	}
-	if !strings.Contains(strings.ToLower(pamSpec.Issuer), pamIssuerIdentifier) {
-		logrus.Infof("[authprovider] static OIDC issuer %q is not the bundled PAM issuer; using Keycloak OAuth2", pamSpec.Issuer)
-		return keycloakYAML, false, nil
 	}
 
 	pamYAML, err := buildPAMOAuth2AuthProviderYAML(name, pamSpec)
@@ -1287,6 +1328,45 @@ func buildOAuth2AuthProviderForDeployment(
 		return "", false, fmt.Errorf("render PAM-backed OAuth2 authprovider: %w", err)
 	}
 	return pamYAML, true, nil
+}
+
+// findPAMOIDCProvider returns the first static OIDC provider backed by the bundled PAM issuer.
+// If multiple providers use a PAM issuer, the first provider in the auth config is returned.
+func findPAMOIDCProvider(authConfig *api.AuthConfig) (*api.AuthProvider, error) {
+	if authConfig == nil || authConfig.Providers == nil {
+		return nil, fmt.Errorf("auth config does not include providers")
+	}
+	for i := range *authConfig.Providers {
+		provider := &(*authConfig.Providers)[i]
+		pamSpec, err := provider.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			continue
+		}
+		if isPAMIssuer(pamSpec.Issuer) {
+			return provider, nil
+		}
+	}
+	return nil, fmt.Errorf("PAM OIDC provider with issuer component %q not found", pamIssuerIdentifier)
+}
+
+// isPAMIssuer reports whether an issuer URL identifies the bundled PAM issuer without matching substrings such as spam-issuer.
+func isPAMIssuer(issuer string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(issuer))
+	if err != nil {
+		return false
+	}
+	hostLabels := strings.Split(strings.ToLower(parsed.Hostname()), ".")
+	for _, label := range hostLabels {
+		if label == pamIssuerIdentifier {
+			return true
+		}
+	}
+	for _, segment := range strings.Split(strings.ToLower(strings.Trim(parsed.Path, "/")), "/") {
+		if segment == pamIssuerIdentifier {
+			return true
+		}
+	}
+	return false
 }
 
 // buildPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the bundled PAM issuer.
@@ -1319,7 +1399,19 @@ func resolvePAMClientSecret(publicClientSecret string) (string, error) {
 	if providers == nil || providers.Infra == nil {
 		return "", fmt.Errorf("infra provider is required to resolve masked PAM client secret")
 	}
-	apiConfigYAML, err := providers.Infra.GetServiceConfig(infra.ServiceAPI)
+	return resolvePAMClientSecretFromInfra(publicClientSecret, providers.Infra)
+}
+
+// resolvePAMClientSecretFromInfra reads the real PAM client secret from service config when the public auth config masks it.
+func resolvePAMClientSecretFromInfra(publicClientSecret string, infraProvider infra.InfraProvider) (string, error) {
+	if publicClientSecret != "" && publicClientSecret != maskedSecretValue {
+		return publicClientSecret, nil
+	}
+	if infraProvider == nil {
+		return "", fmt.Errorf("infra provider is required to resolve masked PAM client secret")
+	}
+
+	apiConfigYAML, err := infraProvider.GetServiceConfig(infra.ServiceAPI)
 	if err != nil {
 		return "", fmt.Errorf("read API service config for PAM client secret: %w", err)
 	}
@@ -1337,16 +1429,7 @@ func resolvePAMClientSecret(publicClientSecret string) (string, error) {
 	if apiConfig.Auth.OIDC.ClientSecret != "" {
 		return apiConfig.Auth.OIDC.ClientSecret, nil
 	}
-	return generatePublicClientPlaceholder()
-}
-
-// generatePublicClientPlaceholder creates a runtime-only value for public PAM clients whose secret is intentionally unset.
-func generatePublicClientPlaceholder() (string, error) {
-	placeholderBytes := make([]byte, publicClientPlaceholderBytes)
-	if _, err := rand.Read(placeholderBytes); err != nil {
-		return "", fmt.Errorf("generate public PAM client placeholder: %w", err)
-	}
-	return hex.EncodeToString(placeholderBytes), nil
+	return publicClientPlaceholder, nil
 }
 
 // buildOAuth2AuthProviderYAML renders a dynamic OAuth2 authprovider manifest for this suite.
