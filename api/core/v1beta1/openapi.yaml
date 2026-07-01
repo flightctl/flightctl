@@ -2043,13 +2043,15 @@ paths:
         - name: consoleType
           in: query
           required: true
-          description: The type of console session to open. Currently only "serial" is supported.
+          description: The type of console session to open. "serial" opens a text terminal; "vnc" opens a VNC proxy tunnel.
           schema:
             type: string
             enum:
               - serial
+              - vnc
             x-enum-varnames:
               - ConsoleTypeSerial
+              - ConsoleTypeVnc
       responses:
         "101":
           description: Switching Protocols
