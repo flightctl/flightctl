@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}}</title>
+<style>
+:root{
+  --bg:#f9fafb;--card:#fff;--border:#e5e7eb;--text:#111827;--muted:#6b7280;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--blue:#3b82f6;
+  --bar-bg:#f3f4f6;
+  --badge-amber-bg:#fef3c7;--badge-amber-fg:#92400e;
+  --badge-red-bg:#fee2e2;--badge-red-fg:#991b1b;
+  --badge-green-bg:#dcfce7;--badge-green-fg:#166534;
+  --badge-blue-bg:#dbeafe;--badge-blue-fg:#1e40af;
+  --highlight-bg:#fffbeb;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#0f172a;--card:#1e293b;--border:#334155;--text:#f1f5f9;--muted:#94a3b8;
+    --bar-bg:#334155;
+    --badge-amber-bg:#3d1f00;--badge-amber-fg:#fbbf24;
+    --badge-red-bg:#3b0a0a;--badge-red-fg:#fca5a5;
+    --badge-green-bg:#052e16;--badge-green-fg:#4ade80;
+    --badge-blue-bg:#172554;--badge-blue-fg:#93c5fd;
+    --highlight-bg:#1c1a07;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:1140px;margin:0 auto;padding:24px 16px}
+header{border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:20px}
+h1{font-size:22px;font-weight:700}
+h2{font-size:17px;font-weight:600;margin-bottom:12px}
+h3{font-size:12px;font-weight:600;margin-bottom:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.meta{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:20px}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-amber{background:var(--badge-amber-bg);color:var(--badge-amber-fg)}
+.badge-red{background:var(--badge-red-bg);color:var(--badge-red-fg)}
+.badge-green{background:var(--badge-green-bg);color:var(--badge-green-fg)}
+.badge-blue{background:var(--badge-blue-bg);color:var(--badge-blue-fg)}
+.stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;justify-content:center}
+.stat{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 16px;min-width:110px;text-align:center}
+.stat-value{font-size:26px;font-weight:700}
+.stat-label{font-size:11px;color:var(--muted);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 10px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.spec-name{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
+.failure-msg{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-top:4px;white-space:pre-wrap;word-break:break-word}
+details summary{cursor:pointer;color:var(--blue);font-size:12px;user-select:none}
+.chart-wrap{margin:12px 0;min-width:0}
+.cols-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-width:0;align-items:start}
+.cols-2>*{min-width:0}
+.cols-2.equal-height{align-items:stretch}
+.cols-2.equal-height .card{overflow-y:auto;max-height:680px}
+.cols-2.equal-height .card h2{position:sticky;top:0;background:var(--card);z-index:1;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--border)}
+@media(max-width:700px){.cols-2{grid-template-columns:1fr}}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+nav a{font-size:13px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card)}
+nav a:hover{background:var(--bg);text-decoration:none}
+.highlight{background:var(--highlight-bg);border-left:3px solid var(--amber);padding:10px 14px;border-radius:0 4px 4px 0;margin:12px 0;font-size:13px}
+.warn-box{display:flex;align-items:flex-start;gap:10px;background:var(--highlight-bg);border:1px solid var(--amber);border-radius:6px;padding:10px 14px;margin:12px 0;font-size:13px}
+.warn-icon{flex-shrink:0;font-size:16px;line-height:1.4}
+.warn-body{flex:1;min-width:0}
+.warn-title{font-weight:600;color:var(--text)}
+/* scrollbar styling */
+.cols-2.equal-height .card{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.cols-2.equal-height .card::-webkit-scrollbar{width:6px}
+.cols-2.equal-height .card::-webkit-scrollbar-track{background:transparent}
+.cols-2.equal-height .card::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.cols-2.equal-height .card::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <h1>{{.Title}}</h1>
+  <div class="meta">Generated {{.GeneratedAt}} &nbsp;·&nbsp; <a href="{{.RepoURL}}" target="_blank">{{.RepoURL}}</a> &nbsp;·&nbsp; {{.AnalyzedRuns}} runs analyzed (workflow: <code>{{.Workflow}}</code>)</div>
+</header>
+
+<nav>
+  <a href="#trend">Run Trend</a>
+  <a href="#flakes">Flaky Tests</a>
+  <a href="#slowest">Slowest Tests</a>
+</nav>
+
+<!-- Summary stats -->
+<div class="card" style="margin-bottom:20px">
+  <div class="stats-row" style="margin-bottom:0">
+    <div class="stat"><div class="stat-value">{{.AnalyzedRuns}}</div><div class="stat-label">Runs analyzed</div></div>
+    <div class="stat"><div class="stat-value">{{.TotalAnalyzedSpecs}}</div><div class="stat-label">Specs tracked</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--red)">{{.ConsistentlyFailingCount}}</div><div class="stat-label">Always failing</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--amber)">{{.FlakyCount}}</div><div class="stat-label">Flaky</div></div>
+    <div class="stat"><div class="stat-value" style="color:var(--green)">{{.CleanCount}}</div><div class="stat-label">Never failed</div></div>
+    {{if .InfraInstabilityCount}}
+    <div class="stat"><div class="stat-value" style="color:var(--muted)">{{.InfraInstabilityCount}}</div><div class="stat-label">Infra events excluded</div></div>
+    {{end}}
+  </div>
+</div>
+
+<!-- Section: Run Trend -->
+<section id="trend">
+<div class="card">
+  <h2>Run Trend</h2>
+  <div class="meta" style="margin-bottom:12px">Pass/fail/skip breakdown per analyzed run (oldest → newest). Gray bars indicate runs with no JUnit output (tests skipped or pre-test failure).</div>
+  {{if .TrendEntries}}
+  <div class="chart-wrap" style="overflow-x:auto">{{.TrendChartSVG}}</div>
+  {{else}}
+  <p class="meta">No run data available.</p>
+  {{end}}
+  {{if gt .NoJUnitCount 0}}
+  <p class="meta" style="margin-top:8px">{{.NoJUnitCount}} run(s) produced no JUnit output (tests skipped because no relevant files changed, or pre-test failure).</p>
+  {{end}}
+</div>
+</section>
+
+<!-- Section: Flaky Tests -->
+<section id="flakes">
+<div class="card">
+  <h2>Flaky Tests</h2>
+  {{if .InfraInstabilityCount}}<p class="meta" style="margin-bottom:12px">{{.InfraInstabilityCount}} infra instability event(s) excluded from per-spec counts</p>{{end}}
+  {{if or (gt .FlakyCount 0) (gt .ConsistentlyFailingCount 0)}}
+  <div class="cols-2">
+    <div class="chart-wrap">{{.FlakeDonutSVG}}</div>
+    <div>
+      <table>
+        <thead><tr><th>Rate</th><th>Class</th><th>Last Failed</th><th>Test</th></tr></thead>
+        <tbody>
+        {{range .FlakeEntries}}
+        <tr>
+          <td><strong>{{FailPct .FailRate}}</strong><br><span class="meta">{{.FailCount}}/{{.TotalRuns}} runs</span></td>
+          <td>{{if eq .Class "Flaky"}}<span class="badge badge-amber">Flaky</span>{{else}}<span class="badge badge-red">Consistent</span>{{end}}</td>
+          <td>{{if .LastRunURL}}<a href="{{.LastRunURL}}" target="_blank">view run</a>{{end}}</td>
+          <td>
+            <div class="spec-name">{{.SpecName}}</div>
+            {{if .FailureMsg}}<details><summary>failure detail</summary><div class="failure-msg">{{.FailureMsg}}</div></details>{{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {{else}}
+  <p style="color:var(--green);font-weight:600">&#10003; No flakes detected in the analyzed runs.</p>
+  {{end}}
+</div>
+</section>
+
+<!-- Section: Slowest Tests -->
+<section id="slowest">
+<div class="card">
+  <h2>Slowest Tests</h2>
+  <div class="meta" style="margin-bottom:12px">Average wall-clock duration per spec across analyzed runs (±1σ shown). Infra instability runs are excluded.</div>
+  {{if .SlowestTests}}
+  <div class="cols-2">
+    <div class="chart-wrap">{{.SlowestChartSVG}}</div>
+    <div style="overflow-y:auto;max-height:400px">
+      <table>
+        <thead><tr><th>Avg</th><th>±StdDev</th><th>Test</th></tr></thead>
+        <tbody>
+        {{range .SlowestTests}}
+        <tr>
+          <td style="white-space:nowrap">{{FormatDuration .AvgSecs}}</td>
+          <td style="white-space:nowrap;color:var(--muted)">±{{FormatDuration .StdDev}}</td>
+          <td><div class="spec-name">{{.Name}}</div></td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {{else}}
+  <p class="meta">No timing data available for this period.</p>
+  {{end}}
+</div>
+</section>
+
+</div>
+</body>
+</html>

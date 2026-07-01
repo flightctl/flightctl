@@ -31,3 +31,5 @@ __pycache__/
 .mcp.json
 test/scripts/test-timings.json
 test/scripts/e2e-health/
+test/scripts/unit-health/
+test/scripts/integration-health/

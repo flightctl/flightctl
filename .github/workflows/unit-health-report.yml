@@ -1,0 +1,83 @@
+name: Weekly Unit Test Health Report
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 09:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/unit-health-report.yml'
+      - '.github/actions/setup-dependencies/**'
+      - 'test/scripts/analyze_test_health/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read  # jobs API + artifact download
+  # publish step uses REPORTS_DEPLOY_KEY (SSH deploy key) to write to flightctl/flightctl-reports
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Generate health report
+        working-directory: test/scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go run ./analyze_test_health \
+            --workflow unit-tests.yaml \
+            --artifact-name junit-unit-test \
+            --title "Unit Test Health" \
+            --out-dir unit-health
+
+      - name: Upload HTML report and JSON summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-health-report
+          path: |
+            test/scripts/unit-health/unit-health-report.html
+            test/scripts/unit-health/unit-health-summary.json
+
+      - name: Publish report to flightctl-reports
+        if: always() && github.event_name != 'pull_request'
+        env:
+          REPORTS_DEPLOY_KEY: ${{ secrets.REPORTS_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          [ -z "$REPORTS_DEPLOY_KEY" ] && { echo "::error::REPORTS_DEPLOY_KEY not set"; exit 1; }
+          REPORT_SRC="test/scripts/unit-health/unit-health-report.html"
+          [ ! -f "$REPORT_SRC" ] && { echo "::error::Report file not found: $REPORT_SRC"; exit 1; }
+          install -d -m 700 ~/.ssh
+          echo "$REPORTS_DEPLOY_KEY" > ~/.ssh/reports_deploy_key
+          chmod 600 ~/.ssh/reports_deploy_key
+          # Use GitHub's pinned host keys instead of trust-on-first-use ssh-keyscan
+          {
+            echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl'
+            echo 'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg='
+            echo 'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk='
+          } >> ~/.ssh/known_hosts
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/reports_deploy_key -o IdentitiesOnly=yes" \
+            git clone --depth=1 git@github.com:flightctl/flightctl-reports.git /tmp/flightctl-reports
+          DATE="$(date -u +%Y-%m-%d)"
+          mkdir -p /tmp/flightctl-reports/unit-health-report
+          cp "$REPORT_SRC" /tmp/flightctl-reports/unit-health-report/index.html
+          cp "$REPORT_SRC" "/tmp/flightctl-reports/unit-health-report/${DATE}.html"
+          cd /tmp/flightctl-reports
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add unit-health-report/
+          git diff --cached --quiet && { echo "No changes to publish."; exit 0; }
+          git commit -m "unit-health-report: publish ${DATE} report"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/reports_deploy_key -o IdentitiesOnly=yes" git push
+        shell: bash

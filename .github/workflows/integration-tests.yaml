@@ -68,6 +68,14 @@ jobs:
         env:
           DISABLE_FIPS: true
 
+      - name: Upload JUnit results
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration-test
+          path: reports/junit_integration_test.xml
+          if-no-files-found: ignore
+
       - name: Detect baseline for compatibility testing
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         id: detect_baseline

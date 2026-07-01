@@ -5,3 +5,4 @@ e2e-health/
 *.json
 *.html
 !*/testdata/**
+!*/template.html

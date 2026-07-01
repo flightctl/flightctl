@@ -49,3 +49,11 @@ jobs:
         run: make unit-test
         env:
           DISABLE_FIPS: "true"
+
+      - name: Upload JUnit results
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit-test
+          path: reports/junit_unit_test.xml
+          if-no-files-found: ignore
