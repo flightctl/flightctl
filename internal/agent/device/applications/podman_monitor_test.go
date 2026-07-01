@@ -1370,7 +1370,7 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.Contains(err.Error(), "only VM apps support console")
 	})
 
-	t.Run("When the app is a VM but consoleType is not serial it should return an error", func(t *testing.T) {
+	t.Run("When the app is a VM but consoleType is unsupported it should return an error", func(t *testing.T) {
 		require := require.New(t)
 		m, ctrl := newMonitor(t)
 		defer ctrl.Finish()
@@ -1406,5 +1406,30 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		_, err = m.resolveConsole("my-vm", "serial")
 		require.Error(err)
 		require.Contains(err.Error(), "no active compute container found")
+	})
+
+	t.Run("When the app is VM vnc with a running workload it should return a session", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+		sess, err := m.resolveConsole("my-vm", "vnc")
+		require.NoError(err)
+		require.NotNil(sess)
+	})
+
+	t.Run("When the app is VM vnc with no running workload it should return an error", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		_, err = m.resolveConsole("my-vm", "vnc")
+		require.Error(err)
+		require.Contains(err.Error(), "no running compute container found")
 	})
 }
