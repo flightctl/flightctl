@@ -218,8 +218,8 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	if consoleType == "" {
 		return nil, domain.StatusBadRequest("consoleType is required")
 	}
-	if consoleType != "serial" {
-		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\"")
+	if consoleType != "serial" && consoleType != "vnc" {
+		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\" or \"vnc\"")
 	}
 
 	device, status := m.svc.GetDevice(ctx, orgId, deviceName)
