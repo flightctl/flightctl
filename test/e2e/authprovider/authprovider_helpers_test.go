@@ -190,6 +190,7 @@ func TestLoginCommandPipesClosesStdoutWhenStderrPipeFails(t *testing.T) {
 	require.Nil(t, stdoutPipe)
 	require.Nil(t, stderrPipe)
 	require.Contains(t, err.Error(), "Stderr already set")
+	require.Nil(t, cmd.Stdout)
 }
 
 // authConfigServer serves the given AuthConfig at the path used by the CLI auth config endpoint.

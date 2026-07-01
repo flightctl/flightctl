@@ -983,12 +983,31 @@ func loginCommandPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		if closeErr := stdoutPipe.Close(); closeErr != nil {
-			logrus.Warnf("[authprovider] failed to close login command stdout after stderr pipe failure: %v", closeErr)
-		}
+		closeLoginCommandStdout(cmd, stdoutPipe)
 		return nil, nil, err
 	}
 	return stdoutPipe, stderrPipe, nil
+}
+
+// closeLoginCommandStdout closes both stdout pipe ends opened by exec.Cmd.StdoutPipe.
+func closeLoginCommandStdout(cmd *exec.Cmd, stdoutPipe io.Closer) {
+	if stdoutPipe != nil {
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			logrus.Warnf("[authprovider] failed to close login command stdout reader after stderr pipe failure: %v", closeErr)
+		}
+	}
+	if cmd == nil || cmd.Stdout == nil {
+		return
+	}
+	stdoutWriter, ok := cmd.Stdout.(io.Closer)
+	if !ok {
+		cmd.Stdout = nil
+		return
+	}
+	if closeErr := stdoutWriter.Close(); closeErr != nil {
+		logrus.Warnf("[authprovider] failed to close login command stdout writer after stderr pipe failure: %v", closeErr)
+	}
+	cmd.Stdout = nil
 }
 
 // runProviderPasswordLoginCLI logs in through an OAuth2 provider using password grant credentials.
