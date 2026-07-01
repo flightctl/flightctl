@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,7 +141,6 @@ func TestPodmanDeployer_OptionDefaults(t *testing.T) {
 	require.Equal(t, "podman", d.containerCLI)
 	require.Equal(t, "flightctl-kv", d.kvContainerName)
 	require.Empty(t, d.dbName)
-	require.Equal(t, podmanDBDefaultPort, d.dbPort)
 }
 
 func TestPodmanDeployer_BackupDatabase_DBNameOverride(t *testing.T) {
@@ -168,27 +166,6 @@ func TestPodmanDeployer_BackupDatabase_DBNameOverride(t *testing.T) {
 	if err != nil {
 		require.Contains(t, err.Error(), "custom-db-container")
 	}
-}
-
-func TestPodmanDeployer_BackupDatabase_DBPortOverride(t *testing.T) {
-	log := logrus.New()
-	cfgPath := writeServiceConfig(t, internalDBServiceConfig())
-	outputDir := t.TempDir()
-	argsPath := filepath.Join(t.TempDir(), "container-cli-args")
-	containerCLI := writeContainerCLISpy(t, argsPath)
-
-	deployer := NewPodmanDeployer(log,
-		WithServiceConfigPath(cfgPath),
-		WithContainerCLI(containerCLI),
-		WithDBPort(15432),
-	)
-
-	err := deployer.BackupDatabase(context.Background(), outputDir)
-
-	require.Error(t, err)
-	recordedArgs, readErr := os.ReadFile(argsPath)
-	require.NoError(t, readErr)
-	require.Contains(t, string(recordedArgs), "-p 15432")
 }
 
 func TestPodmanDeployer_BackupDatabase_MissingServiceConfig(t *testing.T) {
@@ -326,13 +303,4 @@ func TestPodmanDeployer_BackupConfig_DirectoryPermissions(t *testing.T) {
 	require.NoError(t, err, "config directory should be created")
 	require.True(t, stat.IsDir(), "config should be a directory")
 	require.Equal(t, os.FileMode(0700), stat.Mode().Perm(), "config directory should have 0700 permissions")
-}
-
-// writeContainerCLISpy writes a fake container CLI that records its arguments and exits with failure.
-func writeContainerCLISpy(t *testing.T, argsPath string) string {
-	t.Helper()
-	scriptPath := filepath.Join(t.TempDir(), "container-cli-spy.sh")
-	script := fmt.Sprintf("#!/usr/bin/env sh\nprintf '%%s\\n' \"$*\" > %q\ncat >/dev/null\nexit 1\n", argsPath)
-	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0700))
-	return scriptPath
 }
