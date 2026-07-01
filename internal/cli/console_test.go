@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/gorilla/websocket"
@@ -68,6 +71,13 @@ func TestConsoleOptions_Validate(t *testing.T) {
 			args:       []string{"device/mydevice"},
 			appName:    "myvm",
 			remoteType: "serial",
+			wantErr:    false,
+		},
+		{
+			name:       "When --app and --remote-type vnc are provided it should succeed",
+			args:       []string{"device/mydevice"},
+			appName:    "myvm",
+			remoteType: "vnc",
 			wantErr:    false,
 		},
 		{
@@ -295,6 +305,13 @@ type certKeyPair struct {
 	keyPEM  []byte
 }
 
+// extractServerCert extracts the PEM-encoded server certificate from a TLS test server.
+func extractServerCert(t *testing.T, srv *httptest.Server) []byte {
+	t.Helper()
+	certDER := srv.TLS.Certificates[0].Certificate[0]
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+}
+
 // generateSelfSignedCert creates a minimal self-signed cert/key pair for test use by
 // extracting them from a short-lived httptest.TLSServer.
 func generateSelfSignedCert(t *testing.T) certKeyPair {
@@ -312,6 +329,108 @@ func generateSelfSignedCert(t *testing.T) certKeyPair {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes})
 
 	return certKeyPair{certPEM: certPEM, keyPEM: keyPEM}
+}
+
+func TestConnectVNCViaWS_MissingRemoteAccessService(t *testing.T) {
+	o := DefaultConsoleOptions()
+	o.remoteType = "vnc"
+
+	cfg := &client.Config{}
+	err := o.connectVNCViaWS(context.Background(), cfg, "dev1", "myvm", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remote access service is not configured")
+}
+
+func TestConnectVNCViaWS_HTTPError(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	o := DefaultConsoleOptions()
+	o.remoteType = "vnc"
+
+	cfg := &client.Config{
+		RemoteAccessService: &client.Service{
+			Server:                   srv.URL,
+			CertificateAuthorityData: extractServerCert(t, srv),
+		},
+	}
+	err := o.connectVNCViaWS(context.Background(), cfg, "dev1", "myvm", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "403")
+}
+
+func TestBridgeVNCClient_ClientDisconnectDoesNotCloseWebSocket(t *testing.T) {
+	// Set up a WebSocket echo server that stays open for the duration of the test.
+	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
+	wsServerDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(wsServerDone)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			msgType, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(msgType, data); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer wsConn.Close()
+
+	wsRecvCh := make(chan []byte, 64)
+
+	// Run the WebSocket reader goroutine.
+	go func() {
+		defer close(wsRecvCh)
+		for {
+			_, data, err := wsConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			wsRecvCh <- data
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// First VNC client: connect, send data, disconnect.
+	serverSide, clientSide := net.Pipe()
+	go func() {
+		defer serverSide.Close()
+		_, _ = serverSide.Write([]byte("hello"))
+		// read the echo back
+		buf := make([]byte, 5)
+		_, _ = serverSide.Read(buf)
+		// disconnect
+	}()
+
+	o := DefaultConsoleOptions()
+	o.bridgeVNCClient(ctx, clientSide, wsConn, wsRecvCh)
+	clientSide.Close()
+
+	// WebSocket should still be open: send a second message.
+	require.NoError(t, wsConn.WriteMessage(websocket.BinaryMessage, []byte("still-open")))
+
+	// Confirm the echo server is still running (wsServerDone not closed yet).
+	select {
+	case <-wsServerDone:
+		t.Fatal("WebSocket server closed unexpectedly after first VNC client disconnected")
+	case <-time.After(100 * time.Millisecond):
+		// expected: server still running
+	}
 }
 
 func TestConnectAppViaWS_MissingRemoteAccessService(t *testing.T) {

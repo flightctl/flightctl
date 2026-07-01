@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -32,12 +35,13 @@ import (
 
 type ConsoleOptions struct {
 	GlobalOptions
-	tty        bool
-	noTTY      bool
-	remoteTTY  bool
-	protocols  []string
-	appName    string
-	remoteType string
+	tty         bool
+	noTTY       bool
+	remoteTTY   bool
+	protocols   []string
+	appName     string
+	remoteType  string
+	exposedPort int
 }
 
 func DefaultConsoleOptions() *ConsoleOptions {
@@ -112,8 +116,9 @@ func (o *ConsoleOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 	fs.BoolVarP(&o.tty, "tty", "", o.tty, "Allocate remote pseudo terminal")
 	fs.BoolVarP(&o.noTTY, "notty", "", o.noTTY, "Don't allocate remote pseudo terminal")
-	fs.StringVar(&o.appName, "app", o.appName, "Application name to open a console for (VM serial console)")
-	fs.StringVar(&o.remoteType, "remote-type", o.remoteType, "Remote access type when --app is set (e.g. serial)")
+	fs.StringVar(&o.appName, "app", o.appName, "Application name to open a console for (VM applications)")
+	fs.StringVar(&o.remoteType, "remote-type", o.remoteType, "Remote access type when --app is set (serial or vnc)")
+	fs.IntVar(&o.exposedPort, "exposed-port", o.exposedPort, "Local TCP port for VNC port-forward (0 = random ephemeral port)")
 }
 
 func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -167,14 +172,16 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 	refresher.Start(ctx)
 	accessToken := refresher.GetAccessToken()
 
-	if o.appName != "" {
-		o.analyzeResponseAndExit(ctx, name, o.connectAppViaWS(ctx, config, name, o.appName, accessToken))
-	} else {
+	if o.appName == "" {
 		o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, accessToken, passThroughArgs))
+		return nil // unreachable
 	}
-
-	// unreachable
-	return nil
+	if o.remoteType == "vnc" {
+		o.analyzeResponseAndExit(ctx, name, o.connectVNCViaWS(ctx, config, name, o.appName, accessToken))
+		return nil // unreachable
+	}
+	o.analyzeResponseAndExit(ctx, name, o.connectAppViaWS(ctx, config, name, o.appName, accessToken))
+	return nil // unreachable
 }
 
 // NewWebSocketExecClient creates a WebSocketExecutor
@@ -563,6 +570,163 @@ func (o *ConsoleOptions) connectAppViaWS(ctx context.Context, config *client.Con
 	}
 
 	return ctx.Err()
+}
+
+// connectVNCViaWS opens a single WebSocket session to flightctl-remote-access and listens on a
+// local TCP port for VNC viewer connections. The WebSocket session (and the agent-side VNC tunnel)
+// stays open for the lifetime of the command. VNC viewers can connect and disconnect freely; the
+// local listener accepts one client at a time and bridges it to the persistent WebSocket. The
+// session and listener are only closed when the context is canceled (Ctrl+C). The local port is
+// determined by --exposed-port (0 = random ephemeral).
+func (o *ConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.Config, deviceName, appName, token string) error {
+	consoleServer := config.GetRemoteAccessServer()
+	if consoleServer == "" {
+		return fmt.Errorf("remote access service is not configured; run 'flightctl login' to update your client config or set 'remoteAccessService.server' manually")
+	}
+
+	connURL, err := o.buildAppConsoleURL(consoleServer, deviceName, appName)
+	if err != nil {
+		return err
+	}
+
+	tlsCfg, err := buildTLSConfigForConsole(config.RemoteAccessService, config.AuthInfo)
+	if err != nil {
+		return err
+	}
+
+	dialer := websocket.Dialer{TLSClientConfig: tlsCfg}
+	headers := http.Header{}
+	if token != "" {
+		headers.Set("Authorization", "Bearer "+token)
+	}
+
+	wsConn, resp, err := dialer.DialContext(ctx, connURL, headers)
+	if err != nil {
+		if resp != nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			msg := strings.TrimSpace(string(body))
+			return &httpstream.UpgradeFailureError{
+				Cause: fmt.Errorf("websocket: bad handshake (%d %s): %s", resp.StatusCode, http.StatusText(resp.StatusCode), msg),
+			}
+		}
+		return err
+	}
+	defer wsConn.Close()
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", o.exposedPort))
+	if err != nil {
+		return fmt.Errorf("creating local VNC listener: %w", err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	fmt.Fprintf(os.Stderr, "VNC is available at localhost:%d — connect your VNC viewer. Press Ctrl+C to exit.\r\n", addr.Port)
+
+	// wsRecvCh buffers VNC data arriving from the server between client connections.
+	// A bounded buffer avoids unbounded memory growth; data beyond the buffer capacity
+	// is discarded — this is acceptable for VNC since the next client will re-sync via
+	// the RFB handshake.
+	wsRecvCh := make(chan []byte, 64)
+
+	go func() {
+		defer close(wsRecvCh)
+		for {
+			_, data, err := wsConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			select {
+			case wsRecvCh <- data:
+			case <-ctx.Done():
+				return
+			default:
+				// Buffer full: discard to avoid stalling the WebSocket reader.
+			}
+		}
+	}()
+
+	tcpListener := listener.(*net.TCPListener)
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		// Use a short deadline so Accept() wakes up regularly to check ctx.
+		if err := tcpListener.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			return fmt.Errorf("setting listener deadline: %w", err)
+		}
+
+		tcpConn, err := tcpListener.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
+			return fmt.Errorf("accepting VNC client connection: %w", err)
+		}
+
+		o.bridgeVNCClient(ctx, tcpConn, wsConn, wsRecvCh)
+		tcpConn.Close()
+	}
+}
+
+// bridgeVNCClient bridges a single VNC client TCP connection to the persistent WebSocket session.
+// It returns when the TCP client disconnects or ctx is canceled.
+func (o *ConsoleOptions) bridgeVNCClient(ctx context.Context, tcpConn net.Conn, wsConn *websocket.Conn, wsRecvCh <-chan []byte) {
+	clientCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Close the TCP connection when the client context is done to unblock any blocked reads.
+	go func() {
+		<-clientCtx.Done()
+		tcpConn.Close()
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// TCP client → WebSocket
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := tcpConn.Read(buf)
+			if n > 0 {
+				if werr := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// WebSocket → TCP client
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		for {
+			select {
+			case data, ok := <-wsRecvCh:
+				if !ok {
+					return
+				}
+				if _, err := tcpConn.Write(data); err != nil {
+					return
+				}
+			case <-clientCtx.Done():
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
 }
 
 func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
