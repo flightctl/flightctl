@@ -62,17 +62,17 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 		wantErrText string
 	}{
 		{
-			name:   "returns public secret when unmasked",
+			name:   "When the public secret is unmasked it should return the public secret",
 			secret: "public-secret",
 			want:   "public-secret",
 		},
 		{
-			name:        "requires infra provider for masked secret",
+			name:        "When the secret is masked and infra provider is missing it should return an error",
 			secret:      maskedSecretValue,
 			wantErrText: "infra provider is required",
 		},
 		{
-			name:   "returns service config secret",
+			name:   "When the secret is masked it should return the service config secret",
 			secret: maskedSecretValue,
 			provider: fakeInfraProvider{
 				serviceConfig: "auth:\n  oidc:\n    clientSecret: real-secret\n",
@@ -80,7 +80,7 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 			want: "real-secret",
 		},
 		{
-			name:   "wraps service config error",
+			name:   "When service config lookup fails it should wrap the lookup error",
 			secret: maskedSecretValue,
 			provider: fakeInfraProvider{
 				serviceConfigErr: errors.New("boom"),
@@ -88,7 +88,7 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 			wantErrText: "read API service config for PAM client secret",
 		},
 		{
-			name:   "uses deterministic placeholder when service secret is unset",
+			name:   "When the service config secret is unset it should use the deterministic placeholder",
 			secret: maskedSecretValue,
 			provider: fakeInfraProvider{
 				serviceConfig: "auth:\n  oidc: {}\n",
@@ -117,16 +117,16 @@ func TestIsPAMIssuer(t *testing.T) {
 		issuer string
 		want   bool
 	}{
-		{name: "hostname label match", issuer: "https://pam-issuer.example.com/api/v1/auth", want: true},
-		{name: "hostname label match with port", issuer: "https://pam-issuer.example.com:8080/auth", want: true},
-		{name: "path segment match", issuer: "https://auth.example.com/pam-issuer/api/v1/auth", want: true},
-		{name: "path segment match with query params", issuer: "https://auth.example.com/pam-issuer?foo=bar", want: true},
-		{name: "path segment match with double slashes", issuer: "https://auth.example.com//pam-issuer/auth", want: true},
-		{name: "hostname substring does not match", issuer: "https://spam-issuer.example.com/api/v1/auth", want: false},
-		{name: "path substring does not match", issuer: "https://auth.example.com/spam-issuer/api/v1/auth", want: false},
-		{name: "empty string does not match", issuer: "", want: false},
-		{name: "whitespace only does not match", issuer: "   ", want: false},
-		{name: "invalid URL does not match", issuer: "://bad-url", want: false},
+		{name: "When the hostname has a PAM issuer label it should match", issuer: "https://pam-issuer.example.com/api/v1/auth", want: true},
+		{name: "When the hostname has a PAM issuer label and port it should match", issuer: "https://pam-issuer.example.com:8080/auth", want: true},
+		{name: "When the path has a PAM issuer segment it should match", issuer: "https://auth.example.com/pam-issuer/api/v1/auth", want: true},
+		{name: "When the path has a PAM issuer segment and query params it should match", issuer: "https://auth.example.com/pam-issuer?foo=bar", want: true},
+		{name: "When the path has double slashes before a PAM issuer segment it should match", issuer: "https://auth.example.com//pam-issuer/auth", want: true},
+		{name: "When the hostname only contains a PAM issuer substring it should not match", issuer: "https://spam-issuer.example.com/api/v1/auth", want: false},
+		{name: "When the path only contains a PAM issuer substring it should not match", issuer: "https://auth.example.com/spam-issuer/api/v1/auth", want: false},
+		{name: "When the issuer is empty it should not match", issuer: "", want: false},
+		{name: "When the issuer is whitespace only it should not match", issuer: "   ", want: false},
+		{name: "When the issuer URL is invalid it should not match", issuer: "://bad-url", want: false},
 	}
 
 	for _, tt := range tests {
@@ -166,9 +166,15 @@ callback: http://localhost:8080/callback?session_state=session-secret&access_tok
 func authConfigServer(t *testing.T, authConfig api.AuthConfig) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/auth/config", r.URL.Path)
+		if r.URL.Path != "/api/v1/auth/config" {
+			http.Error(w, "unexpected auth config path", http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(authConfig))
+		if err := json.NewEncoder(w).Encode(authConfig); err != nil {
+			http.Error(w, "encode auth config", http.StatusInternalServerError)
+			return
+		}
 	}))
 }
 
