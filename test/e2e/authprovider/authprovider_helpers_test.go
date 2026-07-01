@@ -118,9 +118,14 @@ func TestIsPAMIssuer(t *testing.T) {
 		want   bool
 	}{
 		{name: "hostname label match", issuer: "https://pam-issuer.example.com/api/v1/auth", want: true},
+		{name: "hostname label match with port", issuer: "https://pam-issuer.example.com:8080/auth", want: true},
 		{name: "path segment match", issuer: "https://auth.example.com/pam-issuer/api/v1/auth", want: true},
+		{name: "path segment match with query params", issuer: "https://auth.example.com/pam-issuer?foo=bar", want: true},
+		{name: "path segment match with double slashes", issuer: "https://auth.example.com//pam-issuer/auth", want: true},
 		{name: "hostname substring does not match", issuer: "https://spam-issuer.example.com/api/v1/auth", want: false},
 		{name: "path substring does not match", issuer: "https://auth.example.com/spam-issuer/api/v1/auth", want: false},
+		{name: "empty string does not match", issuer: "", want: false},
+		{name: "whitespace only does not match", issuer: "   ", want: false},
 		{name: "invalid URL does not match", issuer: "://bad-url", want: false},
 	}
 

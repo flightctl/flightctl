@@ -1295,7 +1295,8 @@ func buildOAuth2AuthProviderForDeployment(
 	return pamYAML, true, nil
 }
 
-// findPAMOIDCProvider returns the static OIDC provider backed by the bundled PAM issuer.
+// findPAMOIDCProvider returns the first static OIDC provider backed by the bundled PAM issuer.
+// If multiple providers use a PAM issuer, the first provider in the auth config is returned.
 func findPAMOIDCProvider(authConfig *api.AuthConfig) (*api.AuthProvider, error) {
 	if authConfig == nil || authConfig.Providers == nil {
 		return nil, fmt.Errorf("auth config does not include providers")
@@ -1325,7 +1326,7 @@ func isPAMIssuer(issuer string) bool {
 			return true
 		}
 	}
-	for _, segment := range strings.Split(strings.ToLower(strings.Trim(parsed.EscapedPath(), "/")), "/") {
+	for _, segment := range strings.Split(strings.ToLower(strings.Trim(parsed.Path, "/")), "/") {
 		if segment == pamIssuerIdentifier {
 			return true
 		}
