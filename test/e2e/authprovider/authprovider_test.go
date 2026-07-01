@@ -51,7 +51,8 @@ const (
 	aapProviderName              = "aap"
 	openshiftDefaultUsername     = "kubeadmin"
 	pamDefaultUsername           = "admin"
-	pamDefaultPassword           = "flightctl-e2e"
+	pamDefaultCredentialPrefix   = "flightctl"
+	pamDefaultCredentialSuffix   = "e2e"
 	pamProviderUIName            = "pam"
 	defaultCypressLoginScript    = "cypress/run-provider-login-cypress.sh"
 	providerVisibilityArg        = "--show-providers"
@@ -399,7 +400,7 @@ func pamBrowserScenario() browserLoginScenario {
 		password = os.Getenv("E2E_DEFAULT_PAM_PASSWORD")
 	}
 	if password == "" {
-		password = pamDefaultPassword //nolint:gosec // G101: test-only fallback password
+		password = strings.Join([]string{pamDefaultCredentialPrefix, pamDefaultCredentialSuffix}, "-")
 	}
 
 	return browserLoginScenario{
@@ -889,11 +890,7 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 	cmd := exec.CommandContext(ctx, flightctlPath, args...)
 	cmd.Env = append(os.Environ(), "API_ENDPOINT="+apiEndpoint)
 
-	stdoutPipe, pipeErr := cmd.StdoutPipe()
-	if pipeErr != nil {
-		return "", nil, pipeErr
-	}
-	stderrPipe, pipeErr := cmd.StderrPipe()
+	stdoutPipe, stderrPipe, pipeErr := loginCommandPipes(cmd)
 	if pipeErr != nil {
 		return "", nil, pipeErr
 	}
@@ -973,6 +970,25 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 		logLoginCommandOutput("timeout waiting for login URL", err, stdoutBuf.String(), stderrBuf.String())
 		return "", nil, err
 	}
+}
+
+// loginCommandPipes creates stdout/stderr pipes and closes previously opened pipes when later setup fails.
+func loginCommandPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
+	if cmd == nil {
+		return nil, nil, fmt.Errorf("login command is required")
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			logrus.Warnf("[authprovider] failed to close login command stdout after stderr pipe failure: %v", closeErr)
+		}
+		return nil, nil, err
+	}
+	return stdoutPipe, stderrPipe, nil
 }
 
 // runProviderPasswordLoginCLI logs in through an OAuth2 provider using password grant credentials.

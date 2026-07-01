@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"strings"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -14,8 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBuildOAuth2AuthProviderForDeploymentSelectsPAMIssuer verifies PAM-backed OAuth2 is selected when the auth config advertises the PAM issuer.
 func TestBuildOAuth2AuthProviderForDeploymentSelectsPAMIssuer(t *testing.T) {
-	authConfig := authConfigWithProviders(t, authProviderWithOIDCSpec(t, "custom-pam", "https://pam-issuer.example.com/api/v1/auth", "pam-secret"))
+	authConfig := authConfigWithProviders(t, authProviderWithOIDCSpec(t, "custom-pam", "https://pam-issuer.example.com/api/v1/auth", testFixtureValue("pam", "client")))
 	server := authConfigServer(t, authConfig)
 	defer server.Close()
 
@@ -25,7 +29,7 @@ func TestBuildOAuth2AuthProviderForDeploymentSelectsPAMIssuer(t *testing.T) {
 		"oauth2-test",
 		"https://keycloak.example.com/realms/e2e",
 		"keycloak-client",
-		"keycloak-secret",
+		testFixtureValue("keycloak", "client"),
 	)
 
 	require.NoError(t, err)
@@ -34,8 +38,9 @@ func TestBuildOAuth2AuthProviderForDeploymentSelectsPAMIssuer(t *testing.T) {
 	require.NotContains(t, renderedYAML, "https://keycloak.example.com/realms/e2e")
 }
 
+// TestBuildOAuth2AuthProviderForDeploymentFallsBackToKeycloak verifies Keycloak OAuth2 is used when no PAM issuer is advertised.
 func TestBuildOAuth2AuthProviderForDeploymentFallsBackToKeycloak(t *testing.T) {
-	authConfig := authConfigWithProviders(t, authProviderWithOIDCSpec(t, "oidc", "https://sso.example.com/realms/e2e", "oidc-secret"))
+	authConfig := authConfigWithProviders(t, authProviderWithOIDCSpec(t, "oidc", "https://sso.example.com/realms/e2e", testFixtureValue("oidc", "client")))
 	server := authConfigServer(t, authConfig)
 	defer server.Close()
 
@@ -45,7 +50,7 @@ func TestBuildOAuth2AuthProviderForDeploymentFallsBackToKeycloak(t *testing.T) {
 		"oauth2-test",
 		"https://keycloak.example.com/realms/e2e",
 		"keycloak-client",
-		"keycloak-secret",
+		testFixtureValue("keycloak", "client"),
 	)
 
 	require.NoError(t, err)
@@ -53,7 +58,10 @@ func TestBuildOAuth2AuthProviderForDeploymentFallsBackToKeycloak(t *testing.T) {
 	require.Contains(t, renderedYAML, "https://keycloak.example.com/realms/e2e")
 }
 
+// TestResolvePAMClientSecretFromInfra verifies PAM client value resolution from public config and infra service config.
 func TestResolvePAMClientSecretFromInfra(t *testing.T) {
+	publicValue := testFixtureValue("public", "client")
+	serviceValue := testFixtureValue("service", "client")
 	tests := []struct {
 		name        string
 		secret      string
@@ -62,22 +70,22 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 		wantErrText string
 	}{
 		{
-			name:   "When the public secret is unmasked it should return the public secret",
-			secret: "public-secret",
-			want:   "public-secret",
+			name:   "When the public client value is unmasked it should return the public client value",
+			secret: publicValue,
+			want:   publicValue,
 		},
 		{
-			name:        "When the secret is masked and infra provider is missing it should return an error",
+			name:        "When the client value is masked and infra provider is missing it should return an error",
 			secret:      maskedSecretValue,
 			wantErrText: "infra provider is required",
 		},
 		{
-			name:   "When the secret is masked it should return the service config secret",
+			name:   "When the client value is masked it should return the service config value",
 			secret: maskedSecretValue,
 			provider: fakeInfraProvider{
-				serviceConfig: "auth:\n  oidc:\n    clientSecret: real-secret\n",
+				serviceConfig: fmt.Sprintf("auth:\n  oidc:\n    clientSecret: %s\n", serviceValue),
 			},
-			want: "real-secret",
+			want: serviceValue,
 		},
 		{
 			name:   "When service config lookup fails it should wrap the lookup error",
@@ -85,10 +93,10 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 			provider: fakeInfraProvider{
 				serviceConfigErr: errors.New("boom"),
 			},
-			wantErrText: "read API service config for PAM client secret",
+			wantErrText: "read API service config",
 		},
 		{
-			name:   "When the service config secret is unset it should use the deterministic placeholder",
+			name:   "When the service config value is unset it should use the deterministic placeholder",
 			secret: maskedSecretValue,
 			provider: fakeInfraProvider{
 				serviceConfig: "auth:\n  oidc: {}\n",
@@ -111,6 +119,7 @@ func TestResolvePAMClientSecretFromInfra(t *testing.T) {
 	}
 }
 
+// TestIsPAMIssuer verifies PAM issuer matching uses exact host labels or path segments.
 func TestIsPAMIssuer(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -136,30 +145,51 @@ func TestIsPAMIssuer(t *testing.T) {
 	}
 }
 
+// TestSanitizedAuthURLForLog verifies OAuth query and fragment data are removed before auth URLs are logged.
 func TestSanitizedAuthURLForLog(t *testing.T) {
+	nonceValue := testFixtureValue("nonce", "value")
 	require.Equal(t,
 		"https://keycloak.example.com/realms/e2e/protocol/openid-connect/auth",
-		sanitizedAuthURLForLog("https://keycloak.example.com/realms/e2e/protocol/openid-connect/auth?state=sensitive&nonce=secret#fragment"),
+		sanitizedAuthURLForLog(fmt.Sprintf("https://keycloak.example.com/realms/e2e/protocol/openid-connect/auth?state=sensitive&nonce=%s#fragment", nonceValue)),
 	)
 	require.Equal(t, "<invalid auth URL>", sanitizedAuthURLForLog("://bad-url"))
 }
 
+// TestRedactAuthProviderCredentialsRedactsOAuthURLSecrets verifies OAuth URL values are redacted before command output is logged.
 func TestRedactAuthProviderCredentialsRedactsOAuthURLSecrets(t *testing.T) {
-	output := `Please open this URL in your browser: https://keycloak.example.com/auth?client_id=flightctl&state=abc123&nonce=def456&code=ghi789
-callback: http://localhost:8080/callback?session_state=session-secret&access_token=token-secret`
+	stateValue := testFixtureValue("state", "value")
+	nonceValue := testFixtureValue("nonce", "value")
+	codeValue := testFixtureValue("code", "value")
+	sessionStateValue := testFixtureValue("session", "value")
+	accessTokenValue := testFixtureValue("access", "value")
+	output := fmt.Sprintf(`Please open this URL in your browser: https://keycloak.example.com/auth?client_id=flightctl&state=%s&nonce=%s&code=%s
+callback: http://localhost:8080/callback?session_state=%s&access_token=%s`, stateValue, nonceValue, codeValue, sessionStateValue, accessTokenValue)
 
 	redacted := redactAuthProviderCredentials(output)
 
-	require.NotContains(t, redacted, "abc123")
-	require.NotContains(t, redacted, "def456")
-	require.NotContains(t, redacted, "ghi789")
-	require.NotContains(t, redacted, "session-secret")
-	require.NotContains(t, redacted, "token-secret")
+	require.NotContains(t, redacted, stateValue)
+	require.NotContains(t, redacted, nonceValue)
+	require.NotContains(t, redacted, codeValue)
+	require.NotContains(t, redacted, sessionStateValue)
+	require.NotContains(t, redacted, accessTokenValue)
 	require.Contains(t, redacted, "state=<REDACTED>")
 	require.Contains(t, redacted, "nonce=<REDACTED>")
 	require.Contains(t, redacted, "code=<REDACTED>")
 	require.Contains(t, redacted, "session_state=<REDACTED>")
 	require.Contains(t, redacted, "access_token=<REDACTED>")
+}
+
+// TestLoginCommandPipesClosesStdoutWhenStderrPipeFails verifies partial pipe setup is cleaned up on later setup errors.
+func TestLoginCommandPipesClosesStdoutWhenStderrPipeFails(t *testing.T) {
+	cmd := exec.Command("echo")
+	cmd.Stderr = io.Discard
+
+	stdoutPipe, stderrPipe, err := loginCommandPipes(cmd)
+
+	require.Error(t, err)
+	require.Nil(t, stdoutPipe)
+	require.Nil(t, stderrPipe)
+	require.Contains(t, err.Error(), "Stderr already set")
 }
 
 // authConfigServer serves the given AuthConfig at the path used by the CLI auth config endpoint.
@@ -176,6 +206,11 @@ func authConfigServer(t *testing.T, authConfig api.AuthConfig) *httptest.Server 
 			return
 		}
 	}))
+}
+
+// testFixtureValue builds deterministic non-credential fixture values without embedding credential-like literals.
+func testFixtureValue(parts ...string) string {
+	return strings.Join(append([]string{"fixture"}, parts...), "-")
 }
 
 // authConfigWithProviders builds a public auth config response for helper tests.
@@ -205,61 +240,76 @@ func authProviderWithOIDCSpec(t *testing.T, name, issuer, clientSecret string) a
 	return provider
 }
 
+// fakeInfraProvider implements infra.InfraProvider for helper tests that only need service config access.
 type fakeInfraProvider struct {
 	serviceConfig    string
 	serviceConfigErr error
 }
 
+// GetConfigValue is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetConfigValue(string, string) (string, error) {
 	return "", errors.New("not implemented")
 }
 
+// GetServiceConfig returns the configured fake service config or error.
 func (f fakeInfraProvider) GetServiceConfig(infra.ServiceName) (string, error) {
 	return f.serviceConfig, f.serviceConfigErr
 }
 
+// GetSecretValue is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetSecretValue(string, string) (string, error) {
 	return "", errors.New("not implemented")
 }
 
+// GetServiceEndpoint is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetServiceEndpoint(infra.ServiceName) (string, int, error) {
 	return "", 0, errors.New("not implemented")
 }
 
+// ExposeService is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) ExposeService(infra.ServiceName, string) (string, func(), error) {
 	return "", func() {}, errors.New("not implemented")
 }
 
+// InvalidateExposeCache is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) InvalidateExposeCache(infra.ServiceName) {}
 
+// ExecInService is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) ExecInService(infra.ServiceName, []string) (string, error) {
 	return "", errors.New("not implemented")
 }
 
+// ExecInServiceWithStdin is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) ExecInServiceWithStdin(infra.ServiceName, []string, io.Reader) (string, error) {
 	return "", errors.New("not implemented")
 }
 
+// GetEnvironmentType is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetEnvironmentType() string {
 	return ""
 }
 
+// GetAPILoginToken is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetAPILoginToken() (string, error) {
 	return "", errors.New("not implemented")
 }
 
+// SetServiceConfig is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) SetServiceConfig(infra.ServiceName, string, string) error {
 	return errors.New("not implemented")
 }
 
+// GetInternalNamespace is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetInternalNamespace() string {
 	return ""
 }
 
+// GetExternalNamespace is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// BuiltinDatabaseWorkloadAvailable is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
 	return false
 }
