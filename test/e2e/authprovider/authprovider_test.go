@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,11 +64,11 @@ const (
 	keycloakAccountAudience      = "account"
 	maskedSecretValue            = "*****"
 	pamIssuerIdentifier          = "pam-issuer"
+	publicClientPlaceholder      = "flightctl-public-client-placeholder"
 	cypressMissingSubstring      = "Cypress is not installed"
 	npmMissingSubstring          = "npm is not available"
 	openshiftOAuthClientMissing  = "No Flight Control OAuthClient matches"
 	openshiftOAuthClientMultiple = "Multiple Flight Control OAuthClients match"
-	publicClientPlaceholderBytes = 32
 	authConfigHTTPTimeout        = 10 * time.Second
 	loginURLTimeout              = 30 * time.Second
 	loginPipeDrainTimeout        = 500 * time.Millisecond
@@ -1281,16 +1280,12 @@ func buildOAuth2AuthProviderForDeployment(
 	}
 	pamProvider, err := findPAMOIDCProvider(authConfig)
 	if err != nil {
-		logrus.Infof("[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v", err)
+		fmt.Fprintf(GinkgoWriter, "[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v\n", err)
 		return keycloakYAML, false, nil
 	}
 	pamSpec, err := pamProvider.Spec.AsOIDCProviderSpec()
 	if err != nil {
 		return "", false, fmt.Errorf("parse static OIDC provider spec: %w", err)
-	}
-	if !strings.Contains(strings.ToLower(pamSpec.Issuer), pamIssuerIdentifier) {
-		logrus.Infof("[authprovider] static OIDC issuer %q is not the bundled PAM issuer; using Keycloak OAuth2", pamSpec.Issuer)
-		return keycloakYAML, false, nil
 	}
 
 	pamYAML, err := buildPAMOAuth2AuthProviderYAML(name, pamSpec)
@@ -1311,11 +1306,31 @@ func findPAMOIDCProvider(authConfig *api.AuthConfig) (*api.AuthProvider, error) 
 		if err != nil {
 			continue
 		}
-		if strings.Contains(strings.ToLower(pamSpec.Issuer), pamIssuerIdentifier) {
+		if isPAMIssuer(pamSpec.Issuer) {
 			return provider, nil
 		}
 	}
-	return nil, fmt.Errorf("PAM OIDC provider with issuer containing %q not found", pamIssuerIdentifier)
+	return nil, fmt.Errorf("PAM OIDC provider with issuer component %q not found", pamIssuerIdentifier)
+}
+
+// isPAMIssuer reports whether an issuer URL identifies the bundled PAM issuer without matching substrings such as spam-issuer.
+func isPAMIssuer(issuer string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(issuer))
+	if err != nil {
+		return false
+	}
+	hostLabels := strings.Split(strings.ToLower(parsed.Hostname()), ".")
+	for _, label := range hostLabels {
+		if label == pamIssuerIdentifier {
+			return true
+		}
+	}
+	for _, segment := range strings.Split(strings.ToLower(strings.Trim(parsed.EscapedPath(), "/")), "/") {
+		if segment == pamIssuerIdentifier {
+			return true
+		}
+	}
+	return false
 }
 
 // buildPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the bundled PAM issuer.
@@ -1348,7 +1363,19 @@ func resolvePAMClientSecret(publicClientSecret string) (string, error) {
 	if providers == nil || providers.Infra == nil {
 		return "", fmt.Errorf("infra provider is required to resolve masked PAM client secret")
 	}
-	apiConfigYAML, err := providers.Infra.GetServiceConfig(infra.ServiceAPI)
+	return resolvePAMClientSecretFromInfra(publicClientSecret, providers.Infra)
+}
+
+// resolvePAMClientSecretFromInfra reads the real PAM client secret from service config when the public auth config masks it.
+func resolvePAMClientSecretFromInfra(publicClientSecret string, infraProvider infra.InfraProvider) (string, error) {
+	if publicClientSecret != "" && publicClientSecret != maskedSecretValue {
+		return publicClientSecret, nil
+	}
+	if infraProvider == nil {
+		return "", fmt.Errorf("infra provider is required to resolve masked PAM client secret")
+	}
+
+	apiConfigYAML, err := infraProvider.GetServiceConfig(infra.ServiceAPI)
 	if err != nil {
 		return "", fmt.Errorf("read API service config for PAM client secret: %w", err)
 	}
@@ -1366,16 +1393,7 @@ func resolvePAMClientSecret(publicClientSecret string) (string, error) {
 	if apiConfig.Auth.OIDC.ClientSecret != "" {
 		return apiConfig.Auth.OIDC.ClientSecret, nil
 	}
-	return generatePublicClientPlaceholder()
-}
-
-// generatePublicClientPlaceholder creates a runtime-only value for public PAM clients whose secret is intentionally unset.
-func generatePublicClientPlaceholder() (string, error) {
-	placeholderBytes := make([]byte, publicClientPlaceholderBytes)
-	if _, err := rand.Read(placeholderBytes); err != nil {
-		return "", fmt.Errorf("generate public PAM client placeholder: %w", err)
-	}
-	return hex.EncodeToString(placeholderBytes), nil
+	return publicClientPlaceholder, nil
 }
 
 // buildOAuth2AuthProviderYAML renders a dynamic OAuth2 authprovider manifest for this suite.

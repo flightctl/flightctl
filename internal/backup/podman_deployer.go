@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
 	"github.com/sirupsen/logrus"
 )
+
+const podmanDBDefaultPort uint = 5432
 
 // PodmanDeployer implements Deployer for Podman/quadlet deployments
 type PodmanDeployer struct {
@@ -20,6 +23,7 @@ type PodmanDeployer struct {
 	dbName            string
 	dbUser            string
 	dbPassword        string
+	dbPort            uint
 	containerCLI      string
 	kvContainerName   string
 }
@@ -56,15 +60,16 @@ func WithDBName(name string) PodmanDeployerOption {
 	}
 }
 
-// WithContainerCLI sets the container CLI command (e.g. "podman" or "docker").
-func WithContainerCLI(cli string) PodmanDeployerOption {
+// WithDBPort overrides the database port used for pg_dump inside the internal DB container.
+// When unset, it defaults to 5432, the standard PostgreSQL port used by bundled internal deployments.
+func WithDBPort(port uint) PodmanDeployerOption {
 	return func(d *PodmanDeployer) {
-		d.containerCLI = cli
+		d.dbPort = port
 	}
 }
 
 // WithDBUser overrides the database user for pg_dump.
-// When empty, the container's $POSTGRESQL_USER env var is used.
+// When empty, it defaults to "flightctl_app", the application DB user in bundled internal deployments.
 func WithDBUser(user string) PodmanDeployerOption {
 	return func(d *PodmanDeployer) {
 		d.dbUser = user
@@ -72,10 +77,17 @@ func WithDBUser(user string) PodmanDeployerOption {
 }
 
 // WithDBPassword overrides the database password for pg_dump.
-// When empty, the container's $PGPASSWORD env var is used.
+// When empty, no password is passed; callers should set this when the internal DB requires password auth.
 func WithDBPassword(password string) PodmanDeployerOption {
 	return func(d *PodmanDeployer) {
 		d.dbPassword = password
+	}
+}
+
+// WithContainerCLI sets the container CLI command (e.g. "podman" or "docker").
+func WithContainerCLI(cli string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.containerCLI = cli
 	}
 }
 
@@ -88,7 +100,7 @@ func WithKVContainerName(name string) PodmanDeployerOption {
 
 // NewPodmanDeployer creates a new Podman deployer.
 // Defaults: pkiPath "/etc/flightctl/pki", serviceConfigPath "/etc/flightctl/service-config.yaml",
-// dbContainerName "flightctl-db", containerCLI "podman", kvContainerName "flightctl-kv".
+// dbContainerName "flightctl-db", dbPort 5432, containerCLI "podman", kvContainerName "flightctl-kv".
 func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *PodmanDeployer {
 	d := &PodmanDeployer{
 		log: log,
@@ -113,6 +125,9 @@ func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *Po
 	}
 	if d.dbUser == "" {
 		d.dbUser = "flightctl_app"
+	}
+	if d.dbPort == 0 {
+		d.dbPort = podmanDBDefaultPort
 	}
 	return d
 }
@@ -160,7 +175,8 @@ func (p *PodmanDeployer) BackupDatabase(ctx context.Context, outputDir string) e
 
 	// Execute pg_dump inside the container with password from stdin and safely escaped parameters.
 	// Output streams directly to dump file.
-	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p 5432 -U %s -d %s",
+	pgDumpCmd := fmt.Sprintf("PGPASSWORD=$(cat -) pg_dump --clean --if-exists -h 127.0.0.1 -p %s -U %s -d %s",
+		strconv.FormatUint(uint64(p.dbPort), 10),
 		ShellEscape(p.dbUser),
 		ShellEscape(dbName))
 
