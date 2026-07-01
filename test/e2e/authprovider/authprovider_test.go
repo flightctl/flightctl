@@ -67,6 +67,8 @@ const (
 	pamIssuerIdentifier          = "pam-issuer"
 	cypressMissingSubstring      = "Cypress is not installed"
 	npmMissingSubstring          = "npm is not available"
+	openshiftOAuthClientMissing  = "No Flight Control OAuthClient matches"
+	openshiftOAuthClientMultiple = "Multiple Flight Control OAuthClients match"
 	publicClientPlaceholderBytes = 32
 	authConfigHTTPTimeout        = 10 * time.Second
 	loginURLTimeout              = 30 * time.Second
@@ -853,7 +855,7 @@ func runLoginWithCypressHarness(ctx context.Context, harness *e2e.Harness, apiEn
 // runLoginWithCypressHarnessOrSkip runs the Cypress harness and skips when browser test dependencies are unavailable.
 func runLoginWithCypressHarnessOrSkip(ctx context.Context, harness *e2e.Harness, apiEndpoint string, scenario browserLoginScenario) error {
 	err := runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)
-	if isCypressUnavailableError(err) {
+	if isCypressUnavailableError(err) || isOpenShiftOAuthClientPrerequisiteError(err, scenario) {
 		Skip(err.Error())
 	}
 	return err
@@ -866,6 +868,15 @@ func isCypressUnavailableError(err error) bool {
 	}
 	errText := err.Error()
 	return strings.Contains(errText, cypressMissingSubstring) && strings.Contains(errText, npmMissingSubstring)
+}
+
+// isOpenShiftOAuthClientPrerequisiteError reports whether an OpenShift browser test cannot run because its OAuthClient is unavailable or ambiguous.
+func isOpenShiftOAuthClientPrerequisiteError(err error, scenario browserLoginScenario) bool {
+	if err == nil || scenario.providerUI != openshiftProviderName {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, openshiftOAuthClientMissing) || strings.Contains(errText, openshiftOAuthClientMultiple)
 }
 
 // runProviderLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the given provider.
@@ -1268,7 +1279,7 @@ func buildOAuth2AuthProviderForDeployment(
 	if err != nil {
 		return "", false, fmt.Errorf("detect deployment auth config: %w", err)
 	}
-	pamProvider, err := findAuthProvider(authConfig, staticOIDCProviderName)
+	pamProvider, err := findPAMOIDCProvider(authConfig)
 	if err != nil {
 		logrus.Infof("[authprovider] bundled PAM issuer is not advertised; using Keycloak OAuth2: %v", err)
 		return keycloakYAML, false, nil
@@ -1287,6 +1298,24 @@ func buildOAuth2AuthProviderForDeployment(
 		return "", false, fmt.Errorf("render PAM-backed OAuth2 authprovider: %w", err)
 	}
 	return pamYAML, true, nil
+}
+
+// findPAMOIDCProvider returns the static OIDC provider backed by the bundled PAM issuer.
+func findPAMOIDCProvider(authConfig *api.AuthConfig) (*api.AuthProvider, error) {
+	if authConfig == nil || authConfig.Providers == nil {
+		return nil, fmt.Errorf("auth config does not include providers")
+	}
+	for i := range *authConfig.Providers {
+		provider := &(*authConfig.Providers)[i]
+		pamSpec, err := provider.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(pamSpec.Issuer), pamIssuerIdentifier) {
+			return provider, nil
+		}
+	}
+	return nil, fmt.Errorf("PAM OIDC provider with issuer containing %q not found", pamIssuerIdentifier)
 }
 
 // buildPAMOAuth2AuthProviderYAML renders an OAuth2 authprovider backed by the bundled PAM issuer.
