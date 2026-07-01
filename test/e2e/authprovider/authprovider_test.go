@@ -748,20 +748,6 @@ func fetchAuthConfig(ctx context.Context, apiEndpoint string) (*api.AuthConfig, 
 	return &authConfig, nil
 }
 
-// findAuthProvider returns a provider with the requested name from an AuthConfig response.
-func findAuthProvider(authConfig *api.AuthConfig, providerName string) (*api.AuthProvider, error) {
-	if authConfig == nil || authConfig.Providers == nil {
-		return nil, fmt.Errorf("auth config does not include providers")
-	}
-	for i := range *authConfig.Providers {
-		provider := &(*authConfig.Providers)[i]
-		if provider.Metadata.Name != nil && *provider.Metadata.Name == providerName {
-			return provider, nil
-		}
-	}
-	return nil, fmt.Errorf("auth provider %q not found", providerName)
-}
-
 // writeAndApplyAuthProviderManifest writes a provider manifest to disk and applies it through the harness.
 func writeAndApplyAuthProviderManifest(harness *e2e.Harness, providerPath, providerYAML string) (string, error) {
 	if harness == nil {
