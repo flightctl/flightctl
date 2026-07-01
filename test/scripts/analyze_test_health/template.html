@@ -116,6 +116,9 @@ nav a:hover{background:var(--bg);text-decoration:none}
   {{if gt .NoJUnitCount 0}}
   <p class="meta" style="margin-top:8px">{{.NoJUnitCount}} run(s) produced no JUnit output (tests skipped because no relevant files changed, or pre-test failure).</p>
   {{end}}
+  {{if gt .CollectErrorCount 0}}
+  <p class="meta" style="margin-top:8px;color:#e05252">{{.CollectErrorCount}} run(s) could not be collected (artifact download or parse error); excluded from all aggregation.</p>
+  {{end}}
 </div>
 </section>
 

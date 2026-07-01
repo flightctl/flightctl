@@ -81,44 +81,42 @@ func collectHealthData(ctx context.Context, client *github.Client, owner, repo, 
 	for _, run := range runs {
 		fmt.Printf("  Processing run %d (%s, %s)...\n", run.id, run.conclusion, run.date)
 		specs, err := processRun(ctx, client, owner, repo, run, artifactName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "    Warning: %v\n", err)
-		}
-		runData = append(runData, rawRunData{
+		rd := rawRunData{
 			RunID:      run.id,
 			RunURL:     run.url,
 			Date:       run.date,
 			Conclusion: run.conclusion,
 			Specs:      specs,
-		})
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "    ERROR: run %d: %v\n", run.id, err)
+			rd.CollectError = err.Error()
+		}
+		runData = append(runData, rd)
 	}
 	meta.AnalyzedRuns = len(runs)
 	return rawFile{Meta: meta, Runs: runData}, nil
 }
 
 func listCompletedRuns(ctx context.Context, client *github.Client, owner, repo, workflow string, limit int) ([]runSummary, error) {
-	// The GitHub REST API does not support multiple status values in one request,
-	// so fetch successes and failures separately and merge by recency.
+	opts := &github.ListWorkflowRunsOptions{
+		Branch:      defaultBranch,
+		Status:      "completed",
+		ListOptions: github.ListOptions{PerPage: limit},
+	}
+	runs, _, err := client.Actions.ListWorkflowRunsByFileName(ctx, owner, repo, workflow, opts)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow runs: %w", err)
+	}
 	var result []runSummary
-	for _, conclusion := range []string{"success", "failure"} {
-		opts := &github.ListWorkflowRunsOptions{
-			Branch:      defaultBranch,
-			Status:      conclusion,
-			ListOptions: github.ListOptions{PerPage: limit},
-		}
-		runs, _, err := client.Actions.ListWorkflowRunsByFileName(ctx, owner, repo, workflow, opts)
-		if err != nil {
-			return nil, fmt.Errorf("list workflow runs (%s): %w", conclusion, err)
-		}
-		for _, r := range runs.WorkflowRuns {
-			result = append(result, runSummary{
-				id:         r.GetID(),
-				url:        r.GetHTMLURL(),
-				date:       r.GetCreatedAt().Format("2006-01-02"),
-				conclusion: conclusion,
-				startedAt:  r.GetRunStartedAt().Time,
-			})
-		}
+	for _, r := range runs.WorkflowRuns {
+		result = append(result, runSummary{
+			id:         r.GetID(),
+			url:        r.GetHTMLURL(),
+			date:       r.GetCreatedAt().Format("2006-01-02"),
+			conclusion: r.GetConclusion(),
+			startedAt:  r.GetRunStartedAt().Time,
+		})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].startedAt.After(result[j].startedAt)

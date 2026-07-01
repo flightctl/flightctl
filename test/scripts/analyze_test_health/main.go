@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/v72/github"
 	"github.com/spf13/cobra"
@@ -57,13 +58,15 @@ type rawFile struct {
 
 // rawRunData is one workflow run's parsed JUnit data.
 // Specs is nil when the run produced no JUnit artifact (tests skipped or
-// run failed before tests could run).
+// run failed before tests could run). CollectError is set when the artifact
+// download or parse failed; these runs are excluded from all aggregation.
 type rawRunData struct {
-	RunID      int64                    `json:"run_id"`
-	RunURL     string                   `json:"run_url"`
-	Date       string                   `json:"date"`
-	Conclusion string                   `json:"conclusion"`
-	Specs      map[string]rawSpecResult `json:"specs,omitempty"`
+	RunID        int64                    `json:"run_id"`
+	RunURL       string                   `json:"run_url"`
+	Date         string                   `json:"date"`
+	Conclusion   string                   `json:"conclusion"`
+	CollectError string                   `json:"collect_error,omitempty"`
+	Specs        map[string]rawSpecResult `json:"specs,omitempty"`
 }
 
 // rawSpecResult is the outcome of one test case in a run's JUnit XML output.
@@ -185,8 +188,10 @@ Requires GH_TOKEN (or GITHUB_TOKEN) and GITHUB_REPOSITORY when collecting.`,
 				reportData = filepath.Join(outDirFlag, prefix+"-report-data.json")
 			}
 
-			if err := os.MkdirAll(filepath.Dir(rawJunitPath), 0o755); err != nil {
-				return fmt.Errorf("create output dir: %w", err)
+			for _, p := range []string{rawJunitPath, outputHTML, summaryJSON, reportData} {
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					return fmt.Errorf("create output dir for %s: %w", p, err)
+				}
 			}
 
 			var raw rawFile
@@ -215,12 +220,13 @@ Requires GH_TOKEN (or GITHUB_TOKEN) and GITHUB_REPOSITORY when collecting.`,
 					return err
 				}
 
-				ctx := context.Background()
-				client := github.NewClient(nil).WithAuthToken(token)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			client := github.NewClient(nil).WithAuthToken(token)
 
-				fmt.Printf("Collecting health data for %s/%s (last %d runs of %s)...\n", owner, repo, nRuns, workflow)
-				var err2 error
-				raw, err2 = collectHealthData(ctx, client, owner, repo, workflow, artifactName, title, nRuns)
+			fmt.Printf("Collecting health data for %s/%s (last %d runs of %s)...\n", owner, repo, nRuns, workflow)
+			var err2 error
+			raw, err2 = collectHealthData(ctx, client, owner, repo, workflow, artifactName, title, nRuns)
 				if err2 != nil {
 					return fmt.Errorf("collect: %w", err2)
 				}

@@ -37,6 +37,10 @@ func aggregateRuns(runs []rawRunData) junitAgg {
 	// Runs are stored newest-first from collect; process in that order so
 	// LastFailedURL records the most recent failure URL for each spec.
 	for _, run := range runs {
+		// Collection failures are excluded entirely; they are not "no JUnit".
+		if run.CollectError != "" {
+			continue
+		}
 		ref := runRef{RunID: run.RunID, RunURL: run.RunURL, Date: run.Date}
 
 		if len(run.Specs) == 0 {
@@ -143,6 +147,7 @@ type reportData struct {
 	FlakeEntries             []flakeEntry
 	InfraInstabilityCount    int
 	NoJUnitCount             int
+	CollectErrorCount        int
 	TotalAnalyzedSpecs       int
 	FlakyCount               int
 	ConsistentlyFailingCount int
@@ -245,9 +250,22 @@ func computeSlowest(timings map[string]specTiming, topN int) []specEntry {
 	return entries
 }
 
+func computeCollectErrors(runs []rawRunData) int {
+	n := 0
+	for _, run := range runs {
+		if run.CollectError != "" {
+			n++
+		}
+	}
+	return n
+}
+
 func computeTrend(runs []rawRunData) []trendEntry {
 	trend := make([]trendEntry, 0, len(runs))
 	for _, run := range runs {
+		if run.CollectError != "" {
+			continue
+		}
 		entry := trendEntry{
 			RunID:      run.RunID,
 			RunURL:     run.RunURL,
@@ -281,6 +299,7 @@ func computeReport(raw rawFile, title string, topN int) *reportData {
 	flakes, totalSpecs, flakyCount, consistentCount, cleanCount := computeFlakes(agg, topN)
 	slowest := computeSlowest(timings, topN)
 	trend := computeTrend(raw.Runs)
+	collectErrors := computeCollectErrors(raw.Runs)
 
 	generatedAt := raw.Meta.GeneratedAt
 	if generatedAt == "" {
@@ -296,6 +315,7 @@ func computeReport(raw rawFile, title string, topN int) *reportData {
 		FlakeEntries:             flakes,
 		InfraInstabilityCount:    len(agg.infraRuns),
 		NoJUnitCount:             len(agg.noJUnit),
+		CollectErrorCount:        collectErrors,
 		TotalAnalyzedSpecs:       totalSpecs,
 		FlakyCount:               flakyCount,
 		ConsistentlyFailingCount: consistentCount,
