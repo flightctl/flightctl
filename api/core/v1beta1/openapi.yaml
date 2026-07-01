@@ -5418,6 +5418,7 @@ components:
                 (e.g. "8080:80" or "8080:80/tcp").
               items:
                 type: string
+                pattern: '^[0-9]+:[0-9]+(/(tcp|udp|sctp))?$'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'

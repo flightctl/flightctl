@@ -63,13 +63,6 @@ spec:
             chpasswd: { expire: False }
         name: cloudinitdisk
 `
-
-	// vmKubeUnitTemplate is a Quadlet Kube unit template for e2e VM tests.
-	// Yaml= is intentionally omitted: the server always injects Yaml=pod.yaml
-	// when rendering a VmApplication, overriding any user-supplied value.
-	vmKubeUnitTemplate = `[Kube]
-PublishPort=2222:2222
-`
 )
 
 // QuadletPathForUser returns the quadlet systemd path for the given user.
@@ -283,19 +276,21 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 }
 
 // NewVmApplicationSpec creates an inline VmApplication spec containing a KubeVirt
-// VirtualMachine manifest (vm.yaml) and a Quadlet Kube unit ({name}.kube).
+// VirtualMachine manifest (vm.yaml). The port mapping is expressed via
+// publishPorts so that the server-side renderer can inject it into the
+// generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
 	vmYAML := fmt.Sprintf(vmYAMLTemplate, name, image)
-	kubeUnit := vmKubeUnitTemplate
+	publishPorts := []string{"2222:2222"}
 
 	vmApp := v1beta1.VmApplication{
-		AppType: v1beta1.AppTypeVm,
-		Name:    lo.ToPtr(name),
+		AppType:      v1beta1.AppTypeVm,
+		Name:         lo.ToPtr(name),
+		PublishPorts: &publishPorts,
 	}
 	if err := vmApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
 		Inline: []v1beta1.ApplicationContent{
 			{Path: "vm.yaml", Content: lo.ToPtr(vmYAML)},
-			{Path: name + ".kube", Content: lo.ToPtr(kubeUnit)},
 		},
 	}); err != nil {
 		return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("building inline VM application spec: %w", err)

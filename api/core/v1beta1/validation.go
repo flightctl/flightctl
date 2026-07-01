@@ -1360,11 +1360,10 @@ func validateContainerPorts(ports *[]ApplicationPort, path string) []error {
 	}
 
 	var allErrs []error
-	portPattern := regexp.MustCompile(`^[0-9]+:[0-9]+(/(tcp|udp|sctp))?$`)
 
 	for i, portString := range *ports {
 		formatErr := fmt.Errorf("%s[%d]: must be in format 'portnumber:portnumber[/protocol]', got %q", path, i, portString)
-		if !portPattern.MatchString(portString) {
+		if !containerPortPattern.MatchString(portString) {
 			allErrs = append(allErrs, formatErr)
 			continue
 		}
@@ -1402,6 +1401,8 @@ func validatePodmanCPULimit(cpu *string, path string) []error {
 	}
 	return errs
 }
+
+var containerPortPattern = regexp.MustCompile(`^[0-9]+:[0-9]+(/(tcp|udp|sctp))?$`)
 
 var podmanMemoryLimitPattern = regexp.MustCompile(`^[0-9]+[bkmg]?$`)
 

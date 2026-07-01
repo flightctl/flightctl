@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -17,12 +18,36 @@ import (
 )
 
 const (
-	vmToQuadletBinary             = "vm-to-quadlet"
-	vmWorkloadTypeAnnotationKey   = "flightctl.io/workload-type"
-	vmWorkloadTypeAnnotationValue = "vm"
-	vmYamlFileName                = "vm.yaml"
-	maxStderrLen                  = 512
+	vmToQuadletBinary                   = "vm-to-quadlet"
+	vmWorkloadTypeAnnotationKey         = "flightctl.io/workload-type"
+	vmWorkloadTypeAnnotationValue       = "vm"
+	vmYamlFileName                      = "vm.yaml"
+	maxStderrLen                        = 512
+	maxStdoutBytes                      = 16 * 1024 * 1024 // 16 MiB
+	maxStderrBytes                      = 64 * 1024        // 64 KiB
+	maxTarEntryBytes              int64 = 1 * 1024 * 1024  // 1 MiB per TAR entry
 )
+
+// limitedWriter wraps a bytes.Buffer and returns an error once more than limit
+// bytes have been written. This causes cmd.Run() to fail fast rather than
+// allowing unbounded memory growth from a misbehaving subprocess.
+type limitedWriter struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+func (lw *limitedWriter) Write(p []byte) (int, error) {
+	remaining := lw.limit - lw.buf.Len()
+	if remaining <= 0 {
+		return 0, fmt.Errorf("subprocess output exceeded limit of %d bytes", lw.limit)
+	}
+	if len(p) > remaining {
+		p = p[:remaining]
+		n, _ := lw.buf.Write(p)
+		return n, fmt.Errorf("subprocess output exceeded limit of %d bytes", lw.limit)
+	}
+	return lw.buf.Write(p)
+}
 
 // truncateStderr trims and caps subprocess stderr to avoid embedding large or
 // sensitive tool output directly in error messages.
@@ -50,19 +75,20 @@ func NewVmConverter(binaryPath string) VmConverterFn {
 		cmd := exec.CommandContext(ctx, binaryPath)
 		cmd.Stdin = bytes.NewReader(vmYAML)
 
-		var stdoutBuf, stderrBuf bytes.Buffer
-		cmd.Stdout = &stdoutBuf
-		cmd.Stderr = &stderrBuf
+		stdoutBuf := &limitedWriter{limit: maxStdoutBytes}
+		stderrBuf := &limitedWriter{limit: maxStderrBytes}
+		cmd.Stdout = stdoutBuf
+		cmd.Stderr = stderrBuf
 
 		if err := cmd.Run(); err != nil {
-			return nil, stderrBuf.String(), err
+			return nil, stderrBuf.buf.String(), err
 		}
 
-		files, err := parseTarFiles(stdoutBuf.Bytes())
+		files, err := parseTarFiles(stdoutBuf.buf.Bytes())
 		if err != nil {
-			return nil, stderrBuf.String(), fmt.Errorf("parsing vm-to-quadlet output: %w", err)
+			return nil, stderrBuf.buf.String(), fmt.Errorf("parsing vm-to-quadlet output: %w", err)
 		}
-		return files, stderrBuf.String(), nil
+		return files, stderrBuf.buf.String(), nil
 	}
 }
 
@@ -81,14 +107,19 @@ func parseTarFiles(data []byte) (map[string]string, error) {
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
-		if strings.HasPrefix(hdr.Name, "/") || strings.Contains(hdr.Name, "../") || hdr.Name == ".." {
+		clean := strings.TrimPrefix(hdr.Name, "./")
+		if !filepath.IsLocal(clean) {
 			return nil, fmt.Errorf("vm-to-quadlet produced TAR entry with unsafe path %q", hdr.Name)
 		}
-		name := strings.TrimPrefix(hdr.Name, "./")
-		content, err := io.ReadAll(tr)
+		limited := io.LimitReader(tr, maxTarEntryBytes+1)
+		content, err := io.ReadAll(limited)
 		if err != nil {
 			return nil, fmt.Errorf("reading TAR entry %q: %w", hdr.Name, err)
 		}
+		if int64(len(content)) > maxTarEntryBytes {
+			return nil, fmt.Errorf("TAR entry %q exceeds maximum size of %d bytes", hdr.Name, maxTarEntryBytes)
+		}
+		name := clean
 		files[name] = string(content)
 	}
 	if len(files) == 0 {
