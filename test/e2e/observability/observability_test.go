@@ -2,7 +2,6 @@ package observability_test
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -23,23 +22,14 @@ const (
 	fleetImage                  = "quay.io/redhat/rhde:9.2"
 )
 
-// getPrometheusURL returns the Prometheus URL from auxiliary.Services.
-func getPrometheusURL() (string, error) {
-	if auxSvcs == nil {
-		return "", fmt.Errorf("aux services not initialized")
-	}
-	if auxSvcs.Prometheus == nil || auxSvcs.Prometheus.URL == "" {
-		return "", fmt.Errorf("Prometheus not started")
-	}
-	return auxSvcs.Prometheus.URL, nil
-}
-
 var _ = Describe("Device observability", func() {
 	BeforeEach(func() {
-		p := setup.GetDefaultProviders()
-		if p.Infra.GetEnvironmentType() != infra.EnvironmentKind {
-			Skip("KIND context required for telemetry gateway metrics")
+		providers := setup.GetDefaultProviders()
+		env := providers.Infra.GetEnvironmentType()
+		if env != infra.EnvironmentKind && env != infra.EnvironmentQuadlet {
+			Skip(fmt.Sprintf("device observability requires KIND or Quadlet (current: %s)", env))
 		}
+		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
 	})
 
 	Context("telemetry gateway metrics", func() {
@@ -55,23 +45,22 @@ var _ = Describe("Device observability", func() {
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
 			cfg, err := p.Infra.GetServiceConfig(infra.ServiceTelemetryGateway)
 			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("Telemetry gateway configuration: %s\n", cfg)
 			Expect(cfg).To(ContainSubstring("prometheus"))
 			Expect(cfg).To(ContainSubstring("listen"))
-			Expect(cfg).To(ContainSubstring("logLevel"))
-			Expect(cfg).To(ContainSubstring("tls:"))
-			Expect(cfg).To(ContainSubstring("certFile"))
-			Expect(cfg).To(ContainSubstring("keyFile"))
-			Expect(cfg).To(ContainSubstring("caCert"))
-
-			if !strings.Contains(cfg, "forward:") {
-				Skip("telemetry gateway forward configuration is required for this test case")
+			if !infra.IsQuadletEnvironment() {
+				Expect(cfg).To(ContainSubstring("logLevel"))
+				Expect(cfg).To(ContainSubstring("tls:"))
+				Expect(cfg).To(ContainSubstring("certFile"))
+				Expect(cfg).To(ContainSubstring("keyFile"))
+				Expect(cfg).To(ContainSubstring("caCert"))
+				Expect(cfg).To(ContainSubstring("forward:"))
+				Expect(cfg).To(ContainSubstring("endpoint"))
+				Expect(cfg).To(ContainSubstring("insecureSkipTlsVerify"))
+				Expect(cfg).To(ContainSubstring("caFile"))
+				Expect(cfg).To(ContainSubstring("certFile"))
+				Expect(cfg).To(ContainSubstring("keyFile"))
 			}
-			Expect(cfg).To(ContainSubstring("endpoint"))
-			Expect(cfg).To(ContainSubstring("insecureSkipTlsVerify"))
-			Expect(cfg).To(ContainSubstring("caFile"))
-			Expect(cfg).To(ContainSubstring("certFile"))
-			Expect(cfg).To(ContainSubstring("keyFile"))
-
 			By("enrolling a device and updating to the v10 image with OTEL collector")
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -107,8 +96,9 @@ var _ = Describe("Device observability", func() {
 			}
 
 			By("verifying Prometheus queries return device metrics")
-			promURL, err := getPrometheusURL()
+			promURL, promCleanup, err := getServiceObservabilityPrometheusURL()
 			Expect(err).ToNot(HaveOccurred())
+			defer promCleanup()
 			queryAll := fmt.Sprintf(`{device_id="%s"}`, deviceId)
 			Eventually(harness.PromQueryResultCount(promURL, queryAll), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 
@@ -228,8 +218,9 @@ var _ = Describe("Device observability", func() {
 			Eventually(harness.MetricsMatchLabels(metricsURL, exact, requiredLabels, nil), TIMEOUT, POLLING).Should(BeTrue())
 
 			By("verifying Prometheus queries return metrics from TPM device")
-			promURL, err := getPrometheusURL()
+			promURL, promCleanup, err := getServiceObservabilityPrometheusURL()
 			Expect(err).ToNot(HaveOccurred())
+			defer promCleanup()
 			queryCPU := fmt.Sprintf(`system_cpu_time_seconds_total{device_id="%s"}`, deviceId)
 			Eventually(harness.PromQueryResultCount(promURL, queryCPU), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 		})
@@ -238,19 +229,22 @@ var _ = Describe("Device observability", func() {
 
 var _ = Describe("Service observability", func() {
 	BeforeEach(func() {
-		p := setup.GetDefaultProviders()
-		if p.Infra.GetEnvironmentType() != infra.EnvironmentKind {
-			Skip("KIND context required for service observability metrics")
+		providers := setup.GetDefaultProviders()
+		env := providers.Infra.GetEnvironmentType()
+		if env != infra.EnvironmentKind && env != infra.EnvironmentQuadlet {
+			Skip(fmt.Sprintf("service observability metrics requires KIND or Quadlet (current: %s)", env))
 		}
+		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
 	})
 
 	Context("service level prometheus metrics", func() {
 		It("should expose service level metrics via the prometheus server", Label("88170"), func() {
 			harness := e2e.GetWorkerHarness()
 
-			By("getting Prometheus URL from aux (testcontainer)")
-			promURL, err := getPrometheusURL()
+			By("getting Prometheus URL")
+			promURL, promCleanup, err := getServiceObservabilityPrometheusURL()
 			Expect(err).ToNot(HaveOccurred())
+			defer promCleanup()
 
 			By("verifying service metrics exist")
 			metrics := []string{
@@ -260,9 +254,10 @@ var _ = Describe("Service observability", func() {
 				"http_server_request_duration_seconds_bucket",
 				"flightctl_repositories_total",
 			}
-
 			for _, query := range metrics {
 				By(fmt.Sprintf("verifying metric %s", query))
+				GinkgoWriter.Printf("Prom URL: %s\n", promURL)
+				GinkgoWriter.Printf("Query: %s\n", query)
 				Eventually(harness.PromQueryResultCount(promURL, query), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 			}
 
@@ -399,4 +394,34 @@ func buildOTELRestartHook() v1beta1.FileSpec {
 		Content: content,
 		Mode:    lo.ToPtr(0644),
 	}
+}
+
+// getPrometheusURL returns the Prometheus URL from auxiliary.Services.
+func getPrometheusURL() (string, error) {
+	if auxSvcs == nil {
+		return "", fmt.Errorf("aux services not initialized")
+	}
+	if auxSvcs.Prometheus == nil || auxSvcs.Prometheus.URL == "" {
+		return "", fmt.Errorf("Prometheus not started")
+	}
+	return auxSvcs.Prometheus.URL, nil
+}
+
+// getServiceObservabilityPrometheusURL returns the Prometheus URL for observability tests.
+// On Quadlet uses flightctl-prometheus; on KIND uses the aux testcontainer.
+func getServiceObservabilityPrometheusURL() (string, func(), error) {
+	noopCleanup := func() {}
+	if infra.IsQuadletEnvironment() {
+		providers := setup.GetDefaultProviders()
+		url, cleanup, err := providers.Infra.ExposeService(infra.ServicePrometheus, "http")
+		if err != nil {
+			return "", noopCleanup, err
+		}
+		if cleanup == nil {
+			cleanup = noopCleanup
+		}
+		return url, cleanup, nil
+	}
+	url, err := getPrometheusURL()
+	return url, noopCleanup, err
 }

@@ -28,6 +28,7 @@ const (
 	ServiceImageBuilderAPI    ServiceName = "imagebuilder-api"
 	ServiceImageBuilderWorker ServiceName = "imagebuilder-worker"
 	ServiceAlertExporter      ServiceName = "alert-exporter"
+	ServicePrometheus         ServiceName = "prometheus"
 )
 
 // InfraProvider abstracts infrastructure access for different deployment environments.
