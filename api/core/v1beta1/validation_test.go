@@ -1112,21 +1112,21 @@ func TestValidateApplications(t *testing.T) {
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with invalid port format - not numbers",
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"abc:def"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with invalid port format - too many colons",
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080:80:90"}, nil),
 			},
-			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+			wantErrs: []string{"must be in format 'portnumber:portnumber[/protocol]'"},
 		},
 		{
 			name: "container app with valid CPU formats",
@@ -2647,16 +2647,6 @@ func TestValidateVmApplication(t *testing.T) {
 				})
 			},
 		},
-		{
-			name: "When inline has valid vm.yaml and one .kube file it should be valid",
-			app: func(t *testing.T) ApplicationProviderSpec {
-				return newTestVmInlineApp(t, "my-vm", map[string]string{
-					"vm.yaml":    validVmYaml("my-vm"),
-					"my-vm.kube": "[Kube]\nYaml=vm.yaml\n",
-				})
-			},
-		},
-
 		// ── Image provider — valid path ───────────────────────────────────
 		{
 			name: "When image provider has valid OCI reference it should be valid",
@@ -2721,9 +2711,9 @@ func TestValidateVmApplication(t *testing.T) {
 			wantErrs: []string{"vm.yaml"},
 		},
 
-		// ── .kube file count ──────────────────────────────────────────────
+		// ── extra files rejected ──────────────────────────────────────────
 		{
-			name: "When inline has two .kube files it should fail",
+			name: "When inline has extra files alongside vm.yaml it should fail",
 			app: func(t *testing.T) ApplicationProviderSpec {
 				return newTestVmInlineApp(t, "my-vm", map[string]string{
 					"vm.yaml": validVmYaml("my-vm"),
@@ -2731,7 +2721,7 @@ func TestValidateVmApplication(t *testing.T) {
 					"b.kube":  "[Kube]\nYaml=vm.yaml\n",
 				})
 			},
-			wantErrs: []string{".kube"},
+			wantErrs: []string{"only vm.yaml is allowed"},
 		},
 
 		// ── Unrecognised files ────────────────────────────────────────────
@@ -2770,6 +2760,48 @@ func TestValidateVmApplication(t *testing.T) {
 				return newTestVmImageApp(t, "my-vm", "not a valid image!!!")
 			},
 			wantErrs: []string{"image"},
+		},
+
+		// ── publishPorts validation ───────────────────────────────────────
+		{
+			name: "When publishPorts has a valid mapping it should be valid",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"2222:22"})
+			},
+		},
+		{
+			name: "When publishPorts has a valid mapping with protocol it should be valid",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"8080:80/tcp"})
+			},
+		},
+		{
+			name: "When publishPorts entry has no colon it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"2222"})
+			},
+			wantErrs: []string{"publishPorts"},
+		},
+		{
+			name: "When publishPorts entry has an unknown protocol it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"2222:22/ftp"})
+			},
+			wantErrs: []string{"publishPorts"},
+		},
+		{
+			name: "When publishPorts entry has port 0 it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"0:22"})
+			},
+			wantErrs: []string{"publishPorts"},
+		},
+		{
+			name: "When publishPorts entry has port above 65535 it should fail",
+			app: func(t *testing.T) ApplicationProviderSpec {
+				return newTestVmInlineAppWithPorts(t, "my-vm", []string{"2222:99999"})
+			},
+			wantErrs: []string{"publishPorts"},
 		},
 	}
 
@@ -2820,6 +2852,24 @@ func newTestVmInlineApp(t *testing.T, name string, files map[string]string) Appl
 	}
 	require.NoError(t, vm.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
 		Inline: inline,
+	}))
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromVmApplication(vm))
+	return spec
+}
+
+// newTestVmInlineAppWithPorts builds a VmApplication with a valid vm.yaml and the given publishPorts.
+func newTestVmInlineAppWithPorts(t *testing.T, name string, publishPorts []string) ApplicationProviderSpec {
+	t.Helper()
+	vm := VmApplication{
+		AppType:      AppTypeVm,
+		Name:         lo.ToPtr(name),
+		PublishPorts: &publishPorts,
+	}
+	require.NoError(t, vm.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
+		Inline: []ApplicationContent{
+			{Path: "vm.yaml", Content: lo.ToPtr(validVmYaml(name))},
+		},
 	}))
 	var spec ApplicationProviderSpec
 	require.NoError(t, spec.FromVmApplication(vm))

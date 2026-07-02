@@ -1233,6 +1233,8 @@ func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTem
 		return []error{fmt.Errorf("invalid vm application: %w", err)}
 	}
 
+	allErrs = append(allErrs, validateContainerPorts(vm.PublishPorts, pathPrefix+".publishPorts")...)
+
 	providerType, err := vm.Type()
 	if err != nil {
 		return []error{fmt.Errorf("%s: invalid vm application provider type: %w", pathPrefix, err)}
@@ -1358,21 +1360,19 @@ func validateContainerPorts(ports *[]ApplicationPort, path string) []error {
 	}
 
 	var allErrs []error
-	portPattern := regexp.MustCompile(`^[0-9]+:[0-9]+$`)
 
 	for i, portString := range *ports {
-		formatErr := fmt.Errorf("%s[%d]: must be in format 'portnumber:portnumber', got %q", path, i, portString)
-		if !portPattern.MatchString(portString) {
+		formatErr := fmt.Errorf("%s[%d]: must be in format 'portnumber:portnumber[/protocol]', got %q", path, i, portString)
+		if !containerPortPattern.MatchString(portString) {
 			allErrs = append(allErrs, formatErr)
 			continue
 		}
-		portParts := strings.Split(portString, ":")
-		if len(portParts) != 2 {
-			allErrs = append(allErrs, formatErr)
-			continue
-		}
+		// Strip optional /protocol suffix from the guest port before numeric validation.
+		colonParts := strings.SplitN(portString, ":", 2)
+		guestPort := strings.SplitN(colonParts[1], "/", 2)[0]
+		portNumbers := []string{colonParts[0], guestPort}
 
-		for _, port := range portParts {
+		for _, port := range portNumbers {
 			numberErr := fmt.Errorf("%s[%d]: must be a number in the valid port range of [1, 65535], got: %q", path, i, port)
 			portNumber, err := strconv.Atoi(port)
 			if err != nil {
@@ -1401,6 +1401,8 @@ func validatePodmanCPULimit(cpu *string, path string) []error {
 	}
 	return errs
 }
+
+var containerPortPattern = regexp.MustCompile(`^[0-9]+:[0-9]+(/(tcp|udp|sctp))?$`)
 
 var podmanMemoryLimitPattern = regexp.MustCompile(`^[0-9]+[bkmg]?$`)
 

@@ -1,0 +1,12 @@
+# Build stage: compile vm-to-quadlet at a pinned commit.
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25.9-1778675823 AS build
+USER 0
+ARG VM_TO_QUADLET_COMMIT=982eacb71ce62755a9dfd347933f27e0d12cd845
+RUN git clone https://github.com/flightctl/vm-to-quadlet /src && \
+    cd /src && git checkout ${VM_TO_QUADLET_COMMIT} && \
+    CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
+
+# Final stage: copy only the binary; no toolchain, non-root user.
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+COPY --from=build /out/vm-to-quadlet /usr/local/bin/vm-to-quadlet
+USER 1000

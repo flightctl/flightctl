@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -14,7 +13,7 @@ import (
 )
 
 // podSpec is a minimal struct for parsing the subset of a Podman Pod YAML that
-// the agent needs for OCI prefetch and VM container name resolution.
+// the agent needs for OCI prefetch.
 // Only fields required by the design are defined — no external k8s.io/api dependency.
 type podSpec struct {
 	Metadata podMetadata  `yaml:"metadata"`
@@ -22,8 +21,7 @@ type podSpec struct {
 }
 
 type podMetadata struct {
-	Name        string            `yaml:"name"`
-	Annotations map[string]string `yaml:"annotations,omitempty"`
+	Name string `yaml:"name"`
 }
 
 type podSpecInner struct {
@@ -32,16 +30,9 @@ type podSpecInner struct {
 	Volumes        []podVolume    `yaml:"volumes"`
 }
 
-type podEnvVar struct {
-	Name  string `yaml:"name"`
-	Value string `yaml:"value"`
-}
-
 type podContainer struct {
-	Name    string      `yaml:"name"`
-	Image   string      `yaml:"image"`
-	Command []string    `yaml:"command"`
-	Env     []podEnvVar `yaml:"env"`
+	Name  string `yaml:"name"`
+	Image string `yaml:"image"`
 }
 
 type podVolume struct {
@@ -52,173 +43,15 @@ type podVolumeImage struct {
 	Reference string `yaml:"reference"`
 }
 
-// Annotation keys set by kubevirt-vm-to-pod on the generated pod spec.
-const (
-	annotationDefaultContainer = "kubectl.kubernetes.io/default-container"
-	annotationKubeVirtDomain   = "kubevirt.io/domain"
-
-	// virtLauncherNamespaceFlag is the CLI flag that virt-launcher-monitor
-	// receives to identify the libvirt namespace (e.g. "--namespace default").
-	virtLauncherNamespaceFlag = "--namespace"
-
-	// standaloneVMIEnvVar is the env var name carrying the serialized VMI JSON.
-	// Used as a fallback source for the namespace when the command flag is absent.
-	standaloneVMIEnvVar = "STANDALONE_VMI"
-
-	// defaultVirtLauncherNamespace is the last-resort fallback namespace.
-	defaultVirtLauncherNamespace = "default"
-)
-
-// standaloneVMIMeta is a minimal struct for extracting the namespace from the
-// STANDALONE_VMI environment variable, which holds a JSON-encoded VMI object.
-type standaloneVMIMeta struct {
-	Metadata struct {
-		Namespace string `json:"namespace"`
-	} `json:"metadata"`
-}
-
-// VMContainerInfo holds the resolved container and domain names parsed from the
-// pod YAML produced by kubevirt-vm-to-pod, before appID namespacing is applied.
-type VMContainerInfo struct {
-	// OriginalPodName is metadata.name from the pod YAML (e.g. "virt-launcher-fedora-vm").
-	// The caller must apply appID namespacing to get the final Podman pod name.
-	OriginalPodName string
-	// ContainerName is the default container name (kubectl.kubernetes.io/default-container annotation).
-	ContainerName string
-	// DomainName is the fully-qualified virsh domain name ("{namespace}_{vmName}"),
-	// assembled from the kubevirt.io/domain annotation and the --namespace flag in
-	// the virt-launcher-monitor command, falling back to "default" when the flag is absent.
-	DomainName string
-}
-
-// parseNamespaceFromCommand scans args for "--namespace <value>" and returns the
-// value, or "" when the flag is absent or has no following argument.
-func parseNamespaceFromCommand(args []string) string {
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == virtLauncherNamespaceFlag {
-			return args[i+1]
-		}
-	}
-	return ""
-}
-
-// parseNamespaceFromEnv scans env for the STANDALONE_VMI variable, unmarshals
-// its JSON value, and returns metadata.namespace. Returns "" on any failure.
-func parseNamespaceFromEnv(env []podEnvVar) string {
-	for _, e := range env {
-		if e.Name != standaloneVMIEnvVar {
-			continue
-		}
-		var vmi standaloneVMIMeta
-		if err := json.Unmarshal([]byte(e.Value), &vmi); err != nil {
-			return ""
-		}
-		return vmi.Metadata.Namespace
-	}
-	return ""
-}
-
-// parseVMContainerInfo extracts container and domain information from a pod YAML
-// produced by kubevirt-vm-to-pod. Returns an error if required fields are missing.
-func parseVMContainerInfo(podYAML []byte) (VMContainerInfo, error) {
-	var pod podSpec
-	if err := yaml.Unmarshal(podYAML, &pod); err != nil {
-		return VMContainerInfo{}, fmt.Errorf("parsing pod YAML: %w", err)
-	}
-
-	if pod.Metadata.Name == "" {
-		return VMContainerInfo{}, fmt.Errorf("pod YAML missing metadata.name")
-	}
-
-	containerName := pod.Metadata.Annotations[annotationDefaultContainer]
-	if containerName == "" {
-		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationDefaultContainer)
-	}
-
-	vmName := pod.Metadata.Annotations[annotationKubeVirtDomain]
-	if vmName == "" {
-		return VMContainerInfo{}, fmt.Errorf("pod YAML missing %s annotation", annotationKubeVirtDomain)
-	}
-
-	namespace := ""
-	found := false
-	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name != containerName {
-			continue
-		}
-		found = true
-		namespace = parseNamespaceFromCommand(pod.Spec.Containers[i].Command)
-		if namespace == "" {
-			namespace = parseNamespaceFromEnv(pod.Spec.Containers[i].Env)
-		}
-		break
-	}
-	if !found {
-		return VMContainerInfo{}, fmt.Errorf("pod YAML has no container named %q (expected from %s annotation)", containerName, annotationDefaultContainer)
-	}
-	if namespace == "" {
-		namespace = defaultVirtLauncherNamespace
-	}
-
-	return VMContainerInfo{
-		OriginalPodName: pod.Metadata.Name,
-		ContainerName:   containerName,
-		DomainName:      namespace + "_" + vmName,
-	}, nil
-}
-
-// lookupVMContainerInfo finds the .kube unit in inlineContent, follows its Yaml=
-// directive to the pod YAML, and parses VM container names from that pod YAML.
-func lookupVMContainerInfo(inlineContent []v1beta1.ApplicationContent) (VMContainerInfo, error) {
-	for i := range inlineContent {
-		if !strings.HasSuffix(inlineContent[i].Path, ".kube") {
-			continue
-		}
-
-		kubeContent, err := inlineContent[i].ContentsDecoded()
-		if err != nil {
-			return VMContainerInfo{}, fmt.Errorf("decoding kube unit %q: %w", inlineContent[i].Path, err)
-		}
-
-		unit, err := quadlet.NewUnit(kubeContent)
-		if err != nil {
-			return VMContainerInfo{}, fmt.Errorf("parsing kube unit %q: %w", inlineContent[i].Path, err)
-		}
-
-		cleanPath, found, err := lookupKubeYamlPath(unit)
-		if err != nil {
-			return VMContainerInfo{}, err
-		}
-		if !found {
-			continue
-		}
-
-		for j := range inlineContent {
-			if filepath.Clean(inlineContent[j].Path) != cleanPath {
-				continue
-			}
-			podYAML, err := inlineContent[j].ContentsDecoded()
-			if err != nil {
-				return VMContainerInfo{}, fmt.Errorf("decoding pod YAML %q: %w", cleanPath, err)
-			}
-			return parseVMContainerInfo(podYAML)
-		}
-
-		return VMContainerInfo{}, fmt.Errorf("pod YAML %q not found in inline content", cleanPath)
-	}
-
-	return VMContainerInfo{}, fmt.Errorf("no .kube unit found in inline content")
-}
-
-// parsePodYAMLTargets parses a Kubernetes Pod YAML produced by kubevirt-vm-to-pod and
-// extracts all OCI pull targets according to the design (§4.1):
+// parsePodYAMLTargets parses a Kubernetes Pod YAML and extracts all OCI pull
+// targets (§4.1):
 //   - spec.volumes[].image.reference → OCITypeAuto
 //   - spec.initContainers[].image    → OCITypeAuto
 //   - spec.containers[].image        → OCITypePodmanImage
 //
-// References are deduplicated by value: the first source that registers a reference wins,
-// so volumes (OCITypeAuto) take precedence over containers (OCITypePodmanImage) for the
-// same reference.
+// References are deduplicated by value: the first source that registers a
+// reference wins, so volumes (OCITypeAuto) take precedence over containers
+// (OCITypePodmanImage) for the same reference.
 func parsePodYAMLTargets(
 	podYAML []byte,
 	configProvider dependency.PullConfigResolver,
@@ -285,12 +118,13 @@ func lookupKubeYamlPath(unit *quadlet.Unit) (string, bool, error) {
 	return cleanPath, true, nil
 }
 
-// collectKubePodTargets extracts OCI pull targets from a .kube inline Quadlet application.
-// It reads the Yaml= directive in the .kube unit to locate the pod YAML filename, finds
-// that file in inlineContent, and delegates to parsePodYAMLTargets.
-// Returns an error if the .kube unit cannot be parsed, if the Yaml= directive is absent,
-// if the path is absolute or contains traversal sequences, or if the referenced pod YAML
-// file is not found in the inline set.
+// collectKubePodTargets extracts OCI pull targets from a .kube inline Quadlet
+// application. It reads the Yaml= directive in the .kube unit to locate the pod
+// YAML filename, finds that file in inlineContent, and delegates to
+// parsePodYAMLTargets.
+// Returns an error if the .kube unit cannot be parsed, if the Yaml= directive is
+// absent, if the path is absolute or contains traversal sequences, or if the
+// referenced pod YAML file is not found in the inline set.
 func collectKubePodTargets(
 	kubeContent []byte,
 	inlineContent []v1beta1.ApplicationContent,

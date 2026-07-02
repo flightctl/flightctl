@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
@@ -98,11 +97,10 @@ func (u *unknownAppTypeValidator) Validate() []error {
 // vmValidator validates the inline package contents for a VmApplication.
 // Rules: exactly one vm.yaml required; vm.yaml must have kind VirtualMachine,
 // apiVersion kubevirt.io/v1, and metadata.name matching the application name;
-// at most one .kube file; no other files.
+// no other files are allowed.
 type vmValidator struct {
 	appName   string
 	hasVmYaml bool
-	kubeCount int
 }
 
 type vmManifestMeta struct {
@@ -132,14 +130,7 @@ func (v *vmValidator) ValidateContents(path string, content []byte, fleetTemplat
 		}
 		return errs
 	}
-	if strings.HasSuffix(path, ".kube") {
-		v.kubeCount++
-		if v.kubeCount > 1 {
-			return []error{fmt.Errorf("spec.applications[%s].inline: at most one .kube file is allowed, found more than one", v.appName)}
-		}
-		return nil
-	}
-	return []error{fmt.Errorf("spec.applications[%s].inline: unrecognised file %q; only vm.yaml and a single .kube file are allowed", v.appName, path)}
+	return []error{fmt.Errorf("spec.applications[%s].inline: unrecognised file %q; only vm.yaml is allowed", v.appName, path)}
 }
 
 func (v *vmValidator) Validate() []error {

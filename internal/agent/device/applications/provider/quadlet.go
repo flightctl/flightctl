@@ -106,8 +106,6 @@ func newQuadletProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
-	isVM := quadletApp.Annotations != nil && (*quadletApp.Annotations)[v1beta1.AnnotationWorkloadType] == v1beta1.WorkloadTypeVM
-
 	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, user, volumes)
 	if err != nil {
 		return nil, err
@@ -133,18 +131,6 @@ func newQuadletProvider(
 		volumeManager.AddVolumes(quadletVolumes)
 	}
 
-	var vmSpec *VMSpec
-	if isVM {
-		info, err := lookupVMContainerInfo(inlineContent)
-		if err != nil {
-			return nil, fmt.Errorf("resolving VM container names for %q: %w", appName, err)
-		}
-		vmSpec = &VMSpec{
-			ContainerName: namespacedQuadlet(appID, info.OriginalPodName) + "-" + info.ContainerName,
-			DomainName:    info.DomainName,
-		}
-	}
-
 	p := &quadletProvider{
 		log:            log,
 		podman:         podman,
@@ -159,7 +145,6 @@ func newQuadletProvider(
 			AppType:    v1beta1.AppTypeQuadlet,
 			Path:       appPath,
 			EnvVars:    envVars,
-			VM:         vmSpec,
 			QuadletApp: &quadletApp,
 			Volume:     volumeManager,
 		},
@@ -937,7 +922,9 @@ func namespaceVolumeName(value, appID string) string {
 	}
 
 	volumePart := parts[0]
-	if strings.HasPrefix(volumePart, "/") {
+	// Skip host bind mounts: absolute paths (/...) and relative paths (./... or ../).
+	// Named volumes never start with a path separator or dot.
+	if strings.HasPrefix(volumePart, "/") || strings.HasPrefix(volumePart, ".") {
 		return value
 	}
 

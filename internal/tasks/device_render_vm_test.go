@@ -1,8 +1,10 @@
 package tasks
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -19,7 +21,7 @@ import (
 
 // newTestVmInlineApp builds a VmApplication with inline: provider from a
 // map[path]content, wrapped in an ApplicationProviderSpec.
-func newTestVmInlineApp(t *testing.T, name string, files map[string]string) domain.ApplicationProviderSpec {
+func newTestVmInlineApp(t *testing.T, name string, files map[string]string, publishPorts []string) domain.ApplicationProviderSpec {
 	t.Helper()
 	contents := make([]domain.ApplicationContent, 0, len(files))
 	for path, content := range files {
@@ -31,6 +33,9 @@ func newTestVmInlineApp(t *testing.T, name string, files map[string]string) doma
 	vm := domain.VmApplication{
 		AppType: domain.AppTypeVm,
 		Name:    lo.ToPtr(name),
+	}
+	if len(publishPorts) > 0 {
+		vm.PublishPorts = &publishPorts
 	}
 	require.NoError(t, vm.FromInlineApplicationProviderSpec(inlineSpec))
 
@@ -60,32 +65,49 @@ spec:
 `, name)
 }
 
-// stubbedConverter returns a VmConverterFn that always emits a fixed pod YAML string.
-func stubbedConverter(podYAML string) VmConverterFn {
-	return func(_ context.Context, _ []byte) ([]byte, string, error) {
-		return []byte(podYAML), "", nil
+// makeTar returns a TAR archive containing the given filename→content map.
+func makeTar(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for name, content := range files {
+		hdr := &tar.Header{
+			Name: name,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write([]byte(content))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	return buf.Bytes()
+}
+
+// stubbedConverter returns a VmConverterFn that always emits a copy of the given Quadlet files.
+// A copy is returned on each call to prevent parallel subtests from racing on the shared map.
+func stubbedConverter(files map[string]string) VmConverterFn {
+	return func(_ context.Context, _ []byte) (map[string]string, string, error) {
+		out := make(map[string]string, len(files))
+		for k, v := range files {
+			out[k] = v
+		}
+		return out, "", nil
 	}
 }
 
 // failingConverter returns a VmConverterFn that always returns an error with the given stderr.
 func failingConverter(stderr string) VmConverterFn {
-	return func(_ context.Context, _ []byte) ([]byte, string, error) {
+	return func(_ context.Context, _ []byte) (map[string]string, string, error) {
 		return nil, stderr, errors.New("exit status 1")
 	}
 }
 
-// emptyConverter returns a VmConverterFn that returns empty stdout without an error.
+// emptyConverter returns a VmConverterFn that returns an empty map without an error.
 func emptyConverter() VmConverterFn {
-	return func(_ context.Context, _ []byte) ([]byte, string, error) {
-		return []byte{}, "", nil
+	return func(_ context.Context, _ []byte) (map[string]string, string, error) {
+		return map[string]string{}, "", nil
 	}
-}
-
-// vmPodCacheKey returns the KV key for a given vm.yaml content, matching the
-// production implementation so tests can pre-populate the cache.
-func vmPodCacheKey(vmYAML string) string {
-	sum := sha256.Sum256([]byte(vmYAML))
-	return (&kvstore.VmPodYamlKey{Sha256: fmt.Sprintf("%x", sum)}).ComposeKey()
 }
 
 // ─── fakeKVStore ──────────────────────────────────────────────────────────────
@@ -141,11 +163,13 @@ var _ kvstore.KVStore = (*fakeKVStore)(nil)
 
 // ─── renderVmApplication ──────────────────────────────────────────────────────
 
-const (
-	fakePodYAML     = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: my-vm\n"
-	defaultKubeUnit = "[Kube]\nYaml=pod.yaml\n"
-	customKubeUnit  = "[Kube]\nYaml=pod.yaml\nKubeDownForce=true\nPublishPort=8080:8080/tcp\n"
-)
+const fakePodUnit = "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target\n"
+
+// fakeQuadletFiles is a minimal set of Quadlet files that vm-to-quadlet would produce.
+var fakeQuadletFiles = map[string]string{
+	"my-vm.pod":               fakePodUnit,
+	"my-vm-compute.container": "[Container]\nImage=quay.io/kubevirt/virt-launcher:v1.8.4\n",
+}
 
 func TestRenderVmApplication(t *testing.T) {
 	t.Parallel()
@@ -155,36 +179,31 @@ func TestRenderVmApplication(t *testing.T) {
 		name           string
 		vmName         string
 		files          map[string]string
+		publishPorts   []string
 		converter      VmConverterFn
 		kvStore        kvstore.KVStore
-		wantPodYAML    string
-		wantKubeUnit   string
 		wantAnnotation bool
 		wantErr        string
 	}{
 		{
-			name:   "When inline set has only vm.yaml it should generate the default .kube unit",
+			name:   "When inline set has valid vm.yaml it should produce Quadlet files",
 			vmName: "my-vm",
 			files: map[string]string{
 				"vm.yaml": minimalVmYAML("my-vm"),
 			},
-			converter:      stubbedConverter(fakePodYAML),
+			converter:      stubbedConverter(fakeQuadletFiles),
 			kvStore:        newFakeKVStore(),
-			wantPodYAML:    fakePodYAML,
-			wantKubeUnit:   defaultKubeUnit,
 			wantAnnotation: true,
 		},
 		{
-			name:   "When inline set contains a .kube file it should pass it through unchanged",
+			name:   "When publishPorts is set it should inject PublishPort into the .pod unit",
 			vmName: "my-vm",
 			files: map[string]string{
-				"vm.yaml":    minimalVmYAML("my-vm"),
-				"my-vm.kube": customKubeUnit,
+				"vm.yaml": minimalVmYAML("my-vm"),
 			},
-			converter:      stubbedConverter(fakePodYAML),
+			publishPorts:   []string{"8080:80", "8443:443/tcp"},
+			converter:      stubbedConverter(fakeQuadletFiles),
 			kvStore:        newFakeKVStore(),
-			wantPodYAML:    fakePodYAML,
-			wantKubeUnit:   customKubeUnit,
 			wantAnnotation: true,
 		},
 		{
@@ -193,17 +212,17 @@ func TestRenderVmApplication(t *testing.T) {
 			files: map[string]string{
 				"vm.yaml": minimalVmYAML("my-vm"),
 			},
-			converter: func(_ context.Context, _ []byte) ([]byte, string, error) {
+			converter: func(_ context.Context, _ []byte) (map[string]string, string, error) {
 				t.Error("converter must not be called on a cache hit")
 				return nil, "", nil
 			},
 			kvStore: func() kvstore.KVStore {
 				kv := newFakeKVStore()
-				kv.data[vmPodCacheKey(minimalVmYAML("my-vm"))] = []byte(fakePodYAML)
+				key := (&kvstore.VmQuadletFilesKey{}).ComposeKey([]byte(minimalVmYAML("my-vm")))
+				encoded, _ := json.Marshal(fakeQuadletFiles)
+				kv.data[key] = encoded
 				return kv
 			}(),
-			wantPodYAML:    fakePodYAML,
-			wantKubeUnit:   defaultKubeUnit,
 			wantAnnotation: true,
 		},
 		{
@@ -215,40 +234,27 @@ func TestRenderVmApplication(t *testing.T) {
 			wantErr:   "unsupported vm feature",
 		},
 		{
-			name:      "When converter returns empty stdout it should return an error",
+			name:      "When converter returns no files it should return an error",
 			vmName:    "my-vm",
 			files:     map[string]string{"vm.yaml": minimalVmYAML("my-vm")},
 			converter: emptyConverter(),
 			kvStore:   newFakeKVStore(),
-			wantErr:   "produced empty output",
+			wantErr:   "no output files",
 		},
 		{
 			name:      "When vm.yaml is absent from inline set it should return an error",
 			vmName:    "my-vm",
 			files:     map[string]string{"other.yaml": "some content"},
-			converter: stubbedConverter(fakePodYAML),
+			converter: stubbedConverter(fakeQuadletFiles),
 			kvStore:   newFakeKVStore(),
 			wantErr:   "vm.yaml not found",
-		},
-		{
-			name:   "When inline set contains a .kube file without Yaml= it should inject the default Yaml=pod.yaml",
-			vmName: "my-vm",
-			files: map[string]string{
-				"vm.yaml":    minimalVmYAML("my-vm"),
-				"my-vm.kube": "[Kube]\nPublishPort=8080:8080/tcp\n",
-			},
-			converter:      stubbedConverter(fakePodYAML),
-			kvStore:        newFakeKVStore(),
-			wantPodYAML:    fakePodYAML,
-			wantKubeUnit:   "[Kube]\nPublishPort=8080:8080/tcp\nYaml=pod.yaml\n",
-			wantAnnotation: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			appSpec := newTestVmInlineApp(t, tc.vmName, tc.files)
+			appSpec := newTestVmInlineApp(t, tc.vmName, tc.files, tc.publishPorts)
 			vmApp, err := appSpec.AsVmApplication()
 			require.NoError(t, err)
 
@@ -281,28 +287,38 @@ func TestRenderVmApplication(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tc.wantPodYAML, fileMap["pod.yaml"], "pod.yaml content")
-			assert.Equal(t, tc.wantKubeUnit, fileMap[tc.vmName+".kube"], ".kube unit content")
+			// Verify publishPorts injection.
+			if len(tc.publishPorts) > 0 {
+				podContent := fileMap[tc.vmName+".pod"]
+				for _, port := range tc.publishPorts {
+					assert.Contains(t, podContent, "PublishPort="+port)
+				}
+			}
+
 			assert.NotContains(t, fileMap, vmYamlFileName, "vm.yaml must not appear in the rendered QuadletApplication")
 		})
 	}
 }
 
 // TestRenderVmApplication_CachePopulatedOnMiss verifies that after a cache miss
-// the pod.yaml is stored, and a second identical call returns the cached value
-// without invoking the converter again.
+// the Quadlet files are stored, and a second identical call returns the cached
+// value without invoking the converter again.
 func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	kv := newFakeKVStore()
 	callCount := 0
-	converter := func(_ context.Context, _ []byte) ([]byte, string, error) {
+	converter := func(_ context.Context, _ []byte) (map[string]string, string, error) {
 		callCount++
-		return []byte(fakePodYAML), "", nil
+		out := make(map[string]string, len(fakeQuadletFiles))
+		for k, v := range fakeQuadletFiles {
+			out[k] = v
+		}
+		return out, "", nil
 	}
 
 	vmYAML := minimalVmYAML("my-vm")
-	appSpec := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": vmYAML})
+	appSpec := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": vmYAML}, nil)
 	vmApp, err := appSpec.AsVmApplication()
 	require.NoError(t, err)
 
@@ -330,56 +346,111 @@ func TestRenderVmApplication_ImageProviderUnsupported(t *testing.T) {
 	vmApp, err := appSpec.AsVmApplication()
 	require.NoError(t, err)
 
-	_, err = renderVmApplication(ctx, vmApp, stubbedConverter(fakePodYAML), newFakeKVStore())
+	_, err = renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), newFakeKVStore())
 	require.ErrorContains(t, err, "not yet supported")
 }
 
-// ─── buildKubeUnit ────────────────────────────────────────────────────────────
+// ─── parseTarFiles ────────────────────────────────────────────────────────────
 
-func TestBuildKubeUnit(t *testing.T) {
+func TestParseTarFiles(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		kubeContent *string
-		want        string
-		wantErr     bool
+		name    string
+		input   map[string]string
+		wantErr bool
 	}{
 		{
-			name:        "When kubeContent is nil it should return the default unit",
-			kubeContent: nil,
-			want:        defaultKubeUnit,
+			name:  "When TAR has one file it should parse correctly",
+			input: map[string]string{"my-vm.pod": "[Pod]\nNetwork=podman\n"},
 		},
 		{
-			name:        "When kubeContent already has Yaml= it should preserve it and re-serialize",
-			kubeContent: lo.ToPtr(customKubeUnit),
-			want:        customKubeUnit,
+			name: "When TAR has multiple files it should parse all correctly",
+			input: map[string]string{
+				"my-vm.pod":               "[Pod]\nNetwork=podman\n",
+				"my-vm-compute.container": "[Container]\nImage=quay.io/test:latest\n",
+			},
 		},
 		{
-			name:        "When kubeContent is an empty string it should add [Kube] with Yaml=pod.yaml",
-			kubeContent: lo.ToPtr(""),
-			want:        defaultKubeUnit,
-		},
-		{
-			name:        "When kubeContent omits Yaml= it should append Yaml=pod.yaml to the [Kube] section",
-			kubeContent: lo.ToPtr("[Kube]\nPublishPort=8080:8080/tcp\n"),
-			want:        "[Kube]\nPublishPort=8080:8080/tcp\nYaml=pod.yaml\n",
-		},
-		{
-			name:        "When kubeContent is malformed it should return an error",
-			kubeContent: lo.ToPtr("[InvalidSection\nYaml=pod.yaml\n"),
-			wantErr:     true,
+			name:    "When TAR is empty it should return an error",
+			input:   map[string]string{},
+			wantErr: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := buildKubeUnit(tc.kubeContent)
+			data := makeTar(t, tc.input)
+			got, err := parseTarFiles(data)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
 			}
 			assert.NoError(t, err)
-			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.input, got)
+		})
+	}
+}
+
+// ─── injectPublishPorts ───────────────────────────────────────────────────────
+
+func TestInjectPublishPorts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		files        map[string]string
+		vmName       string
+		publishPorts []string
+		wantPodHas   []string
+		wantErr      string
+	}{
+		{
+			name:         "When publishPorts is empty it should not modify any file",
+			files:        map[string]string{"my-vm.pod": "[Pod]\n\n[Install]\nWantedBy=default.target\n"},
+			vmName:       "my-vm",
+			publishPorts: nil,
+		},
+		{
+			name:         "When publishPorts has one port it should inject into the Pod section",
+			files:        map[string]string{"my-vm.pod": "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target\n"},
+			vmName:       "my-vm",
+			publishPorts: []string{"8080:80"},
+			wantPodHas:   []string{"PublishPort=8080:80"},
+		},
+		{
+			name:         "When publishPorts has multiple ports it should inject all",
+			files:        map[string]string{"my-vm.pod": "[Pod]\n\n[Install]\nWantedBy=default.target\n"},
+			vmName:       "my-vm",
+			publishPorts: []string{"8080:80", "8443:443/tcp"},
+			wantPodHas:   []string{"PublishPort=8080:80", "PublishPort=8443:443/tcp"},
+		},
+		{
+			name:         "When .pod file is absent it should return an error",
+			files:        map[string]string{"my-vm-compute.container": "[Container]\n"},
+			vmName:       "my-vm",
+			publishPorts: []string{"8080:80"},
+			wantErr:      "my-vm.pod",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Copy so we don't mutate the test table.
+			files := make(map[string]string, len(tc.files))
+			for k, v := range tc.files {
+				files[k] = v
+			}
+			err := injectPublishPorts(files, tc.vmName, tc.publishPorts)
+			if tc.wantErr != "" {
+				assert.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			if len(tc.wantPodHas) > 0 {
+				podContent := files[tc.vmName+".pod"]
+				for _, want := range tc.wantPodHas {
+					assert.Contains(t, podContent, want)
+				}
+			}
 		})
 	}
 }
