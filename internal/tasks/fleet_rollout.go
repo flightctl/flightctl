@@ -264,10 +264,13 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
 	currentVersion := ""
+	currentRenderedVersion := ""
 	if device.Metadata.Annotations != nil {
-		v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationTemplateVersion]
-		if ok {
+		if v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationTemplateVersion]; ok {
 			currentVersion = v
+		}
+		if v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedTemplateVersion]; ok {
+			currentRenderedVersion = v
 		}
 	}
 	errs := []error{}
@@ -313,7 +316,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		return nil, fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
-	if currentVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
+	if currentVersion == *templateVersion.Metadata.Name && currentRenderedVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return depRefs, nil
 	}
