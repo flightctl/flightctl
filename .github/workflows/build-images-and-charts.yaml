@@ -49,23 +49,22 @@ jobs:
         id: compute-tag
         uses: ./.github/actions/compute-tag
 
-      - name: Restore Go cache
-        id: cache-go-restore
+      - name: Set buildah cache path
+        run: echo "BUILDAH_CACHE_PATH=${TMPDIR:-/tmp}/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Restore buildah cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          path: ${{ env.BUILDAH_CACHE_PATH }}
+          key: ${{ runner.os }}-buildah-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-buildah-
 
       - name: Build backend containers
         env:
           SOURCE_GIT_TAG: ${{ steps.compute-tag.outputs.git_tag }}
           SOURCE_GIT_TREE_STATE: ${{ steps.compute-tag.outputs.git_tree_state }}
           SOURCE_GIT_COMMIT: ${{ steps.compute-tag.outputs.git_commit }}
-          GITHUB_ACTIONS: true
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
           OS: el9
@@ -154,13 +153,12 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Save Go cache
+      - name: Save buildah cache
         uses: actions/cache/save@v4
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/build-opt'
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          path: ${{ env.BUILDAH_CACHE_PATH }}
+          key: ${{ runner.os }}-buildah-${{ hashFiles('**/go.sum') }}
 
   build-helm-charts:
     runs-on: ubuntu-24.04
