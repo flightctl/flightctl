@@ -257,7 +257,7 @@ func TestAppConsoleSessionManager_StartSession_RollsBackOnRegistrationFailure(t 
 	svc.AssertNumberOfCalls(t, "UpdateDevice", 2)
 }
 
-func TestAppConsoleSessionManager_StartSession_RollsBackOnPublishFailure(t *testing.T) {
+func TestAppConsoleSessionManager_StartSession_ProceedsWhenPublishFails(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
 	pub := &mockRenderedPublisher{}
@@ -269,17 +269,17 @@ func TestAppConsoleSessionManager_StartSession_RollsBackOnPublishFailure(t *test
 
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).Return(device, nil)
-	// StoreAndNotify fails on addAppSession, succeeds on the rollback removeAppSession
+	// StoreAndNotify fails — publish failure is non-fatal after a successful UpdateDevice.
 	pub.On("StoreAndNotify", mock.Anything, orgId, "device1", mock.Anything).Return(fmt.Errorf("redis unavailable")).Once()
-	pub.On("StoreAndNotify", mock.Anything, orgId, "device1", mock.Anything).Return(nil).Once()
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
 
 	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
 
-	assert.Nil(t, session)
-	assert.Equal(t, http.StatusInternalServerError, int(status.Code))
-	// UpdateDevice must be called twice: once for addAppSession, once for the rollback removeAppSession
-	svc.AssertNumberOfCalls(t, "UpdateDevice", 2)
-	reg.AssertNotCalled(t, "StartSession")
+	assert.NotNil(t, session)
+	assert.Equal(t, http.StatusOK, int(status.Code))
+	// UpdateDevice called exactly once — no rollback on publish failure.
+	svc.AssertNumberOfCalls(t, "UpdateDevice", 1)
+	reg.AssertCalled(t, "StartSession", mock.AnythingOfType("*console.AppConsoleSession"))
 }
 
 func TestAddAppSession_DuplicateAppName_ReturnsConflict(t *testing.T) {

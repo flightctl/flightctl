@@ -132,7 +132,6 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 	if err == nil {
 		if pubErr := m.publisher.StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion); pubErr != nil {
 			m.log.WithError(pubErr).Errorf("annotation for device %s persisted but rendered-version notification failed", deviceName)
-			return domain.StatusInternalServerError(pubErr.Error())
 		}
 	}
 	if err != nil {
@@ -219,8 +218,8 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	if consoleType == "" {
 		return nil, domain.StatusBadRequest("consoleType is required")
 	}
-	if consoleType != "serial" {
-		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\"")
+	if consoleType != "serial" && consoleType != "vnc" {
+		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\" or \"vnc\"")
 	}
 
 	device, status := m.svc.GetDevice(ctx, orgId, deviceName)

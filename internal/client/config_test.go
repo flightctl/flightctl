@@ -210,3 +210,80 @@ func TestClientConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigEqual_RemoteAccessService(t *testing.T) {
+	svcA := &Service{Server: "https://remote-access-a.example.com"}
+	svcB := &Service{Server: "https://remote-access-b.example.com"}
+
+	tests := []struct {
+		name   string
+		c1     Config
+		c2     Config
+		wantEq bool
+	}{
+		{
+			name:   "When both RemoteAccessService fields are nil the configs should be equal",
+			c1:     Config{Service: Service{Server: "https://api.example.com"}},
+			c2:     Config{Service: Service{Server: "https://api.example.com"}},
+			wantEq: true,
+		},
+		{
+			name:   "When only c1 has RemoteAccessService the configs should not be equal",
+			c1:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: svcA},
+			c2:     Config{Service: Service{Server: "https://api.example.com"}},
+			wantEq: false,
+		},
+		{
+			name:   "When only c2 has RemoteAccessService the configs should not be equal",
+			c1:     Config{Service: Service{Server: "https://api.example.com"}},
+			c2:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: svcA},
+			wantEq: false,
+		},
+		{
+			name:   "When both RemoteAccessService fields are equal the configs should be equal",
+			c1:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: svcA},
+			c2:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: &Service{Server: "https://remote-access-a.example.com"}},
+			wantEq: true,
+		},
+		{
+			name:   "When RemoteAccessService fields differ the configs should not be equal",
+			c1:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: svcA},
+			c2:     Config{Service: Service{Server: "https://api.example.com"}, RemoteAccessService: svcB},
+			wantEq: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantEq, tt.c1.Equal(&tt.c2))
+		})
+	}
+}
+
+func TestGetRemoteAccessServer(t *testing.T) {
+	tests := []struct {
+		name   string
+		config Config
+		want   string
+	}{
+		{
+			name:   "When RemoteAccessService is nil it should return empty string",
+			config: Config{},
+			want:   "",
+		},
+		{
+			name:   "When RemoteAccessService has empty Server it should return empty string",
+			config: Config{RemoteAccessService: &Service{Server: ""}},
+			want:   "",
+		},
+		{
+			name:   "When RemoteAccessService has a server URL it should return it",
+			config: Config{RemoteAccessService: &Service{Server: "https://remote-access.example.com"}},
+			want:   "https://remote-access.example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.config.GetRemoteAccessServer())
+		})
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -728,4 +730,71 @@ func (e *podmanEventWatcher) Stop() error {
 	}
 	e.log.Info("Podman monitor stopped")
 	return nil
+}
+
+// errConsoleAppNotFound is a sentinel returned by resolveConsole when the named
+// application is not tracked by this monitor. The caller should try the next monitor.
+var errConsoleAppNotFound = fmt.Errorf("app not found in podman monitor")
+
+// resolveConsole implements the console Session factory for Podman-managed apps.
+// It scans the apps map, checks the app type, and returns the appropriate Session.
+// Returns errConsoleAppNotFound if the app is not tracked by this monitor.
+func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var found Application
+	for _, app := range m.apps {
+		if app.Name() == appName {
+			found = app
+			break
+		}
+	}
+	if found == nil {
+		return nil, errConsoleAppNotFound
+	}
+
+	if found.AppType() != v1beta1.AppTypeVm {
+		return nil, fmt.Errorf("app %q has type %q: only VM apps support console", appName, found.AppType())
+	}
+
+	ct := v1beta1.GetDeviceApplicationConsoleParamsConsoleType(consoleType)
+	if ct != v1beta1.ConsoleTypeSerial && ct != v1beta1.ConsoleTypeVnc {
+		return nil, fmt.Errorf("app %q: unsupported console type %q for VM (supported: serial, vnc)", appName, consoleType)
+	}
+
+	// The container name comes from podman events via workload tracking — it is the authoritative
+	// runtime name and requires no spec-side derivation.
+	// KubeVirt VM pods have two containers: an infra/pause container (suffix "-infra") and the
+	// actual virt-launcher compute container (suffix "-compute"). Exec must target the compute
+	// container; the infra container has no tools or sockets.
+	for _, w := range found.Workloads() {
+		m.log.Infof("console: workload %q status=%s", w.Name, w.Status)
+	}
+	containerName := ""
+	for _, w := range found.Workloads() {
+		if isFinishedStatus(w.Status) || w.Status == StatusExited {
+			continue
+		}
+		if strings.HasSuffix(w.Name, "-compute") {
+			containerName = w.Name
+			break
+		}
+	}
+	if containerName == "" {
+		return nil, fmt.Errorf("app %q: no active compute container found (workload with \"-compute\" suffix required)", appName)
+	}
+
+	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, ct)
+
+	podman, err := m.clientFactory("")
+	if err != nil {
+		return nil, fmt.Errorf("creating podman client for console: %w", err)
+	}
+
+	if ct == v1beta1.ConsoleTypeVnc {
+		return appconsole.NewVMVNCSession(containerName, podman, m.log), nil
+	}
+
+	return appconsole.NewVMSerialSession(containerName, podman, m.log), nil
 }

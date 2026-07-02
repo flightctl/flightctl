@@ -560,6 +560,7 @@ const (
 // Defines values for GetDeviceApplicationConsoleParamsConsoleType.
 const (
 	ConsoleTypeSerial GetDeviceApplicationConsoleParamsConsoleType = "serial"
+	ConsoleTypeVnc    GetDeviceApplicationConsoleParamsConsoleType = "vnc"
 )
 
 // AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
@@ -3391,7 +3392,7 @@ type ListResourceSyncsParams struct {
 
 // GetDeviceApplicationConsoleParams defines parameters for GetDeviceApplicationConsole.
 type GetDeviceApplicationConsoleParams struct {
-	// ConsoleType The type of console session to open. Currently only "serial" is supported.
+	// ConsoleType The type of console session to open. "serial" opens a text terminal; "vnc" opens a VNC proxy tunnel.
 	ConsoleType GetDeviceApplicationConsoleParamsConsoleType `form:"consoleType" json:"consoleType"`
 }
 

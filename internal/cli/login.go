@@ -656,6 +656,13 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 	o.clientConfig.ImageBuilderService = imageBuilderService
 
+	// Set remote access service URL (flightctl-remote-access) based on the main API server
+	remoteAccessService, err := deriveRemoteAccessService(o.clientConfig.Service)
+	if err != nil {
+		return fmt.Errorf("deriving remote access service: %w", err)
+	}
+	o.clientConfig.RemoteAccessService = remoteAccessService
+
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
 	}
@@ -915,6 +922,43 @@ func deriveImageBuilderService(mainService client.Service) (*client.Service, err
 
 	return &client.Service{
 		Server:                   imageBuilderURL,
+		TLSServerName:            mainService.TLSServerName,
+		CertificateAuthority:     mainService.CertificateAuthority,
+		CertificateAuthorityData: mainService.CertificateAuthorityData,
+		InsecureSkipVerify:       mainService.InsecureSkipVerify,
+	}, nil
+}
+
+// deriveRemoteAccessService derives the flightctl-remote-access HTTP service URL from the main API service URL.
+// For route mode (api.{domain} with standard ports): replaces "api." prefix with "remote-access.".
+// For nodePort mode (port 3443): uses the same hostname on port 3444.
+// For all other cases: uses the gateway path /_/remote-access on the same host.
+func deriveRemoteAccessService(mainService client.Service) (*client.Service, error) {
+	const defaultRemoteAccessPort = 3444
+
+	parsedURL, err := url.Parse(mainService.Server)
+	if err != nil {
+		return nil, fmt.Errorf("parsing main service URL %q: %w", mainService.Server, err)
+	}
+
+	hostname := parsedURL.Hostname()
+	port := parsedURL.Port()
+
+	var remoteAccessURL string
+	switch {
+	case (port == "" || port == "443" || port == "80") && strings.HasPrefix(hostname, "api."):
+		// Route mode: replace "api." with "remote-access." in the hostname
+		remoteAccessURL = parsedURL.Scheme + "://" + strings.Replace(hostname, "api.", "remote-access.", 1)
+	case port == "3443":
+		// NodePort mode: same hostname, remote access service port
+		remoteAccessURL = fmt.Sprintf("%s://%s:%d", parsedURL.Scheme, hostname, defaultRemoteAccessPort)
+	default:
+		// Gateway/other: use the /_/remote-access path on the same host
+		remoteAccessURL = fmt.Sprintf("%s://%s/_/remote-access", parsedURL.Scheme, parsedURL.Host)
+	}
+
+	return &client.Service{
+		Server:                   remoteAccessURL,
 		TLSServerName:            mainService.TLSServerName,
 		CertificateAuthority:     mainService.CertificateAuthority,
 		CertificateAuthorityData: mainService.CertificateAuthorityData,

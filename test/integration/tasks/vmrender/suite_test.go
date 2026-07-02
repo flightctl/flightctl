@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -111,7 +112,11 @@ func buildVmToQuadletBinary(ctx context.Context) (string, func(), error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("start vm-to-quadlet container: %w", err)
 	}
-	cleanup := func() { _ = c.Terminate(ctx) }
+	cleanup := func() {
+		termCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = c.Terminate(termCtx)
+	}
 
 	rc, err := c.CopyFileFromContainer(ctx, "/usr/local/bin/vm-to-quadlet")
 	if err != nil {
