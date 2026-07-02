@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "branch": "main",
+    "workflow": "integration-tests.yaml",
+    "artifact_name": "junit-integration-test",
+    "title": "Integration Test Health",
+    "repo_url": "https://github.com/flightctl/flightctl",
+    "generated_at": "2026-01-07T09:00:00Z",
+    "analyzed_runs": 3
+  },
+  "runs": [
+    {
+      "run_id": 2001,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/2001",
+      "date": "2026-01-06",
+      "conclusion": "success",
+      "specs": {
+        "Store Suite should create a device":              {"passed": true,  "duration_sec": 1.2},
+        "Store Suite should list devices with filters":   {"passed": true,  "duration_sec": 0.8},
+        "Store Suite should delete a device":             {"passed": true,  "duration_sec": 0.5},
+        "Store Suite should handle concurrent writes":    {"passed": false, "duration_sec": 2.1, "failure_msg": "deadlock detected"},
+        "Service Suite enrollment request is accepted":   {"passed": true,  "duration_sec": 3.5},
+        "Service Suite status update is persisted":       {"passed": true,  "duration_sec": 2.8},
+        "Service Suite expired token is rejected":        {"passed": true,  "duration_sec": 1.1},
+        "Rollout Suite fleet rolls out sequentially":     {"passed": true,  "duration_sec": 8.4},
+        "Rollout Suite rollback on failure":              {"passed": true,  "duration_sec": 7.2},
+        "Rollout Suite disruption budget is respected":   {"passed": true,  "duration_sec": 6.1}
+      }
+    },
+    {
+      "run_id": 2002,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/2002",
+      "date": "2026-01-05",
+      "conclusion": "success",
+      "specs": {
+        "Store Suite should create a device":              {"passed": true,  "duration_sec": 1.1},
+        "Store Suite should list devices with filters":   {"passed": true,  "duration_sec": 0.9},
+        "Store Suite should delete a device":             {"passed": true,  "duration_sec": 0.6},
+        "Store Suite should handle concurrent writes":    {"passed": true,  "duration_sec": 2.0},
+        "Service Suite enrollment request is accepted":   {"passed": true,  "duration_sec": 3.6},
+        "Service Suite status update is persisted":       {"passed": true,  "duration_sec": 2.9},
+        "Service Suite expired token is rejected":        {"passed": true,  "duration_sec": 1.0},
+        "Rollout Suite fleet rolls out sequentially":     {"passed": true,  "duration_sec": 8.2},
+        "Rollout Suite rollback on failure":              {"passed": false, "duration_sec": 7.5, "failure_msg": "agent did not roll back in time"},
+        "Rollout Suite disruption budget is respected":   {"passed": true,  "duration_sec": 6.3}
+      }
+    },
+    {
+      "run_id": 2003,
+      "run_url": "https://github.com/flightctl/flightctl/actions/runs/2003",
+      "date": "2026-01-04",
+      "conclusion": "failure",
+      "specs": {
+        "Store Suite should create a device":              {"passed": true,  "duration_sec": 1.3},
+        "Store Suite should list devices with filters":   {"passed": true,  "duration_sec": 0.7},
+        "Store Suite should delete a device":             {"passed": true,  "duration_sec": 0.5},
+        "Store Suite should handle concurrent writes":    {"passed": true,  "duration_sec": 2.2},
+        "Service Suite enrollment request is accepted":   {"passed": true,  "duration_sec": 3.4},
+        "Service Suite status update is persisted":       {"passed": true,  "duration_sec": 2.7},
+        "Service Suite expired token is rejected":        {"passed": true,  "duration_sec": 1.2},
+        "Rollout Suite fleet rolls out sequentially":     {"passed": true,  "duration_sec": 8.6},
+        "Rollout Suite rollback on failure":              {"passed": false, "duration_sec": 7.1, "failure_msg": "agent did not roll back in time"},
+        "Rollout Suite disruption budget is respected":   {"passed": true,  "duration_sec": 6.0}
+      }
+    }
+  ]
+}
