@@ -408,6 +408,7 @@ func TestHelm_Install(t *testing.T) {
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 					"install", "myapp", "/tmp/charts/myapp",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -421,6 +422,7 @@ func TestHelm_Install(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 					"install", "myapp", "/tmp/charts/myapp",
 					"--namespace", "default",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -446,6 +448,7 @@ func TestHelm_Install(t *testing.T) {
 					"--values", "/tmp/values.yaml",
 					"--kubeconfig", "/tmp/kubeconfig",
 					"--atomic",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -478,6 +481,7 @@ func TestHelm_Install(t *testing.T) {
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 					"install", "myapp", "/tmp/charts/myapp",
+					"--timeout", "420s",
 				}).Return("", "Error: release already exists", 1)
 			},
 			wantErr: true,
@@ -524,6 +528,7 @@ func TestHelm_Upgrade(t *testing.T) {
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 					"upgrade", "myapp", "/tmp/charts/myapp",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -542,6 +547,7 @@ func TestHelm_Upgrade(t *testing.T) {
 					"upgrade", "myapp", "/tmp/charts/myapp",
 					"--namespace", "production",
 					"--values", "/tmp/values.yaml",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -565,6 +571,7 @@ func TestHelm_Upgrade(t *testing.T) {
 					"--values", "/tmp/values.yaml",
 					"--kubeconfig", "/tmp/kubeconfig",
 					"--atomic",
+					"--timeout", "420s",
 				}).Return("", "", 0)
 			},
 			wantErr: false,
@@ -577,6 +584,7 @@ func TestHelm_Upgrade(t *testing.T) {
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 					"upgrade", "myapp", "/tmp/charts/myapp",
+					"--timeout", "420s",
 				}).Return("", "Error: release not found", 1)
 			},
 			wantErr: true,

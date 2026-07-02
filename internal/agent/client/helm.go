@@ -19,7 +19,8 @@ import (
 
 const (
 	helmCmd            = "helm"
-	defaultHelmTimeout = 5 * time.Minute
+	defaultHelmTimeout = 7 * time.Minute
+	helmContextBuffer  = 10 * time.Second
 )
 
 // HelmOption is a functional option for configuring helm operations.
@@ -344,7 +345,7 @@ func (h *Helm) Install(ctx context.Context, releaseName, chartPath string, opts 
 		timeout = options.timeout
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout+helmContextBuffer)
 	defer cancel()
 
 	args := []string{"install", releaseName, chartPath}
@@ -387,6 +388,8 @@ func (h *Helm) Install(ctx context.Context, releaseName, chartPath string, opts 
 		args = append(args, "--rollback-on-failure")
 	}
 
+	args = append(args, "--timeout", fmt.Sprintf("%ds", int(timeout.Seconds())))
+
 	if options.postRendererPath != "" {
 		args = append(args, "--post-renderer", options.postRendererPath)
 		for _, arg := range options.postRendererArgs {
@@ -414,7 +417,7 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 		timeout = options.timeout
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout+helmContextBuffer)
 	defer cancel()
 
 	args := []string{"upgrade", releaseName, chartPath}
@@ -460,6 +463,8 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 	if options.rollbackOnFailure {
 		args = append(args, "--rollback-on-failure")
 	}
+
+	args = append(args, "--timeout", fmt.Sprintf("%ds", int(timeout.Seconds())))
 
 	if options.postRendererPath != "" {
 		args = append(args, "--post-renderer", options.postRendererPath)
