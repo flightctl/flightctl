@@ -155,7 +155,7 @@ jobs:
 
       - name: Save buildah cache
         uses: actions/cache/save@v4
-        if: github.ref == 'refs/heads/main' || github.head_ref == 'build-opt'
+        if: github.ref == 'refs/heads/main'
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
