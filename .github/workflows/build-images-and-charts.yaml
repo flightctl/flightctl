@@ -56,7 +56,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
-          key: ${{ runner.os }}-buildah-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-buildah-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-buildah-
 
@@ -158,7 +158,7 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.head_ref == 'build-opt'
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
-          key: ${{ runner.os }}-buildah-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-buildah-${{ github.run_id }}
 
   build-helm-charts:
     runs-on: ubuntu-24.04
