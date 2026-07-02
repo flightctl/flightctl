@@ -442,6 +442,13 @@ func createTestApplicationWithType(require *require.Assertions, name string, sta
 	return app
 }
 
+func createTestVMApplication(require *require.Assertions, name string, status v1beta1.ApplicationStatusType, user v1beta1.Username) Application {
+	p := newMockProvider(require, name, user, v1beta1.AppTypeVm)
+	app := NewApplication(p)
+	app.status.Status = status
+	return app
+}
+
 func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
@@ -1319,4 +1326,85 @@ func TestReduceActions_Consistency(t *testing.T) {
 		require.Equal([]string{"z", "m", "a", "f"}, ids,
 			"ordering should be consistent on iteration %d", i)
 	}
+}
+
+func TestPodmanMonitorResolveConsole(t *testing.T) {
+	newMonitor := func(t *testing.T) (*PodmanMonitor, *gomock.Controller) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		testLog := log.NewPrefixLogger("test")
+		tmpDir := t.TempDir()
+		readWriter := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		execMock := executer.NewMockExecuter(ctrl)
+		podman := client.NewPodman(testLog, execMock, readWriter, util.NewPollConfig())
+		systemdMgr := systemd.NewMockManager(ctrl)
+		systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+		systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+		var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil }
+		var systemdFactory systemd.ManagerFactory = func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
+		var rwFactory fileio.ReadWriterFactory = func(_ v1beta1.Username) (fileio.ReadWriter, error) { return readWriter, nil }
+		m := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
+		return m, ctrl
+	}
+
+	t.Run("When the app is not tracked it should return errConsoleAppNotFound", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		_, err := m.resolveConsole("unknown-app", "serial")
+		require.ErrorIs(err, errConsoleAppNotFound)
+	})
+
+	t.Run("When the app is a non-VM type it should return an unsupported error", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestApplicationWithType(require, "compose-app", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername, v1beta1.AppTypeCompose)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		_, err = m.resolveConsole("compose-app", "serial")
+		require.Error(err)
+		require.Contains(err.Error(), "only VM apps support console")
+	})
+
+	t.Run("When the app is a VM but consoleType is not serial it should return an error", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		_, err = m.resolveConsole("my-vm", "shell")
+		require.Error(err)
+		require.Contains(err.Error(), "unsupported console type")
+	})
+
+	t.Run("When the app is VM serial with a running workload it should return a session", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		// The workload name comes from podman events and is the authoritative runtime name.
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+		sess, err := m.resolveConsole("my-vm", "serial")
+		require.NoError(err)
+		require.NotNil(sess)
+	})
+
+	t.Run("When the app is VM serial with no running workload it should return an error", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		_, err = m.resolveConsole("my-vm", "serial")
+		require.Error(err)
+		require.Contains(err.Error(), "no active compute container found")
+	})
 }
