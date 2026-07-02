@@ -135,4 +135,31 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported auth type")
 	})
+
+	t.Run("When registry returns 401 with Basic challenge and empty credentials it returns an error", func(t *testing.T) {
+		server := httptest.NewServer(basicAuthRegistryHandler("user", "pass"))
+		defer server.Close()
+
+		repo := makeTestOciRepo(t, server, makeDockerOciAuth("", ""))
+		err := tester.TestAccess(repo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "credentials are incomplete")
+	})
+
+	t.Run("When registry returns a non-401 non-200 status on Basic auth it returns an error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Www-Authenticate", `Basic realm="Registry Realm"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer server.Close()
+
+		repo := makeTestOciRepo(t, server, makeDockerOciAuth("user", "pass"))
+		err := tester.TestAccess(repo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authentication failed")
+	})
 }
