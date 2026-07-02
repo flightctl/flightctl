@@ -105,6 +105,11 @@ func NewProvider(
 		config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
+	// Remote-access service uses the same device cert as the management service.
+	if !config.RemoteAccessService.Config.HasCredentials() {
+		config.RemoteAccessService.Config.AuthInfo.ClientCertificate = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+		config.RemoteAccessService.Config.AuthInfo.ClientKey = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
+	}
 
 	clientCertPath := config.ManagementService.GetClientCertificatePath()
 	clientKeyPath := config.ManagementService.GetClientKeyPath()

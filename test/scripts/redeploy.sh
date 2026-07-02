@@ -50,6 +50,10 @@ DST_IMAGE="localhost/flightctl-${IMAGE}-${OS}:latest"
 podman tag "${SRC_IMAGE}" "${DST_IMAGE}"
 kind_load_image "${DST_IMAGE}"
 
+# Ensure the deployment uses the local image (fixes cases where the deployment
+# was originally created with a remote registry reference).
+${OC} set image deployment/flightctl-${IMAGE} flightctl-${IMAGE}=${DST_IMAGE} -n ${NAMESPACE} 2>/dev/null || true
+
 # switch for api worker and periodic handling, we need to kill the pods to reload
 ${OC} delete pod -n ${NAMESPACE} -l flightctl.service=flightctl-${IMAGE}
 sleep 5

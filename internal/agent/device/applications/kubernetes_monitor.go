@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -329,4 +330,10 @@ func (m *KubernetesMonitor) getPodRestartCount(pod *kubernetesPod) int {
 		total += cs.RestartCount
 	}
 	return total
+}
+
+// resolveConsole is a stub — Kubernetes app console is not yet implemented.
+// Returns errConsoleAppNotFound so the caller tries the next monitor.
+func (m *KubernetesMonitor) resolveConsole(_, _ string) (appconsole.Session, error) {
+	return nil, errConsoleAppNotFound
 }
