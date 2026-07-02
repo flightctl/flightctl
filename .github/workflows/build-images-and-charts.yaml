@@ -50,7 +50,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Set buildah cache path
-        run: echo "BUILDAH_CACHE_PATH=/var/tmp/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
+        run: echo "BUILDAH_CACHE_PATH=${TMPDIR:-/var/tmp}/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
 
       - name: Restore buildah cache
         uses: actions/cache/restore@v4
