@@ -1,0 +1,46 @@
+name: "Debug: buildah cache location"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build-opt
+    paths:
+      - .github/workflows/debug-buildah-cache.yaml
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Show env / uid / TMPDIR
+        run: |
+          echo "whoami:  $(whoami)"
+          echo "id -u:   $(id -u)"
+          echo "TMPDIR:  ${TMPDIR:-<unset>}"
+          echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-<unset>}"
+          echo "RUNNER_TEMP: ${RUNNER_TEMP:-<unset>}"
+
+      - name: Run minimal podman build with --mount=type=cache
+        run: |
+          cat > /tmp/Containerfile.probe <<'EOF'
+          FROM alpine:3.20
+          RUN --mount=type=cache,target=/probe-cache \
+              echo "hello" > /probe-cache/probe.txt && \
+              echo "Cache written to /probe-cache/probe.txt"
+          EOF
+          podman build -f /tmp/Containerfile.probe /tmp
+
+      - name: Find buildah cache directories
+        run: |
+          echo "=== Searching /tmp ==="
+          find /tmp -maxdepth 2 -name "buildah-cache-*" -type d 2>/dev/null || echo "none found under /tmp"
+          echo ""
+          echo "=== Searching RUNNER_TEMP ==="
+          find "${RUNNER_TEMP:-/nonexistent}" -maxdepth 2 -name "buildah-cache-*" -type d 2>/dev/null || echo "none found under RUNNER_TEMP"
+          echo ""
+          echo "=== Broad search for buildah-cache anywhere ==="
+          find / -maxdepth 5 -name "buildah-cache-*" -type d 2>/dev/null | head -20 || true
+          echo ""
+          echo "=== Expected path based on our formula ==="
+          echo "${TMPDIR:-/tmp}/buildah-cache-$(id -u)"
+          ls -la "${TMPDIR:-/tmp}/buildah-cache-$(id -u)" 2>/dev/null || echo "Does not exist"
