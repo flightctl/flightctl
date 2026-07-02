@@ -21,6 +21,8 @@ type ServiceConfig struct {
 	EnrollmentService EnrollmentService `json:"enrollment-service,omitempty"`
 	// ManagementService is the client configuration for connecting to the device management server
 	ManagementService ManagementService `json:"management-service,omitempty"`
+	// RemoteAccessService is the client configuration for connecting to the flightctl-remote-access gRPC server
+	RemoteAccessService RemoteAccessService `json:"remote-access-service,omitempty"`
 }
 
 type EnrollmentService struct {
@@ -34,10 +36,15 @@ type ManagementService struct {
 	client.Config
 }
 
+type RemoteAccessService struct {
+	client.Config
+}
+
 func NewServiceConfig() ServiceConfig {
 	return ServiceConfig{
-		EnrollmentService: EnrollmentService{Config: *client.NewDefault()},
-		ManagementService: ManagementService{Config: *client.NewDefault()},
+		EnrollmentService:   EnrollmentService{Config: *client.NewDefault()},
+		ManagementService:   ManagementService{Config: *client.NewDefault()},
+		RemoteAccessService: RemoteAccessService{Config: *client.NewDefault()},
 	}
 }
 
@@ -49,6 +56,13 @@ func (s *EnrollmentService) Equal(s2 *EnrollmentService) bool {
 }
 
 func (s *ManagementService) Equal(s2 *ManagementService) bool {
+	if s == s2 {
+		return true
+	}
+	return s.Config.Equal(&s2.Config)
+}
+
+func (s *RemoteAccessService) Equal(s2 *RemoteAccessService) bool {
 	if s == s2 {
 		return true
 	}

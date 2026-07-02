@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +14,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -172,7 +174,7 @@ func (p *Podman) pullImage(ctx context.Context, image string, options *clientOpt
 	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("pull image: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("pull image: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -222,7 +224,7 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("pull artifact: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("pull artifact: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return strings.TrimSpace(stdout), nil
 }
@@ -244,7 +246,7 @@ func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination stri
 	args := []string{"artifact", "extract", artifact, destination}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("artifact extract: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("artifact extract: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -259,7 +261,7 @@ func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	args := []string{"inspect", image}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("inspect image: %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("inspect image: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -283,7 +285,7 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 	args := []string{"image", "inspect", "--format", "{{.Digest}}", image}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("get image digest: %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("get image digest: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	digest := strings.TrimSpace(stdout)
 	return digest, nil
@@ -305,7 +307,7 @@ func (p *Podman) artifactInspect(ctx context.Context, reference string) (*Artifa
 	args := []string{"artifact", "inspect", reference}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("artifact inspect: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("artifact inspect: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	var inspectResult ArtifactInspect
@@ -361,7 +363,7 @@ func (p *Podman) ListImages(ctx context.Context) ([]string, error) {
 	args := []string{"image", "ls", "--format", "{{if and .Repository (ne .Repository \"<none>\")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}"}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list images: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list images: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -393,7 +395,7 @@ func (p *Podman) ListArtifacts(ctx context.Context) ([]string, error) {
 	args := []string{"artifact", "ls", "--format", "{{.Name}}"}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list artifacts: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list artifacts: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -427,7 +429,7 @@ func (p *Podman) RemoveImage(ctx context.Context, image string) error {
 			// Image doesn't exist - this is acceptable, return nil
 			return nil
 		}
-		return fmt.Errorf("remove image %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("remove image %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -450,7 +452,7 @@ func (p *Podman) RemoveArtifact(ctx context.Context, artifact string) error {
 			// Artifact doesn't exist - this is acceptable, return nil
 			return nil
 		}
-		return fmt.Errorf("remove artifact %s: %w", artifact, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("remove artifact %s: %w", artifact, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -475,6 +477,47 @@ func (p *Podman) ExecInContainer(ctx context.Context, container string, args ...
 	return p.exec.ExecuteWithContext(ctx, podmanCmd, cmdArgs...)
 }
 
+// pipeConn wraps an os/exec Cmd's stdin/stdout pipes as an io.ReadWriteCloser.
+type pipeConn struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+}
+
+func (c *pipeConn) Read(p []byte) (int, error)  { return c.stdout.Read(p) }
+func (c *pipeConn) Write(p []byte) (int, error) { return c.stdin.Write(p) }
+func (c *pipeConn) Close() error {
+	stdinErr := c.stdin.Close()
+	stdoutErr := c.stdout.Close()
+	var killErr error
+	if c.cmd.Process != nil {
+		killErr = c.cmd.Process.Kill()
+	}
+	waitErr := c.cmd.Wait()
+	return errors.Join(stdinErr, stdoutErr, killErr, waitErr)
+}
+
+// ExecStream starts `podman exec -i <containerName> <cmd...>` and returns the
+// process's stdin/stdout as an io.ReadWriteCloser. Caller must Close() to release resources.
+func (p *Podman) ExecStream(ctx context.Context, containerName string, cmd ...string) (io.ReadWriteCloser, error) {
+	args := append([]string{"exec", "-i", containerName}, cmd...)
+	c := p.exec.CommandContext(ctx, podmanCmd, args...)
+
+	stdin, err := c.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stdin pipe for podman exec %s: %w", containerName, err)
+	}
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stdout pipe for podman exec %s: %w", containerName, err)
+	}
+
+	if err := c.Start(); err != nil {
+		return nil, fmt.Errorf("starting podman exec %s: %w", containerName, err)
+	}
+	return &pipeConn{cmd: c, stdin: stdin, stdout: stdout}, nil
+}
+
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
 // When the events are in sync with the current time a sync event is emitted.
 func (p *Podman) EventsSinceCmd(ctx context.Context, events []string, sinceTime string) *exec.Cmd {
@@ -497,7 +540,7 @@ func (p *Podman) Mount(ctx context.Context, image string) (string, error) {
 	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("mount image: %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("mount image: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	out := strings.TrimSpace(stdout)
@@ -515,7 +558,7 @@ func (p *Podman) Unmount(ctx context.Context, image string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("unmount image: %s: %w", image, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("unmount image: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -527,7 +570,7 @@ func (p *Podman) Copy(ctx context.Context, src, dst string) error {
 	args := []string{"cp", src, dst}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("copy %s to %s: %w", src, dst, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("copy %s to %s: %w", src, dst, deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -563,7 +606,7 @@ func (p *Podman) StopContainers(ctx context.Context, labels []string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("stop containers: %w", errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("stop containers: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -578,7 +621,7 @@ func (p *Podman) RemoveContainer(ctx context.Context, labels []string) error {
 	}
 	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("remove containers: %w", errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("remove containers: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -594,13 +637,13 @@ func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string)
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("create volume: %s: %w", strings.TrimSpace(stdout), errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("create volume: %s: %w", strings.TrimSpace(stdout), deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	inspectArgs := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
 	mountpointOut, inspectStderr, inspectExit := p.exec.ExecuteWithContext(ctx, podmanCmd, inspectArgs...)
 	if inspectExit != 0 {
-		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(inspectStderr, inspectExit))
+		return "", fmt.Errorf("inspect volume mountpoint: %w", deviceerrors.FromStderr(inspectStderr, inspectExit))
 	}
 
 	mountpoint := strings.TrimSpace(mountpointOut)
@@ -625,7 +668,7 @@ func (p *Podman) ListVolumes(ctx context.Context, labels []string, filters []str
 	args = applyFilters(args, labels, filters)
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list volumes: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list volumes: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	var podVols []podmanVolume
 	err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &podVols)
@@ -659,7 +702,7 @@ func (p *Podman) inspectVolumeProperty(ctx context.Context, name string, propert
 	args := []string{"volume", "inspect", name, "--format", property}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("inspect volume property %s: %w", property, errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("inspect volume property %s: %w", property, deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	return strings.TrimSpace(stdout), nil
@@ -680,7 +723,7 @@ func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
 		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
 		cancel()
 		if exitCode != 0 {
-			return fmt.Errorf("remove volumes: %w", errors.FromStderr(stderr, exitCode))
+			return fmt.Errorf("remove volumes: %w", deviceerrors.FromStderr(stderr, exitCode))
 		}
 		p.log.Infof("Removed volume %s", volume)
 	}
@@ -712,7 +755,7 @@ func (p *Podman) ListNetworks(ctx context.Context, labels []string, filters []st
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list networks: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list networks: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -742,7 +785,7 @@ func (p *Podman) RemoveNetworks(ctx context.Context, networks ...string) error {
 		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
 		cancel()
 		if exitCode != 0 {
-			return fmt.Errorf("remove networks: %w", errors.FromStderr(stderr, exitCode))
+			return fmt.Errorf("remove networks: %w", deviceerrors.FromStderr(stderr, exitCode))
 		}
 		p.log.Infof("Removed network %s", network)
 	}
@@ -765,7 +808,7 @@ func (p *Podman) ListPods(ctx context.Context, labels []string) ([]string, error
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list pods: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list pods: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -793,7 +836,7 @@ func (p *Podman) RemovePods(ctx context.Context, pods ...string) error {
 		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
 		cancel()
 		if exitCode != 0 {
-			return fmt.Errorf("remove pods: %w", errors.FromStderr(stderr, exitCode))
+			return fmt.Errorf("remove pods: %w", deviceerrors.FromStderr(stderr, exitCode))
 		}
 		p.log.Infof("Removed pod %s", pod)
 	}
@@ -807,7 +850,7 @@ func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {
 	args = append([]string{"unshare"}, args...)
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("unshare: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("unshare: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -832,10 +875,10 @@ type PodmanVersion struct {
 func (p *Podman) EnsureArtifactSupport(ctx context.Context) error {
 	version, err := p.Version(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
+		return fmt.Errorf("%w: checking podman version: %w", deviceerrors.ErrNoRetry, err)
 	}
 	if !version.GreaterOrEqual(5, 5) {
-		return fmt.Errorf("%w: OCI artifact operations require podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
+		return fmt.Errorf("%w: OCI artifact operations require podman >= 5.5, found %d.%d", deviceerrors.ErrNoRetry, version.Major, version.Minor)
 	}
 	return nil
 }
@@ -858,7 +901,7 @@ func (p *Podman) Version(ctx context.Context) (*PodmanVersion, error) {
 	args := []string{"--version"} // podman version --format "{{.Version}}" has some unexpectecd failure cases in testing
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("podman --version: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("podman --version: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	// Example: "podman version 5.4.2"
@@ -891,7 +934,7 @@ func (p *Podman) GetImageCopyTmpDir(ctx context.Context) (string, error) {
 	args := []string{"info", "--format", "{{.Store.ImageCopyTmpDir}}"}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("get image copy tmpdir: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("get image copy tmpdir: %w", deviceerrors.FromStderr(stderr, exitCode))
 	}
 
 	tmpDir := strings.TrimSpace(stdout)
@@ -1008,7 +1051,7 @@ func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.C
 		retriableErr = nil
 		result, err = operation(ctx)
 		if err != nil {
-			if !errors.IsRetryable(err) {
+			if !deviceerrors.IsRetryable(err) {
 				log.Error(err)
 				return false, err
 			}
