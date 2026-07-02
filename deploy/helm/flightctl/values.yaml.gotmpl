@@ -326,6 +326,8 @@ periodic:
 remoteAccess:
   # -- Enable remote access service
   enabled: true
+  # -- Log level for the remote access service
+  logLevel: info
   image:
     # -- Remote access container image
     image: {{ .Images.remoteAccess.Image }}

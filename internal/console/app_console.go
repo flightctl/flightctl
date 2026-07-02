@@ -132,7 +132,6 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 	if err == nil {
 		if pubErr := m.publisher.StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion); pubErr != nil {
 			m.log.WithError(pubErr).Errorf("annotation for device %s persisted but rendered-version notification failed", deviceName)
-			return domain.StatusInternalServerError(pubErr.Error())
 		}
 	}
 	if err != nil {

@@ -144,6 +144,15 @@ type application struct {
 // NewApplication creates a new application from an application provider.
 func NewApplication(p provider.Provider) *application {
 	spec := p.Spec()
+	appType := spec.AppType
+	// The server renders VM apps as QuadletApplications and marks them with the
+	// flightctl.io/workload-type=vm annotation. Restore the original AppTypeVm so
+	// that the console resolver can identify VM apps by their true type.
+	if spec.QuadletApp != nil && spec.QuadletApp.Annotations != nil {
+		if (*spec.QuadletApp.Annotations)[v1beta1.AnnotationWorkloadType] == v1beta1.WorkloadTypeVM {
+			appType = v1beta1.AppTypeVm
+		}
+	}
 	return &application{
 		id:   spec.ID,
 		path: spec.Path,
@@ -151,7 +160,7 @@ func NewApplication(p provider.Provider) *application {
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
 			Embedded: spec.Embedded,
-			AppType:  spec.AppType,
+			AppType:  appType,
 			RunAs:    spec.User,
 		},
 		volume: spec.Volume,

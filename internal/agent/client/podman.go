@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,6 +474,46 @@ func extractArtifactAnnotations(inspect *ArtifactInspect) map[string]string {
 func (p *Podman) ExecInContainer(ctx context.Context, container string, args ...string) (string, string, int) {
 	cmdArgs := append([]string{"exec", container}, args...)
 	return p.exec.ExecuteWithContext(ctx, podmanCmd, cmdArgs...)
+}
+
+// pipeConn wraps an os/exec Cmd's stdin/stdout pipes as an io.ReadWriteCloser.
+type pipeConn struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+}
+
+func (c *pipeConn) Read(p []byte) (int, error)  { return c.stdout.Read(p) }
+func (c *pipeConn) Write(p []byte) (int, error) { return c.stdin.Write(p) }
+func (c *pipeConn) Close() error {
+	_ = c.stdin.Close()
+	_ = c.stdout.Close()
+	if c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+	_ = c.cmd.Wait()
+	return nil
+}
+
+// ExecStream starts `podman exec -i <containerName> <cmd...>` and returns the
+// process's stdin/stdout as an io.ReadWriteCloser. Caller must Close() to release resources.
+func (p *Podman) ExecStream(ctx context.Context, containerName string, cmd ...string) (io.ReadWriteCloser, error) {
+	args := append([]string{"exec", "-i", containerName}, cmd...)
+	c := p.exec.CommandContext(ctx, podmanCmd, args...)
+
+	stdin, err := c.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stdin pipe for podman exec %s: %w", containerName, err)
+	}
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stdout pipe for podman exec %s: %w", containerName, err)
+	}
+
+	if err := c.Start(); err != nil {
+		return nil, fmt.Errorf("starting podman exec %s: %w", containerName, err)
+	}
+	return &pipeConn{cmd: c, stdin: stdin, stdout: stdout}, nil
 }
 
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().

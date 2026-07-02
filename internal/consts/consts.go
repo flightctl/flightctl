@@ -45,6 +45,7 @@ const (
 	GrpcSessionIDKey        = "session-id"
 	GrpcClientNameKey       = "client-name"
 	GrpcSelectedProtocolKey = "selected-protocol"
+	GrpcAppNameKey          = "app-name"
 
 	// Tasks
 	TaskQueue           = "task-queue"
