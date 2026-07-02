@@ -273,15 +273,22 @@ func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
 	return r.authenticateDocker(client, v2URL, resp, nil)
 }
 
-// authenticateDocker performs Docker registry token-based authentication (Bearer token exchange)
+// authenticateDocker performs OCI registry authentication. It detects whether
+// the registry challenges with HTTP Basic or Bearer (Docker token) auth from the
+// Www-Authenticate header and dispatches accordingly.
 func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, initialResp *http.Response, ociAuth *domain.OciAuth) error {
-	// Docker registries return 401 with Www-Authenticate header for token exchange
 	if initialResp.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("unexpected status code: %d", initialResp.StatusCode)
 	}
 
-	// Parse www-authenticate header to get realm and service
 	wwwAuth := initialResp.Header.Get("Www-Authenticate")
+
+	// RFC 7235: auth scheme names are case-insensitive.
+	if strings.HasPrefix(strings.ToLower(wwwAuth), "basic ") {
+		return r.authenticateBasic(client, v2URL, ociAuth)
+	}
+
+	// Parse www-authenticate header to get realm and service
 	realm, service, err := parseWwwAuthenticate(wwwAuth)
 	if err != nil {
 		return fmt.Errorf("failed to parse www-authenticate header: %w", err)
@@ -321,6 +328,42 @@ func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, in
 		return nil
 	}
 
+	return fmt.Errorf("authentication failed: status %d", resp.StatusCode)
+}
+
+// authenticateBasic performs HTTP Basic authentication against the OCI /v2/ endpoint.
+func (r *OciRepoTester) authenticateBasic(client *http.Client, v2URL string, ociAuth *domain.OciAuth) error {
+	if ociAuth == nil {
+		return fmt.Errorf("registry requires Basic authentication but no credentials are configured")
+	}
+
+	dockerAuth, err := ociAuth.AsDockerAuth()
+	if err != nil {
+		return fmt.Errorf("failed to parse docker auth config: %w", err)
+	}
+
+	if dockerAuth.Username == "" || dockerAuth.Password == "" {
+		return fmt.Errorf("registry requires Basic authentication but credentials are incomplete")
+	}
+
+	req, err := http.NewRequest("GET", v2URL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.SetBasicAuth(dockerAuth.Username, dockerAuth.Password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to registry with Basic auth: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("authentication failed: invalid credentials")
+	}
 	return fmt.Errorf("authentication failed: status %d", resp.StatusCode)
 }
 
