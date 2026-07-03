@@ -41,10 +41,11 @@ type AppConsoleSessionRegistration interface {
 	CloseSession(session *AppConsoleSession) error
 }
 
-// RenderedVersionPublisher stores and broadcasts rendered version change notifications so that
-// waiting GetRenderedDevice long-polls on the API server see the change immediately.
-type RenderedVersionPublisher interface {
-	StoreAndNotify(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error
+// ConsoleEventNotifier signals the device agent that a console session needs handling.
+// It is deliberately decoupled from rendered-spec versioning.
+type ConsoleEventNotifier interface {
+	NotifyConsole(ctx context.Context, orgId uuid.UUID, name string) error
+	ClearConsoleNotification(ctx context.Context, orgId uuid.UUID, name string) error
 }
 
 // AppConsoleSessionManager manages application console sessions using device annotations.
@@ -54,20 +55,20 @@ type AppConsoleSessionManager struct {
 	svc                 AppConsoleDeviceService
 	log                 logrus.FieldLogger
 	sessionRegistration AppConsoleSessionRegistration
-	publisher           RenderedVersionPublisher
+	notifier            ConsoleEventNotifier
 }
 
 func NewAppConsoleSessionManager(
 	svc AppConsoleDeviceService,
 	log logrus.FieldLogger,
 	reg AppConsoleSessionRegistration,
-	publisher RenderedVersionPublisher,
+	notifier ConsoleEventNotifier,
 ) *AppConsoleSessionManager {
 	return &AppConsoleSessionManager{
 		svc:                 svc,
 		log:                 log,
 		sessionRegistration: reg,
-		publisher:           publisher,
+		notifier:            notifier,
 	}
 }
 
@@ -77,9 +78,8 @@ func NewAppConsoleSessionManager(
 // for cleanup/rollback paths so they are never blocked by device state changes.
 func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, enforceSessionStartGuards bool, updater func(string) (string, error)) domain.Status {
 	var (
-		err                 error
-		newValue            string
-		nextRenderedVersion string
+		err      error
+		newValue string
 	)
 	for i := 0; i != 10; i++ {
 		device, status := m.svc.GetDevice(ctx, orgId, deviceName)
@@ -118,20 +118,10 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 		} else {
 			(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = newValue
 		}
-		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
-		if err != nil {
-			return domain.StatusInternalServerError(err.Error())
-		}
-		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Debugf("updating remote-session annotations for device %s", deviceName)
 		_, err = m.svc.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
-		}
-	}
-	if err == nil {
-		if pubErr := m.publisher.StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion); pubErr != nil {
-			m.log.WithError(pubErr).Errorf("annotation for device %s persisted but rendered-version notification failed", deviceName)
 		}
 	}
 	if err != nil {
@@ -280,6 +270,11 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		}
 		return nil, domain.StatusInternalServerError(err.Error())
 	}
+
+	if err := m.notifier.NotifyConsole(ctx, orgId, deviceName); err != nil {
+		m.log.Warnf("StartSession: failed to notify device %s: %v", deviceName, err)
+	}
+
 	return session, domain.StatusOK()
 }
 

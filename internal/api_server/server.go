@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	transportv1alpha1 "github.com/flightctl/flightctl/internal/transport/v1alpha1"
@@ -360,7 +361,7 @@ func (s *Server) Run(ctx context.Context) error {
 			RateLimitScopeGeneral,
 		)
 
-		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
+		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg, rendered.Bus.Instance())
 		ws := transportv1beta1.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 		ws.RegisterRoutes(r)
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1684,6 +1685,238 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			Expect(foundDevice).To(BeFalse(), "Device with nil lastSeen should not be found in lastSeen> filter")
+		})
+	})
+
+	Context("Console notification via GetRenderedDevice", func() {
+		var (
+			suite          *ServiceTestSuite
+			testKvStore    kvstore.KVStore
+			queuesProvider queues.Provider
+		)
+
+		BeforeEach(func() {
+			suite = NewServiceTestSuite()
+			suite.Setup()
+
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Store, suite.Log)
+
+			var err error
+			if testKvStore == nil {
+				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, redisHost, redisPort, redisPassword)
+				Expect(err).ToNot(HaveOccurred())
+				processID := fmt.Sprintf("console-notification-test-%s", uuid.New().String())
+				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, redisHost, redisPort, redisPassword, queues.DefaultRetryConfig())
+				Expect(err).ToNot(HaveOccurred())
+				err = rendered.Bus.Initialize(suite.Ctx, testKvStore, queuesProvider, 10*time.Second, suite.Log)
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+
+		AfterEach(func() {
+			suite.Teardown()
+		})
+
+		buildRenderedConfig := func(contents string) string {
+			provider := api.ConfigProviderSpec{}
+			files := []api.FileSpec{{Content: contents}}
+			Expect(provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Inline: files})).To(Succeed())
+			b, err := json.Marshal(&[]api.ConfigProviderSpec{provider})
+			Expect(err).ToNot(HaveOccurred())
+			return string(b)
+		}
+
+		It("returns 200 immediately when console-pending KV flag is set and spec is unchanged", func() {
+			deviceName := "console-notification-test-wakeup"
+			knownVersion := "3"
+
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, err := suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash1", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Prime the KV rendered-version to match what the agent reports.
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			_, err = testKvStore.GetOrSetNX(suite.Ctx, renderedKey, []byte(knownVersion))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set the console-pending flag as the console manager would do.
+			consolePendingKey := fmt.Sprintf("v1/%s/device/%s/console-pending", suite.OrgID, deviceName)
+			_, err = testKvStore.SetNX(suite.Ctx, consolePendingKey, []byte("1"))
+			Expect(err).ToNot(HaveOccurred())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: lo.ToPtr(knownVersion)}
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+
+			// Even though the spec version hasn't changed, the console-pending flag causes a 200.
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+		})
+
+		It("clears the console-pending KV flag after returning 200", func() {
+			deviceName := "console-notification-test-clear"
+			knownVersion := "5"
+
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, err := suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash2", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			_, err = testKvStore.GetOrSetNX(suite.Ctx, renderedKey, []byte(knownVersion))
+			Expect(err).ToNot(HaveOccurred())
+
+			consolePendingKey := fmt.Sprintf("v1/%s/device/%s/console-pending", suite.OrgID, deviceName)
+			_, err = testKvStore.SetNX(suite.Ctx, consolePendingKey, []byte("1"))
+			Expect(err).ToNot(HaveOccurred())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: lo.ToPtr(knownVersion)}
+
+			// First call wakes up and clears the flag.
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+
+			// Verify the flag was cleared.
+			flagVal, err := testKvStore.Get(suite.Ctx, consolePendingKey)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(flagVal).To(BeNil(), "console-pending KV flag should be cleared after GetRenderedDevice returns 200")
+
+			// Second call with unchanged spec must return 204 (no busy-loop).
+			result2, status2 := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status2.Code).To(Equal(int32(204)))
+			Expect(result2).To(BeNil())
+		})
+
+		It("does not bump DeviceAnnotationRenderedVersion when console notification is processed", func() {
+			deviceName := "console-notification-test-no-version-bump"
+			knownVersion := "7"
+
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, err := suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash3", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Pin the DeviceAnnotationRenderedVersion annotation to a known value.
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationRenderedVersion: knownVersion,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			_, err = testKvStore.GetOrSetNX(suite.Ctx, renderedKey, []byte(knownVersion))
+			Expect(err).ToNot(HaveOccurred())
+
+			consolePendingKey := fmt.Sprintf("v1/%s/device/%s/console-pending", suite.OrgID, deviceName)
+			_, err = testKvStore.SetNX(suite.Ctx, consolePendingKey, []byte("1"))
+			Expect(err).ToNot(HaveOccurred())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: lo.ToPtr(knownVersion)}
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+
+			// DeviceAnnotationRenderedVersion must be unchanged — the console event must not
+			// cause a rendered-version bump in the database.
+			device, devStatus := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(devStatus.Code).To(Equal(int32(200)))
+			Expect(device).ToNot(BeNil())
+			Expect(device.Metadata.Annotations).ToNot(BeNil())
+			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal(knownVersion),
+				"DeviceAnnotationRenderedVersion must not be bumped by a console notification")
+		})
+
+		It("returns 200 on fresh connect even when console-pending flag is absent (backward compat)", func() {
+			// No knownRenderedVersion → agent is reconnecting for the first time.
+			// GetRenderedDevice should always return 200 with the current spec.
+			deviceName := "console-notification-test-fresh-connect"
+
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, err := suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash4", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set console annotation to simulate an open console session.
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationConsole: `[{"sessionID":"sess-1","sessionMetadata":"{\"tty\":true}"}]`,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			// No KnownRenderedVersion → fresh connect path.
+			params := domain.GetRenderedDeviceParams{}
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+			// Console annotation should be present in the returned spec.
+			Expect(result.Metadata.Annotations).ToNot(BeNil())
+			Expect(*result.Metadata.Annotations).To(HaveKey(api.DeviceAnnotationConsole))
+		})
+
+		It("does not bump resource version more than once during a console open cycle", func() {
+			deviceName := "console-notification-test-resource-version"
+			knownVersion := "1"
+
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, err := suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash5", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationRenderedVersion: knownVersion,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Capture the resource version before the console open.
+			deviceBefore, devStatus := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(devStatus.Code).To(Equal(int32(200)))
+			rvBefore := lo.FromPtr(deviceBefore.Metadata.ResourceVersion)
+
+			// Simulate adding a single console session annotation (as the console manager would).
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationConsole: `[{"sessionID":"sess-open","sessionMetadata":"{\"tty\":true}"}]`,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			deviceAfterOpen, devStatus := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(devStatus.Code).To(Equal(int32(200)))
+			rvAfterOpen := lo.FromPtr(deviceAfterOpen.Metadata.ResourceVersion)
+
+			// Convert resource versions to integers for comparison.
+			rvBeforeInt, err := strconv.Atoi(rvBefore)
+			Expect(err).ToNot(HaveOccurred())
+			rvAfterOpenInt, err := strconv.Atoi(rvAfterOpen)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Console annotation addition is exactly one UpdateAnnotations call → resource version +1.
+			Expect(rvAfterOpenInt).To(BeNumerically(">", rvBeforeInt),
+				"resource version should increase when the console annotation is added")
+			Expect(rvAfterOpenInt-rvBeforeInt).To(Equal(1),
+				"exactly one resource-version bump is expected when opening a console session")
 		})
 	})
 })
