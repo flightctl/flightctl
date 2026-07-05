@@ -433,7 +433,7 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 // buildAppConsoleURL constructs the WebSocket URL for the VM application serial console.
 // The base URL's scheme is converted from https/http to wss/ws as required by gorilla/websocket.
 func (o *ConsoleOptions) buildAppConsoleURL(consoleServer, deviceName, appName string) (string, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/ws/v1/devices/%s/applications/%s/console", consoleServer, deviceName, appName))
+	u, err := url.Parse(fmt.Sprintf("%s/ws/v1/devices/%s/applications/%s/console", consoleServer, url.PathEscape(deviceName), url.PathEscape(appName)))
 	if err != nil {
 		return "", fmt.Errorf("parsing console URL: %w", err)
 	}
