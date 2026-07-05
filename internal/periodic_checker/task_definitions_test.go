@@ -79,12 +79,68 @@ func TestMergeTasksWithConfig(t *testing.T) {
 			require.Contains(t, result, PeriodicTaskTypeResourceSync)
 			require.Equal(t, tt.expectedResourceSyncInterval, result[PeriodicTaskTypeResourceSync].Interval)
 
-			// Double check that other tasks are preserved with defaults
 			for taskType, defaultMeta := range periodicTasks {
+				if taskType == PeriodicTaskTypeVulnerabilitySync {
+					require.NotContains(t, result, taskType)
+					continue
+				}
 				require.Contains(t, result, taskType)
 				if taskType != PeriodicTaskTypeResourceSync {
 					require.Equal(t, defaultMeta.Interval, result[taskType].Interval)
 				}
+			}
+		})
+	}
+}
+
+func TestMergeTasksWithConfig_VulnerabilitySync(t *testing.T) {
+	tests := []struct {
+		name       string
+		configJSON string
+		expectTask bool
+	}{
+		{
+			name:       "When config is nil it should exclude vulnerability-sync",
+			configJSON: "",
+			expectTask: false,
+		},
+		{
+			name:       "When VulnerabilityReporting is nil it should exclude vulnerability-sync",
+			configJSON: `{}`,
+			expectTask: false,
+		},
+		{
+			name:       "When VulnerabilityReporting is disabled it should exclude vulnerability-sync",
+			configJSON: `{"vulnerabilityReporting": {"enabled": false}}`,
+			expectTask: false,
+		},
+		{
+			name:       "When VulnerabilityReporting is enabled it should include vulnerability-sync with default interval",
+			configJSON: `{"vulnerabilityReporting": {"enabled": true}}`,
+			expectTask: true,
+		},
+		{
+			name:       "When VulnerabilityReporting is enabled with custom interval it should use custom interval",
+			configJSON: `{"vulnerabilityReporting": {"enabled": true, "syncInterval": "30m"}}`,
+			expectTask: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg *config.Config
+			if tt.configJSON != "" {
+				cfg = &config.Config{}
+				err := json.Unmarshal([]byte(tt.configJSON), cfg)
+				require.NoError(t, err)
+			}
+
+			result := MergeTasksWithConfig(cfg)
+
+			if tt.expectTask {
+				require.Contains(t, result, PeriodicTaskTypeVulnerabilitySync)
+			} else {
+				require.NotContains(t, result, PeriodicTaskTypeVulnerabilitySync)
 			}
 		})
 	}
