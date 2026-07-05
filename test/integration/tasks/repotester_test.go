@@ -501,5 +501,113 @@ var _ = Describe("RepoTester", func() {
 				Expect(err.Error()).To(ContainSubstring("failed to connect"))
 			})
 		})
+
+		Context("with Basic auth registry and valid credentials", func() {
+			It("should successfully test access", func() {
+				mock := &MockOciRegistry{
+					RequireAuth:   true,
+					BasicAuth:     true,
+					ValidUsername: "testuser",
+					ValidPassword: "testpass",
+				}
+				server := httptest.NewServer(mock.Handler())
+				defer server.Close()
+
+				repotester := tasks.OciRepoTester{}
+
+				spec := api.RepositorySpec{}
+				err := spec.FromOciRepoSpec(api.OciRepoSpec{
+					Registry: registryHost(server.URL),
+					Type:     "oci",
+					Scheme:   lo.ToPtr(api.Http),
+					OciAuth:  newOciAuth("testuser", "testpass"),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth")}, Spec: spec})
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("with Basic auth registry and invalid credentials", func() {
+			It("should fail with an authentication error", func() {
+				mock := &MockOciRegistry{
+					RequireAuth:   true,
+					BasicAuth:     true,
+					ValidUsername: "testuser",
+					ValidPassword: "testpass",
+				}
+				server := httptest.NewServer(mock.Handler())
+				defer server.Close()
+
+				repotester := tasks.OciRepoTester{}
+
+				spec := api.RepositorySpec{}
+				err := spec.FromOciRepoSpec(api.OciRepoSpec{
+					Registry: registryHost(server.URL),
+					Type:     "oci",
+					Scheme:   lo.ToPtr(api.Http),
+					OciAuth:  newOciAuth("wronguser", "wrongpass"),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-invalid")}, Spec: spec})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("authentication failed"))
+			})
+		})
+
+		Context("with Basic auth registry and no credentials configured", func() {
+			It("should fail with a credentials required error", func() {
+				mock := &MockOciRegistry{
+					RequireAuth: true,
+					BasicAuth:   true,
+				}
+				server := httptest.NewServer(mock.Handler())
+				defer server.Close()
+
+				repotester := tasks.OciRepoTester{}
+
+				spec := api.RepositorySpec{}
+				err := spec.FromOciRepoSpec(api.OciRepoSpec{
+					Registry: registryHost(server.URL),
+					Type:     "oci",
+					Scheme:   lo.ToPtr(api.Http),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-no-creds")}, Spec: spec})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("no credentials"))
+			})
+		})
+
+		Context("with Basic auth registry, TLS and valid credentials", func() {
+			It("should successfully test access", func() {
+				mock := &MockOciRegistry{
+					RequireAuth:   true,
+					BasicAuth:     true,
+					ValidUsername: "testuser",
+					ValidPassword: "testpass",
+				}
+				server, caCrtB64 := startTLSOciRegistryServer(mock)
+				defer server.Close()
+
+				repotester := tasks.OciRepoTester{}
+
+				spec := api.RepositorySpec{}
+				err := spec.FromOciRepoSpec(api.OciRepoSpec{
+					Registry: registryHost(server.URL),
+					Type:     "oci",
+					Scheme:   lo.ToPtr(api.Https),
+					CaCrt:    &caCrtB64,
+					OciAuth:  newOciAuth("testuser", "testpass"),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-tls")}, Spec: spec})
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
 	})
 })

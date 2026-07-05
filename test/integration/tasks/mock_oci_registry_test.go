@@ -12,6 +12,8 @@ import (
 type MockOciRegistry struct {
 	// RequireAuth if true, requires authentication to access /v2/
 	RequireAuth bool
+	// BasicAuth if true, the registry challenges with HTTP Basic auth instead of Bearer token exchange
+	BasicAuth bool
 	// ValidUsername expected username for authenticated requests
 	ValidUsername string
 	// ValidPassword expected password for authenticated requests
@@ -36,6 +38,17 @@ func (m *MockOciRegistry) Handler() http.Handler {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if !m.RequireAuth {
 			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if m.BasicAuth {
+			username, password, ok := r.BasicAuth()
+			if ok && username == m.ValidUsername && password == m.ValidPassword {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			w.Header().Set("Www-Authenticate", `Basic realm="Registry Realm"`)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
