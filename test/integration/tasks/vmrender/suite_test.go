@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	vmToQuadletImageRepo = "flightctl/vm-to-quadlet-test"
-	vmToQuadletImageTag  = "latest"
+	vmToQuadletImage = "quay.io/flightctl/vm-to-quadlet:8ebab33"
 )
 
 var (
@@ -48,7 +47,7 @@ var _ = SynchronizedBeforeSuite(
 	// Proc 1 only: extract the vm-to-quadlet binary from a container.
 	func(ctx context.Context) []byte {
 		Expect(integrationstack.EnsureRunning(ctx)).To(Succeed())
-		binaryPath, cleanup, err := buildVmToQuadletBinary(ctx)
+		binaryPath, cleanup, err := extractVmToQuadletBinary(ctx)
 		Expect(err).ToNot(HaveOccurred(), "failed to extract vm-to-quadlet binary")
 		vmBinaryCleanup = cleanup
 		return []byte(binaryPath)
@@ -82,24 +81,15 @@ var _ = SynchronizedAfterSuite(
 	},
 )
 
-// buildVmToQuadletBinary builds the vm-to-quadlet image from the
-// Containerfile.vm-to-quadlet that lives alongside this test. The built image
-// is kept so subsequent runs skip the build. The binary is copied out of the
-// running container via CopyFileFromContainer, written to a temp directory, and
-// the container is terminated. Returns the absolute binary path and a cleanup func.
-func buildVmToQuadletBinary(ctx context.Context) (string, func(), error) {
+// extractVmToQuadletBinary pulls the pre-built vm-to-quadlet image and copies
+// the binary out via CopyFileFromContainer into a temp directory. The container
+// is terminated immediately after extraction. Returns the absolute binary path
+// and a cleanup func.
+func extractVmToQuadletBinary(ctx context.Context) (string, func(), error) {
 	containers.ConfigureDockerHost()
 
 	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			// The Containerfile lives alongside this test file; Go tests run
-			// with cwd set to the package directory.
-			Context:    ".",
-			Dockerfile: "Containerfile.vm-to-quadlet",
-			Repo:       vmToQuadletImageRepo,
-			Tag:        vmToQuadletImageTag,
-			KeepImage:  true, // reuse across test runs; rebuilds only on Containerfile changes
-		},
+		Image: vmToQuadletImage,
 		// Keep the container alive so CopyFileFromContainer can read from it.
 		Cmd: []string{"/bin/sh", "-c", "sleep infinity"},
 	}
