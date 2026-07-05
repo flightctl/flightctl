@@ -3,15 +3,12 @@ package cli
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,24 +183,19 @@ func TestConnectAppViaWS_HTTPErrors(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			// Rewrite the test server URL: httptest uses https, convert to wss for gorilla
-			serverURL := srv.URL
-
-			// Dial using gorilla websocket with the test server's TLS config
-			dialer := websocket.Dialer{
-				TLSClientConfig: srv.Client().Transport.(*http.Transport).TLSClientConfig,
+			cfg := &client.Config{
+				RemoteAccessService: &client.Service{
+					Server:             srv.URL,
+					InsecureSkipVerify: true,
+				},
 			}
-			wsURL := "wss" + strings.TrimPrefix(serverURL, "https")
-			_, resp, err := dialer.Dial(wsURL+"/ws/v1/devices/dev1/applications/myvm/console?consoleType=serial", nil)
-			require.Error(t, err)
-			require.NotNil(t, resp)
-			assert.Equal(t, tt.statusCode, resp.StatusCode)
 
-			// Build the error message as connectAppViaWS would
-			defer resp.Body.Close()
-			errMsg := fmt.Sprintf("websocket: bad handshake (%d %s): %s",
-				resp.StatusCode, http.StatusText(resp.StatusCode), strings.TrimSpace(tt.body))
-			assert.Contains(t, errMsg, tt.errContains)
+			o := DefaultConsoleOptions()
+			o.remoteType = "serial"
+
+			err := o.connectAppViaWS(t.Context(), cfg, "dev1", "myvm", "")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }
@@ -318,25 +310,9 @@ func TestConnectAppViaWS_MissingRemoteAccessService(t *testing.T) {
 	o := DefaultConsoleOptions()
 	o.remoteType = "serial"
 
-	// Config with no RemoteAccessService
-	dir := t.TempDir()
-	configFile := dir + "/config.yaml"
-	require.NoError(t, os.WriteFile(configFile, []byte(`
-service:
-  server: https://api.example.com
-authentication: {}
-`), 0600))
+	cfg := &client.Config{}
 
-	// We test the guard directly via connectAppViaWS — the method reads RemoteAccessService from config
-	// and returns a descriptive error when it is absent.
-	// We use a minimal config struct directly since ParseConfigFile is hard to mock here.
-	// The behavioral contract: when RemoteAccessService is nil, connectAppViaWS returns a non-nil error
-	// containing a helpful message.
-	//
-	// Simulate this via emitUpgradeFailureError parsing — just test the error text.
-	gotURL, gotErr := o.buildAppConsoleURL("", "dev", "app")
-	// empty consoleServer yields a URL that is relative; the real guard is in connectAppViaWS.
-	// We just confirm buildAppConsoleURL does not panic.
-	_ = gotURL
-	_ = gotErr
+	err := o.connectAppViaWS(t.Context(), cfg, "dev1", "myvm", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remote access service is not configured")
 }

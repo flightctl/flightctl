@@ -332,7 +332,33 @@ func (e *rawReader) Read(p []byte) (int, error) {
 			e.state = newline
 		case '~':
 			if e.state == newline {
-				// Hold the ~ without forwarding it; resolve on the next Read.
+				if i+1 < n {
+					// Next byte is already in the buffer — resolve the escape
+					// immediately rather than deferring to the next Read call,
+					// which would re-read stdin and drop the already-buffered byte.
+					i++
+					switch p[i] {
+					case '.':
+						e.state = disconnected
+						e.cancel()
+						return out, nil
+					case '~':
+						// ~~ sends one literal ~; state stays tilde so
+						// chained escapes can still trigger on the same line.
+						p[out] = '~'
+						out++
+						continue
+					default:
+						// Not an escape: forward ~ then the current byte.
+						e.state = normal
+						p[out] = '~'
+						out++
+						p[out] = p[i]
+						out++
+						continue
+					}
+				}
+				// Next byte not yet available — defer to the next Read.
 				e.state = tilde
 				return out, nil
 			}
@@ -524,6 +550,9 @@ func (o *ConsoleOptions) connectAppViaWS(ctx context.Context, config *client.Con
 			close(done)
 		}()
 		if stdinReader == nil {
+			// No stdin source; block until context is cancelled rather than
+			// immediately sending a close frame and ending the session.
+			<-ctx.Done()
 			return
 		}
 		buf := make([]byte, 4096)
@@ -547,11 +576,18 @@ func (o *ConsoleOptions) connectAppViaWS(ctx context.Context, config *client.Con
 		for {
 			msgType, msg, err := conn.ReadMessage()
 			if err != nil {
-				cancel()
+				// A normal close from the remote end is not an error; avoid
+				// cancelling the context so connectAppViaWS returns nil.
+				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					cancel()
+				}
 				return
 			}
 			if msgType == websocket.BinaryMessage || msgType == websocket.TextMessage {
-				os.Stdout.Write(msg) //nolint:errcheck
+				if _, werr := os.Stdout.Write(msg); werr != nil {
+					cancel()
+					return
+				}
 			}
 		}
 	}()
