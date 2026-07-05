@@ -65,6 +65,7 @@ JSONL
 JWT
 Keycloak
 Klusterlet
+KubeVirt
 Kubernetes
 kustomize
 KVM
@@ -356,6 +357,9 @@ Issuer
 air-gapped
 vCPU
 vRAM
+WebSocket
+gRPC
+Proxy
 vDisk
 resolution
 Fedora

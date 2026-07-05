@@ -656,11 +656,20 @@ The following table shows the application runtimes and formats supported by Flig
 |-------------------------------------------------------------------------------|-----------|-------------------|
 | Helm chart (via [Helm](https://helm.sh/))                                     | OCI Image | OCI registry      |
 
+### Runtime: **Virtual machine** (KVM)
+
+| Specification              | Format            | Source / Delivery              |
+|----------------------------|-------------------|--------------------------------|
+| Virtual machine definition | Unpackaged inline | Inline in device specification |
+
 > [!NOTE]
 > Compose applications require `podman-compose` to be installed on the device.
 
 > [!NOTE]
-> `quadlet` and `container` applications require podman version 5.0 or above.
+> `quadlet`, `container`, and `vm` applications require podman version 5.0 or above.
+
+> [!NOTE]
+> `vm` applications require the `/dev/kvm` device node to be present on the device. This requires CPU virtualization extensions (Intel VT-x or AMD-V) and the `kvm` kernel module to be loaded.
 
 > [!NOTE]
 > Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
@@ -674,7 +683,7 @@ To deploy an application to a device, create a new entry in the "applications" s
 |-----------|---------------------------------------------------------------------------------------------------------------------------------|
 | Name      | A user-defined name for the application. This will be used when the web UI and CLI list applications.                           |
 | Image     | A reference to an application package in an OCI registry.                                                                       |
-| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`.                              |
+| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`, `vm`.                       |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -712,6 +721,95 @@ spec:
       WORDPRESS_DB_PASSWORD: "password"
 [...]
 ```
+
+### VM applications
+
+VM applications deploy virtual machines on the device. You define the VM using an inline manifest file; Flight Control handles the conversion and deployment automatically.
+
+#### Device requirements
+
+The device must have hardware virtualization support:
+
+| Requirement | Description |
+|-------------|-------------|
+| `/dev/kvm`  | Hardware virtualization device node. Requires CPU virtualization extensions (Intel VT-x or AMD-V) and the `kvm` kernel module to be loaded. |
+
+The VM runtime is included in the device OS image. You do not need to install it separately.
+
+> [!NOTE]
+> When an OS update is pending, the agent defers validation. This allows you to deploy VM applications alongside an OS image that includes the VM runtime. The agent applies the OS update and reboots first, then validates and deploys applications.
+
+#### VM application specification
+
+To deploy a VM application, add an entry to the `applications` section of the device specification with `appType: vm`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | Required. Application name. Must match `metadata.name` inside the `vm.yaml` file. |
+| `appType` | Must be `vm` for VM applications. |
+| `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
+| `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
+
+> [!NOTE]
+> The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly.
+
+#### Example: VM application
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: my-vm
+      appType: vm
+      publishPorts:
+        - "2222:22"
+      inline:
+        - path: vm.yaml
+          content: |
+            apiVersion: kubevirt.io/v1
+            kind: VirtualMachine
+            metadata:
+              name: my-vm
+            spec:
+              running: true
+              template:
+                spec:
+                  domain:
+                    devices:
+                      disks:
+                        - name: containerdisk
+                          disk:
+                            bus: virtio
+                    resources:
+                      requests:
+                        memory: 1Gi
+                  volumes:
+                    - name: containerdisk
+                      containerDisk:
+                        image: quay.io/myorg/my-vm-image:v1.0.0
+```
+
+#### VM application status
+
+The agent reports the following status values for a VM application:
+
+| Status Field | Description |
+| ------------ |-------------|
+| Preparing | The agent is pulling OCI images required by the VM before starting it. |
+| Starting | The VM has been submitted to the system and is initializing. |
+| Running | The virtual machine is running and accepting workloads. |
+| Error | The VM failed to start or terminated with an error. Check the device events for details. |
+| Unknown | The VM was submitted but no running state has been observed yet. |
+| Completed | The VM exited cleanly. This is expected only if `spec.running` is set to `false`. |
+
+#### VM restart behavior
+
+When `spec.running: true` is set in the VM manifest, the agent automatically restarts the virtual machine if it crashes or is stopped unexpectedly. This matches the restart-on-failure policy applied to other Quadlet-based applications.
+
+To stop a VM without triggering a restart, set `spec.running: false` and apply the updated device specification.
 
 ### Helm Applications
 

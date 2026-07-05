@@ -58,6 +58,18 @@ A scheduler service that runs periodic maintenance tasks against the database. R
 
 **Dependencies:** PostgreSQL
 
+### flightctl-remote-access
+
+A service that brokers interactive console sessions between CLI clients and device-side applications. It provides the WebSocket endpoint for application console access and relays traffic to the agent over a gRPC channel.
+
+**Overview:**
+
+- Brokering application console WebSocket sessions (`/ws/v1/devices/{name}/applications/{appname}/console`)
+- Relaying console traffic to the agent via gRPC
+- Rate limiting console WebSocket connections
+
+**Dependencies:** PostgreSQL, Redis
+
 ### flightctl-agent
 
 The device side agent that runs on each managed device. It handles the full device lifecycle from enrollment through ongoing configuration and application management.
@@ -193,6 +205,7 @@ graph TD
         API[flightctl-api]
         Worker[flightctl-worker]
         Periodic[flightctl-periodic]
+        RA[flightctl-remote-access]
     end
 
     subgraph Observability
@@ -218,7 +231,12 @@ graph TD
     AlertProxy --> PG
     AlertProxy --> AM
 
+    RA --> PG
+    RA --> Redis
+
     UI --> API
     CLI --> API
+    CLI --> RA
     Agent --> API
+    Agent --> RA
 ```
