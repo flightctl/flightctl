@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -53,6 +55,8 @@ const (
 	DefaultCertsDirName = "certs"
 	// DefaultManagementEndpoint is the default address of the device management server
 	DefaultManagementEndpoint = "https://localhost:7443"
+	// DefaultRemoteAccessEndpoint is the default address of the flightctl-remote-access gRPC server
+	DefaultRemoteAccessEndpoint = "https://localhost:7444"
 	// name of the CA bundle file
 	CacertFile = "ca.crt"
 	// GeneratedCertFile is the name of the cert file which is generated as the result of enrollment
@@ -299,7 +303,31 @@ func (cfg *Config) Complete() error {
 		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
 		cfg.ManagementService.Config.AuthInfo = baseclient.AuthInfo{}
 	}
+	// If the remote-access service hasn't been specified, derive it from the enrollment service
+	// by replacing the port with the remote-access gRPC port (7444), keeping the same TLS config.
+	emptyRemoteAccessService := config.RemoteAccessService{}
+	if cfg.RemoteAccessService.Equal(&emptyRemoteAccessService) {
+		remoteAccessServer, err := deriveRemoteAccessServer(cfg.EnrollmentService.Config.Service.Server)
+		if err != nil {
+			return fmt.Errorf("deriving remote-access service endpoint: %w", err)
+		}
+		cfg.RemoteAccessService.Config = *cfg.EnrollmentService.Config.DeepCopy()
+		cfg.RemoteAccessService.Config.AuthInfo = baseclient.AuthInfo{}
+		cfg.RemoteAccessService.Config.Service.Server = remoteAccessServer
+	}
 	return nil
+}
+
+// deriveRemoteAccessServer replaces the port in the enrollment service URL with the
+// remote-access gRPC port (7444). Returns an error if the enrollment URL cannot be parsed.
+func deriveRemoteAccessServer(enrollmentServer string) (string, error) {
+	u, err := url.Parse(enrollmentServer)
+	if err != nil {
+		return "", fmt.Errorf("parsing enrollment server URL %q: %w", enrollmentServer, err)
+	}
+	u.Host = net.JoinHostPort(u.Hostname(), "7444")
+	u.Path = ""
+	return u.String(), nil
 }
 
 // Validate checks that the required fields are set and ensures that the paths exist.
@@ -366,8 +394,10 @@ func (cfg *Config) ParseConfigFile(cfgFile string) error {
 	if err := yaml.Unmarshal(contents, cfg); err != nil {
 		return fmt.Errorf("unmarshalling config file: %w", err)
 	}
-	cfg.EnrollmentService.Config.SetBaseDir(filepath.Dir(cfgFile))
-	cfg.ManagementService.Config.SetBaseDir(filepath.Dir(cfgFile))
+	baseDir := filepath.Dir(cfgFile)
+	cfg.EnrollmentService.Config.SetBaseDir(baseDir)
+	cfg.ManagementService.Config.SetBaseDir(baseDir)
+	cfg.RemoteAccessService.Config.SetBaseDir(baseDir)
 	return nil
 }
 

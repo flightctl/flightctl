@@ -1133,3 +1133,53 @@ func TestCollectOCITargetsDeferredDependencies(t *testing.T) {
 		})
 	}
 }
+
+func TestManagerResolveConsole(t *testing.T) {
+	newTestManager := func(t *testing.T) (*manager, *gomock.Controller) {
+		t.Helper()
+		ctrl := gomock.NewController(t)
+		testLog := log.NewPrefixLogger("test")
+		tmpDir := t.TempDir()
+		readWriter := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		execMock := executer.NewMockExecuter(ctrl)
+		podman := client.NewPodman(testLog, execMock, readWriter, testutil.NewPollConfig())
+		systemdMgr := systemd.NewMockManager(ctrl)
+		systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+		systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+		var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil }
+		var systemdFactory systemd.ManagerFactory = func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
+		var rwFactory fileio.ReadWriterFactory = func(_ v1beta1.Username) (fileio.ReadWriter, error) { return readWriter, nil }
+		m := &manager{
+			podmanMonitor:     NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory),
+			kubernetesMonitor: NewKubernetesMonitor(testLog, client.NewCLIClients(), rwFactory),
+			log:               testLog,
+		}
+		return m, ctrl
+	}
+
+	t.Run("When the app is tracked by podmanMonitor it should return a session from podmanMonitor", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newTestManager(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.podmanMonitor.Ensure(t.Context(), app)
+		require.NoError(err)
+		// The workload name comes from podman events and is the authoritative runtime name.
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+		sess, err := m.resolveConsole("my-vm", "serial")
+		require.NoError(err)
+		require.NotNil(sess)
+	})
+
+	t.Run("When the app is not found in any monitor it should return an error", func(t *testing.T) {
+		require := require.New(t)
+		m, ctrl := newTestManager(t)
+		defer ctrl.Finish()
+		_, err := m.resolveConsole("ghost-app", "serial")
+		require.Error(err)
+		require.Contains(err.Error(), "not found in any monitor")
+	})
+}
