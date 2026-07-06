@@ -300,10 +300,21 @@ func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedD
 // LoginFunc is a function that logs in a user on the given harness.
 type LoginFunc func(h *Harness) error
 
+// StartLabeledSimulatorOptions configures StartLabeledSimulatorWithOptions.
+type StartLabeledSimulatorOptions struct {
+	SkipAutoApprove bool
+}
+
 // StartLabeledSimulator starts a device simulator with the given test-id label, user prefix,
-// initial device index, and device count. When skipAutoApprove is true, agents submit enrollment
-// requests and wait for manual approval instead of auto-approving via the simulator client.
-func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int, skipAutoApprove bool) (*exec.Cmd, error) {
+// initial device index, and device count.
+func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int) (*exec.Cmd, error) {
+	return h.StartLabeledSimulatorWithOptions(ctx, testID, userPrefix, initialIndex, deviceCount, StartLabeledSimulatorOptions{})
+}
+
+// StartLabeledSimulatorWithOptions starts a labeled device simulator with optional behavior.
+// When SkipAutoApprove is true, agents submit enrollment requests and wait for manual approval
+// instead of auto-approving via the simulator client.
+func (h *Harness) StartLabeledSimulatorWithOptions(ctx context.Context, testID, userPrefix string, initialIndex, deviceCount int, opts StartLabeledSimulatorOptions) (*exec.Cmd, error) {
 	if testID == "" {
 		return nil, fmt.Errorf("testID is empty")
 	}
@@ -316,7 +327,7 @@ func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix 
 		"--label", fmt.Sprintf("test-id=%s", testID),
 		"--label", fmt.Sprintf("user=%s", userPrefix),
 	}
-	if skipAutoApprove {
+	if opts.SkipAutoApprove {
 		args = append(args, "--skip-auto-approve")
 	}
 	return h.RunDeviceSimulator(ctx, args...)
@@ -466,7 +477,7 @@ func (h *Harness) EnrollDeviceForDecommissionTest(loginFn LoginFunc, deviceCount
 
 	testID := h.GetTestIDFromContext()
 
-	cmd, err := h.StartLabeledSimulator(h.Context, testID, "decommission-test", 0, deviceCount, false)
+	cmd, err := h.StartLabeledSimulator(h.Context, testID, "decommission-test", 0, deviceCount)
 	if err != nil {
 		return "", nil, fmt.Errorf("starting simulator: %w", err)
 	}
