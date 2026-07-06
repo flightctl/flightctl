@@ -23,6 +23,7 @@ const (
 	API_RESOURCE_DEVICES_RENDERED = "devices/rendered"
 	API_RESOURCE_DEVICES_RESUME = "devices/resume"
 	API_RESOURCE_DEVICES_STATUS = "devices/status"
+	API_RESOURCE_ENROLLMENTCONFIG = "enrollmentconfig"
 	API_RESOURCE_ENROLLMENTREQUESTS = "enrollmentrequests"
 	API_RESOURCE_ENROLLMENTREQUESTS_APPROVAL = "enrollmentrequests/approval"
 	API_RESOURCE_ENROLLMENTREQUESTS_STATUS = "enrollmentrequests/status"
@@ -37,6 +38,7 @@ const (
 	API_RESOURCE_REPOSITORIES_CHECK_OCI_IMAGE = "repositories/check-oci-image"
 	API_RESOURCE_REPOSITORIES_CHECK_OCI_TAG = "repositories/check-oci-tag"
 	API_RESOURCE_RESOURCESYNCS = "resourcesyncs"
+	API_RESOURCE_VERSION = "version"
 	API_RESOURCE_VULNERABILITIES = "vulnerabilities"
 )
 const (
@@ -463,7 +465,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 	},
 	"GET:/enrollmentconfig": {
 		OperationID: "getEnrollmentConfig",
-		Resource:    "",
+		Resource:    "enrollmentconfig",
 		Action:      "list",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
@@ -799,7 +801,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 	},
 	"GET:/version": {
 		OperationID: "getVersion",
-		Resource:    "",
+		Resource:    "version",
 		Action:      "list",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},

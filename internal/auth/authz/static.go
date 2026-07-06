@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -58,10 +59,39 @@ var resourcePermissions = map[string]map[string][]string{
 		"enrollmentrequests/approval": {"update"},
 		"organizations":               {"get", "list"},
 		"certificatesigningrequests":  {"get", "list", "create", "update"},
-		"imagebuilds":                 {"get", "list"}, // Installer can view available builds
-		"imageexports":                {"get", "list"}, // Installer can view available exports
-		"imageexports/download":       {"get"},         // Installer can download images/artifacts for installation
+		"imagebuilds":                 {"get", "list"},
+		"imageexports":                {"get", "list"},
+		"imageexports/download":       {"get"},
 	},
+}
+
+// syntheticResources lists CheckPermission resource names that have no
+// corresponding OpenAPI x-resource annotation (e.g. resources gated by
+// internal proxies rather than API routes). The genroles generator unions
+// this list with OpenAPI-derived resources so wildcard ("*") role permissions
+// expand to include them in the generated K8s ClusterRoles.
+var syntheticResources = []string{
+	"alerts", // gated by cmd/flightctl-alertmanager-proxy
+}
+
+// GetSyntheticResources returns a copy of the synthetic resource list.
+func GetSyntheticResources() []string {
+	return slices.Clone(syntheticResources)
+}
+
+// GetResourcePermissions returns a deep copy of the role-based permission map.
+// This is used by the Helm ClusterRole generator to produce K8s RBAC rules
+// that match the static authorization logic.
+func GetResourcePermissions() map[string]map[string][]string {
+	result := make(map[string]map[string][]string, len(resourcePermissions))
+	for role, resources := range resourcePermissions {
+		resCopy := make(map[string][]string, len(resources))
+		for resource, ops := range resources {
+			resCopy[resource] = slices.Clone(ops)
+		}
+		result[role] = resCopy
+	}
+	return result
 }
 
 func NewStaticAuthZ(log logrus.FieldLogger) *StaticAuthZ {

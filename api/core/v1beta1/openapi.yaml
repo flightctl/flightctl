@@ -42,6 +42,7 @@ tags:
     description: Operations for receiving service version.
 paths:
   /version:
+    x-resource: version
     get:
       tags:
         - version
@@ -2359,6 +2360,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /enrollmentconfig:
+    x-resource: enrollmentconfig
     get:
       tags:
         - enrollmentrequest
