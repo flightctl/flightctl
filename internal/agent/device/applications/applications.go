@@ -301,6 +301,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -310,6 +311,12 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		}
+		// A workload that has reached a terminal container state counts as stopped
+		// regardless of exit code: when we asked the app to stop, a non-zero exit
+		// (e.g. a VM process killed by systemctl stop) is expected, not an error.
+		if isTerminal(workload.Status) {
+			stopped++
 		}
 	}
 
@@ -321,7 +328,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	// order is important
 	switch {
-	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, exited)):
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, stopped)):
 		newStatus = v1beta1.ApplicationStatusStopped
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case a.desiredState == v1beta1.ApplicationDesiredStateStopped:
@@ -368,6 +375,17 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	a.volume.Status(a.status)
 
 	return a.status, summary, nil
+}
+
+// isTerminal reports whether a workload has reached a terminal container state,
+// i.e. it is no longer running, regardless of its exit code.
+func isTerminal(status StatusType) bool {
+	switch status {
+	case StatusExited, StatusDie, StatusDied, StatusRemove:
+		return true
+	default:
+		return false
+	}
 }
 
 func isStarting(total, healthy, initializing int) bool {
