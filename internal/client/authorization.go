@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,6 +115,13 @@ func (r *AccessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
 	return time.Now().Add(5 * time.Second).After(expireTime)
 }
 
+func isExpiredTokenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "invalid_grant")
+}
+
 func (r *AccessTokenRefresher) refresh() error {
 	if r.config.AuthInfo.RefreshToken == "" {
 		return fmt.Errorf("no refresh token found")
@@ -159,7 +168,11 @@ func (r *AccessTokenRefresher) refreshLoop(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			if err := r.refresh(); err != nil {
-				r.log.Errorf("failed to renew token: %v", err)
+				if isExpiredTokenError(err) {
+					fmt.Fprintln(os.Stderr, "Error: Your session has expired. Please log in again using: flightctl login <server>")
+				} else {
+					r.log.Errorf("failed to renew token: %v", err)
+				}
 				return
 			}
 			r.log.Info("renewed access token")
@@ -186,7 +199,11 @@ func (r *AccessTokenRefresher) Start(ctx context.Context) {
 		expireTime, err := r.parseExpireTime()
 		if err != nil || r.shouldRefresh(expireTime) {
 			if err := r.refresh(); err != nil {
-				r.log.WithError(err).Error("failed to refresh access token")
+				if isExpiredTokenError(err) {
+					fmt.Fprintln(os.Stderr, "Error: Your session has expired. Please log in again using: flightctl login <server>")
+				} else {
+					r.log.WithError(err).Error("failed to refresh access token")
+				}
 				return
 			}
 		}
