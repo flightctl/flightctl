@@ -1600,6 +1600,107 @@ func TestDeviceHttpDependencyRefLifecycle(t *testing.T) {
 	})
 }
 
+func makeContainerAppItem(t *testing.T, name, image string) domain.ApplicationProviderSpec {
+	t.Helper()
+	containerApp := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr(name),
+		Image:   image,
+	}
+	var app domain.ApplicationProviderSpec
+	require.NoError(t, app.FromContainerApplication(containerApp))
+	return app
+}
+
+func TestGetDeviceApps_LifecycleOverlay(t *testing.T) {
+	logic := FleetRolloutsLogic{log: logrus.New()}
+	tv := &domain.TemplateVersion{
+		Status: &domain.TemplateVersionStatus{
+			Applications: &[]domain.ApplicationProviderSpec{
+				makeContainerAppItem(t, "app-1", "quay.io/test/app:v1"),
+				makeContainerAppItem(t, "app-2", "quay.io/test/other:v1"),
+			},
+		},
+	}
+
+	t.Run("When device has no lifecycle annotation apps should be unchanged", func(t *testing.T) {
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
+		}
+		apps, errs := logic.getDeviceApps(device, tv)
+		require.Empty(t, errs)
+		require.NotNil(t, apps)
+		require.Len(t, *apps, 2)
+		for _, app := range *apps {
+			containerApp, err := app.AsContainerApplication()
+			require.NoError(t, err)
+			assert.Nil(t, containerApp.DesiredState)
+		}
+	})
+
+	t.Run("When device has a lifecycle annotation it should overlay the matching application", func(t *testing.T) {
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("device-1"),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationApplicationLifecycle: `{"app-1":{"desiredState":"stopped","restartGeneration":3}}`,
+				},
+			},
+		}
+		apps, errs := logic.getDeviceApps(device, tv)
+		require.Empty(t, errs)
+		require.NotNil(t, apps)
+		require.Len(t, *apps, 2)
+
+		byName := map[string]domain.ApplicationProviderSpec{}
+		for _, app := range *apps {
+			name, err := app.GetName()
+			require.NoError(t, err)
+			byName[*name] = app
+		}
+
+		app1, err := byName["app-1"].AsContainerApplication()
+		require.NoError(t, err)
+		require.NotNil(t, app1.DesiredState)
+		assert.Equal(t, domain.ApplicationDesiredStateStopped, *app1.DesiredState)
+		require.NotNil(t, app1.RestartGeneration)
+		assert.Equal(t, 3, *app1.RestartGeneration)
+
+		app2, err := byName["app-2"].AsContainerApplication()
+		require.NoError(t, err)
+		assert.Nil(t, app2.DesiredState, "app-2 has no override and should be untouched")
+	})
+
+	t.Run("When the lifecycle annotation is invalid JSON it should return an error", func(t *testing.T) {
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("device-1"),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationApplicationLifecycle: `not-json`,
+				},
+			},
+		}
+		apps, errs := logic.getDeviceApps(device, tv)
+		require.NotEmpty(t, errs)
+		assert.Nil(t, apps)
+	})
+
+	t.Run("When templateVersion has no applications it should return nil regardless of annotation", func(t *testing.T) {
+		emptyTv := &domain.TemplateVersion{Status: &domain.TemplateVersionStatus{}}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("device-1"),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationApplicationLifecycle: `{"app-1":{"desiredState":"stopped"}}`,
+				},
+			},
+		}
+		apps, errs := logic.getDeviceApps(device, emptyTv)
+		require.Empty(t, errs)
+		assert.Nil(t, apps)
+	})
+}
+
 func TestFleetRolloutIterationContext(t *testing.T) {
 	t.Run("child not expired when parent deadline passed", func(t *testing.T) {
 		parent, cancel := context.WithTimeout(context.Background(), 0)

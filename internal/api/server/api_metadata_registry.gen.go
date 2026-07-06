@@ -16,6 +16,7 @@ const (
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
 	API_RESOURCE_DEVICES = "devices"
 	API_RESOURCE_DEVICES_APPLICATIONS_CONSOLE = "devices/applications/console"
+	API_RESOURCE_DEVICES_APPLICATIONS_LIFECYCLE = "devices/applications/lifecycle"
 	API_RESOURCE_DEVICES_CONSOLE = "devices/console"
 	API_RESOURCE_DEVICES_DECOMMISSION = "devices/decommission"
 	API_RESOURCE_DEVICES_LASTSEEN = "devices/lastseen"
@@ -383,6 +384,38 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "replaceDevice",
 		Resource:    "devices",
 		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"DELETE:/devices/{name}/applications/{appName}/lifecycle": {
+		OperationID: "deleteDeviceApplicationLifecycle",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "delete",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/devices/{name}/applications/{appName}/lifecycle": {
+		OperationID: "getDeviceApplicationLifecycle",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PUT:/devices/{name}/applications/{appName}/lifecycle": {
+		OperationID: "setDeviceApplicationDesiredState",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/devices/{name}/applications/{appName}/lifecycle/restart": {
+		OperationID: "restartDeviceApplication",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "create",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},

@@ -26,6 +26,12 @@ const (
 	AppTypeVm        AppType = "vm"
 )
 
+// Defines values for ApplicationDesiredState.
+const (
+	ApplicationDesiredStateRunning ApplicationDesiredState = "running"
+	ApplicationDesiredStateStopped ApplicationDesiredState = "stopped"
+)
+
 // Defines values for ApplicationStatusType.
 const (
 	ApplicationStatusCompleted ApplicationStatusType = "Completed"
@@ -622,6 +628,9 @@ type ApplicationContent struct {
 	Path string `json:"path"`
 }
 
+// ApplicationDesiredState Desired lifecycle state for an application.
+type ApplicationDesiredState string
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -639,8 +648,14 @@ type ApplicationProviderBase struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 }
 
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
@@ -975,11 +990,17 @@ type ComposeApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
@@ -1044,6 +1065,9 @@ type ContainerApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
@@ -1058,6 +1082,9 @@ type ContainerApplication struct {
 
 	// Resources Resource constraints for the application.
 	Resources *ApplicationResources `json:"resources,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 
 	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
 	RunAs Username `json:"runAs,omitempty"`
@@ -1160,6 +1187,21 @@ type Device struct {
 
 	// Status DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	Status *DeviceStatus `json:"status,omitempty"`
+}
+
+// DeviceApplicationDesiredStateRequest Request body for setting a device-level application's desired lifecycle state.
+type DeviceApplicationDesiredStateRequest struct {
+	// DesiredState Desired lifecycle state for an application.
+	DesiredState ApplicationDesiredState `json:"desiredState"`
+}
+
+// DeviceApplicationLifecycle Device-level lifecycle control for a single application, independent of the application's declarative spec (fleet template or standalone device). Applied on top of the rendered application spec and survives fleet template rollouts, since it is never stored as part of the device's spec.
+type DeviceApplicationLifecycle struct {
+	// DesiredState Desired lifecycle state for an application.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter, incremented by the restart action.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 }
 
 // DeviceApplicationStatus defines model for DeviceApplicationStatus.
@@ -2062,6 +2104,9 @@ type HelmApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// Image Reference to the chart for this helm application.
 	Image string `json:"image"`
 
@@ -2070,6 +2115,9 @@ type HelmApplication struct {
 
 	// Namespace The target namespace for the application deployment.
 	Namespace *string `json:"namespace,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 
 	// Values Configuration values for the application. Supports arbitrarily nested structures.
 	Values *map[string]interface{} `json:"values,omitempty"`
@@ -2687,11 +2735,17 @@ type QuadletApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
 
 	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
 	RunAs Username `json:"runAs,omitempty"`
@@ -3180,12 +3234,18 @@ type VmApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DesiredState Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
+
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
 
 	// PublishPorts List of host-to-guest port mappings for the VM. Each entry must follow the format "hostPort:guestPort" or "hostPort:guestPort/protocol" (e.g. "8080:80" or "8080:80/tcp").
 	PublishPorts *[]string `json:"publishPorts,omitempty"`
-	union        json.RawMessage
+
+	// RestartGeneration Monotonically increasing counter. The agent stores the last-seen value; when it changes the agent restarts the application using the type-appropriate restart operation. Does not affect desiredState. Only meaningful when desiredState is "running". Populated by the control plane from the device's per-application lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must not be set directly on this spec.
+	RestartGeneration *int `json:"restartGeneration,omitempty"`
+	union             json.RawMessage
 }
 
 // VolumeMount Mount configuration for a volume.
@@ -3436,6 +3496,9 @@ type PatchDeviceApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceDeviceJSONRequestBody defines body for ReplaceDevice for application/json ContentType.
 type ReplaceDeviceJSONRequestBody = Device
+
+// SetDeviceApplicationDesiredStateJSONRequestBody defines body for SetDeviceApplicationDesiredState for application/json ContentType.
+type SetDeviceApplicationDesiredStateJSONRequestBody = DeviceApplicationDesiredStateRequest
 
 // DecommissionDeviceJSONRequestBody defines body for DecommissionDevice for application/json ContentType.
 type DecommissionDeviceJSONRequestBody = DeviceDecommission
@@ -4462,6 +4525,13 @@ func (t ComposeApplication) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
+	if t.DesiredState != nil {
+		object["desiredState"], err = json.Marshal(t.DesiredState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'desiredState': %w", err)
+		}
+	}
+
 	if t.EnvVars != nil {
 		object["envVars"], err = json.Marshal(t.EnvVars)
 		if err != nil {
@@ -4473,6 +4543,13 @@ func (t ComposeApplication) MarshalJSON() ([]byte, error) {
 		object["name"], err = json.Marshal(t.Name)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.RestartGeneration != nil {
+		object["restartGeneration"], err = json.Marshal(t.RestartGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
 		}
 	}
 
@@ -4511,6 +4588,13 @@ func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	if raw, found := object["desiredState"]; found {
+		err = json.Unmarshal(raw, &t.DesiredState)
+		if err != nil {
+			return fmt.Errorf("error reading 'desiredState': %w", err)
+		}
+	}
+
 	if raw, found := object["envVars"]; found {
 		err = json.Unmarshal(raw, &t.EnvVars)
 		if err != nil {
@@ -4522,6 +4606,13 @@ func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["restartGeneration"]; found {
+		err = json.Unmarshal(raw, &t.RestartGeneration)
+		if err != nil {
+			return fmt.Errorf("error reading 'restartGeneration': %w", err)
 		}
 	}
 
@@ -5699,6 +5790,13 @@ func (t QuadletApplication) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
+	if t.DesiredState != nil {
+		object["desiredState"], err = json.Marshal(t.DesiredState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'desiredState': %w", err)
+		}
+	}
+
 	if t.EnvVars != nil {
 		object["envVars"], err = json.Marshal(t.EnvVars)
 		if err != nil {
@@ -5710,6 +5808,13 @@ func (t QuadletApplication) MarshalJSON() ([]byte, error) {
 		object["name"], err = json.Marshal(t.Name)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.RestartGeneration != nil {
+		object["restartGeneration"], err = json.Marshal(t.RestartGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
 		}
 	}
 
@@ -5753,6 +5858,13 @@ func (t *QuadletApplication) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	if raw, found := object["desiredState"]; found {
+		err = json.Unmarshal(raw, &t.DesiredState)
+		if err != nil {
+			return fmt.Errorf("error reading 'desiredState': %w", err)
+		}
+	}
+
 	if raw, found := object["envVars"]; found {
 		err = json.Unmarshal(raw, &t.EnvVars)
 		if err != nil {
@@ -5764,6 +5876,13 @@ func (t *QuadletApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["restartGeneration"]; found {
+		err = json.Unmarshal(raw, &t.RestartGeneration)
+		if err != nil {
+			return fmt.Errorf("error reading 'restartGeneration': %w", err)
 		}
 	}
 
@@ -6158,6 +6277,13 @@ func (t VmApplication) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
+	if t.DesiredState != nil {
+		object["desiredState"], err = json.Marshal(t.DesiredState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'desiredState': %w", err)
+		}
+	}
+
 	if t.Name != nil {
 		object["name"], err = json.Marshal(t.Name)
 		if err != nil {
@@ -6169,6 +6295,13 @@ func (t VmApplication) MarshalJSON() ([]byte, error) {
 		object["publishPorts"], err = json.Marshal(t.PublishPorts)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'publishPorts': %w", err)
+		}
+	}
+
+	if t.RestartGeneration != nil {
+		object["restartGeneration"], err = json.Marshal(t.RestartGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
 		}
 	}
 	b, err = json.Marshal(object)
@@ -6200,6 +6333,13 @@ func (t *VmApplication) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	if raw, found := object["desiredState"]; found {
+		err = json.Unmarshal(raw, &t.DesiredState)
+		if err != nil {
+			return fmt.Errorf("error reading 'desiredState': %w", err)
+		}
+	}
+
 	if raw, found := object["name"]; found {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
@@ -6211,6 +6351,13 @@ func (t *VmApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.PublishPorts)
 		if err != nil {
 			return fmt.Errorf("error reading 'publishPorts': %w", err)
+		}
+	}
+
+	if raw, found := object["restartGeneration"]; found {
+		err = json.Unmarshal(raw, &t.RestartGeneration)
+		if err != nil {
+			return fmt.Errorf("error reading 'restartGeneration': %w", err)
 		}
 	}
 

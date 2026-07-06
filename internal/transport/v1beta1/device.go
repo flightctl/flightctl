@@ -135,6 +135,36 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 	h.SetResponse(w, apiResult, status)
 }
 
+// (GET /api/v1/devices/{name}/applications/{appName}/lifecycle)
+func (h *TransportHandler) GetDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.GetDeviceApplicationLifecycle(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	h.SetResponse(w, body, status)
+}
+
+// (PUT /api/v1/devices/{name}/applications/{appName}/lifecycle)
+func (h *TransportHandler) SetDeviceApplicationDesiredState(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	var request apiv1beta1.DeviceApplicationDesiredStateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := h.serviceHandler.SetDeviceApplicationDesiredState(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName, request.DesiredState)
+	h.SetResponse(w, body, status)
+}
+
+// (DELETE /api/v1/devices/{name}/applications/{appName}/lifecycle)
+func (h *TransportHandler) DeleteDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.DeleteDeviceApplicationLifecycle(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	h.SetResponse(w, body, status)
+}
+
+// (POST /api/v1/devices/{name}/applications/{appName}/lifecycle/restart)
+func (h *TransportHandler) RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.RestartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	h.SetResponse(w, body, status)
+}
+
 // (POST /api/v1/deviceactions/resume)
 func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	var request apiv1beta1.DeviceResumeRequest

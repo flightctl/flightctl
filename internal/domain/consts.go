@@ -37,6 +37,7 @@ const (
 	DeviceAnnotationRenderedSpecHash        = v1beta1.DeviceAnnotationRenderedSpecHash
 	DeviceAnnotationSelectedForRollout      = v1beta1.DeviceAnnotationSelectedForRollout
 	DeviceAnnotationLastRolloutError        = v1beta1.DeviceAnnotationLastRolloutError
+	DeviceAnnotationApplicationLifecycle    = v1beta1.DeviceAnnotationApplicationLifecycle
 )
 
 const DeviceDisconnectedTimeout = v1beta1.DeviceDisconnectedTimeout

@@ -196,6 +196,34 @@ func (t *TracedService) DecommissionDevice(ctx context.Context, orgId uuid.UUID,
 	return resp, st
 }
 
+func (t *TracedService) GetDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceApplicationLifecycle")
+	resp, st := t.inner.GetDeviceApplicationLifecycle(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) SetDeviceApplicationDesiredState(ctx context.Context, orgId uuid.UUID, name string, appName string, desiredState domain.ApplicationDesiredState) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	ctx, span := startSpan(ctx, "SetDeviceApplicationDesiredState")
+	resp, st := t.inner.SetDeviceApplicationDesiredState(ctx, orgId, name, appName, desiredState)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	ctx, span := startSpan(ctx, "DeleteDeviceApplicationLifecycle")
+	resp, st := t.inner.DeleteDeviceApplicationLifecycle(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	ctx, span := startSpan(ctx, "RestartDeviceApplication")
+	resp, st := t.inner.RestartDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	ctx, span := startSpan(ctx, "ResumeDevices")
 	resp, st := t.inner.ResumeDevices(ctx, orgId, request)

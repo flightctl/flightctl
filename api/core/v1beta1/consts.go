@@ -25,6 +25,10 @@ const (
 	DeviceAnnotationConsole         = "device-controller/console"
 	DeviceAnnotationRemoteSession   = "device-controller/remote-session"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// This annotation stores the per-application, device-level lifecycle control overrides
+	// (desiredState/restartGeneration), keyed by application name, as a JSON-encoded map.
+	// It is independent of the device's spec and survives fleet template rollouts.
+	DeviceAnnotationApplicationLifecycle = "device-controller/applicationLifecycle"
 	// Used After database restore , all devices will be marked with this annotation
 	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"
 	// After restore when device has a new spec version than what we know,

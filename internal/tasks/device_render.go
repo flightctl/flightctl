@@ -378,6 +378,10 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		if renderErr != nil {
 			return appName, nil, renderErr
 		}
+		converted, stripErr := stripApplicationLifecycleFields(converted)
+		if stripErr != nil {
+			return appName, nil, fmt.Errorf("failed to strip lifecycle control fields for application %s: %w", appType, stripErr)
+		}
 		return appName, converted, nil
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
@@ -389,7 +393,46 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
 	}
-	return appName, app, nil
+	stripped, err := stripApplicationLifecycleFields(app)
+	if err != nil {
+		return appName, nil, fmt.Errorf("failed to strip lifecycle control fields for application %s: %w", appType, err)
+	}
+	return appName, stripped, nil
+}
+
+// stripApplicationLifecycleFields removes desiredState/restartGeneration from the rendered
+// application spec. The source of truth for these fields is the device's per-application
+// lifecycle annotation; they are reapplied at serve time (see
+// domain.OverlayApplicationLifecycle) regardless of what the fleet template, device spec, or
+// fleet rollout wrote here.
+func stripApplicationLifecycleFields(app *domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, error) {
+	if app == nil {
+		return app, nil
+	}
+	raw, err := app.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	_, hasDesiredState := fields["desiredState"]
+	_, hasRestartGeneration := fields["restartGeneration"]
+	if !hasDesiredState && !hasRestartGeneration {
+		return app, nil
+	}
+	delete(fields, "desiredState")
+	delete(fields, "restartGeneration")
+	newRaw, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	var newApp domain.ApplicationProviderSpec
+	if err := newApp.UnmarshalJSON(newRaw); err != nil {
+		return nil, err
+	}
+	return &newApp, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, *string, error) {

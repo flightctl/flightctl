@@ -377,6 +377,12 @@ func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion
 		return nil, appErrs
 	}
 
+	if raw, ok := lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationApplicationLifecycle]; ok && raw != "" {
+		if err := domain.OverlayApplicationLifecycle(&deviceApps, raw); err != nil {
+			return nil, []error{fmt.Errorf("failed to overlay application lifecycle: %w", err)}
+		}
+	}
+
 	return &deviceApps, nil
 }
 

@@ -437,6 +437,21 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
+// DeleteDeviceApplicationLifecycle mocks base method.
+func (m *MockService) DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDeviceApplicationLifecycle", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.DeviceApplicationLifecycle)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// DeleteDeviceApplicationLifecycle indicates an expected call of DeleteDeviceApplicationLifecycle.
+func (mr *MockServiceMockRecorder) DeleteDeviceApplicationLifecycle(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDeviceApplicationLifecycle", reflect.TypeOf((*MockService)(nil).DeleteDeviceApplicationLifecycle), ctx, orgId, name, appName)
+}
+
 // DeleteEnrollmentRequest mocks base method.
 func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
@@ -685,6 +700,21 @@ func (m *MockService) GetDevice(ctx context.Context, orgId uuid.UUID, name strin
 func (mr *MockServiceMockRecorder) GetDevice(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockService)(nil).GetDevice), ctx, orgId, name)
+}
+
+// GetDeviceApplicationLifecycle mocks base method.
+func (m *MockService) GetDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceApplicationLifecycle", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.DeviceApplicationLifecycle)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetDeviceApplicationLifecycle indicates an expected call of GetDeviceApplicationLifecycle.
+func (mr *MockServiceMockRecorder) GetDeviceApplicationLifecycle(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceApplicationLifecycle", reflect.TypeOf((*MockService)(nil).GetDeviceApplicationLifecycle), ctx, orgId, name, appName)
 }
 
 // GetDeviceCompletionCounts mocks base method.
@@ -1934,6 +1964,21 @@ func (mr *MockServiceMockRecorder) ReplaceStandaloneDeviceDependencyRefs(ctx, or
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceStandaloneDeviceDependencyRefs", reflect.TypeOf((*MockService)(nil).ReplaceStandaloneDeviceDependencyRefs), ctx, orgId, deviceName, refs)
 }
 
+// RestartDeviceApplication mocks base method.
+func (m *MockService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestartDeviceApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.DeviceApplicationLifecycle)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// RestartDeviceApplication indicates an expected call of RestartDeviceApplication.
+func (mr *MockServiceMockRecorder) RestartDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartDeviceApplication", reflect.TypeOf((*MockService)(nil).RestartDeviceApplication), ctx, orgId, name, appName)
+}
+
 // ResumeDevices mocks base method.
 func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1961,6 +2006,21 @@ func (m *MockService) SetCheckpoint(ctx context.Context, consumer, key string, v
 func (mr *MockServiceMockRecorder) SetCheckpoint(ctx, consumer, key, value any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCheckpoint", reflect.TypeOf((*MockService)(nil).SetCheckpoint), ctx, consumer, key, value)
+}
+
+// SetDeviceApplicationDesiredState mocks base method.
+func (m *MockService) SetDeviceApplicationDesiredState(ctx context.Context, orgId uuid.UUID, name, appName string, desiredState domain.ApplicationDesiredState) (*domain.DeviceApplicationLifecycle, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeviceApplicationDesiredState", ctx, orgId, name, appName, desiredState)
+	ret0, _ := ret[0].(*domain.DeviceApplicationLifecycle)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// SetDeviceApplicationDesiredState indicates an expected call of SetDeviceApplicationDesiredState.
+func (mr *MockServiceMockRecorder) SetDeviceApplicationDesiredState(ctx, orgId, name, appName, desiredState any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceApplicationDesiredState", reflect.TypeOf((*MockService)(nil).SetDeviceApplicationDesiredState), ctx, orgId, name, appName, desiredState)
 }
 
 // SetDeviceServiceConditions mocks base method.

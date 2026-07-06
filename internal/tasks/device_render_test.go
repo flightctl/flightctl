@@ -656,6 +656,106 @@ func makeHTTPConfigItem(configName, repoName, suffix, filePath string) domain.Co
 	return item
 }
 
+// ─── stripApplicationLifecycleFields / renderApplication ─────────────────────
+
+func makeContainerApp(t *testing.T, name string, desiredState *domain.ApplicationDesiredState, restartGeneration *int) domain.ApplicationProviderSpec {
+	t.Helper()
+	containerApp := domain.ContainerApplication{
+		AppType:           domain.AppTypeContainer,
+		Name:              lo.ToPtr(name),
+		Image:             "quay.io/test/app:v1",
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	var app domain.ApplicationProviderSpec
+	require.NoError(t, app.FromContainerApplication(containerApp))
+	return app
+}
+
+func TestStripApplicationLifecycleFields(t *testing.T) {
+	t.Run("When app is nil it should return nil without error", func(t *testing.T) {
+		result, err := stripApplicationLifecycleFields(nil)
+		require.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("When neither field is set it should return the app unchanged", func(t *testing.T) {
+		app := makeContainerApp(t, "my-app", nil, nil)
+		result, err := stripApplicationLifecycleFields(&app)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		containerApp, err := result.AsContainerApplication()
+		require.NoError(t, err)
+		assert.Nil(t, containerApp.DesiredState)
+		assert.Nil(t, containerApp.RestartGeneration)
+		assert.Equal(t, "quay.io/test/app:v1", containerApp.Image)
+	})
+
+	t.Run("When desiredState and restartGeneration are set it should strip both", func(t *testing.T) {
+		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateStopped), lo.ToPtr(4))
+		result, err := stripApplicationLifecycleFields(&app)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		containerApp, err := result.AsContainerApplication()
+		require.NoError(t, err)
+		assert.Nil(t, containerApp.DesiredState)
+		assert.Nil(t, containerApp.RestartGeneration)
+		// Other fields must be preserved.
+		require.NotNil(t, containerApp.Name)
+		assert.Equal(t, "my-app", *containerApp.Name)
+		assert.Equal(t, "quay.io/test/app:v1", containerApp.Image)
+	})
+
+	t.Run("When only desiredState is set it should strip it and leave other fields alone", func(t *testing.T) {
+		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateRunning), nil)
+		result, err := stripApplicationLifecycleFields(&app)
+		require.NoError(t, err)
+
+		containerApp, err := result.AsContainerApplication()
+		require.NoError(t, err)
+		assert.Nil(t, containerApp.DesiredState)
+	})
+}
+
+func TestRenderApplication_StripsLifecycleFields(t *testing.T) {
+	t.Run("When rendering a container application it should strip lifecycle fields", func(t *testing.T) {
+		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateStopped), lo.ToPtr(2))
+
+		name, rendered, err := renderApplication(context.Background(), &app, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		assert.Equal(t, "my-app", *name)
+		require.NotNil(t, rendered)
+
+		containerApp, err := rendered.AsContainerApplication()
+		require.NoError(t, err)
+		assert.Nil(t, containerApp.DesiredState)
+		assert.Nil(t, containerApp.RestartGeneration)
+	})
+
+	// VM applications are converted into a fresh QuadletApplication that never carries
+	// desiredState/restartGeneration from the source spec (see renderVmApplication), so the
+	// strip call in that branch is a no-op by construction; this asserts that invariant holds.
+	t.Run("When rendering a VM application the converted output should never carry lifecycle fields", func(t *testing.T) {
+		app := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": minimalVmYAML("my-vm")}, nil)
+		converter := stubbedConverter(fakeQuadletFiles)
+		kv := newFakeKVStore()
+
+		name, rendered, err := renderApplication(context.Background(), &app, converter, kv)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		assert.Equal(t, "my-vm", *name)
+		require.NotNil(t, rendered)
+
+		quadletApp, err := rendered.AsQuadletApplication()
+		require.NoError(t, err)
+		assert.Nil(t, quadletApp.DesiredState)
+		assert.Nil(t, quadletApp.RestartGeneration)
+	})
+}
+
 func makeK8sSecretConfigItem(configName, namespace, name, mountPath string) domain.ConfigProviderSpec {
 	item := domain.ConfigProviderSpec{}
 	_ = item.FromKubernetesSecretProviderSpec(api.KubernetesSecretProviderSpec{

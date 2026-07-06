@@ -538,6 +538,12 @@ overrides:
       - "**/api/core/v1beta1/openapi.yaml#/paths/~1repositories~1%7Bname%7D~1check-oci-image"
     rules:
       paths-are-lowercase: off
+  # Device application lifecycle sub-resource paths use the {appName} path parameter.
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1devices~1%7Bname%7D~1applications~1%7BappName%7D~1lifecycle"
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1devices~1%7Bname%7D~1applications~1%7BappName%7D~1lifecycle~1restart"
+    rules:
+      paths-are-lowercase: off
   # /version endpoint doesn't need 400 response (no query params)
   - files:
       - "**#/paths/~1version"

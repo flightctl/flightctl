@@ -207,6 +207,12 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		spec.Config = d.RenderedConfig.Data
 		spec.Applications = d.RenderedApplications.Data
 		spec.Consoles = &consoles
+
+		if val, ok := d.Annotations[domain.DeviceAnnotationApplicationLifecycle]; ok && val != "" {
+			if err := domain.OverlayApplicationLifecycle(spec.Applications, val); err != nil {
+				return nil, fmt.Errorf("failed to overlay application lifecycle: %w", err)
+			}
+		}
 	}
 
 	status := domain.NewDeviceStatus()

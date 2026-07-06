@@ -41,6 +41,8 @@ type DeviceConsole = v1beta1.DeviceConsole
 type DeviceDecommission = v1beta1.DeviceDecommission
 type DeviceResumeRequest = v1beta1.DeviceResumeRequest
 type DeviceResumeResponse = v1beta1.DeviceResumeResponse
+type DeviceApplicationLifecycle = v1beta1.DeviceApplicationLifecycle
+type DeviceApplicationDesiredStateRequest = v1beta1.DeviceApplicationDesiredStateRequest
 
 // ========== Aggregation ==========
 

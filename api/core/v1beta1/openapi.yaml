@@ -1851,6 +1851,291 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /devices/{name}/applications/{appName}/lifecycle:
+    x-resource: devices/applications/lifecycle
+    get:
+      tags:
+        - device
+      description: >
+        Get the device-level lifecycle control override for an application, if one has been
+        set. This is independent of the application's declarative spec (fleet template or
+        standalone device) and survives fleet template rollouts.
+      operationId: getDeviceApplicationLifecycle
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appName
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceApplicationLifecycle'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - device
+      description: >
+        Set the device-level desired lifecycle state (running/stopped) for an application,
+        overriding whatever the application's declarative spec (fleet template or standalone
+        device) says, without modifying that spec. The override is applied at render time and
+        survives fleet template rollouts.
+      operationId: setDeviceApplicationDesiredState
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appName
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceApplicationDesiredStateRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceApplicationLifecycle'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - device
+      description: >
+        Clear the device-level lifecycle override for an application. The application then
+        follows whatever its declarative spec (fleet template or standalone device) says.
+      operationId: deleteDeviceApplicationLifecycle
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appName
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceApplicationLifecycle'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /devices/{name}/applications/{appName}/lifecycle/restart:
+    x-resource: devices/applications/lifecycle
+    post:
+      tags:
+        - device
+      description: >
+        Trigger a restart of an application on this device. The control plane increments the
+        application's restartGeneration counter; the agent restarts the application using the
+        type-appropriate restart operation. Only meaningful while the application's desired
+        state is "running".
+      operationId: restartDeviceApplication
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appName
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceApplicationLifecycle'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices/{name}/rendered:
     x-resource: devices/rendered
     get:
@@ -5295,6 +5580,41 @@ components:
           helm: '#/components/schemas/HelmApplication'
           vm: '#/components/schemas/VmApplication'
 
+    ApplicationDesiredState:
+      type: string
+      description: Desired lifecycle state for an application.
+      enum:
+        - "running"
+        - "stopped"
+      x-enum-varnames:
+        - "ApplicationDesiredStateRunning"
+        - "ApplicationDesiredStateStopped"
+
+    DeviceApplicationLifecycle:
+      type: object
+      description: >
+        Device-level lifecycle control for a single application, independent of the
+        application's declarative spec (fleet template or standalone device). Applied on top
+        of the rendered application spec and survives fleet template rollouts, since it is
+        never stored as part of the device's spec.
+      properties:
+        desiredState:
+          $ref: '#/components/schemas/ApplicationDesiredState'
+        restartGeneration:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: Monotonically increasing counter, incremented by the restart action.
+
+    DeviceApplicationDesiredStateRequest:
+      type: object
+      description: Request body for setting a device-level application's desired lifecycle state.
+      required:
+        - desiredState
+      properties:
+        desiredState:
+          $ref: '#/components/schemas/ApplicationDesiredState'
+
     ApplicationProviderBase:
       type: object
       description: Common properties for all application types.
@@ -5310,6 +5630,26 @@ components:
             type: string
           readOnly: true
           description: "Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time."
+        desiredState:
+          allOf:
+            - $ref: '#/components/schemas/ApplicationDesiredState'
+          readOnly: true
+          description: >-
+            Populated by the control plane from the device's per-application lifecycle
+            control (see /devices/{name}/applications/{appName}/lifecycle) and must not be
+            set directly on this spec.
+        restartGeneration:
+          type: integer
+          minimum: 0
+          default: 0
+          readOnly: true
+          description: >-
+            Monotonically increasing counter. The agent stores the last-seen value; when it
+            changes the agent restarts the application using the type-appropriate restart
+            operation. Does not affect desiredState. Only meaningful when desiredState is
+            "running". Populated by the control plane from the device's per-application
+            lifecycle control (see /devices/{name}/applications/{appName}/lifecycle) and must
+            not be set directly on this spec.
       required:
         - appType
 
