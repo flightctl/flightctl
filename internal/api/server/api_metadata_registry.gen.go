@@ -388,14 +388,6 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/devices/{name}/applications/{appName}/lifecycle": {
-		OperationID: "deleteDeviceApplicationLifecycle",
-		Resource:    "devices/applications/lifecycle",
-		Action:      "delete",
-		Versions: []apimetadata.EndpointMetadataVersion{
-			{Version: "v1beta1", DeprecatedAt: nil},
-		},
-	},
 	"GET:/devices/{name}/applications/{appName}/lifecycle": {
 		OperationID: "getDeviceApplicationLifecycle",
 		Resource:    "devices/applications/lifecycle",

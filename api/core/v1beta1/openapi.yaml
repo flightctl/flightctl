@@ -1921,10 +1921,12 @@ paths:
       tags:
         - device
       description: >
-        Set the device-level desired lifecycle state (running/stopped) for an application,
-        overriding whatever the application's declarative spec (fleet template or standalone
-        device) says, without modifying that spec. The override is applied at render time and
-        survives fleet template rollouts.
+        Set the device-level desired lifecycle state for an application, without modifying
+        the application's declarative spec (fleet template or standalone device). Setting
+        "stopped" persists an override that survives fleet template rollouts. Setting
+        "running" clears any existing lifecycle override entirely (including a pending
+        restartGeneration), since "running" is the implicit state when no override is
+        present.
       operationId: setDeviceApplicationDesiredState
       parameters:
         - name: name
@@ -1994,83 +1996,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - device
-      description: >
-        Clear the device-level lifecycle override for an application. The application then
-        follows whatever its declarative spec (fleet template or standalone device) says.
-      operationId: deleteDeviceApplicationLifecycle
-      parameters:
-        - name: name
-          in: path
-          description: The name of the Device resource.
-          required: true
-          schema:
-            type: string
-        - name: appName
-          in: path
-          description: The name of the application, as defined in the device's rendered application spec.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceApplicationLifecycle'
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "409":
-          description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "429":
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: Service Unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
   /devices/{name}/applications/{appName}/lifecycle/restart:
     x-resource: devices/applications/lifecycle
     post:
       tags:
         - device
       description: >
-        Trigger a restart of an application on this device. The control plane increments the
-        application's restartGeneration counter; the agent restarts the application using the
+        Trigger a restart of an application on this device. The control plane sets the
+        application's restartGeneration to the device's next rendered version (guaranteeing
+        it is always greater than any previously issued value, even across lifecycle
+        overrides being cleared); the agent restarts the application using the
         type-appropriate restart operation. Only meaningful while the application's desired
         state is "running".
       operationId: restartDeviceApplication
@@ -5604,7 +5539,11 @@ components:
           type: integer
           minimum: 0
           readOnly: true
-          description: Monotonically increasing counter, incremented by the restart action.
+          description: >-
+            Monotonically increasing counter, set by the restart action to the device's
+            rendered version at the time of the request. This ties it to a value that is
+            never reset, so it remains strictly greater than any previously issued value
+            even if this lifecycle override is cleared and re-created.
 
     DeviceApplicationDesiredStateRequest:
       type: object

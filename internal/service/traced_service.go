@@ -210,13 +210,6 @@ func (t *TracedService) SetDeviceApplicationDesiredState(ctx context.Context, or
 	return resp, st
 }
 
-func (t *TracedService) DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
-	ctx, span := startSpan(ctx, "DeleteDeviceApplicationLifecycle")
-	resp, st := t.inner.DeleteDeviceApplicationLifecycle(ctx, orgId, name, appName)
-	endSpan(span, st)
-	return resp, st
-}
-
 func (t *TracedService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
 	ctx, span := startSpan(ctx, "RestartDeviceApplication")
 	resp, st := t.inner.RestartDeviceApplication(ctx, orgId, name, appName)

@@ -38,7 +38,6 @@ type Service interface {
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status)
 	GetDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status)
 	SetDeviceApplicationDesiredState(ctx context.Context, orgId uuid.UUID, name string, appName string, desiredState domain.ApplicationDesiredState) (*domain.DeviceApplicationLifecycle, domain.Status)
-	DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status)
 	RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status)
 
 	ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status)

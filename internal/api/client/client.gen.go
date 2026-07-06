@@ -194,9 +194,6 @@ type ClientInterface interface {
 
 	ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteDeviceApplicationLifecycle request
-	DeleteDeviceApplicationLifecycle(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GetDeviceApplicationLifecycle request
 	GetDeviceApplicationLifecycle(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -846,18 +843,6 @@ func (c *Client) ReplaceDeviceWithBody(ctx context.Context, name string, content
 
 func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceDeviceRequest(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteDeviceApplicationLifecycle(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteDeviceApplicationLifecycleRequest(c.Server, name, appName)
 	if err != nil {
 		return nil, err
 	}
@@ -2961,47 +2946,6 @@ func NewReplaceDeviceRequestWithBody(server string, name string, contentType str
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteDeviceApplicationLifecycleRequest generates requests for DeleteDeviceApplicationLifecycle
-func NewDeleteDeviceApplicationLifecycleRequest(server string, name string, appName string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appName", runtime.ParamLocationPath, appName)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/devices/%s/applications/%s/lifecycle", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -5776,9 +5720,6 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
 
-	// DeleteDeviceApplicationLifecycleWithResponse request
-	DeleteDeviceApplicationLifecycleWithResponse(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*DeleteDeviceApplicationLifecycleResponse, error)
-
 	// GetDeviceApplicationLifecycleWithResponse request
 	GetDeviceApplicationLifecycleWithResponse(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*GetDeviceApplicationLifecycleResponse, error)
 
@@ -6668,35 +6609,6 @@ func (r ReplaceDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceDeviceResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteDeviceApplicationLifecycleResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *DeviceApplicationLifecycle
-	JSON400      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON404      *Status
-	JSON409      *Status
-	JSON429      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteDeviceApplicationLifecycleResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteDeviceApplicationLifecycleResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -8481,15 +8393,6 @@ func (c *ClientWithResponses) ReplaceDeviceWithResponse(ctx context.Context, nam
 		return nil, err
 	}
 	return ParseReplaceDeviceResponse(rsp)
-}
-
-// DeleteDeviceApplicationLifecycleWithResponse request returning *DeleteDeviceApplicationLifecycleResponse
-func (c *ClientWithResponses) DeleteDeviceApplicationLifecycleWithResponse(ctx context.Context, name string, appName string, reqEditors ...RequestEditorFn) (*DeleteDeviceApplicationLifecycleResponse, error) {
-	rsp, err := c.DeleteDeviceApplicationLifecycle(ctx, name, appName, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteDeviceApplicationLifecycleResponse(rsp)
 }
 
 // GetDeviceApplicationLifecycleWithResponse request returning *GetDeviceApplicationLifecycleResponse
@@ -10733,81 +10636,6 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 			return nil, err
 		}
 		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON429 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteDeviceApplicationLifecycleResponse parses an HTTP response from a DeleteDeviceApplicationLifecycleWithResponse call
-func ParseDeleteDeviceApplicationLifecycleResponse(rsp *http.Response) (*DeleteDeviceApplicationLifecycleResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteDeviceApplicationLifecycleResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest DeviceApplicationLifecycle
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest Status

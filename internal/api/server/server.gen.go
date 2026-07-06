@@ -93,9 +93,6 @@ type ServerInterface interface {
 	// (PUT /devices/{name})
 	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (DELETE /devices/{name}/applications/{appName}/lifecycle)
-	DeleteDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string)
-
 	// (GET /devices/{name}/applications/{appName}/lifecycle)
 	GetDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string)
 
@@ -379,11 +376,6 @@ func (_ Unimplemented) PatchDevice(w http.ResponseWriter, r *http.Request, name 
 
 // (PUT /devices/{name})
 func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /devices/{name}/applications/{appName}/lifecycle)
-func (_ Unimplemented) DeleteDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1305,40 +1297,6 @@ func (siw *ServerInterfaceWrapper) ReplaceDevice(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceDevice(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteDeviceApplicationLifecycle operation middleware
-func (siw *ServerInterfaceWrapper) DeleteDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "name" -------------
-	var name string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "appName" -------------
-	var appName string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "appName", chi.URLParam(r, "appName"), &appName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appName", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteDeviceApplicationLifecycle(w, r, name, appName)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3084,9 +3042,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/devices/{name}", wrapper.ReplaceDevice)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/devices/{name}/applications/{appName}/lifecycle", wrapper.DeleteDeviceApplicationLifecycle)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/devices/{name}/applications/{appName}/lifecycle", wrapper.GetDeviceApplicationLifecycle)

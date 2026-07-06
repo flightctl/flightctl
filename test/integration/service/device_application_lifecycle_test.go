@@ -26,8 +26,8 @@ var _ = Describe("Device application lifecycle", func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
 
-		// SetDeviceApplicationDesiredState/RestartDeviceApplication/DeleteDeviceApplicationLifecycle
-		// notify rendered.Bus on success, so it must be backed by a real KV store + queue for
+		// SetDeviceApplicationDesiredState/RestartDeviceApplication notify rendered.Bus on
+		// success, so it must be backed by a real KV store + queue for
 		// this suite. Reuse one instance for the whole context, same as the GetRenderedDevice
 		// AwaitingReconnect suite in device_test.go.
 		var err error
@@ -104,17 +104,26 @@ var _ = Describe("Device application lifecycle", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(plainApp1.DesiredState).To(BeNil())
 
-		By("restarting the application should increment its restart generation independent of desired state")
+		By("restarting the application should bump its restart generation independent of desired state")
 		lifecycle, restartStatus := suite.Handler.RestartDeviceApplication(suite.Ctx, suite.OrgID, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 		Expect(lifecycle.RestartGeneration).ToNot(BeNil())
-		Expect(*lifecycle.RestartGeneration).To(Equal(1))
+		// restartGeneration is set to the device's next rendered version, not a simple +1
+		// from a prior value, so it should reflect the version bump from the SetDeviceApplicationDesiredState
+		// call above plus this call's own bump.
+		Expect(*lifecycle.RestartGeneration).To(BeNumerically(">", 0))
 		Expect(lifecycle.DesiredState).ToNot(BeNil())
 		Expect(*lifecycle.DesiredState).To(Equal(api.ApplicationDesiredStateStopped))
 
-		By("deleting the lifecycle override should revert the rendered application to the declarative spec")
-		_, delStatus := suite.Handler.DeleteDeviceApplicationLifecycle(suite.Ctx, suite.OrgID, deviceName, "app-1")
-		Expect(delStatus.Code).To(Equal(int32(200)))
+		By("restarting again should strictly increase the restart generation")
+		lifecycle2, restartStatus2 := suite.Handler.RestartDeviceApplication(suite.Ctx, suite.OrgID, deviceName, "app-1")
+		Expect(restartStatus2.Code).To(Equal(int32(200)))
+		Expect(lifecycle2.RestartGeneration).ToNot(BeNil())
+		Expect(*lifecycle2.RestartGeneration).To(BeNumerically(">", *lifecycle.RestartGeneration))
+
+		By("setting the desired state back to running should clear the lifecycle override entirely and revert the rendered application to the declarative spec")
+		_, runStatus := suite.Handler.SetDeviceApplicationDesiredState(suite.Ctx, suite.OrgID, deviceName, "app-1", api.ApplicationDesiredStateRunning)
+		Expect(runStatus.Code).To(Equal(int32(200)))
 
 		renderedDevice, status = suite.Handler.GetRenderedDevice(suite.Ctx, suite.OrgID, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))

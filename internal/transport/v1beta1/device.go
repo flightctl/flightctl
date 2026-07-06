@@ -153,12 +153,6 @@ func (h *TransportHandler) SetDeviceApplicationDesiredState(w http.ResponseWrite
 	h.SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/devices/{name}/applications/{appName}/lifecycle)
-func (h *TransportHandler) DeleteDeviceApplicationLifecycle(w http.ResponseWriter, r *http.Request, name string, appName string) {
-	body, status := h.serviceHandler.DeleteDeviceApplicationLifecycle(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
-	h.SetResponse(w, body, status)
-}
-
 // (POST /api/v1/devices/{name}/applications/{appName}/lifecycle/restart)
 func (h *TransportHandler) RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
 	body, status := h.serviceHandler.RestartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)

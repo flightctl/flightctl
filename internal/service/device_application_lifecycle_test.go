@@ -333,9 +333,13 @@ func TestRestartDeviceApplication(t *testing.T) {
 	})
 }
 
-// ─── DeleteDeviceApplicationLifecycle ───────────────────────────────────────
+// ─── SetDeviceApplicationDesiredState(Running) clears the override ─────────
+//
+// There is no standalone delete endpoint: setting the desired state to "running" is
+// equivalent to clearing the lifecycle override entirely, since "running" is already the
+// implicit state whenever no override is present.
 
-func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
+func TestSetDeviceApplicationDesiredStateRunningClearsOverride(t *testing.T) {
 	t.Run("When it is the last lifecycle entry it should remove the annotation entirely", func(t *testing.T) {
 		h, ts, orgId := newLifecycleTestHandler(t)
 		device := newDeviceWithApp("device-1", "app-1")
@@ -344,7 +348,7 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 
 		stored, err := ts.Device().Get(context.Background(), orgId, "device-1")
@@ -358,11 +362,11 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		h, ts, orgId := newLifecycleTestHandler(t)
 		device := newDeviceWithApp("device-1", "app-1")
 		device.Metadata.Annotations = &map[string]string{
-			domain.DeviceAnnotationApplicationLifecycle: `{"app-1":{"desiredState":"stopped"},"app-2":{"desiredState":"running"}}`,
+			domain.DeviceAnnotationApplicationLifecycle: `{"app-1":{"desiredState":"stopped"},"app-2":{"desiredState":"stopped"}}`,
 		}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 
 		stored, err := ts.Device().Get(context.Background(), orgId, "device-1")
@@ -374,12 +378,12 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		assert.NotContains(t, raw, "app-1")
 	})
 
-	t.Run("When there is nothing to delete it should still succeed", func(t *testing.T) {
+	t.Run("When there is nothing to clear it should still succeed", func(t *testing.T) {
 		h, _, orgId := newLifecycleTestHandler(t)
 		device := newDeviceWithApp("device-1", "app-1")
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		assert.Equal(t, int32(http.StatusOK), status.Code)
 	})
 
@@ -391,7 +395,7 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 
 		stored, err := ts.Device().Get(context.Background(), orgId, "device-1")
@@ -399,6 +403,15 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		annotations := lo.FromPtr(stored.Metadata.Annotations)
 		_, exists := annotations[domain.DeviceAnnotationApplicationLifecycle]
 		assert.False(t, exists, "lifecycle annotation should be removed once empty")
+	})
+
+	t.Run("When the application does not exist on the device it should return not found", func(t *testing.T) {
+		h, _, orgId := newLifecycleTestHandler(t)
+		device := newDeviceWithApp("device-1", "app-1")
+		createLifecycleDevice(t, h, orgId, device)
+
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "does-not-exist", domain.ApplicationDesiredStateRunning)
+		assert.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 
 	t.Run("When the device is awaiting reconnect it should return a conflict", func(t *testing.T) {
@@ -409,7 +422,7 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		assert.Equal(t, int32(http.StatusConflict), status.Code)
 	})
 
@@ -421,7 +434,7 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		assert.Equal(t, int32(http.StatusConflict), status.Code)
 	})
 
@@ -431,7 +444,7 @@ func TestDeleteDeviceApplicationLifecycle(t *testing.T) {
 		device.Spec.Decommissioning = &domain.DeviceDecommission{}
 		createLifecycleDevice(t, h, orgId, device)
 
-		_, status := h.DeleteDeviceApplicationLifecycle(context.Background(), orgId, "device-1", "app-1")
+		_, status := h.SetDeviceApplicationDesiredState(context.Background(), orgId, "device-1", "app-1", domain.ApplicationDesiredStateRunning)
 		assert.Equal(t, int32(http.StatusConflict), status.Code)
 	})
 }

@@ -1200,7 +1200,7 @@ type DeviceApplicationLifecycle struct {
 	// DesiredState Desired lifecycle state for an application.
 	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
 
-	// RestartGeneration Monotonically increasing counter, incremented by the restart action.
+	// RestartGeneration Monotonically increasing counter, set by the restart action to the device's rendered version at the time of the request. This ties it to a value that is never reset, so it remains strictly greater than any previously issued value even if this lifecycle override is cleared and re-created.
 	RestartGeneration *int `json:"restartGeneration,omitempty"`
 }
 

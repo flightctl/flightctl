@@ -437,21 +437,6 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
-// DeleteDeviceApplicationLifecycle mocks base method.
-func (m *MockService) DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteDeviceApplicationLifecycle", ctx, orgId, name, appName)
-	ret0, _ := ret[0].(*domain.DeviceApplicationLifecycle)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// DeleteDeviceApplicationLifecycle indicates an expected call of DeleteDeviceApplicationLifecycle.
-func (mr *MockServiceMockRecorder) DeleteDeviceApplicationLifecycle(ctx, orgId, name, appName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDeviceApplicationLifecycle", reflect.TypeOf((*MockService)(nil).DeleteDeviceApplicationLifecycle), ctx, orgId, name, appName)
-}
-
 // DeleteEnrollmentRequest mocks base method.
 func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()

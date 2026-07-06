@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -35,38 +36,49 @@ func (h *ServiceHandler) GetDeviceApplicationLifecycle(ctx context.Context, orgI
 }
 
 // SetDeviceApplicationDesiredState sets the device-level desired lifecycle state for an
-// application, independent of the application's declarative spec.
+// application, independent of the application's declarative spec. Setting "running" clears
+// the entire lifecycle override (including any pending restartGeneration) rather than
+// persisting an explicit "running" entry, since "running" is already the implicit state
+// whenever no override is present.
 func (h *ServiceHandler) SetDeviceApplicationDesiredState(ctx context.Context, orgId uuid.UUID, name string, appName string, desiredState domain.ApplicationDesiredState) (*domain.DeviceApplicationLifecycle, domain.Status) {
-	return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, true, func(existing domain.DeviceApplicationLifecycle) domain.DeviceApplicationLifecycle {
+	if desiredState == domain.ApplicationDesiredStateRunning {
+		return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, true, nil)
+	}
+	return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, true, func(existing domain.DeviceApplicationLifecycle, _ int) domain.DeviceApplicationLifecycle {
 		existing.DesiredState = &desiredState
 		return existing
 	})
 }
 
-// RestartDeviceApplication increments the application's restartGeneration counter, signaling
-// the agent to restart it. Only meaningful while the application's desired state is "running".
+// RestartDeviceApplication sets the application's restartGeneration to the device's next
+// rendered version, signaling the agent to restart it. Only meaningful while the
+// application's desired state is "running".
+//
+// The value is taken from the device's rendered-version counter rather than incremented
+// from whatever the (deletable) lifecycle annotation currently holds, because that counter
+// is a single, ever-increasing sequence that survives the lifecycle override being cleared.
+// Incrementing a value stored in the annotation itself would let a delete-then-restart
+// sequence hand the agent a generation lower than one it already observed, silently
+// dropping the restart.
 func (h *ServiceHandler) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
-	return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, true, func(existing domain.DeviceApplicationLifecycle) domain.DeviceApplicationLifecycle {
-		existing.RestartGeneration = lo.ToPtr(lo.FromPtr(existing.RestartGeneration) + 1)
+	return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, true, func(existing domain.DeviceApplicationLifecycle, nextRenderedVersion int) domain.DeviceApplicationLifecycle {
+		existing.RestartGeneration = lo.ToPtr(nextRenderedVersion)
 		return existing
 	})
 }
 
-// DeleteDeviceApplicationLifecycle clears the device-level lifecycle override for an
-// application, reverting it to whatever its declarative spec says.
-func (h *ServiceHandler) DeleteDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.DeviceApplicationLifecycle, domain.Status) {
-	return h.modifyDeviceApplicationLifecycle(ctx, orgId, name, appName, false, nil)
-}
-
 // modifyDeviceApplicationLifecycle atomically reads, mutates, and persists the per-application
 // entry of the device's application lifecycle annotation, retrying on resource version
-// conflicts. If mutate is nil, the entry for appName is removed instead. The annotation is
-// the sole source of truth for lifecycle overrides: it is overlaid onto the rendered
-// application spec at serve time for both standalone and fleet-owned devices (see
+// conflicts. If mutate is nil, the entry for appName is removed instead (used by
+// SetDeviceApplicationDesiredState when reverting to "running"). mutate is handed the
+// device's next rendered version alongside the existing entry, for use by actions (like
+// restart) that need a value guaranteed to be greater than any previously issued one. The
+// annotation is the sole source of truth for lifecycle overrides: it is overlaid onto the
+// rendered application spec at serve time for both standalone and fleet-owned devices (see
 // model.Device.ToApiResource), and onto a fleet-owned device's own spec whenever it is
 // next rolled out (see FleetRolloutsLogic.getDeviceApps), so it survives fleet template
 // rollouts.
-func (h *ServiceHandler) modifyDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, deviceName, appName string, requireAppExists bool, mutate func(existing domain.DeviceApplicationLifecycle) domain.DeviceApplicationLifecycle) (*domain.DeviceApplicationLifecycle, domain.Status) {
+func (h *ServiceHandler) modifyDeviceApplicationLifecycle(ctx context.Context, orgId uuid.UUID, deviceName, appName string, requireAppExists bool, mutate func(existing domain.DeviceApplicationLifecycle, nextRenderedVersion int) domain.DeviceApplicationLifecycle) (*domain.DeviceApplicationLifecycle, domain.Status) {
 	var (
 		err                 error
 		result              domain.DeviceApplicationLifecycle
@@ -98,8 +110,17 @@ func (h *ServiceHandler) modifyDeviceApplicationLifecycle(ctx context.Context, o
 			return nil, domain.StatusInternalServerError(decodeErr.Error())
 		}
 
+		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
+		if err != nil {
+			return nil, domain.StatusInternalServerError(err.Error())
+		}
+		nextRenderedVersionInt, parseErr := strconv.Atoi(nextRenderedVersion)
+		if parseErr != nil {
+			return nil, domain.StatusInternalServerError(parseErr.Error())
+		}
+
 		if mutate != nil {
-			result = mutate(lifecycles[appName])
+			result = mutate(lifecycles[appName], nextRenderedVersionInt)
 			lifecycles[appName] = result
 		} else {
 			result = domain.DeviceApplicationLifecycle{}
@@ -116,10 +137,6 @@ func (h *ServiceHandler) modifyDeviceApplicationLifecycle(ctx context.Context, o
 			(*device.Metadata.Annotations)[domain.DeviceAnnotationApplicationLifecycle] = string(encoded)
 		}
 
-		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
-		if err != nil {
-			return nil, domain.StatusInternalServerError(err.Error())
-		}
 		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 
 		_, err = h.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
