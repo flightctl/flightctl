@@ -261,11 +261,14 @@ jobs:
           fi
           E2E_RESULT="${{ needs.e2e-tests.result }}"
           API_RESULT="${{ needs.api-tests.result }}"
-          if [[ "$E2E_RESULT" == "success" || "$E2E_RESULT" == "skipped" ]] && \
+          # At this point we are past the early-exit guards, so tests were expected to run.
+          # "skipped" here means an upstream dependency (e.g. image build) failed and caused
+          # e2e-tests to be skipped by GitHub Actions — that must be treated as a failure.
+          if [[ "$E2E_RESULT" == "success" ]] && \
              [[ "$API_RESULT" == "success" || "$API_RESULT" == "skipped" ]]; then
-            echo "All tests passed or were skipped (e2e: $E2E_RESULT, api: $API_RESULT)"
+            echo "All tests passed (e2e: $E2E_RESULT, api: $API_RESULT)"
             exit 0
           else
-            echo "Tests failed or were cancelled (e2e: $E2E_RESULT, api: $API_RESULT)"
+            echo "Tests failed, were cancelled, or were skipped due to a dependency failure (e2e: $E2E_RESULT, api: $API_RESULT)"
             exit 1
           fi
