@@ -27,9 +27,14 @@ import (
 )
 
 // MaxRecordsPerListRequest bounds the number of records a single list request may return.
-// Relocated verbatim from internal/service/utils.go. MaxConcurrentAgents is unrelated to
-// this constant and stays in the root internal/service/utils.go file.
+// Relocated verbatim from internal/service/utils.go.
 const MaxRecordsPerListRequest = 1000
+
+// MaxConcurrentAgents bounds the number of concurrent agent-originated requests a resource's
+// ServiceHandler will process at once via its own semaphore.Weighted gate. Relocated verbatim
+// from internal/service/utils.go so isolated sub-packages (e.g. internal/service/device) can
+// construct their own gate without importing the monolithic internal/service package.
+const MaxConcurrentAgents = 15
 
 // IsInternalRequest reports whether ctx marks the current request as internal
 // (i.e. originating from within the service, not from an external API caller).
