@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -18,6 +19,28 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 )
+
+// GenerateAES256Key generates a cryptographically secure 32-byte (256-bit) random key
+// suitable for AES-256-GCM encryption, returned as a base64-encoded string.
+func GenerateAES256Key() (string, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", fmt.Errorf("generate random key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(key), nil
+}
+
+// DecodeAES256Key decodes a base64-encoded AES-256 key and validates it is exactly 32 bytes.
+func DecodeAES256Key(encodedKey string) ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode base64 key: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("key must be 32 bytes, got %d", len(key))
+	}
+	return key, nil
+}
 
 func NewKeyPair() (crypto.PublicKey, crypto.PrivateKey, error) {
 	return newECDSAKeyPair()
