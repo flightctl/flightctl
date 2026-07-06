@@ -143,6 +143,25 @@ func (v *testVars) sendEOF() {
 	})
 }
 
+// waitSessions blocks until all of the manager's session goroutines have finished, or fails
+// the test after waitSessionsTimeout. Without a deadline, a regression in session teardown
+// would hang the whole test binary instead of failing the specific test.
+const waitSessionsTimeout = 5 * time.Second
+
+func (v *testVars) waitSessions(t *testing.T) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		v.manager.sessionWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(waitSessionsTimeout):
+		t.Fatal("timed out waiting for console session goroutines to finish")
+	}
+}
+
 func makeDevice(sessions []v1beta1.DeviceRemoteSession) *v1beta1.Device {
 	annotations := make(map[string]string)
 	if len(sessions) > 0 {
@@ -327,6 +346,110 @@ func TestSyncMalformedAnnotation(t *testing.T) {
 		v.manager.sessionWg.Wait()
 
 		require.Empty(v.manager.activeSessions)
+	})
+}
+
+func TestVMVNCSession(t *testing.T) {
+	t.Run("When the dialFn fails it should send an error over the gRPC stream", func(t *testing.T) {
+		require := require.New(t)
+
+		vncSess := NewVMVNCSession("virt-launcher-my-vm-compute", &mockExecStreamer{err: fmt.Errorf("podman exec: no such container")}, log.NewPrefixLogger("test"))
+		resolver := &mockResolver{sessions: map[string]Session{"my-vm": vncSess}}
+		v := setupTestVars(t, resolver)
+
+		v.mockStream()
+		v.mockSend()
+		v.mockCloseSend()
+
+		sessionID := uuid.New().String()
+		device := makeDevice([]v1beta1.DeviceRemoteSession{
+			{SessionID: sessionID, AppName: "my-vm", ConsoleType: "vnc"},
+		})
+		v.manager.Sync(v.ctx, device)
+		v.waitSessions(t)
+
+		require.Eventually(func() bool {
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			return v.closeSendCalled
+		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called after dial failure")
+
+		v.mu.Lock()
+		payloads := v.sentPayloads
+		v.mu.Unlock()
+		require.NotEmpty(payloads, "expected error payload after dial failure")
+	})
+
+	t.Run("When a VNC session runs end-to-end it should bridge and terminate on gRPC EOF", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+
+		vncSess := NewVMVNCSession("virt-launcher-my-vm-compute", &mockExecStreamer{conn: clientConn}, log.NewPrefixLogger("test"))
+		resolver := &mockResolver{sessions: map[string]Session{"my-vm": vncSess}}
+		v := setupTestVars(t, resolver)
+
+		v.mockStream()
+		v.mockSend()
+		v.mockRecv()
+		v.mockCloseSend()
+
+		sessionID := uuid.New().String()
+		device := makeDevice([]v1beta1.DeviceRemoteSession{
+			{SessionID: sessionID, AppName: "my-vm", ConsoleType: "vnc"},
+		})
+		v.manager.Sync(v.ctx, device)
+
+		v.sendEOF()
+		v.waitSessions(t)
+	})
+
+	t.Run("When a VNC session starts it should not send an initial CR", func(t *testing.T) {
+		require := require.New(t)
+
+		// VNC uses the binary RFB protocol; an unsolicited CR would corrupt the handshake.
+		// This test verifies Run() does not write anything to the connection before
+		// the gRPC stream sends data.
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		logger := log.NewPrefixLogger("test")
+		mockStreamClient := NewMockRouterService_StreamClient(ctrl)
+
+		serverConn, clientConn := net.Pipe()
+
+		type readResult struct {
+			n   int
+			err error
+		}
+		readDone := make(chan readResult, 1)
+		go func() {
+			buf := make([]byte, 1)
+			require.NoError(serverConn.SetDeadline(time.Now().Add(100 * time.Millisecond)))
+			n, err := serverConn.Read(buf)
+			readDone <- readResult{n: n, err: err}
+			serverConn.Close()
+		}()
+
+		// EOF terminates the session immediately.
+		mockStreamClient.EXPECT().Recv().Return(nil, io.EOF).AnyTimes()
+		mockStreamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+		mockStreamClient.EXPECT().CloseSend().Return(nil).AnyTimes()
+
+		vncSess := NewVMVNCSession("virt-launcher-my-vm-compute", &mockExecStreamer{conn: clientConn}, logger)
+		vncSess.Run(context.Background(), mockStreamClient)
+
+		var result readResult
+		select {
+		case result = <-readDone:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("timed out waiting for serverConn.Read to complete")
+		}
+
+		// No data should ever have reached serverConn: either the deadline expires (no write
+		// happened) or Run()'s teardown closes the connection first (also yielding an error,
+		// e.g. io.EOF) -- both indicate zero bytes were written. Only a successful read with
+		// n > 0 indicates the bug (an unsolicited byte was written).
+		require.Equal(0, result.n, "vm vnc session must not write an initial byte before the gRPC stream sends data")
+		require.Error(result.err, "expected the read to fail (deadline exceeded or connection closed) since no data should have been written")
 	})
 }
 

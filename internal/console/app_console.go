@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -218,8 +220,8 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	if consoleType == "" {
 		return nil, domain.StatusBadRequest("consoleType is required")
 	}
-	if consoleType != "serial" {
-		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\"")
+	if consoleType != string(api.ConsoleTypeSerial) && consoleType != string(api.ConsoleTypeVnc) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid consoleType: must be %q or %q", api.ConsoleTypeSerial, api.ConsoleTypeVnc))
 	}
 
 	device, status := m.svc.GetDevice(ctx, orgId, deviceName)
