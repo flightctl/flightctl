@@ -141,6 +141,8 @@ introspection:
 
 **Security Note:** While `issuer` and `audience` are optional, it's strongly recommended to provide them for production environments to ensure proper token validation. Omitting these fields reduces security as token claims won't be validated against expected values.
 
+**Keycloak note:** When using JWT introspection with Keycloak, configure an audience mapper for the OAuth2 client so the access token contains the client ID in the `aud` claim. In Keycloak realm JSON, this is an `oidc-audience-mapper` with `included.client.audience` set to the same value as the Flight Control `clientId`, and `access.token.claim` set to `true`.
+
 #### Automatic Inference
 
 Flight Control automatically infers introspection configuration for known providers:
