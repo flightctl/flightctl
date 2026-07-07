@@ -137,8 +137,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Identity mapper.
-	orgProvisioner := service.NewOrgProvisioner(s.dataStore, s.log)
-	identityMapper := service.NewIdentityMapper(s.dataStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.dataStore.Catalog(), s.log)
+	identityMapper := service.NewIdentityMapper(s.dataStore.Organization(), orgProvisioner, s.log)
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()

@@ -47,7 +47,7 @@ func (m *mockIdentity) GetIssuer() *identity.Issuer {
 }
 
 func createTestIdentityMapper(mockStore *TestStore) *IdentityMapper {
-	return NewIdentityMapper(mockStore, NewOrgProvisioner(mockStore, logrus.New()), logrus.New())
+	return NewIdentityMapper(mockStore.Organization(), NewOrgProvisioner(mockStore.Catalog(), logrus.New()), logrus.New())
 }
 
 func TestMapIdentityToDB_SuperAdmin_NoReportedOrgs(t *testing.T) {

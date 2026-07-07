@@ -147,23 +147,7 @@ func (s *DataStore) DependencyRef() DependencyRef {
 
 // CheckHealth verifies database connectivity and ensures the instance is not in recovery.
 func (s *DataStore) CheckHealth(ctx context.Context) error {
-	if s.db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	// Connectivity
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return fmt.Errorf("db handle error: %w", err)
-	}
-	if err := sqlDB.PingContext(ctx); err != nil {
-		return fmt.Errorf("db ping error: %w", err)
-	}
-	// Execute a simple query to confirm basic read capability
-	var one int
-	if err := s.db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error; err != nil {
-		return fmt.Errorf("db simple query error: %w", err)
-	}
-	return nil
+	return CheckHealth(ctx, s.db)
 }
 
 func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {

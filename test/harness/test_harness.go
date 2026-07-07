@@ -246,7 +246,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	// create server
-	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, storeInst, ca, serverCerts, provider)
+	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, db, ca, serverCerts, provider)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -256,7 +256,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
 	workerServer := workerserver.New(&serverCfg, serverLog, storeInst, provider, mockK8sClient, nil)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, storeInst, ca, serverCerts, provider)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, db, ca, serverCerts, provider)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)

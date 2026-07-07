@@ -37,6 +37,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 const (
@@ -245,7 +246,7 @@ func IsAcmInstalled() (bool, bool, error) {
 }
 
 // NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, db *gorm.DB, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -259,11 +260,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
+	return apiserver.New(log, cfg, db, ca, listener, queuesProvider, nil), listener, nil
 }
 
 // NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, db *gorm.DB, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -276,7 +277,7 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig)
+	agentServer, err := agentserver.New(ctx, log, cfg, db, ca, listener, queuesProvider, tlsConfig)
 	if err != nil {
 		_ = listener.Close()
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)

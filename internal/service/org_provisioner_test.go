@@ -13,7 +13,7 @@ import (
 )
 
 func createTestOrgProvisioner(mockStore *TestStore) *OrgProvisioner {
-	return NewOrgProvisioner(mockStore, logrus.New())
+	return NewOrgProvisioner(mockStore.Catalog(), logrus.New())
 }
 
 func TestEnsureDefaults_NewOrg_CreatesDefaultCatalog(t *testing.T) {

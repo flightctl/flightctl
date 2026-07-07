@@ -76,9 +76,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -121,7 +123,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, caClient, agentListener, provider, agentTlsConfig)
+	agentServer, err := agentserver.New(ctx, log, cfg, db, caClient, agentListener, provider, agentTlsConfig)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}
@@ -140,7 +142,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, caClient, listener, provider, agentServer.GetGRPCServer())
+		server := apiserver.New(log, cfg, db, caClient, listener, provider, agentServer.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}

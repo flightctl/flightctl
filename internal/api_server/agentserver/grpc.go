@@ -13,7 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/service"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -30,7 +30,7 @@ type AgentGrpcServer struct {
 	pb.UnimplementedEnrollmentServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
-	service        service.Service
+	service        enrollmentrequestservice.Service
 	pendingStreams *sync.Map
 	server         *grpc.Server
 }
@@ -39,7 +39,7 @@ type AgentGrpcServer struct {
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	svc service.Service,
+	svc enrollmentrequestservice.Service,
 ) *AgentGrpcServer {
 	agentServer := &AgentGrpcServer{
 		log:            log,

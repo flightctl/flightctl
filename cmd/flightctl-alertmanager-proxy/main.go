@@ -244,8 +244,8 @@ func main() {
 	}
 
 	// Create identity mapper for mapping identities to database objects
-	orgProvisioner := service.NewOrgProvisioner(dataStore, logger)
-	identityMapper := service.NewIdentityMapper(dataStore, orgProvisioner, logger)
+	orgProvisioner := service.NewOrgProvisioner(dataStore.Catalog(), logger)
+	identityMapper := service.NewIdentityMapper(dataStore.Organization(), orgProvisioner, logger)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)

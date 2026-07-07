@@ -161,8 +161,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware (same as api_server)
-	orgProvisioner := internalservice.NewOrgProvisioner(s.mainStore, s.log)
-	identityMapper := internalservice.NewIdentityMapper(s.mainStore, orgProvisioner, s.log)
+	orgProvisioner := internalservice.NewOrgProvisioner(s.mainStore.Catalog(), s.log)
+	identityMapper := internalservice.NewIdentityMapper(s.mainStore.Organization(), orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
