@@ -14,36 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// MockStore implements store.Store for testing
-type MockRepositoryStore struct {
-	count   int64
-	err     error
-	results []store.CountByOrgResult
-}
-
-func (m *MockRepositoryStore) Repository() store.Repository {
-	return &MockRepository{count: m.count, err: m.err, results: m.results}
-}
-
-// Implement other required methods with empty implementations
-func (m *MockRepositoryStore) Device() store.Device                                       { return nil }
-func (m *MockRepositoryStore) EnrollmentRequest() store.EnrollmentRequest                 { return nil }
-func (m *MockRepositoryStore) CertificateSigningRequest() store.CertificateSigningRequest { return nil }
-func (m *MockRepositoryStore) Fleet() store.Fleet                                         { return nil }
-func (m *MockRepositoryStore) TemplateVersion() store.TemplateVersion                     { return nil }
-func (m *MockRepositoryStore) ResourceSync() store.ResourceSync                           { return nil }
-func (m *MockRepositoryStore) Event() store.Event                                         { return nil }
-func (m *MockRepositoryStore) Checkpoint() store.Checkpoint                               { return nil }
-func (m *MockRepositoryStore) Organization() store.Organization                           { return nil }
-func (m *MockRepositoryStore) AuthProvider() store.AuthProvider                           { return nil }
-func (m *MockRepositoryStore) Catalog() store.Catalog                                     { return nil }
-func (m *MockRepositoryStore) VulnerabilityFinding() store.VulnerabilityFinding           { return nil }
-func (m *MockRepositoryStore) SyncState() store.SyncState                                 { return nil }
-func (m *MockRepositoryStore) DependencyRef() store.DependencyRef                         { return nil }
-func (m *MockRepositoryStore) RunMigrations(context.Context) error                        { return nil }
-func (m *MockRepositoryStore) Close() error                                               { return nil }
-func (m *MockRepositoryStore) CheckHealth(context.Context) error                          { return nil }
-
+// MockRepository implements repository.Store for testing
 type MockRepository struct {
 	count   int64
 	err     error
@@ -95,7 +66,7 @@ func TestRepositoryCollector(t *testing.T) {
 		{OrgID: "org2", Count: 3},
 	}
 
-	mockStore := &MockRepositoryStore{results: mockResults}
+	mockRepository := &MockRepository{results: mockResults}
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -105,7 +76,7 @@ func TestRepositoryCollector(t *testing.T) {
 
 	// Create collector with 1ms interval for fast testing
 	config := config.NewDefault()
-	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+	collector := NewRepositoryCollector(ctx, mockRepository, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -139,10 +110,10 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 	defer cancel()
 
 	// Test with error
-	mockStore := &MockRepositoryStore{count: 0, err: assert.AnError}
+	mockRepository := &MockRepository{count: 0, err: assert.AnError}
 	log := logrus.New()
 	config := config.NewDefault()
-	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+	collector := NewRepositoryCollector(ctx, mockRepository, log, config)
 
 	// Test that the collector handles errors gracefully
 	// The collector should not panic and should continue running
@@ -154,7 +125,7 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 
 func TestRepositoryCollectorWithEmptyResults(t *testing.T) {
 	// Test the new behavior where empty results emit a default metric
-	mockStore := &MockRepositoryStore{results: []store.CountByOrgResult{}} // Empty results
+	mockRepository := &MockRepository{results: []store.CountByOrgResult{}} // Empty results
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -164,7 +135,7 @@ func TestRepositoryCollectorWithEmptyResults(t *testing.T) {
 
 	// Create collector
 	config := config.NewDefault()
-	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+	collector := NewRepositoryCollector(ctx, mockRepository, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -191,7 +162,7 @@ func TestRepositoryCollectorWithEmptyResults(t *testing.T) {
 
 func TestRepositoryCollectorUpdateRepositoryMetricsWithEmptyResults(t *testing.T) {
 	// Test the updateRepositoryMetrics method directly with empty results
-	mockStore := &MockRepositoryStore{results: []store.CountByOrgResult{}} // Empty results
+	mockRepository := &MockRepository{results: []store.CountByOrgResult{}} // Empty results
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -201,7 +172,7 @@ func TestRepositoryCollectorUpdateRepositoryMetricsWithEmptyResults(t *testing.T
 
 	// Create collector
 	config := config.NewDefault()
-	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+	collector := NewRepositoryCollector(ctx, mockRepository, log, config)
 
 	// Call updateRepositoryMetrics directly
 	collector.updateRepositoryMetrics()
