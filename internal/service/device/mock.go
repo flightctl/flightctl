@@ -268,6 +268,21 @@ func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, orgId, con
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesByServiceCondition", reflect.TypeOf((*MockService)(nil).ListDevicesByServiceCondition), ctx, orgId, conditionType, conditionStatus, listParams)
 }
 
+// ListLabels mocks base method.
+func (m *MockService) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLabels", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.LabelList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListLabels indicates an expected call of ListLabels.
+func (mr *MockServiceMockRecorder) ListLabels(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabels", reflect.TypeOf((*MockService)(nil).ListLabels), ctx, orgId, params)
+}
+
 // MarkDevicesRolloutSelection mocks base method.
 func (m *MockService) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) domain.Status {
 	m.ctrl.T.Helper()

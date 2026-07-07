@@ -664,6 +664,40 @@ func (h *DeviceServiceHandler) ResumeDevices(ctx context.Context, orgId uuid.UUI
 	}, domain.StatusOK()
 }
 
+// ListLabels only ever supports domain.DeviceKind (its monolith implementation never handled
+// any other kind), so it moves here verbatim rather than to a new cross-resource home.
+func (h *DeviceServiceHandler) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status) {
+	var err error
+
+	kind := params.Kind
+
+	listParams, status := common.PrepareListParams(nil, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != domain.StatusOK() {
+		return nil, status
+	}
+
+	var result domain.LabelList
+	switch kind {
+	case domain.DeviceKind:
+		result, err = h.store.Device().Labels(ctx, orgId, *listParams)
+	default:
+		return nil, domain.StatusBadRequest(fmt.Sprintf("unsupported kind: %s", kind))
+	}
+
+	if err == nil {
+		return &result, domain.StatusOK()
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return nil, domain.StatusBadRequest(se.Error())
+	default:
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+}
+
 // callbackDeviceUpdated is the device-specific callback that handles device events
 func (h *DeviceServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	EmitDeviceUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)

@@ -188,6 +188,10 @@ func (s *fakeDeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, li
 	return []map[string]any{}, nil
 }
 
+func (s *fakeDeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error) {
+	return domain.LabelList{}, nil
+}
+
 func (s *fakeDeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.DevicesSummary, error) {
 	return &domain.DevicesSummary{}, nil
 }

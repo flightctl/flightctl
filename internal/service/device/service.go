@@ -48,4 +48,8 @@ type Service interface {
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
 	ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
+	// ListLabels was never migrated into any focused sub-package during the service-decomposition
+	// epic; it only ever supports domain.DeviceKind (see internal/service/labels.go), so it
+	// belongs here rather than in a new cross-resource home.
+	ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status)
 }

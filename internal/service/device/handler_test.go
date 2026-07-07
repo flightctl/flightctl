@@ -425,6 +425,21 @@ func TestCountDevicesByLabels(t *testing.T) {
 	require.NotNil(t, result)
 }
 
+func TestListLabels(t *testing.T) {
+	t.Run("When kind is Device it should succeed", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		result, status := svc.ListLabels(context.Background(), uuid.New(), domain.ListLabelsParams{Kind: "Device"})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+	})
+
+	t.Run("When kind is unsupported it should return a bad-request status", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		_, status := svc.ListLabels(context.Background(), uuid.New(), domain.ListLabelsParams{Kind: "Fleet"})
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+	})
+}
+
 func TestGetDevicesSummary(t *testing.T) {
 	_, _, svc := newTestHandler()
 	result, status := svc.GetDevicesSummary(context.Background(), uuid.New(), domain.ListDevicesParams{}, nil)

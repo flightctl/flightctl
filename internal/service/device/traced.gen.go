@@ -167,6 +167,14 @@ func (_d *TracedDeviceService) ListDevicesByServiceCondition(ctx context.Context
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (lp1 *domain.LabelList, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ListLabels")
+
+	lp1, s1 = _d.inner.ListLabels(ctx, orgId, params)
+	endSpan(span, s1)
+	return lp1, s1
+}
+
 func (_d *TracedDeviceService) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "MarkDevicesRolloutSelection")
 
