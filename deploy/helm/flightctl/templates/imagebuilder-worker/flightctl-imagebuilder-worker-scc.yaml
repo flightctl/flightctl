@@ -22,7 +22,6 @@ allowedCapabilities:
   - MKNOD
   - SYS_CHROOT
   - SETFCAP
-  - '*'
 defaultAddCapabilities: null
 fsGroup:
   type: RunAsAny
