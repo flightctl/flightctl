@@ -20,11 +20,13 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -40,32 +42,39 @@ const maxConcurrentAgents = 15
 
 // ServiceHandler implements Service. It holds the isolated EnrollmentRequest store, the
 // isolated Device store (for the three call sites that check/create devices during
-// enrollment and approval), the CA client (approval flow signs certificates), the KV store
-// (awaiting-reconnect bookkeeping), events, and its own agent-request semaphore. `agentEndpoint`
-// is deliberately omitted: none of the 9 in-scope methods reference it today (it is only used
-// by GetEnrollmentConfig/GenerateEnrollmentCredential, which are out of this story's scope).
+// enrollment and approval), the isolated CertificateSigningRequest store (GetEnrollmentConfig's
+// optional already-issued-certificate lookup), the CA client (approval flow signs
+// certificates, GetEnrollmentConfig returns the CA bundle), the KV store (awaiting-reconnect
+// bookkeeping), events, and its own agent-request semaphore.
 type ServiceHandler struct {
 	store       enrollmentrequeststore.Store
 	deviceStore devicestore.Store
+	csrStore    certificatesigningrequeststore.Store
 	ca          *crypto.CAClient
 	kvStore     kvstore.KVStore
 	events      events.Service
 	log         logrus.FieldLogger
 	tpmCAPaths  []string
 	agentGate   *semaphore.Weighted
+
+	agentEndpoint string
+	uiUrl         string
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
-		store:       store,
-		deviceStore: deviceStore,
-		ca:          ca,
-		kvStore:     kvStore,
-		events:      events,
-		log:         log,
-		tpmCAPaths:  tpmCAPaths,
-		agentGate:   semaphore.NewWeighted(maxConcurrentAgents),
+		store:         store,
+		deviceStore:   deviceStore,
+		csrStore:      csrStore,
+		ca:            ca,
+		kvStore:       kvStore,
+		events:        events,
+		log:           log,
+		tpmCAPaths:    tpmCAPaths,
+		agentGate:     semaphore.NewWeighted(maxConcurrentAgents),
+		agentEndpoint: agentEndpoint,
+		uiUrl:         uiUrl,
 	}
 }
 
@@ -637,4 +646,43 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 		// since this callback is only called when the approval process succeeds
 		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 	}
+}
+
+// GetEnrollmentConfig was never migrated into any focused sub-package during the
+// service-decomposition epic (internal/service/enrollmentconfig.go), moved here verbatim.
+func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
+	caCert, err := h.ca.GetCABundle()
+	if err != nil {
+		return nil, domain.StatusInternalServerError("failed to get CA certificate")
+	}
+
+	clientCert := []byte{}
+	if params.Csr != nil {
+		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
+			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+		}
+
+		csr, err := h.csrStore.Get(ctx, orgId, *params.Csr)
+		if err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, params.Csr)
+		}
+
+		if csr.Status != nil && csr.Status.Certificate != nil {
+			clientCert = *csr.Status.Certificate
+		}
+	}
+
+	return &domain.EnrollmentConfig{
+		EnrollmentService: domain.EnrollmentService{
+			Authentication: domain.EnrollmentServiceAuth{
+				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
+				ClientKeyData:         "",
+			},
+			Service: domain.EnrollmentServiceService{
+				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
+				Server:                   h.agentEndpoint,
+			},
+			EnrollmentUiEndpoint: h.uiUrl,
+		},
+	}, domain.StatusOK()
 }
