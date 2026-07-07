@@ -54,11 +54,11 @@ imagebuilder-worker:
 # in parser.go) because they belong to the optional flightctl-observability stack.
 # Mirror them manually for air-gapped deployments — see deploying-observability-linux.md.
 grafana:
-  image: docker.io/grafana/grafana
-  tag: latest
+  image: quay.io/ceph/grafana
+  tag: 12.0.2
 prometheus:
-  image: docker.io/prom/prometheus
-  tag: v2.13.1
+  image: quay.io/prometheus/prometheus
+  tag: "v2.43.1"
 telemetry-gateway:
   image: quay.io/flightctl/flightctl-telemetry-gateway-el9
   tag: latest
