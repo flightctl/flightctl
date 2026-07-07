@@ -1213,3 +1213,111 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		})
 	}
 }
+
+func TestQuadlet_LifecycleHandler(t *testing.T) {
+	const testAppID = "test-id"
+	const testTarget = "test-id-flightctl-quadlet-app.target"
+
+	testAction := Action{
+		ID:   testAppID,
+		Name: "test-app",
+	}
+
+	testCases := []struct {
+		name       string
+		operation  func(q *Quadlet, action Action) error
+		setupMocks func(*systemd.MockManager)
+		wantErr    bool
+	}{
+		{
+			name: "When Stop is called it should stop the target unit without daemon reload or resource cleanup",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Stop(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), testTarget).Return(nil)
+			},
+		},
+		{
+			name: "When Stop fails it should propagate the error",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Stop(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), testTarget).Return(fmt.Errorf("unit not found"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "When Start is called it should start the target unit without daemon reload",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Start(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Start(gomock.Any(), testTarget).Return(nil)
+			},
+		},
+		{
+			name: "When Start fails it should propagate the error",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Start(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Start(gomock.Any(), testTarget).Return(fmt.Errorf("unit not found"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "When Restart is called it should restart the target unit",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Restart(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Restart(gomock.Any(), testTarget).Return(nil)
+			},
+		},
+		{
+			name: "When Restart fails it should propagate the error",
+			operation: func(q *Quadlet, action Action) error {
+				return q.Restart(context.Background(), action)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Restart(gomock.Any(), testTarget).Return(fmt.Errorf("unit restart failed"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSystemdMgr := systemd.NewMockManager(ctrl)
+			tc.setupMocks(mockSystemdMgr)
+
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
+
+			q := NewQuadlet(log.NewPrefixLogger("test"), nil, systemdFactory, nil)
+			err := tc.operation(q, testAction)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+
+	t.Run("When systemd factory fails Stop should return error", func(t *testing.T) {
+		require := require.New(t)
+		var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+			return nil, fmt.Errorf("factory error")
+		}
+		q := NewQuadlet(log.NewPrefixLogger("test"), nil, systemdFactory, nil)
+		err := q.Stop(context.Background(), testAction)
+		require.Error(err)
+	})
+}

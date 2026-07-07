@@ -85,6 +85,11 @@ type ApplicationSpec struct {
 	HelmApp      *v1beta1.HelmApplication
 	ComposeApp   *v1beta1.ComposeApplication
 	QuadletApp   *v1beta1.QuadletApplication
+
+	// Lifecycle intent from the desired spec. These fields do not affect
+	// installation decisions and are excluded from the install diff (isEqual).
+	DesiredState      v1beta1.ApplicationDesiredState
+	RestartGeneration int
 }
 
 func pullAuthPathForUser(username v1beta1.Username) string {
@@ -843,9 +848,48 @@ func WithAppDataCache(cache map[string]*AppData) ParseOpt {
 	}
 }
 
-// isEqual compares two application providers and returns true if they are equal.
+// isEqual compares two application providers for installation equality.
+// Lifecycle intent fields (DesiredState, RestartGeneration) are excluded because
+// a change to them should not trigger a reinstall.
 func isEqual(a, b Provider) bool {
-	return reflect.DeepEqual(a.Spec(), b.Spec())
+	as, bs := *a.Spec(), *b.Spec()
+	clearLifecycleFields(&as)
+	clearLifecycleFields(&bs)
+	return reflect.DeepEqual(as, bs)
+}
+
+// clearLifecycleFields zeroes the lifecycle intent fields (DesiredState, RestartGeneration)
+// on an ApplicationSpec. The render pipeline bakes these onto the top-level spec as well as
+// into a copy on the app-type-specific struct (ContainerApp/ComposeApp/QuadletApp/HelmApp),
+// so both copies must be cleared for isEqual to correctly ignore lifecycle-only changes.
+func clearLifecycleFields(s *ApplicationSpec) {
+	s.DesiredState = ""
+	s.RestartGeneration = 0
+
+	if s.ContainerApp != nil {
+		app := *s.ContainerApp
+		app.DesiredState = nil
+		app.RestartGeneration = nil
+		s.ContainerApp = &app
+	}
+	if s.ComposeApp != nil {
+		app := *s.ComposeApp
+		app.DesiredState = nil
+		app.RestartGeneration = nil
+		s.ComposeApp = &app
+	}
+	if s.QuadletApp != nil {
+		app := *s.QuadletApp
+		app.DesiredState = nil
+		app.RestartGeneration = nil
+		s.QuadletApp = &app
+	}
+	if s.HelmApp != nil {
+		app := *s.HelmApp
+		app.DesiredState = nil
+		app.RestartGeneration = nil
+		s.HelmApp = &app
+	}
 }
 
 // AppData holds the extracted application data and cleanup function

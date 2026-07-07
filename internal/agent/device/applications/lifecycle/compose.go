@@ -17,6 +17,7 @@ const (
 )
 
 var _ ActionHandler = (*Compose)(nil)
+var _ LifecycleHandler = (*Compose)(nil)
 
 type Compose struct {
 	podmanFactory client.PodmanFactory
@@ -156,6 +157,33 @@ func cleanPodmanResources(ctx context.Context, log *log.PrefixLogger, podman *cl
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+// Stop stops compose containers without removing them or their associated resources.
+func (c *Compose) Stop(ctx context.Context, action Action) error {
+	podman, err := c.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+	return podman.Compose().Stop(ctx, action.Path, action.ID)
+}
+
+// Start starts a previously stopped compose application.
+func (c *Compose) Start(ctx context.Context, action Action) error {
+	podman, err := c.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+	noRecreate := true
+	return podman.Compose().UpFromWorkDir(ctx, action.Path, action.ID, noRecreate)
+}
+
+// Restart stops then starts the compose application.
+func (c *Compose) Restart(ctx context.Context, action Action) error {
+	if err := c.Stop(ctx, action); err != nil {
+		return err
+	}
+	return c.Start(ctx, action)
 }
 
 func (c *Compose) Execute(ctx context.Context, actions Actions) error {

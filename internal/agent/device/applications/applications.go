@@ -76,6 +76,7 @@ type Manager interface {
 	// application is valid and dependencies are met.
 	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
+	// It executes queued install/remove/update actions and reconciles stop/start/restart lifecycle.
 	AfterUpdate(ctx context.Context) error
 	// Shutdown closes the manager according to the corresponding shutdown state
 	Shutdown(ctx context.Context, state shutdown.State) error
@@ -119,6 +120,15 @@ type Application interface {
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// SetDesiredState records the operator-intended lifecycle state for this application.
+	// Called after a successful stop/start/restart to inform Status() of intent.
+	SetDesiredState(state v1beta1.ApplicationDesiredState)
+	// DesiredState returns the operator-intended lifecycle state for this application.
+	DesiredState() v1beta1.ApplicationDesiredState
+	// SetRestartGeneration updates the restart generation counter (called on each spec sync).
+	SetRestartGeneration(gen int)
+	// RestartGeneration returns the restart generation counter from the desired spec.
+	RestartGeneration() int
 	// ActionSpec returns the type-specific action configuration for this application.
 	ActionSpec() lifecycle.ActionSpec
 }
@@ -133,12 +143,14 @@ type Workload struct {
 }
 
 type application struct {
-	id         string
-	path       string
-	workloads  []Workload
-	volume     provider.VolumeManager
-	status     *v1beta1.DeviceApplicationStatus
-	actionSpec lifecycle.ActionSpec
+	id                string
+	path              string
+	workloads         []Workload
+	volume            provider.VolumeManager
+	status            *v1beta1.DeviceApplicationStatus
+	actionSpec        lifecycle.ActionSpec
+	desiredState      v1beta1.ApplicationDesiredState
+	restartGeneration int
 }
 
 // NewApplication creates a new application from an application provider.
@@ -163,7 +175,9 @@ func NewApplication(p provider.Provider) *application {
 			AppType:  appType,
 			RunAs:    spec.User,
 		},
-		volume: spec.Volume,
+		volume:            spec.Volume,
+		desiredState:      spec.DesiredState,
+		restartGeneration: spec.RestartGeneration,
 	}
 }
 
@@ -265,12 +279,29 @@ func (a *application) Volume() provider.VolumeManager {
 	return a.volume
 }
 
+func (a *application) SetDesiredState(state v1beta1.ApplicationDesiredState) {
+	a.desiredState = state
+}
+
+func (a *application) DesiredState() v1beta1.ApplicationDesiredState {
+	return a.desiredState
+}
+
+func (a *application) SetRestartGeneration(gen int) {
+	a.restartGeneration = gen
+}
+
+func (a *application) RestartGeneration() int {
+	return a.restartGeneration
+}
+
 func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -280,6 +311,12 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		}
+		// A workload that has reached a terminal container state counts as stopped
+		// regardless of exit code: when we asked the app to stop, a non-zero exit
+		// (e.g. a VM process killed by systemctl stop) is expected, not an error.
+		if isTerminal(workload.Status) {
+			stopped++
 		}
 	}
 
@@ -291,6 +328,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	// order is important
 	switch {
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, stopped)):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped:
+		// Workloads are still present — stopping is in progress.
+		newStatus = v1beta1.ApplicationStatusStopping
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
@@ -331,6 +375,17 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	a.volume.Status(a.status)
 
 	return a.status, summary, nil
+}
+
+// isTerminal reports whether a workload has reached a terminal container state,
+// i.e. it is no longer running, regardless of its exit code.
+func isTerminal(status StatusType) bool {
+	switch status {
+	case StatusExited, StatusDie, StatusDied, StatusRemove:
+		return true
+	default:
+		return false
+	}
 }
 
 func isStarting(total, healthy, initializing int) bool {
