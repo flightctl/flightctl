@@ -165,10 +165,12 @@ var _ kvstore.KVStore = (*fakeKVStore)(nil)
 
 const fakePodUnit = "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target\n"
 
-// fakeQuadletFiles is a minimal set of Quadlet files that vm-to-quadlet would produce.
+// fakeQuadletFiles is a minimal set of Quadlet files that vm-to-quadlet would
+// produce. The pod unit is deliberately named after KubeVirt's virt-launcher
+// pod convention (not the raw VM name) to mirror real vm-to-quadlet output.
 var fakeQuadletFiles = map[string]string{
-	"my-vm.pod":               fakePodUnit,
-	"my-vm-compute.container": "[Container]\nImage=quay.io/kubevirt/virt-launcher:v1.8.4\n",
+	"virt-launcher-my-vm.pod":               fakePodUnit,
+	"virt-launcher-my-vm-compute.container": "[Container]\nImage=quay.io/kubevirt/virt-launcher:v1.8.4\n",
 }
 
 func TestRenderVmApplication(t *testing.T) {
@@ -287,9 +289,12 @@ func TestRenderVmApplication(t *testing.T) {
 				}
 			}
 
-			// Verify publishPorts injection.
+			// Verify publishPorts injection. The pod unit is looked up by
+			// suffix since vm-to-quadlet does not name it after the raw VM name.
 			if len(tc.publishPorts) > 0 {
-				podContent := fileMap[tc.vmName+".pod"]
+				podFileName, err := findPodFile(fileMap)
+				require.NoError(t, err)
+				podContent := fileMap[podFileName]
 				for _, port := range tc.publishPorts {
 					assert.Contains(t, podContent, "PublishPort="+port)
 				}
@@ -298,6 +303,33 @@ func TestRenderVmApplication(t *testing.T) {
 			assert.NotContains(t, fileMap, vmYamlFileName, "vm.yaml must not appear in the rendered QuadletApplication")
 		})
 	}
+}
+
+// TestRenderVmApplication_PreservesLifecycleFields verifies that desiredState/
+// restartGeneration set on the source VmApplication (by the device render task's
+// application lifecycle annotation overlay, see domain.OverlayApplicationLifecycle)
+// survive the VM-to-Quadlet conversion done here, since renderVmApplication builds a
+// brand new QuadletApplication rather than mutating the original app in place.
+func TestRenderVmApplication_PreservesLifecycleFields(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	appSpec := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": minimalVmYAML("my-vm")}, nil)
+	vmApp, err := appSpec.AsVmApplication()
+	require.NoError(t, err)
+	vmApp.DesiredState = lo.ToPtr(domain.ApplicationDesiredStateStopped)
+	vmApp.RestartGeneration = lo.ToPtr(3)
+
+	result, err := renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), newFakeKVStore())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	quadlet, err := result.AsQuadletApplication()
+	require.NoError(t, err)
+	require.NotNil(t, quadlet.DesiredState)
+	assert.Equal(t, domain.ApplicationDesiredStateStopped, *quadlet.DesiredState)
+	require.NotNil(t, quadlet.RestartGeneration)
+	assert.Equal(t, 3, *quadlet.RestartGeneration)
 }
 
 // TestRenderVmApplication_CachePopulatedOnMiss verifies that after a cache miss
@@ -398,37 +430,54 @@ func TestInjectPublishPorts(t *testing.T) {
 	tests := []struct {
 		name         string
 		files        map[string]string
-		vmName       string
 		publishPorts []string
+		wantPodFile  string
 		wantPodHas   []string
 		wantErr      string
 	}{
 		{
 			name:         "When publishPorts is empty it should not modify any file",
 			files:        map[string]string{"my-vm.pod": "[Pod]\n\n[Install]\nWantedBy=default.target\n"},
-			vmName:       "my-vm",
 			publishPorts: nil,
 		},
 		{
 			name:         "When publishPorts has one port it should inject into the Pod section",
 			files:        map[string]string{"my-vm.pod": "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target\n"},
-			vmName:       "my-vm",
 			publishPorts: []string{"8080:80"},
+			wantPodFile:  "my-vm.pod",
 			wantPodHas:   []string{"PublishPort=8080:80"},
 		},
 		{
 			name:         "When publishPorts has multiple ports it should inject all",
 			files:        map[string]string{"my-vm.pod": "[Pod]\n\n[Install]\nWantedBy=default.target\n"},
-			vmName:       "my-vm",
 			publishPorts: []string{"8080:80", "8443:443/tcp"},
+			wantPodFile:  "my-vm.pod",
 			wantPodHas:   []string{"PublishPort=8080:80", "PublishPort=8443:443/tcp"},
+		},
+		{
+			name: "When the pod unit is not named after the VM it should still find and inject it",
+			files: map[string]string{
+				"virt-launcher-my-vm.pod":               "[Pod]\n\n[Install]\nWantedBy=default.target\n",
+				"virt-launcher-my-vm-compute.container": "[Container]\n",
+			},
+			publishPorts: []string{"8080:80"},
+			wantPodFile:  "virt-launcher-my-vm.pod",
+			wantPodHas:   []string{"PublishPort=8080:80"},
 		},
 		{
 			name:         "When .pod file is absent it should return an error",
 			files:        map[string]string{"my-vm-compute.container": "[Container]\n"},
-			vmName:       "my-vm",
 			publishPorts: []string{"8080:80"},
-			wantErr:      "my-vm.pod",
+			wantErr:      "no .pod file found",
+		},
+		{
+			name: "When multiple .pod files are present it should return an error",
+			files: map[string]string{
+				"my-vm.pod":   "[Pod]\n",
+				"my-vm-2.pod": "[Pod]\n",
+			},
+			publishPorts: []string{"8080:80"},
+			wantErr:      "expected exactly one .pod file",
 		},
 	}
 	for _, tc := range tests {
@@ -439,14 +488,14 @@ func TestInjectPublishPorts(t *testing.T) {
 			for k, v := range tc.files {
 				files[k] = v
 			}
-			err := injectPublishPorts(files, tc.vmName, tc.publishPorts)
+			err := injectPublishPorts(files, tc.publishPorts)
 			if tc.wantErr != "" {
 				assert.ErrorContains(t, err, tc.wantErr)
 				return
 			}
 			assert.NoError(t, err)
 			if len(tc.wantPodHas) > 0 {
-				podContent := files[tc.vmName+".pod"]
+				podContent := files[tc.wantPodFile]
 				for _, want := range tc.wantPodHas {
 					assert.Contains(t, podContent, want)
 				}

@@ -196,6 +196,27 @@ func (t *TracedService) DecommissionDevice(ctx context.Context, orgId uuid.UUID,
 	return resp, st
 }
 
+func (t *TracedService) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
+	ctx, span := startSpan(ctx, "StopDeviceApplication")
+	resp, st := t.inner.StopDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
+	ctx, span := startSpan(ctx, "StartDeviceApplication")
+	resp, st := t.inner.StartDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
+	ctx, span := startSpan(ctx, "RestartDeviceApplication")
+	resp, st := t.inner.RestartDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	ctx, span := startSpan(ctx, "ResumeDevices")
 	resp, st := t.inner.ResumeDevices(ctx, orgId, request)
@@ -208,9 +229,9 @@ func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApps, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash, configFingerprints)
+	st := t.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApps, specHash, configFingerprints, forceUpdate)
 	endSpan(span, st)
 	return st
 }
@@ -423,6 +444,20 @@ func (t *TracedService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId 
 func (t *TracedService) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
 	ctx, span := startSpan(ctx, "GetFleetRepositoryRefs")
 	resp, st := t.inner.GetFleetRepositoryRefs(ctx, orgId, name)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) StopFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status) {
+	ctx, span := startSpan(ctx, "StopFleetApplication")
+	resp, st := t.inner.StopFleetApplication(ctx, orgId, name, appName)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status) {
+	ctx, span := startSpan(ctx, "StartFleetApplication")
+	resp, st := t.inner.StartFleetApplication(ctx, orgId, name, appName)
 	endSpan(span, st)
 	return resp, st
 }

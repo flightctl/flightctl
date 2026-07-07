@@ -135,6 +135,27 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 	h.SetResponse(w, apiResult, status)
 }
 
+// (POST /api/v1/devices/{name}/applications/{appname}/stop)
+func (h *TransportHandler) StopDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.StopDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	apiResult := h.converter.Device().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
+// (POST /api/v1/devices/{name}/applications/{appname}/start)
+func (h *TransportHandler) StartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.StartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	apiResult := h.converter.Device().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
+// (POST /api/v1/devices/{name}/applications/{appname}/restart)
+func (h *TransportHandler) RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
+	body, status := h.serviceHandler.RestartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	apiResult := h.converter.Device().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
 // (POST /api/v1/deviceactions/resume)
 func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	var request apiv1beta1.DeviceResumeRequest

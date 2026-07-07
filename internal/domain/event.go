@@ -97,6 +97,7 @@ const (
 	EventReasonResourceUpdateFailed            = v1beta1.EventReasonResourceUpdateFailed
 	EventReasonResourceUpdated                 = v1beta1.EventReasonResourceUpdated
 	EventReasonSystemRestored                  = v1beta1.EventReasonSystemRestored
+	EventReasonApplicationLifecycleChanged     = v1beta1.EventReasonApplicationLifecycleChanged
 )
 
 // ========== Event Details Types ==========
@@ -116,6 +117,9 @@ type DeviceVulnerabilityCveDetails = v1beta1.DeviceVulnerabilityCveDetails
 type DeviceVulnerabilityCveDetailsDetailType = v1beta1.DeviceVulnerabilityCveDetailsDetailType
 type DependencySyncProbeFailedDetails = v1beta1.DependencySyncProbeFailedDetails
 type DependencySyncProbeFailedDetailsDetailType = v1beta1.DependencySyncProbeFailedDetailsDetailType
+type ApplicationLifecycleChangedDetails = v1beta1.ApplicationLifecycleChangedDetails
+type ApplicationLifecycleChangedDetailsDetailType = v1beta1.ApplicationLifecycleChangedDetailsDetailType
+type ApplicationLifecycleChangedDetailsAction = v1beta1.ApplicationLifecycleChangedDetailsAction
 
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed
@@ -124,6 +128,12 @@ const (
 	DependencySyncProbeFailedDT   = v1beta1.DependencySyncProbeFailed
 	ReferencedRepositoryUpdated   = v1beta1.ReferencedRepositoryUpdated
 	ResourceUpdated               = v1beta1.ResourceUpdated
+	ApplicationLifecycleChangedDT = v1beta1.ApplicationLifecycleChangedDetailType
+
+	// Application lifecycle action constants
+	ApplicationLifecycleActionStop    = v1beta1.ApplicationLifecycleActionStop
+	ApplicationLifecycleActionStart   = v1beta1.ApplicationLifecycleActionStart
+	ApplicationLifecycleActionRestart = v1beta1.ApplicationLifecycleActionRestart
 
 	// Updated field constants with prefix (descriptive)
 	UpdatedFieldLabels       = v1beta1.Labels

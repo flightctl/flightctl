@@ -241,6 +241,11 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet: %s", status.Message)
 	}
+
+	if err := f.syncFleetApplicationLifecycleDefault(ctx, device, fleet); err != nil {
+		f.log.Errorf("failed to sync fleet application lifecycle default to device %s: %v", f.event.InvolvedObject.Name, err)
+	}
+
 	rolloutProgressStage, err := rollout.ProgressStage(fleet)
 	if err != nil {
 		return fmt.Errorf("failed to find rollout progress stage for fleet: %w", err)
@@ -260,6 +265,27 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		f.log.Errorf("failed to replace dependency refs for device %s: %s", deviceName, st.Message)
 	}
 	return nil
+}
+
+// syncFleetApplicationLifecycleDefault bootstraps the device's local cache of the owning
+// fleet's application lifecycle default (see DeviceAnnotationFleetApplicationLifecycle) so
+// device-render can read it without a Fleet lookup of its own. This only ever runs once per
+// device, the first time it is rolled out with no cache annotation yet (e.g. newly created or
+// newly (re)assigned to the fleet): once a device has a cache value, only the fleet-scoped
+// stop/start APIs update it again (see fleetApplicationLifecycle task), so a routine rollout
+// can never silently overwrite a lifecycle action taken after the device joined the fleet.
+func (f FleetRolloutsLogic) syncFleetApplicationLifecycleDefault(ctx context.Context, device *domain.Device, fleet *domain.Fleet) error {
+	if _, alreadySynced := lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationFleetApplicationLifecycle]; alreadySynced {
+		return nil
+	}
+	fleetRaw := lo.FromPtr(fleet.Metadata.Annotations)[domain.FleetAnnotationApplicationLifecycle]
+	if fleetRaw == "" {
+		return nil
+	}
+
+	deviceName := lo.FromPtr(device.Metadata.Name)
+	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: fleetRaw}, nil)
+	return service.ApiStatusToErr(status)
 }
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
@@ -335,6 +361,11 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return depRefs, nil
 }
 
+// getDeviceApps evaluates the fleet template's applications against the device's labels
+// (parameter substitution). The device's DeviceAnnotationApplicationLifecycle annotation is
+// not overlaid here: it is applied by the device render task directly onto
+// RenderedApplications, so it survives fleet template rollouts without ever being persisted
+// into the device's Spec.Applications.
 func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ApplicationProviderSpec, []error) {
 	if templateVersion.Status.Applications == nil {
 		return nil, nil

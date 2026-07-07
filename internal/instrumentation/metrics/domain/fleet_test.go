@@ -102,6 +102,10 @@ func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
+func (m *MockFleetStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	return nil
+}
+
 func (m *MockFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
 }

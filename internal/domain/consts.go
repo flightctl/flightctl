@@ -27,16 +27,18 @@ const (
 
 // Device annotation keys
 const (
-	DeviceAnnotationConsole                 = v1beta1.DeviceAnnotationConsole
-	DeviceAnnotationRemoteSession           = v1beta1.DeviceAnnotationRemoteSession
-	DeviceAnnotationRenderedVersion         = v1beta1.DeviceAnnotationRenderedVersion
-	DeviceAnnotationAwaitingReconnect       = v1beta1.DeviceAnnotationAwaitingReconnect
-	DeviceAnnotationConflictPaused          = v1beta1.DeviceAnnotationConflictPaused
-	DeviceAnnotationTemplateVersion         = v1beta1.DeviceAnnotationTemplateVersion
-	DeviceAnnotationRenderedTemplateVersion = v1beta1.DeviceAnnotationRenderedTemplateVersion
-	DeviceAnnotationRenderedSpecHash        = v1beta1.DeviceAnnotationRenderedSpecHash
-	DeviceAnnotationSelectedForRollout      = v1beta1.DeviceAnnotationSelectedForRollout
-	DeviceAnnotationLastRolloutError        = v1beta1.DeviceAnnotationLastRolloutError
+	DeviceAnnotationConsole                   = v1beta1.DeviceAnnotationConsole
+	DeviceAnnotationRemoteSession             = v1beta1.DeviceAnnotationRemoteSession
+	DeviceAnnotationRenderedVersion           = v1beta1.DeviceAnnotationRenderedVersion
+	DeviceAnnotationAwaitingReconnect         = v1beta1.DeviceAnnotationAwaitingReconnect
+	DeviceAnnotationConflictPaused            = v1beta1.DeviceAnnotationConflictPaused
+	DeviceAnnotationTemplateVersion           = v1beta1.DeviceAnnotationTemplateVersion
+	DeviceAnnotationRenderedTemplateVersion   = v1beta1.DeviceAnnotationRenderedTemplateVersion
+	DeviceAnnotationRenderedSpecHash          = v1beta1.DeviceAnnotationRenderedSpecHash
+	DeviceAnnotationSelectedForRollout        = v1beta1.DeviceAnnotationSelectedForRollout
+	DeviceAnnotationLastRolloutError          = v1beta1.DeviceAnnotationLastRolloutError
+	DeviceAnnotationApplicationLifecycle      = v1beta1.DeviceAnnotationApplicationLifecycle
+	DeviceAnnotationFleetApplicationLifecycle = v1beta1.DeviceAnnotationFleetApplicationLifecycle
 )
 
 const DeviceDisconnectedTimeout = v1beta1.DeviceDisconnectedTimeout
@@ -67,6 +69,7 @@ const (
 	FleetAnnotationRolloutApprovalMethod       = v1beta1.FleetAnnotationRolloutApprovalMethod
 	FleetAnnotationLastBatchCompletionReport   = v1beta1.FleetAnnotationLastBatchCompletionReport
 	FleetAnnotationDeviceSelectionConfigDigest = v1beta1.FleetAnnotationDeviceSelectionConfigDigest
+	FleetAnnotationApplicationLifecycle        = v1beta1.FleetAnnotationApplicationLifecycle
 )
 
 // ========== Event ==========

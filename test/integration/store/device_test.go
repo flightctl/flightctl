@@ -806,6 +806,68 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
 		})
 
+		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {
+			err := devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{"unrelated": "kept"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
+				Expect(current).To(Equal(""), "mutate should observe the empty string when the key is unset")
+				return "1", nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*dev.Metadata.Annotations)["counter"]).To(Equal("1"))
+			Expect((*dev.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "MutateAnnotation must not clobber unrelated annotation keys")
+		})
+
+		It("MutateAnnotation re-invokes mutate with the freshly-read value on every call", func() {
+			for i := 1; i <= 3; i++ {
+				expected := i
+				err := devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
+					n := 0
+					if current != "" {
+						_, err := fmt.Sscanf(current, "%d", &n)
+						Expect(err).ToNot(HaveOccurred())
+					}
+					return fmt.Sprintf("%d", n+1), nil
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+				Expect(err).ToNot(HaveOccurred())
+				Expect((*dev.Metadata.Annotations)["counter"]).To(Equal(fmt.Sprintf("%d", expected)))
+			}
+		})
+
+		It("MutateAnnotation is safe against concurrent read-modify-write races (no lost updates)", func() {
+			const numWriters = 8
+			errCh := make(chan error, numWriters)
+			for i := 0; i < numWriters; i++ {
+				go func() {
+					errCh <- devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
+						n := 0
+						if current != "" {
+							_, err := fmt.Sscanf(current, "%d", &n)
+							if err != nil {
+								return "", err
+							}
+						}
+						return fmt.Sprintf("%d", n+1), nil
+					})
+				}()
+			}
+			for i := 0; i < numWriters; i++ {
+				Expect(<-errCh).ToNot(HaveOccurred())
+			}
+
+			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*dev.Metadata.Annotations)["counter"]).To(Equal(fmt.Sprintf("%d", numWriters)),
+				"every concurrent increment must be observed; a lost update would leave the counter below numWriters")
+		})
+
 		Context("Device Resume Operations", func() {
 
 			Describe("RemoveConflictPausedAnnotation", func() {
@@ -1037,7 +1099,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -1060,7 +1122,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1074,6 +1136,31 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(provider.Inline[0].Content).To(Equal("this is the second config"))
 			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
 			Expect(renderedDevice.Version()).To(Equal("2"))
+		})
+
+		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
+			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev-force-update", nil, nil, nil)
+
+			config, err := createTestConfigProvider("initial config")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Establish an initial rendered version for a given specHash.
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(firstVersion).ToNot(BeEmpty())
+
+			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
+			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(noopVersion).To(BeEmpty())
+
+			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
+			// advance the rendered version, e.g. to reflect a device-level application lifecycle
+			// annotation change that isn't captured by specHash at all.
+			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(forcedVersion).ToNot(BeEmpty())
+			Expect(forcedVersion).ToNot(Equal(firstVersion))
 		})
 
 		It("OverwriteRepositoryRefs", func() {

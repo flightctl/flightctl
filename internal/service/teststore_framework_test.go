@@ -272,6 +272,48 @@ func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *domai
 	return device, nil
 }
 
+func (s *DummyDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+	for i, dev := range *s.devices {
+		if name != lo.FromPtr(dev.Metadata.Name) {
+			continue
+		}
+		merged := map[string]string{}
+		for k, v := range lo.FromPtr(dev.Metadata.Annotations) {
+			merged[k] = v
+		}
+		for k, v := range annotations {
+			merged[k] = v
+		}
+		for _, k := range deleteKeys {
+			delete(merged, k)
+		}
+		(*s.devices)[i].Metadata.Annotations = &merged
+		return nil
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyDevice) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	for i, dev := range *s.devices {
+		if name != lo.FromPtr(dev.Metadata.Name) {
+			continue
+		}
+		existing := lo.FromPtr(dev.Metadata.Annotations)
+		newValue, err := mutate(existing[key])
+		if err != nil {
+			return err
+		}
+		merged := map[string]string{}
+		for k, v := range existing {
+			merged[k] = v
+		}
+		merged[key] = newValue
+		(*s.devices)[i].Metadata.Annotations = &merged
+		return nil
+	}
+	return flterrors.ErrResourceNotFound
+}
+
 func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, callbackEvent store.EventCallback) (*domain.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
@@ -326,6 +368,27 @@ func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyFleet) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	for i, fleet := range *s.fleets {
+		if name != lo.FromPtr(fleet.Metadata.Name) {
+			continue
+		}
+		existing := lo.FromPtr(fleet.Metadata.Annotations)
+		newValue, err := mutate(existing[key])
+		if err != nil {
+			return err
+		}
+		merged := map[string]string{}
+		for k, v := range existing {
+			merged[k] = v
+		}
+		merged[key] = newValue
+		(*s.fleets)[i].Metadata.Annotations = &merged
+		return nil
+	}
+	return flterrors.ErrResourceNotFound
 }
 
 func (s *DummyFleet) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {

@@ -786,7 +786,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Give device rendered content (version 1)
 			renderedConfig, err := createMinimalRenderedConfig("test-config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil)
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set device annotations: AwaitingReconnect and service version 1 (device 5 > service 1 -> ConflictPaused)
@@ -837,7 +837,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			renderedConfig, err := createMinimalRenderedConfig("test-config-2")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil)
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{

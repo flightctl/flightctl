@@ -16,6 +16,7 @@ const (
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
 	API_RESOURCE_DEVICES = "devices"
 	API_RESOURCE_DEVICES_APPLICATIONS_CONSOLE = "devices/applications/console"
+	API_RESOURCE_DEVICES_APPLICATIONS_LIFECYCLE = "devices/applications/lifecycle"
 	API_RESOURCE_DEVICES_CONSOLE = "devices/console"
 	API_RESOURCE_DEVICES_DECOMMISSION = "devices/decommission"
 	API_RESOURCE_DEVICES_LASTSEEN = "devices/lastseen"
@@ -27,6 +28,7 @@ const (
 	API_RESOURCE_ENROLLMENTREQUESTS_STATUS = "enrollmentrequests/status"
 	API_RESOURCE_EVENTS = "events"
 	API_RESOURCE_FLEETS = "fleets"
+	API_RESOURCE_FLEETS_APPLICATIONS_LIFECYCLE = "fleets/applications/lifecycle"
 	API_RESOURCE_FLEETS_STATUS = "fleets/status"
 	API_RESOURCE_FLEETS_TEMPLATEVERSIONS = "fleets/templateversions"
 	API_RESOURCE_LABELS = "labels"
@@ -387,6 +389,30 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
+	"POST:/devices/{name}/applications/{appname}/restart": {
+		OperationID: "restartDeviceApplication",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/devices/{name}/applications/{appname}/start": {
+		OperationID: "startDeviceApplication",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/devices/{name}/applications/{appname}/stop": {
+		OperationID: "stopDeviceApplication",
+		Resource:    "devices/applications/lifecycle",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
 	"PUT:/devices/{name}/decommission": {
 		OperationID: "decommissionDevice",
 		Resource:    "devices/decommission",
@@ -598,6 +624,22 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 	"PUT:/fleets/{name}": {
 		OperationID: "replaceFleet",
 		Resource:    "fleets",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/fleets/{name}/applications/{appname}/start": {
+		OperationID: "startFleetApplication",
+		Resource:    "fleets/applications/lifecycle",
+		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/fleets/{name}/applications/{appname}/stop": {
+		OperationID: "stopFleetApplication",
+		Resource:    "fleets/applications/lifecycle",
 		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},

@@ -8,6 +8,145 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// newTestContainerAppWithLifecycle builds a ContainerApplication with the given
+// desiredState/restartGeneration values set directly, simulating the annotation overlay the
+// render task performs onto RenderedApplications (these fields are readOnly: only ever set by
+// that overlay, never by apply).
+func newTestContainerAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	containerApp := ContainerApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeContainer,
+		Image:             "quay.io/app/image:1",
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromContainerApplication(containerApp))
+	return spec
+}
+
+// newTestHelmAppWithLifecycle builds a HelmApplication with the given desiredState/restartGeneration
+// values set directly. See newTestContainerAppWithLifecycle for rationale.
+func newTestHelmAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	helmApp := HelmApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeHelm,
+		Image:             "quay.io/app/chart:1",
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromHelmApplication(helmApp))
+	return spec
+}
+
+// newTestComposeAppWithLifecycle builds a ComposeApplication (image provider) with the given
+// desiredState/restartGeneration values set directly. See newTestContainerAppWithLifecycle for rationale.
+func newTestComposeAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	composeApp := ComposeApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeCompose,
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	require.NoError(composeApp.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{Image: "quay.io/app/image:1"}))
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromComposeApplication(composeApp))
+	return spec
+}
+
+// newTestQuadletAppWithLifecycle builds a QuadletApplication (image provider) with the given
+// desiredState/restartGeneration values set directly. See newTestContainerAppWithLifecycle for rationale.
+func newTestQuadletAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	quadletApp := QuadletApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeQuadlet,
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	require.NoError(quadletApp.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{Image: "quay.io/app/image:1"}))
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromQuadletApplication(quadletApp))
+	return spec
+}
+
+// newTestVmAppWithLifecycle builds a VmApplication (inline provider) with the given
+// desiredState/restartGeneration values set directly. See newTestContainerAppWithLifecycle for rationale.
+func newTestVmAppWithLifecycle(require *require.Assertions, name string, desiredState *ApplicationDesiredState, restartGeneration *int) ApplicationProviderSpec {
+	vmApp := VmApplication{
+		Name:              lo.ToPtr(name),
+		AppType:           AppTypeVm,
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	require.NoError(vmApp.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
+		Inline: []ApplicationContent{{Path: "vm.yaml", Content: lo.ToPtr(validVmYaml(name))}},
+	}))
+	var spec ApplicationProviderSpec
+	require.NoError(spec.FromVmApplication(vmApp))
+	return spec
+}
+
+func TestApplicationProviderSpecGetDesiredState(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		app      ApplicationProviderSpec
+		expected ApplicationDesiredState
+	}{
+		{
+			name:     "When desiredState is absent it should default to running",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+			expected: ApplicationDesiredStateRunning,
+		},
+		{
+			name:     "When desiredState is running it should return running",
+			app:      newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateRunning), nil),
+			expected: ApplicationDesiredStateRunning,
+		},
+		{
+			name:     "When desiredState is stopped it should return stopped",
+			app:      newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			expected: ApplicationDesiredStateStopped,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.app.GetDesiredState())
+		})
+	}
+}
+
+func TestApplicationProviderSpecGetRestartGeneration(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		app      ApplicationProviderSpec
+		expected int
+	}{
+		{
+			name:     "When restartGeneration is absent it should default to zero",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+			expected: 0,
+		},
+		{
+			name:     "When restartGeneration is zero it should return zero",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(0)),
+			expected: 0,
+		},
+		{
+			name:     "When restartGeneration is positive it should return that value",
+			app:      newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(5)),
+			expected: 5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.app.GetRestartGeneration())
+		})
+	}
+}
+
 func TestEventDetailsHasData(t *testing.T) {
 	tests := []struct {
 		name     string

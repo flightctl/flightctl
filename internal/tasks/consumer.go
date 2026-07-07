@@ -111,6 +111,13 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
+		if shouldReconcileFleetApplicationLifecycle(ctx, eventWithOrgId.Event, log) {
+			taskName = "fleetApplicationLifecycle"
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return fleetApplicationLifecycle(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
 
 		// Emit InternalTaskFailedEvent for any unhandled task failures
 		// This serves as a safety net while preserving specific error handling within tasks
@@ -260,7 +267,7 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonResourceCreated,
 		domain.EventReasonFleetRolloutDeviceSelected, domain.EventReasonDeviceConflictResolved,
-		domain.EventReasonDeviceDecommissioned}, event.Reason) {
+		domain.EventReasonDeviceDecommissioned, domain.EventReasonApplicationLifecycleChanged}, event.Reason) {
 		return true
 	}
 
@@ -281,6 +288,13 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 	}
 
 	return false
+}
+
+// shouldReconcileFleetApplicationLifecycle matches the event emitted by the fleet-scoped
+// stop/start APIs (see StopFleetApplication/StartFleetApplication) whenever the fleet-level
+// application lifecycle default changes, so it can be propagated to every member device.
+func shouldReconcileFleetApplicationLifecycle(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
+	return event.InvolvedObject.Kind == domain.FleetKind && event.Reason == domain.EventReasonApplicationLifecycleChanged
 }
 
 func shouldUpdateRepositoryReferers(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {

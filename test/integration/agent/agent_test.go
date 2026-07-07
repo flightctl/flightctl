@@ -261,7 +261,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// Update rendered once via the service so the rendered bus is notified (agent will see new version).
 				cfg, err := createMinimalRenderedConfig("config-v1")
 				Expect(err).ToNot(HaveOccurred())
-				st := h.ServiceHandler.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil)
+				st := h.ServiceHandler.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil, false)
 				Expect(st.Code).To(BeEquivalentTo(200))
 				renderedDev, getErr := (*h.Store).Device().GetRendered(h.Context, orgID, deviceName, nil, "")
 				Expect(getErr).ToNot(HaveOccurred())

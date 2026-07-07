@@ -83,6 +83,7 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonFleetRolloutBatchDispatched: {},
 	domain.EventReasonDeviceConflictResolved:      {},
 	domain.EventReasonDeviceDecommissioned:        {},
+	domain.EventReasonApplicationLifecycleChanged: {},
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {
