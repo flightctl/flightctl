@@ -247,7 +247,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			}
 		}
 	}
-	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, &fleetGetOnlyAdapter{inner: h.store.Fleet()}, h.log)
 
 	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
 		// Prevent overwriting existing devices during enrollment request approval

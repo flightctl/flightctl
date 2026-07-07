@@ -17,6 +17,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -26,25 +28,24 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// DeviceServiceHandler implements Service. store is deliberately the FULL store.Store
-// aggregate, not a narrow devicestore.Store - a confirmed exception to the pattern every
-// other resource sub-package in this epic follows. Root cause: common.UpdateServiceSideStatus
-// (called 8x below) takes st store.Store and internally calls st.Fleet().Get(...) to compute
-// managed-device status, so DeviceServiceHandler cannot satisfy that call with a devicestore.Store
-// field alone. Narrowing common.UpdateServiceSideStatus's signature is out of this story's
-// scope (it is shared with internal/service/enrollmentrequest and, transitively via
-// common.ComputeDeviceStatusChanges, internal/service/event's future callers).
+// DeviceServiceHandler implements Service. deviceStore/fleetStore are narrow sub-package
+// stores, not the full store.Store aggregate - deviceStore backs every Device method below,
+// and fleetStore exists solely because common.UpdateServiceSideStatus (called 8x below) needs
+// to call fleetStore.Get(...) to compute managed-device status (a Fleet↔Device coupling
+// resolved by narrowing common.UpdateServiceSideStatus's own signature to fleetstore.Store,
+// rather than keeping the full store.Store aggregate here as an earlier version of this
+// package did).
 //
 // Fields confirmed used by every method below (exhaustive grep against the monolithic
-// internal/service/device.go this package is migrated from): store, events, kvStore,
-// agentGate, agentEndpoint, log. Fields confirmed UNUSED by any Device method and therefore
-// excluded: ca, workerClient, tpmCAPaths, uiUrl, vulnerabilityEnabled, and any narrow
-// devicestore.Store/fleetstore.Store/repositorystore.Store/vulnerabilityfindingstore.Store
-// (GetDeviceRepositoryRefs/OverwriteDeviceRepositoryRefs delegate entirely through
-// store.Store.Device(), whose GORM associations resolve the repository cross-reference with
-// no separate Go-level dependency).
+// internal/service/device.go this package is migrated from): deviceStore, fleetStore, events,
+// kvStore, agentGate, agentEndpoint, log. Fields confirmed UNUSED by any Device method and
+// therefore excluded: ca, workerClient, tpmCAPaths, uiUrl, vulnerabilityEnabled, and any
+// repositorystore.Store/vulnerabilityfindingstore.Store (GetDeviceRepositoryRefs/
+// OverwriteDeviceRepositoryRefs delegate entirely through deviceStore, whose GORM associations
+// resolve the repository cross-reference with no separate Go-level dependency).
 type DeviceServiceHandler struct {
-	store         store.Store
+	deviceStore   devicestore.Store
+	fleetStore    fleetstore.Store
 	events        events.Service
 	kvStore       kvstore.KVStore
 	agentGate     *semaphore.Weighted
@@ -54,14 +55,16 @@ type DeviceServiceHandler struct {
 
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
 func NewDeviceServiceHandler(
-	store store.Store,
+	deviceStore devicestore.Store,
+	fleetStore fleetstore.Store,
 	events events.Service,
 	kvStore kvstore.KVStore,
 	agentEndpoint string,
 	log logrus.FieldLogger,
 ) Service {
 	return &DeviceServiceHandler{
-		store:         store,
+		deviceStore:   deviceStore,
+		fleetStore:    fleetStore,
 		events:        events,
 		kvStore:       kvStore,
 		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
@@ -86,19 +89,19 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Create(ctx, orgId, &device, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
 }
 
-func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.DeviceListParams, domain.Status) {
+func convertDeviceListParams(params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*devicestore.DeviceListParams, domain.Status) {
 	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
 	listParams.AnnotationSelector = annotationSelector
-	return &store.DeviceListParams{
+	return &devicestore.DeviceListParams{
 		ListParams: *listParams,
 		CveID:      params.CveId,
 	}, domain.StatusOK()
@@ -117,7 +120,7 @@ func (h *DeviceServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID,
 			return nil, domain.StatusBadRequest("parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true")
 		}
 
-		result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
+		result, err := h.deviceStore.Summary(ctx, orgId, storeParams.ListParams)
 
 		switch err {
 		case nil:
@@ -138,7 +141,7 @@ func (h *DeviceServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Device().List(ctx, orgId, *storeParams)
+	result, err := h.deviceStore.List(ctx, orgId, *storeParams)
 	if err == nil {
 		return result, domain.StatusOK()
 	}
@@ -181,7 +184,7 @@ func (h *DeviceServiceHandler) ListConnectivityChangedDevices(ctx context.Contex
 		return nil, domain.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, storeParams.ListParams, cutoffTime)
+	result, err := h.deviceStore.ListConnectivityChanged(ctx, orgId, storeParams.ListParams, cutoffTime)
 	if err == nil {
 		return result, domain.StatusOK()
 	}
@@ -198,12 +201,12 @@ func (h *DeviceServiceHandler) ListConnectivityChangedDevices(ctx context.Contex
 }
 
 func (h *DeviceServiceHandler) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, domain.Status) {
-	result, err := h.store.Device().ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
+	result, err := h.deviceStore.ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
 func (h *DeviceServiceHandler) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
-	result, err := h.store.Device().Get(ctx, orgId, name)
+	result, err := h.deviceStore.Get(ctx, orgId, name)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -235,9 +238,9 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -260,24 +263,24 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
 
 func (h *DeviceServiceHandler) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackDeviceDeleted)
+	_, err := h.deviceStore.Delete(ctx, orgId, name, h.callbackDeviceDeleted)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 // (GET /api/v1/devices/{name}/status)
 func (h *DeviceServiceHandler) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
-	result, err := h.store.Device().Get(ctx, orgId, name)
+	result, err := h.deviceStore.Get(ctx, orgId, name)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceLastSeen, domain.Status) {
-	lastSeen, err := h.store.Device().GetLastSeen(ctx, orgId, name)
+	lastSeen, err := h.deviceStore.GetLastSeen(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -320,7 +323,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	originalDevice, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
+	originalDevice, err := h.deviceStore.GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -330,14 +333,14 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
-	currentObj, err := h.store.Device().Get(ctx, orgId, name)
+	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -371,9 +374,9 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -415,7 +418,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		}
 	}
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	result, err := h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
 	if err != nil {
 		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -433,7 +436,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
-	currentObj, err := h.store.Device().Get(ctx, orgId, name)
+	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -466,23 +469,23 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
-	return h.store.Device().SetOutOfDate(ctx, orgId, owner)
+	return h.deviceStore.SetOutOfDate(ctx, orgId, owner)
 }
 
 func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
+	device, err := h.deviceStore.GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return err
 	}
-	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.store, h.log); changed {
-		_, err = h.store.Device().UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
+		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 			return err
@@ -492,17 +495,17 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 }
 
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	result, err := h.store.Device().DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
+	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
-	err := h.store.Device().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	err := h.deviceStore.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
-	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -529,7 +532,7 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
 	}
 
-	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions, callback)
+	err := h.deviceStore.SetServiceConditions(ctx, orgId, name, conditions, callback)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -566,12 +569,12 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 }
 
 func (h *DeviceServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
-	err := h.store.Device().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
+	err := h.deviceStore.OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
-	result, err := h.store.Device().GetRepositoryRefs(ctx, orgId, name)
+	result, err := h.deviceStore.GetRepositoryRefs(ctx, orgId, name)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -580,12 +583,12 @@ func (h *DeviceServiceHandler) CountDevices(ctx context.Context, orgId uuid.UUID
 	if status.Code != http.StatusOK {
 		return 0, status
 	}
-	result, err := h.store.Device().Count(ctx, orgId, storeParams.ListParams)
+	result, err := h.deviceStore.Count(ctx, orgId, storeParams.ListParams)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
 func (h *DeviceServiceHandler) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
-	err := h.store.Device().UnmarkRolloutSelection(ctx, orgId, fleetName)
+	err := h.deviceStore.UnmarkRolloutSelection(ctx, orgId, fleetName)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -594,12 +597,12 @@ func (h *DeviceServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, 
 	if status.Code != http.StatusOK {
 		return status
 	}
-	err := h.store.Device().MarkRolloutSelection(ctx, orgId, storeParams.ListParams, limit)
+	err := h.deviceStore.MarkRolloutSelection(ctx, orgId, storeParams.ListParams, limit)
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
 func (h *DeviceServiceHandler) GetDeviceCompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, domain.Status) {
-	result, err := h.store.Device().CompletionCounts(ctx, orgId, owner, templateVersion, updateTimeout)
+	result, err := h.deviceStore.CompletionCounts(ctx, orgId, owner, templateVersion, updateTimeout)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -608,7 +611,7 @@ func (h *DeviceServiceHandler) CountDevicesByLabels(ctx context.Context, orgId u
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().CountByLabels(ctx, orgId, storeParams.ListParams, groupBy)
+	result, err := h.deviceStore.CountByLabels(ctx, orgId, storeParams.ListParams, groupBy)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
@@ -617,12 +620,12 @@ func (h *DeviceServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
-	result, err := h.store.Device().Summary(ctx, orgId, storeParams.ListParams)
+	result, err := h.deviceStore.Summary(ctx, orgId, storeParams.ListParams)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, nil)
 }
 
 func (h *DeviceServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device domain.Device) bool {
-	anyChanged := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	anyChanged := common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 	return anyChanged
 }
 
@@ -637,7 +640,7 @@ func (h *DeviceServiceHandler) ResumeDevices(ctx context.Context, orgId uuid.UUI
 	}
 
 	// Remove conflictPaused annotation from all matching devices in a single SQL query
-	resumedCount, deviceIDs, err := h.store.Device().RemoveConflictPausedAnnotation(ctx, orgId, lo.FromPtr(listParams))
+	resumedCount, deviceIDs, err := h.deviceStore.RemoveConflictPausedAnnotation(ctx, orgId, lo.FromPtr(listParams))
 	if err != nil {
 		var se *selector.SelectorError
 		switch {
@@ -679,7 +682,7 @@ func (h *DeviceServiceHandler) ListLabels(ctx context.Context, orgId uuid.UUID, 
 	var result domain.LabelList
 	switch kind {
 	case domain.DeviceKind:
-		result, err = h.store.Device().Labels(ctx, orgId, *listParams)
+		result, err = h.deviceStore.Labels(ctx, orgId, *listParams)
 	default:
 		return nil, domain.StatusBadRequest(fmt.Sprintf("unsupported kind: %s", kind))
 	}
@@ -736,7 +739,7 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 		}
 		h.log.Infof("Processing awaiting reconnect annotation for device %s (orgId: %s, version: %s)", deviceName, orgId, versionStr)
 		// Only process the annotation if the KV store contains the key with value "true"
-		wasConflictPaused, err := h.store.Device().ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
+		wasConflictPaused, err := h.deviceStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
 		if err != nil {
 			h.log.WithError(err).Warnf("failed to process awaiting reconnect annotation for device %s", deviceName)
 			// Don't fail the request, just log the warning

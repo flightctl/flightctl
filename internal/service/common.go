@@ -5,6 +5,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/google/uuid"
 )
 
 // NilOutManagedCatalogItemMetaProperties clears the CatalogItemMeta fields that are managed
@@ -48,4 +51,22 @@ func StoreErrorToApiStatus(err error, created bool, kind string, name *string) d
 
 func ApiStatusToErr(status domain.Status) error {
 	return common.ApiStatusToErr(status)
+}
+
+// fleetGetOnlyAdapter bridges this package's monolithic store.Fleet to the narrow
+// fleetstore.Store interface common.UpdateServiceSideStatus now takes, so device.go's and
+// enrollmentrequest.go's existing h.store.Fleet() value can still satisfy it. Only Get is
+// implemented - the only method UpdateServiceSideStatus calls - and it deliberately ignores
+// the fleetstore.GetOption varargs (always fleetstore.GetWithDeviceSummary(false) from that
+// call site) rather than trying to convert them to store.GetOption: the two option types
+// apply to unexported, differently-shaped getOptions structs in their respective packages, but
+// calling the wrapped store.Fleet.Get with zero options is already behaviorally identical,
+// since withDeviceSummary defaults to false in both packages' getOptions zero value.
+type fleetGetOnlyAdapter struct {
+	fleetstore.Store
+	inner store.Fleet
+}
+
+func (a *fleetGetOnlyAdapter) Get(ctx context.Context, orgId uuid.UUID, name string, _ ...fleetstore.GetOption) (*domain.Fleet, error) {
+	return a.inner.Get(ctx, orgId, name)
 }

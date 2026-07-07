@@ -10,6 +10,8 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -33,12 +35,11 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	return dst
 }
 
-// fakeStore is a minimal hand-written store.Store test double for this package's own tests.
-// It embeds the real store.Store interface so every accessor other than Device()/Fleet()
-// (which this story's tests need) panics if a test path accidentally reaches it - there is no
-// production code path in DeviceServiceHandler that should ever call another accessor.
+// fakeStore is a plain test-only container grouping the fake deviceStore/fleetStore this
+// package's DeviceServiceHandler now takes as two separate narrow constructor params. It
+// implements no store interface itself - just a convenience holder so handler_test.go's many
+// call sites can keep referencing st.device/st.fleet unchanged.
 type fakeStore struct {
-	store.Store
 	device *fakeDeviceStore
 	fleet  *fakeFleetStore
 }
@@ -50,13 +51,10 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-func (s *fakeStore) Device() store.Device { return s.device }
-func (s *fakeStore) Fleet() store.Fleet   { return s.fleet }
-
-// fakeDeviceStore is a minimal in-memory stand-in for store.Device, implementing only the
+// fakeDeviceStore is a minimal in-memory stand-in for devicestore.Store, implementing only the
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
-	store.Device
+	devicestore.Store
 	devices  map[string]*domain.Device
 	repoRefs map[string][]string
 }
@@ -86,7 +84,7 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
 	if existed && validationCallback != nil {
@@ -103,7 +101,7 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	return deepCopyDevice(d), created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {
@@ -168,7 +166,7 @@ func (s *fakeDeviceStore) ListDevicesByServiceCondition(ctx context.Context, org
 	return &domain.DeviceList{}, nil
 }
 
-func (s *fakeDeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams store.DeviceListParams) (*domain.DeviceList, error) {
+func (s *fakeDeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {
 	items := make([]domain.Device, 0, len(s.devices))
 	for _, d := range s.devices {
 		items = append(items, *deepCopyDevice(d))
@@ -271,7 +269,7 @@ func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUI
 	return deepCopyDevice(d), nil
 }
 
-func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback store.ServiceConditionsCallback) error {
+func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
 	d, ok := s.devices[name]
 	if !ok {
 		return flterrors.ErrResourceNotFound
@@ -307,15 +305,15 @@ func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, or
 	return int64(len(ids)), ids, nil
 }
 
-// fakeFleetStore is a minimal stand-in for store.Fleet, implementing only Get - the single
+// fakeFleetStore is a minimal stand-in for fleetstore.Store, implementing only Get - the single
 // call site common.UpdateServiceSideStatus reaches for managed-device status computation.
 type fakeFleetStore struct {
-	store.Fleet
+	fleetstore.Store
 	fleets   map[string]*domain.Fleet
 	getCalls int
 }
 
-func (s *fakeFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, options ...store.GetOption) (*domain.Fleet, error) {
+func (s *fakeFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, options ...fleetstore.GetOption) (*domain.Fleet, error) {
 	s.getCalls++
 	f, ok := s.fleets[name]
 	if !ok {

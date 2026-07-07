@@ -19,7 +19,7 @@ import (
 func newTestHandler() (*fakeStore, *fakeEvents, Service) {
 	st := newFakeStore()
 	ev := &fakeEvents{}
-	svc := NewDeviceServiceHandler(st, ev, nil, "agent.example.com", logrus.New())
+	svc := NewDeviceServiceHandler(st.device, st.fleet, ev, nil, "agent.example.com", logrus.New())
 	return st, ev, svc
 }
 
@@ -292,7 +292,7 @@ func TestResumeDevices(t *testing.T) {
 
 	t.Run("When events is nil it should not panic", func(t *testing.T) {
 		st := newFakeStore()
-		svc := NewDeviceServiceHandler(st, nil, nil, "agent.example.com", logrus.New())
+		svc := NewDeviceServiceHandler(st.device, st.fleet, nil, nil, "agent.example.com", logrus.New())
 		ctx := context.Background()
 		orgId := uuid.New()
 		annotations := map[string]string{domain.DeviceAnnotationConflictPaused: "true"}

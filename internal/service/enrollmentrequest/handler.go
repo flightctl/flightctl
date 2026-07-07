@@ -20,7 +20,6 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -71,64 +70,6 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 }
 
 var _ Service = (*ServiceHandler)(nil)
-
-// deviceOnlyStore adapts a narrow devicestore.Store into the full monolithic store.Store
-// shape required by common.UpdateServiceSideStatus's signature. Only Device() is overridden;
-// every other accessor (Fleet(), Repository(), ...) panics if called via the embedded nil
-// store.Store. This is safe here because createDeviceFromEnrollmentRequest never sets
-// Metadata.Owner on the device it builds, so domain.Device.IsManaged() is always false and
-// the only branch of UpdateServiceSideStatus that dereferences st.Fleet() is unreachable from
-// this call site (see .artifacts/implement/EDM-4677/01-context.md "Handler Dependency
-// Decision" for the proof, and handler_test.go's regression test for the enforced invariant).
-type deviceOnlyStore struct {
-	store.Store
-	deviceStore devicestore.Store
-}
-
-func (s *deviceOnlyStore) Device() store.Device {
-	return &deviceStoreAdapter{Store: s.deviceStore}
-}
-
-// deviceStoreAdapter adapts devicestore.Store (internal/store/device.Store) to the store.Device
-// interface. Most methods have identical signatures between the two packages (both are defined
-// in terms of store.EventCallback / store.ListParams / store.IntegrationTestCallback), so they
-// are promoted directly via the embedded devicestore.Store. A handful of methods reference
-// package-local named types on each side (DeviceListParams, DeviceStoreValidationCallback,
-// DeviceStatusType, CountByOrgAndStatusResult) that are structurally identical but are distinct
-// Go types, so those methods are re-declared here with an explicit type conversion.
-type deviceStoreAdapter struct {
-	devicestore.Store
-}
-
-func (a *deviceStoreAdapter) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
-	return a.Store.Update(ctx, orgId, device, fieldsToUnset, fromAPI, devicestore.DeviceStoreValidationCallback(validationCallback), eventCallback)
-}
-
-func (a *deviceStoreAdapter) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
-	return a.Store.CreateOrUpdate(ctx, orgId, device, fieldsToUnset, fromAPI, devicestore.DeviceStoreValidationCallback(validationCallback), eventCallback)
-}
-
-func (a *deviceStoreAdapter) List(ctx context.Context, orgId uuid.UUID, listParams store.DeviceListParams) (*domain.DeviceList, error) {
-	return a.Store.List(ctx, orgId, devicestore.DeviceListParams(listParams))
-}
-
-func (a *deviceStoreAdapter) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback store.ServiceConditionsCallback) error {
-	return a.Store.SetServiceConditions(ctx, orgId, name, conditions, devicestore.ServiceConditionsCallback(callback))
-}
-
-func (a *deviceStoreAdapter) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType store.DeviceStatusType, groupByFleet bool) ([]store.CountByOrgAndStatusResult, error) {
-	results, err := a.Store.CountByOrgAndStatus(ctx, orgId, devicestore.DeviceStatusType(statusType), groupByFleet)
-	if err != nil {
-		return nil, err
-	}
-	converted := make([]store.CountByOrgAndStatusResult, len(results))
-	for i, r := range results {
-		converted[i] = store.CountByOrgAndStatusResult(r)
-	}
-	return converted, nil
-}
-
-var _ store.Device = (*deviceStoreAdapter)(nil)
 
 // getTPMCAPool loads the TPM CA certificates from configured paths
 func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
@@ -352,7 +293,11 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			}
 		}
 	}
-	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, &deviceOnlyStore{deviceStore: h.deviceStore}, h.log)
+	// fleetStore is nil: apiResource never has Metadata.Owner set above, so domain.Device.IsManaged()
+	// is always false and the only branch of UpdateServiceSideStatus that dereferences fleetStore is
+	// unreachable from this call site (see handler_test.go's regression test for the enforced
+	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
+	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
 	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
 		// Prevent overwriting existing devices during enrollment request approval
