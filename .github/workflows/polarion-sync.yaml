@@ -1,0 +1,181 @@
+name: "Sync Polarion Test Automation"
+
+# Extracts Polarion test case IDs from Ginkgo Label() calls in e2e tests
+# and syncs caseautomation status to Polarion. Only touches test cases with
+# casecomponent=edgemanagement. IDs present in the repo that are not yet
+# automated are set to "automated".
+#
+# Required secrets:
+#   POLARION_URL     - Base URL of the Polarion instance
+#   POLARION_PROJECT - Polarion project ID
+#   POLARION_TOKEN   - API token or personal access token
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'test/e2e/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      POLARION_URL: ${{ secrets.POLARION_URL }}
+      POLARION_PROJECT: ${{ secrets.POLARION_PROJECT }}
+      POLARION_TOKEN: ${{ secrets.POLARION_TOKEN }}
+      POLARION_PREFIX: "OCP-"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Extract Polarion IDs from test labels
+        id: extract
+        run: |
+          set -euo pipefail
+          # Extract numeric IDs from Label() calls in e2e test files.
+          # Handles: Label("81787"), Label("81787", "sanity"), Label("88272-88273")
+          IDS=$(grep -rhoP 'Label\([^)]+\)' test/e2e/ --include='*_test.go' | \
+            grep -oP '"(\d+(-\d+)*)"' | \
+            tr -d '"' | tr '-' '\n' | sort -u) || true
+
+          echo "Found $(echo "$IDS" | grep -c '\S' || true) unique Polarion IDs"
+
+          echo "ids<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$IDS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # Skipped if POLARION_TOKEN secret is not configured.
+      - name: Sync to Polarion
+        if: env.POLARION_TOKEN != ''
+        env:
+          REPO_IDS: ${{ steps.extract.outputs.ids }}
+        run: |
+          set -euo pipefail
+          COMPONENT="edgemanagement"
+          UPDATED=0
+          ERRORS=0
+
+          # Wrapper around curl that fails on non-2xx responses.
+          checked_curl() {
+            local RESP CODE
+            RESP=$(curl -s --max-time 30 -w "\n%{http_code}" "$@") || true
+            CODE=$(echo "$RESP" | tail -1)
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+              echo "$RESP" | sed '$d'
+              return 0
+            fi
+            echo "::error::Polarion API returned HTTP ${CODE}" >&2
+            return 1
+          }
+
+          # Fetch work-item IDs from Polarion matching a Lucene query.
+          fetch_ids() {
+            local IDS="" RESP PAGE_URL
+            RESP=$(checked_curl -G \
+              "${POLARION_URL}/rest/v1/projects/${POLARION_PROJECT}/workitems" \
+              --data-urlencode "query=$1" \
+              --data-urlencode "fields[workitems]=id" \
+              --data-urlencode "page[size]=100" \
+              -H "Accept: application/json" \
+              -H "Authorization: Bearer ${POLARION_TOKEN}")
+            IDS="$(echo "$RESP" | jq -r --arg p "${POLARION_PROJECT}/${POLARION_PREFIX}" '.data[].id | ltrimstr($p)')"
+            PAGE_URL=$(echo "$RESP" | jq -r '.links.next // empty')
+            while [ -n "$PAGE_URL" ]; do
+              RESP=$(checked_curl "$PAGE_URL" \
+                -H "Accept: application/json" \
+                -H "Authorization: Bearer ${POLARION_TOKEN}")
+              IDS="$IDS $(echo "$RESP" | jq -r --arg p "${POLARION_PROJECT}/${POLARION_PREFIX}" '.data[].id | ltrimstr($p)')"
+              PAGE_URL=$(echo "$RESP" | jq -r '.links.next // empty')
+            done
+            echo "$IDS" | tr ' ' '\n' | sort -u | grep -v '^$' || true
+          }
+
+          # Update a single work item's caseautomation field.
+          update_item() {
+            local ID="$1" VALUE="$2"
+            local FULL_ID="${POLARION_PREFIX}${ID}"
+            local URL="${POLARION_URL}/rest/v1/projects/${POLARION_PROJECT}/workitems/${FULL_ID}"
+            local RESP
+            RESP=$(curl -s --max-time 30 -w "\n%{http_code}" -X PATCH "$URL" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${POLARION_TOKEN}" \
+              -d "{\"data\":{\"type\":\"workitems\",\"id\":\"${POLARION_PROJECT}/${FULL_ID}\",\"attributes\":{\"caseautomation\":\"${VALUE}\"}}}")
+            local CODE=$(echo "$RESP" | tail -1)
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+              echo "Updated ${FULL_ID}: caseautomation=${VALUE}"
+              return 0
+            else
+              echo "::warning::Failed to update ${FULL_ID}: HTTP ${CODE}"
+              return 1
+            fi
+          }
+
+          # All edgemanagement test cases (eligible for updates).
+          if ! ELIGIBLE=$(fetch_ids "type:testcase AND casecomponent:${COMPONENT}"); then
+            echo "::error::Failed to query eligible Polarion test cases"
+            exit 1
+          fi
+
+          if [ -z "$ELIGIBLE" ]; then
+            echo "::error::No eligible test cases found — check Polarion query or component name"
+            exit 1
+          fi
+
+          # Of those, which are currently automated.
+          if ! ALREADY=$(fetch_ids "type:testcase AND casecomponent:${COMPONENT} AND caseautomation:automated"); then
+            echo "::error::Failed to query already-automated Polarion test cases"
+            exit 1
+          fi
+          REPO_SET=$(echo "$REPO_IDS" | sort -u)
+
+          # IDs in repo + eligible but not yet automated.
+          TO_AUTOMATE=$(comm -23 <(comm -12 <(echo "$REPO_SET") <(echo "$ELIGIBLE")) <(echo "$ALREADY"))
+
+          REPO_COUNT=$(echo "$REPO_SET" | grep -c '\S' || true)
+          ELIGIBLE_COUNT=$(echo "$ELIGIBLE" | grep -c '\S' || true)
+          ALREADY_COUNT=$(echo "$ALREADY" | grep -c '\S' || true)
+          AUTOMATE_COUNT=$(echo "$TO_AUTOMATE" | grep -c '\S' || true)
+
+          echo "Repo IDs:          $REPO_COUNT"
+          echo "Eligible:          $ELIGIBLE_COUNT"
+          echo "Already automated: $ALREADY_COUNT"
+          echo "To automate:       $AUTOMATE_COUNT"
+
+          for ID in $TO_AUTOMATE; do
+            update_item "$ID" "automated" && UPDATED=$((UPDATED + 1)) || ERRORS=$((ERRORS + 1))
+            sleep 1
+          done
+
+          echo ""
+          echo "=================================================="
+          echo "  Updated : $UPDATED"
+          echo "  Errors  : $ERRORS"
+          echo "=================================================="
+
+          {
+            echo "## Polarion Sync Results"
+            echo ""
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Repo IDs | $REPO_COUNT |"
+            echo "| Eligible | $ELIGIBLE_COUNT |"
+            echo "| Already automated | $ALREADY_COUNT |"
+            echo "| To automate | $AUTOMATE_COUNT |"
+            echo "| Updated | $UPDATED |"
+            echo "| Errors | $ERRORS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ERRORS" -gt 0 ]; then
+            exit 1
+          fi
