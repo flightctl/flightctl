@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
+	"github.com/flightctl/flightctl/internal/service/events"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -98,7 +99,7 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, nil, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore.Catalog(), mainStore.Repository(), events.NewServiceHandler(mainStore.Event(), nil, log), nil, nil, log)
 
 		// Setup mock queue producer to capture enqueued events
 		ctrl = gomock.NewController(GinkgoT())

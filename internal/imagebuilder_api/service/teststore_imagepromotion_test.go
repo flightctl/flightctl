@@ -128,8 +128,8 @@ func (s *DummyImagePromotionStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-// DummyCatalogStore is an in-memory implementation of mainstore.Catalog.
-// It is used by both DummyMainStore (for coreStore reads) and DummyCatalogItemWriter (for writes).
+// DummyCatalogStore is an in-memory implementation of catalogstore.Store.
+// It is used by both ImagePromotionService (for catalog reads) and DummyCatalogItemWriter (for writes).
 type DummyCatalogStore struct {
 	catalogs map[string]bool
 	items    map[string]*coredomain.CatalogItem // key: "catalogName/itemName"
@@ -259,61 +259,3 @@ func (s *DummyCatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, cata
 func (s *DummyCatalogStore) DeleteItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) error {
 	return nil
 }
-
-// DummyMainStore implements mainstore.Store using DummyCatalogStore for catalog operations.
-// All other store methods panic since they should not be called in ImagePromotion tests.
-type DummyMainStore struct {
-	catalog *DummyCatalogStore
-}
-
-func NewDummyMainStore(catalog *DummyCatalogStore) *DummyMainStore {
-	return &DummyMainStore{catalog: catalog}
-}
-
-func (s *DummyMainStore) Catalog() flightctlstore.Catalog { return s.catalog }
-
-func (s *DummyMainStore) Device() flightctlstore.Device {
-	panic("DummyMainStore.Device() not implemented")
-}
-func (s *DummyMainStore) EnrollmentRequest() flightctlstore.EnrollmentRequest {
-	panic("DummyMainStore.EnrollmentRequest() not implemented")
-}
-func (s *DummyMainStore) CertificateSigningRequest() flightctlstore.CertificateSigningRequest {
-	panic("DummyMainStore.CertificateSigningRequest() not implemented")
-}
-func (s *DummyMainStore) Fleet() flightctlstore.Fleet {
-	panic("DummyMainStore.Fleet() not implemented")
-}
-func (s *DummyMainStore) TemplateVersion() flightctlstore.TemplateVersion {
-	panic("DummyMainStore.TemplateVersion() not implemented")
-}
-func (s *DummyMainStore) Repository() flightctlstore.Repository {
-	panic("DummyMainStore.Repository() not implemented")
-}
-func (s *DummyMainStore) ResourceSync() flightctlstore.ResourceSync {
-	panic("DummyMainStore.ResourceSync() not implemented")
-}
-func (s *DummyMainStore) Event() flightctlstore.Event {
-	panic("DummyMainStore.Event() not implemented")
-}
-func (s *DummyMainStore) Checkpoint() flightctlstore.Checkpoint {
-	panic("DummyMainStore.Checkpoint() not implemented")
-}
-func (s *DummyMainStore) Organization() flightctlstore.Organization {
-	panic("DummyMainStore.Organization() not implemented")
-}
-func (s *DummyMainStore) AuthProvider() flightctlstore.AuthProvider {
-	panic("DummyMainStore.AuthProvider() not implemented")
-}
-func (s *DummyMainStore) VulnerabilityFinding() flightctlstore.VulnerabilityFinding {
-	panic("DummyMainStore.VulnerabilityFinding() not implemented")
-}
-func (s *DummyMainStore) DependencyRef() flightctlstore.DependencyRef {
-	panic("DummyMainStore.DependencyRef() not implemented")
-}
-func (s *DummyMainStore) SyncState() flightctlstore.SyncState {
-	panic("DummyMainStore.SyncState() not implemented")
-}
-func (s *DummyMainStore) RunMigrations(ctx context.Context) error { return nil }
-func (s *DummyMainStore) CheckHealth(ctx context.Context) error   { return nil }
-func (s *DummyMainStore) Close() error                            { return nil }

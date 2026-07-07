@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -67,7 +68,13 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.log.WithError(err).Error("failed to create queue producer for service")
 		return err
 	}
-	imageBuilderService := imagebuilderapi.NewService(ctx, w.cfg, w.store, w.mainStore, queueProducer, w.kvStore, w.log)
+	// w.mainStore's per-resource accessors (store.Catalog/store.Repository/store.Event)
+	// structurally satisfy the narrow catalogstore.Store/repositorystore.Store/eventstore.Store
+	// interfaces imagebuilderapi.NewService now takes - a minimal fix to keep the shared
+	// imagebuilder_api/service package's signature change from breaking this caller;
+	// internal/imagebuilder_worker's own real per-resource construction is separate follow-up work.
+	eventsSvc := events.NewServiceHandler(w.mainStore.Event(), nil, w.log)
+	imageBuilderService := imagebuilderapi.NewService(ctx, w.cfg, w.store, w.mainStore.Catalog(), w.mainStore.Repository(), eventsSvc, queueProducer, w.kvStore, w.log)
 
 	// Launch queue consumers
 	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.store, w.mainStore, w.kvStore, w.serviceHandler, imageBuilderService, w.cfg, w.log); err != nil {

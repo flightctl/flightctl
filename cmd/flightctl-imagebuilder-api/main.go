@@ -54,9 +54,11 @@ func main() {
 	imageBuilderStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 	defer imageBuilderStore.Close()
 
-	// Main store for identity mapping (shared with api_server)
-	mainStore := store.NewStore(db, log.WithField("pkg", "store"))
-	defer mainStore.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
@@ -72,7 +74,7 @@ func main() {
 		log.Fatalf("creating kvstore: %v", err)
 	}
 
-	server, err := imagebuilderapi.New(log, cfg, imageBuilderStore, mainStore, kvStore, provider)
+	server, err := imagebuilderapi.New(log, cfg, imageBuilderStore, db, kvStore, provider)
 	if err != nil {
 		log.Fatalf("Error creating server: %s", err)
 	}

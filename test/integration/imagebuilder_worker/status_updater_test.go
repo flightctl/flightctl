@@ -13,6 +13,7 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/events"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -92,7 +93,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		}
 
 		// Create imagebuilder service with kvStore
-		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore.Catalog(), mainStore.Repository(), events.NewServiceHandler(mainStore.Event(), nil, log), nil, kvStoreInst, log)
 	})
 
 	AfterEach(func() {

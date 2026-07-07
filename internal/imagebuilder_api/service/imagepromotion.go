@@ -13,7 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	ibstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/service/common"
-	mainstore "github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -46,7 +46,7 @@ type ImagePromotionService interface {
 type imagePromotionService struct {
 	store           ibstore.ImagePromotionStore
 	imageBuildStore ibstore.ImageBuildStore
-	coreStore       mainstore.Store
+	catalogStore    catalogstore.Store
 	queueProducer   queues.QueueProducer
 	log             logrus.FieldLogger
 }
@@ -55,14 +55,14 @@ type imagePromotionService struct {
 func NewImagePromotionService(
 	store ibstore.ImagePromotionStore,
 	imageBuildStore ibstore.ImageBuildStore,
-	coreStore mainstore.Store,
+	catalogStore catalogstore.Store,
 	queueProducer queues.QueueProducer,
 	log logrus.FieldLogger,
 ) ImagePromotionService {
 	return &imagePromotionService{
 		store:           store,
 		imageBuildStore: imageBuildStore,
-		coreStore:       coreStore,
+		catalogStore:    catalogStore,
 		queueProducer:   queueProducer,
 		log:             log,
 	}
@@ -382,7 +382,7 @@ func (s *imagePromotionService) validateFormatsNotAlreadyPublished(ctx context.C
 		return nil, fmt.Errorf("unknown target type: %s", discriminator)
 	}
 
-	item, err := s.coreStore.Catalog().GetItem(ctx, orgId, catalogName, itemName)
+	item, err := s.catalogStore.GetItem(ctx, orgId, catalogName, itemName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CatalogItem: %w", err)
 	}
@@ -483,13 +483,13 @@ func (s *imagePromotionService) validateCreate(ctx context.Context, orgId uuid.U
 			errs = append(errs, errors.New("catalogName, catalogItemName, and version are required"))
 		} else {
 			// Catalog must exist.
-			if _, err := s.coreStore.Catalog().Get(ctx, orgId, target.CatalogName); isNotFound(err) {
+			if _, err := s.catalogStore.Get(ctx, orgId, target.CatalogName); isNotFound(err) {
 				errs = append(errs, fmt.Errorf("Catalog %s not found", target.CatalogName))
 			} else if err != nil {
 				return nil, err
 			} else {
 				// CatalogItem must NOT exist.
-				_, err = s.coreStore.Catalog().GetItem(ctx, orgId, target.CatalogName, target.CatalogItemName)
+				_, err = s.catalogStore.GetItem(ctx, orgId, target.CatalogName, target.CatalogItemName)
 				if err == nil {
 					errs = append(errs, fmt.Errorf("CatalogItem %s already exists in catalog %s; use type ExistingCatalogItem to add a new version", target.CatalogItemName, target.CatalogName))
 				} else if !isNotFound(err) {
@@ -508,13 +508,13 @@ func (s *imagePromotionService) validateCreate(ctx context.Context, orgId uuid.U
 			errs = append(errs, errors.New("catalogName, catalogItemName, and version are required"))
 		} else {
 			// Catalog must exist.
-			if _, err := s.coreStore.Catalog().Get(ctx, orgId, target.CatalogName); isNotFound(err) {
+			if _, err := s.catalogStore.Get(ctx, orgId, target.CatalogName); isNotFound(err) {
 				errs = append(errs, fmt.Errorf("Catalog %s not found", target.CatalogName))
 			} else if err != nil {
 				return nil, err
 			} else {
 				// CatalogItem must exist.
-				existingItem, err := s.coreStore.Catalog().GetItem(ctx, orgId, target.CatalogName, target.CatalogItemName)
+				existingItem, err := s.catalogStore.GetItem(ctx, orgId, target.CatalogName, target.CatalogItemName)
 				if isNotFound(err) {
 					errs = append(errs, fmt.Errorf("CatalogItem %s not found in catalog %s", target.CatalogItemName, target.CatalogName))
 				} else if err != nil {

@@ -13,6 +13,7 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/events"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
@@ -101,7 +102,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		testdb.ApplyIntegrationConnectionOverrides(cfg)
 
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore.Catalog(), mainStore.Repository(), events.NewServiceHandler(mainStore.Event(), nil, log), nil, kvStoreInst, log)
 
 		// Create consumer
 		consumer = tasks.NewConsumer(
