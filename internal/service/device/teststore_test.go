@@ -332,11 +332,5 @@ func (f *fakeEvents) CreateEvent(ctx context.Context, orgId uuid.UUID, event *do
 	f.created = append(f.created, event)
 }
 
-func (f *fakeEvents) HandleDeviceUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-}
-
-func (f *fakeEvents) HandleDeviceDecommissionEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-}
-
 func (f *fakeEvents) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 }

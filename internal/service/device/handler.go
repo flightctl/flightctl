@@ -666,12 +666,12 @@ func (h *DeviceServiceHandler) ResumeDevices(ctx context.Context, orgId uuid.UUI
 
 // callbackDeviceUpdated is the device-specific callback that handles device events
 func (h *DeviceServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleDeviceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	EmitDeviceUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackDeviceDecommission is the device-specific callback that handles device decommission events
 func (h *DeviceServiceHandler) callbackDeviceDecommission(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleDeviceDecommissionEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	EmitDeviceDecommissionEvent(ctx, h.events, resourceKind, orgId, name, created, err)
 }
 
 // callbackDeviceDeleted is the device-specific callback that handles device deletion events
