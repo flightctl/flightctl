@@ -9,8 +9,12 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -31,8 +35,6 @@ var _ = Describe("DeviceConnection", func() {
 		ctx            context.Context
 		orgId          uuid.UUID
 		deviceStore    store.Device
-		storeInst      store.Store
-		serviceHandler service.Service
 		cfg            *config.Config
 		dbName         string
 		db             *gorm.DB
@@ -50,14 +52,17 @@ var _ = Describe("DeviceConnection", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
-		deviceStore = storeInst.Device()
+		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		kvStore, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
-		connectionTask = tasks.NewDeviceConnection(log, serviceHandler)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		deviceSvc := deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetStore, eventsSvc, kvStore, "", log)
+		connectionTask = tasks.NewDeviceConnection(log, deviceSvc)
 	})
 
 	// Helper function to set device lastSeen directly in the database
@@ -72,7 +77,6 @@ var _ = Describe("DeviceConnection", func() {
 		if kvStore != nil {
 			kvStore.Close()
 		}
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})

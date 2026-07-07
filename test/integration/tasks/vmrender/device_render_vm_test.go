@@ -10,8 +10,14 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -60,8 +66,8 @@ var _ = Describe("VmApplicationRender", func() {
 		ctx               context.Context
 		orgId             uuid.UUID
 		deviceStore       store.Device
-		storeInst         store.Store
-		serviceHandler    service.Service
+		deviceSvc         deviceservice.Service
+		repositorySvc     repositoryservice.Service
 		cfg               *config.Config
 		dbName            string
 		db                *gorm.DB
@@ -83,8 +89,11 @@ var _ = Describe("VmApplicationRender", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
-		deviceStore = storeInst.Device()
+		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
@@ -93,7 +102,9 @@ var _ = Describe("VmApplicationRender", func() {
 
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		if queuesProvider == nil {
 			processID := fmt.Sprintf("vm-render-test-%s", uuid.New().String())
@@ -105,7 +116,6 @@ var _ = Describe("VmApplicationRender", func() {
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -131,7 +141,7 @@ var _ = Describe("VmApplicationRender", func() {
 			InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
 		}
 
-		logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+		logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
 			WithVmConverter(vmConverter)
 		Expect(logic.RenderDevice(ctx)).To(Succeed())
 

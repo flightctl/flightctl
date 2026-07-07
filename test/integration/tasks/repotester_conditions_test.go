@@ -11,8 +11,11 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -41,7 +44,7 @@ func (r *MockRepoTester) TestAccess(repository *api.Repository) error {
 	return errors.New("fail")
 }
 
-func createRepository(ctx context.Context, repostore store.Repository, log *logrus.Logger, orgId uuid.UUID, name string, labels *map[string]string) (*api.Repository, error) {
+func createRepository(ctx context.Context, repostore repositorystore.Store, log *logrus.Logger, orgId uuid.UUID, name string, labels *map[string]string) (*api.Repository, error) {
 	var (
 		repo *api.Repository
 		err  error
@@ -67,7 +70,7 @@ func createRepository(ctx context.Context, repostore store.Repository, log *logr
 	return repo, err
 }
 
-func createOciRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, registry string, scheme *api.OciRepoSpecScheme, username, password *string) (*api.Repository, error) {
+func createOciRepository(ctx context.Context, repostore repositorystore.Store, orgId uuid.UUID, name string, registry string, scheme *api.OciRepoSpecScheme, username, password *string) (*api.Repository, error) {
 	ociSpec := api.OciRepoSpec{
 		Registry: registry,
 		Type:     api.OciRepoSpecTypeOci,
@@ -99,15 +102,15 @@ func createOciRepository(ctx context.Context, repostore store.Repository, orgId 
 
 var _ = Describe("RepoTester", func() {
 	var (
-		log            *logrus.Logger
-		ctx            context.Context
-		orgId          uuid.UUID
-		stores         store.Store
-		serviceHandler service.Service
-		cfg            *config.Config
-		dbName         string
-		db             *gorm.DB
-		repotestr      *tasks.RepoTester
+		log             *logrus.Logger
+		ctx             context.Context
+		orgId           uuid.UUID
+		repositoryStore repositorystore.Store
+		repositorySvc   repositoryservice.Service
+		cfg             *config.Config
+		dbName          string
+		db              *gorm.DB
+		repotestr       *tasks.RepoTester
 	)
 
 	BeforeEach(func() {
@@ -118,21 +121,22 @@ var _ = Describe("RepoTester", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		stores = store.NewStore(db, log.WithField("pkg", "store"))
+		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockQueueProducer(ctrl)
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient := worker_client.NewWorkerClient(publisher, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
+		_, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{}, false)
-		repotestr = tasks.NewRepoTester(log, serviceHandler, func(repository *api.Repository) tasks.TypeSpecificRepoTester {
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
+		repotestr = tasks.NewRepoTester(log, repositorySvc, func(repository *api.Repository) tasks.TypeSpecificRepoTester {
 			return &MockRepoTester{}
 		})
 	})
 
 	AfterEach(func() {
-		_ = stores.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -142,20 +146,20 @@ var _ = Describe("RepoTester", func() {
 				err  error
 				repo *api.Repository
 			)
-			_, err = createRepository(ctx, stores.Repository(), log, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
+			_, err = createRepository(ctx, repositoryStore, log, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = createRepository(ctx, stores.Repository(), log, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+			_, err = createRepository(ctx, repositoryStore, log, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
+			repo, err = repositoryStore.Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 
 			err = repotestr.SetAccessCondition(ctx, orgId, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = createRepository(ctx, stores.Repository(), log, orgId, "ok-to-err", &map[string]string{"status": "fail"})
+			_, err = createRepository(ctx, repositoryStore, log, orgId, "ok-to-err", &map[string]string{"status": "fail"})
 			Expect(err).ToNot(HaveOccurred())
-			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
+			repo, err = repositoryStore.Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 
 			err = repotestr.SetAccessCondition(ctx, orgId, repo, nil)
@@ -163,7 +167,7 @@ var _ = Describe("RepoTester", func() {
 
 			repotestr.TestRepositories(ctx, orgId)
 
-			repo, err = stores.Repository().Get(ctx, orgId, "nil-to-ok")
+			repo, err = repositoryStore.Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
@@ -171,7 +175,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
-			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
+			repo, err = repositoryStore.Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
@@ -179,7 +183,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
-			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
+			repo, err = repositoryStore.Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
@@ -201,15 +205,15 @@ var _ = Describe("RepoTester", func() {
 			mock.AuthServerURL = server.URL
 
 			// Create OCI repository pointing to mock server
-			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-accessible", registryHost(server.URL), lo.ToPtr(api.Http), nil, nil)
+			_, err := createOciRepository(ctx, repositoryStore, orgId, "oci-accessible", registryHost(server.URL), lo.ToPtr(api.Http), nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a new repotester without mock (uses real OciRepoTester)
-			ociRepotester := tasks.NewRepoTester(log, serviceHandler, nil)
+			ociRepotester := tasks.NewRepoTester(log, repositorySvc, nil)
 			ociRepotester.TestRepositories(ctx, orgId)
 
 			// Verify condition is set correctly
-			repo, err := stores.Repository().Get(ctx, orgId, "oci-accessible")
+			repo, err := repositoryStore.Get(ctx, orgId, "oci-accessible")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status).ToNot(BeNil())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -229,15 +233,15 @@ var _ = Describe("RepoTester", func() {
 			mock.AuthServerURL = server.URL
 
 			// Create OCI repository pointing to mock server
-			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-not-accessible", registryHost(server.URL), lo.ToPtr(api.Http), nil, nil)
+			_, err := createOciRepository(ctx, repositoryStore, orgId, "oci-not-accessible", registryHost(server.URL), lo.ToPtr(api.Http), nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a new repotester without mock (uses real OciRepoTester)
-			ociRepotester := tasks.NewRepoTester(log, serviceHandler, nil)
+			ociRepotester := tasks.NewRepoTester(log, repositorySvc, nil)
 			ociRepotester.TestRepositories(ctx, orgId)
 
 			// Verify condition is set correctly
-			repo, err := stores.Repository().Get(ctx, orgId, "oci-not-accessible")
+			repo, err := repositoryStore.Get(ctx, orgId, "oci-not-accessible")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status).ToNot(BeNil())
 			Expect(repo.Status.Conditions).ToNot(BeNil())

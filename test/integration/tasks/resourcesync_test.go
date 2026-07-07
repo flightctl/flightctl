@@ -10,8 +10,17 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -33,8 +42,11 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		ctx               context.Context
 		internalCtx       context.Context
 		orgId             uuid.UUID
-		storeInst         store.Store
-		serviceHandler    service.Service
+		eventStore        eventstore.Store
+		repositorySvc     repositoryservice.Service
+		fleetSvc          fleetservice.Service
+		resourcesyncSvc   resourcesyncservice.Service
+		catalogSvc        catalogservice.Service
 		cfg               *config.Config
 		dbName            string
 		db                *gorm.DB
@@ -52,21 +64,28 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		resourcesyncStore := resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
+		catalogStore := catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
+		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
-		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
+		_, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
-		resourceSync = tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, nil)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
+		fleetSvc = fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
+		resourcesyncSvc = resourcesyncservice.NewServiceHandler(resourcesyncStore, catalogStore, fleetStore, eventsSvc, log)
+		catalogSvc = catalogservice.NewServiceHandler(catalogStore, eventsSvc, log)
+		resourceSync = tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, nil)
 
 		// Set up mock expectations for the publisher
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -78,7 +97,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName},
 			SortOrder:   lo.ToPtr(store.SortDesc),
 		}
-		eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+		eventList, err := eventStore.List(ctx, orgId, listParams)
 		Expect(err).ToNot(HaveOccurred())
 
 		var matchingEvents []api.Event
@@ -116,7 +135,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Spec: spec,
 		}
 
-		_, status := serviceHandler.CreateRepository(ctx, orgId, *repo)
+		_, status := repositorySvc.CreateRepository(ctx, orgId, *repo)
 		Expect(status.Code).To(Equal(int32(201)))
 		return repo
 	}
@@ -134,7 +153,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			},
 		}
 
-		_, status := serviceHandler.CreateResourceSync(ctx, orgId, *resourceSync)
+		_, status := resourcesyncSvc.CreateResourceSync(ctx, orgId, *resourceSync)
 		Expect(status.Code).To(Equal(int32(201)))
 		return resourceSync
 	}
@@ -312,7 +331,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the fleet was created with the owner set
-			createdFleet, status := serviceHandler.GetFleet(ctx, orgId, "owned-fleet", api.GetFleetParams{})
+			createdFleet, status := fleetSvc.GetFleet(ctx, orgId, "owned-fleet", api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
 			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/owner-test-resourcesync"))
@@ -320,7 +339,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			// Verify the fleet cannot be edited (spec update should fail)
 			updatedFleet := *createdFleet
 			updatedFleet.Spec.Template.Spec.Os.Image = "quay.io/test/os:updated"
-			_, status = serviceHandler.ReplaceFleet(ctx, orgId, "owned-fleet", updatedFleet)
+			_, status = fleetSvc.ReplaceFleet(ctx, orgId, "owned-fleet", updatedFleet)
 			Expect(status.Code).To(Equal(int32(409))) // Conflict
 			Expect(status.Message).To(ContainSubstring("updating the resource is not allowed because it has an owner"))
 		})
@@ -351,15 +370,15 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Create the conflicting fleet first
-			_, status := serviceHandler.CreateFleet(ctx, orgId, *conflictingFleet)
+			_, status := fleetSvc.CreateFleet(ctx, orgId, *conflictingFleet)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Update the fleet to set the owner (use internalCtx so owner is preserved)
-			_, status = serviceHandler.ReplaceFleet(internalCtx, orgId, *conflictingFleet.Metadata.Name, *conflictingFleet)
+			_, status = fleetSvc.ReplaceFleet(internalCtx, orgId, *conflictingFleet.Metadata.Name, *conflictingFleet)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify the fleet was created with the correct owner
-			createdFleet, status := serviceHandler.GetFleet(ctx, orgId, "conflicting-fleet", api.GetFleetParams{})
+			createdFleet, status := fleetSvc.GetFleet(ctx, orgId, "conflicting-fleet", api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
 			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/different-owner"))
@@ -406,7 +425,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the status to trigger event emission
-			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
+			_, status := resourcesyncSvc.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were emitted
@@ -429,7 +448,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).To(HaveOccurred())
 
 			// Update the status to trigger event emission
-			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
+			_, status := resourcesyncSvc.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were emitted
@@ -449,7 +468,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			createTestResourceSync(resourceSyncName, "ref-test-repo", "/examples")
 
 			// Call the helper method
-			rs, _ := serviceHandler.GetResourceSync(ctx, orgId, resourceSyncName)
+			rs, _ := resourcesyncSvc.GetResourceSync(ctx, orgId, resourceSyncName)
 			_, err := resourceSync.GetRepositoryAndValidateAccess(internalCtx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -516,7 +535,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should remove ignored fields during resource parsing", func() {
 			// Create a ResourceSync with custom ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion", "/metadata/labels/test-label"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, ignoreFields)
 
 			// Create test resources with fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -602,7 +621,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 		It("should not remove fields when no ignore list is provided", func() {
 			// Create a ResourceSync without ignore fields
-			resourceSyncNoIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, nil)
+			resourceSyncNoIgnores := tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, nil)
 
 			// Create test resources with fields that would normally be ignored
 			resources := []tasks.GenericResourceMap{
@@ -736,7 +755,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should handle non-existent paths gracefully", func() {
 			// Create a ResourceSync with ignore fields that don't exist in the resource
 			ignoreFields := []string{"/metadata/nonExistentField", "/spec/nonExistentField"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, ignoreFields)
 
 			// Create test resources without the fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -780,7 +799,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should apply field removal during full sync process", func() {
 			// Create a ResourceSync instance with ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, ignoreFields)
 
 			// Create test resources with resourceVersion that should be removed
 			resources := []tasks.GenericResourceMap{
@@ -860,17 +879,17 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Create the fleet first
-			_, status := serviceHandler.CreateFleet(ctx, orgId, *fleet)
+			_, status := fleetSvc.CreateFleet(ctx, orgId, *fleet)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set the annotation using UpdateFleetAnnotations (simulating fleet validation)
-			status = serviceHandler.UpdateFleetAnnotations(ctx, orgId, fleetName, map[string]string{
+			status = fleetSvc.UpdateFleetAnnotations(ctx, orgId, fleetName, map[string]string{
 				api.FleetAnnotationTemplateVersion: "test-template-version-1",
 			}, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify the annotation exists
-			createdFleet, status := serviceHandler.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
+			createdFleet, status := fleetSvc.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(createdFleet.Metadata.Annotations).ToNot(BeNil())
 			Expect((*createdFleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]).To(Equal("test-template-version-1"))
@@ -904,7 +923,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the annotation is still preserved
-			updatedFleet, status := serviceHandler.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
+			updatedFleet, status := fleetSvc.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(updatedFleet.Metadata.Annotations).ToNot(BeNil())
 			Expect((*updatedFleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]).To(Equal("test-template-version-1"))
@@ -936,11 +955,11 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Create the fleet first
-			_, status := serviceHandler.CreateFleet(ctx, orgId, *fleet)
+			_, status := fleetSvc.CreateFleet(ctx, orgId, *fleet)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set a system-managed annotation (simulating fleet validation)
-			status = serviceHandler.UpdateFleetAnnotations(ctx, orgId, fleetName, map[string]string{
+			status = fleetSvc.UpdateFleetAnnotations(ctx, orgId, fleetName, map[string]string{
 				api.FleetAnnotationTemplateVersion: "system-template-version",
 			}, nil)
 			Expect(status.Code).To(Equal(int32(200)))
@@ -976,7 +995,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify that user-defined annotations were ignored
-			updatedFleet, status := serviceHandler.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
+			updatedFleet, status := fleetSvc.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(updatedFleet.Metadata.Annotations).ToNot(BeNil())
 
@@ -1013,7 +1032,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(catalogsToRemove).To(BeEmpty())
 
 			// Verify catalog was created with ownership
-			created, status := serviceHandler.GetCatalog(ctx, orgId, "infrastructure")
+			created, status := catalogSvc.GetCatalog(ctx, orgId, "infrastructure")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 			Expect(created.Metadata.Owner).ToNot(BeNil())
 			Expect(*created.Metadata.Owner).To(Equal("ResourceSync/catalog-sync-rs"))
@@ -1056,13 +1075,13 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(itemsToRemove).To(BeEmpty())
 
 			// Verify items were created
-			caddy, status := serviceHandler.GetCatalogItem(ctx, orgId, "infrastructure", "caddy")
+			caddy, status := catalogSvc.GetCatalogItem(ctx, orgId, "infrastructure", "caddy")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 			Expect(caddy.Metadata.Owner).ToNot(BeNil())
 			Expect(*caddy.Metadata.Owner).To(Equal("ResourceSync/catalog-sync-rs"))
 			Expect(caddy.Spec.Versions).To(HaveLen(1))
 
-			prom, status := serviceHandler.GetCatalogItem(ctx, orgId, "infrastructure", "prometheus")
+			prom, status := catalogSvc.GetCatalogItem(ctx, orgId, "infrastructure", "prometheus")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 			Expect(prom.Spec.Versions).To(HaveLen(2))
 			Expect(*prom.Spec.Versions[1].Replaces).To(Equal("1.7.0"))
@@ -1087,12 +1106,12 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the catalog cannot be edited (spec update should fail due to ownership)
-			created, status := serviceHandler.GetCatalog(ctx, orgId, "owned-catalog")
+			created, status := catalogSvc.GetCatalog(ctx, orgId, "owned-catalog")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 
 			updated := *created
 			updated.Spec.DisplayName = lo.ToPtr("Modified Name")
-			_, status = serviceHandler.ReplaceCatalog(ctx, orgId, "owned-catalog", updated)
+			_, status = catalogSvc.ReplaceCatalog(ctx, orgId, "owned-catalog", updated)
 			Expect(status.Code).To(Equal(int32(http.StatusConflict)))
 			Expect(status.Message).To(ContainSubstring("owner"))
 		})
@@ -1175,15 +1194,15 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			// Delete stale item through service (mirrors what run() does with the toRemove list)
 			// ResourceSync sets ResourceSyncRequestCtxKey when deleting owned items
 			deleteCtx := context.WithValue(internalCtx, consts.ResourceSyncRequestCtxKey, true)
-			status := serviceHandler.DeleteCatalogItem(deleteCtx, orgId, "removable-catalog", "item-b")
+			status := catalogSvc.DeleteCatalogItem(deleteCtx, orgId, "removable-catalog", "item-b")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 
 			// Verify item-b is gone
-			_, status = serviceHandler.GetCatalogItem(ctx, orgId, "removable-catalog", "item-b")
+			_, status = catalogSvc.GetCatalogItem(ctx, orgId, "removable-catalog", "item-b")
 			Expect(status.Code).To(Equal(int32(http.StatusNotFound)))
 
 			// item-a still exists
-			_, status = serviceHandler.GetCatalogItem(ctx, orgId, "removable-catalog", "item-a")
+			_, status = catalogSvc.GetCatalogItem(ctx, orgId, "removable-catalog", "item-a")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 		})
 	})

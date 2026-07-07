@@ -9,8 +9,17 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -28,23 +37,28 @@ import (
 
 var _ = Describe("FleetValidate", func() {
 	var (
-		log              *logrus.Logger
-		ctx              context.Context
-		orgId            uuid.UUID
-		storeInst        store.Store
-		serviceHandler   service.Service
-		cfg              *config.Config
-		dbName           string
-		db               *gorm.DB
-		workerClient     worker_client.WorkerClient
-		fleet            *api.Fleet
-		repository       *api.Repository
-		goodGitConfig    *api.GitConfigProviderSpec
-		badGitConfig     *api.GitConfigProviderSpec
-		goodInlineConfig *api.InlineConfigProviderSpec
-		badInlineConfig  *api.InlineConfigProviderSpec
-		goodHttpConfig   *api.HttpConfigProviderSpec
-		badHttpConfig    *api.HttpConfigProviderSpec
+		log                  *logrus.Logger
+		ctx                  context.Context
+		orgId                uuid.UUID
+		fleetStore           store.Fleet
+		templateVersionSvc   templateversionservice.Service
+		deviceSvc            deviceservice.Service
+		repositorySvc        repositoryservice.Service
+		fleetSvc             fleetservice.Service
+		repositoryStore      repositorystore.Store
+		templateVersionStore templateversionstore.Store
+		cfg                  *config.Config
+		dbName               string
+		db                   *gorm.DB
+		workerClient         worker_client.WorkerClient
+		fleet                *api.Fleet
+		repository           *api.Repository
+		goodGitConfig        *api.GitConfigProviderSpec
+		badGitConfig         *api.GitConfigProviderSpec
+		goodInlineConfig     *api.InlineConfigProviderSpec
+		badInlineConfig      *api.InlineConfigProviderSpec
+		goodHttpConfig       *api.HttpConfigProviderSpec
+		badHttpConfig        *api.HttpConfigProviderSpec
 	)
 
 	BeforeEach(func() {
@@ -55,14 +69,23 @@ var _ = Describe("FleetValidate", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		templateVersionStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl := gomock.NewController(GinkgoT())
 		producer := queues.NewMockQueueProducer(ctrl)
 		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(producer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		templateVersionSvc = templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		spec := api.RepositorySpec{}
 		err = spec.FromGitRepoSpec(api.GitRepoSpec{
@@ -90,9 +113,9 @@ var _ = Describe("FleetValidate", func() {
 		}
 
 		repoCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repositoryHttp, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
@@ -148,7 +171,6 @@ var _ = Describe("FleetValidate", func() {
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -161,7 +183,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -177,21 +199,21 @@ var _ = Describe("FleetValidate", func() {
 
 			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
 
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err := templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err = templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(1))
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			fleet, err = fleetStore.Get(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(fleet.Status.Conditions).ToNot(BeNil())
@@ -199,7 +221,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeFleetValid))
 			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			repos, err := fleetStore.GetRepositoryRefs(ctx, orgId, "myfleet")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
@@ -220,7 +242,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
@@ -236,21 +258,21 @@ var _ = Describe("FleetValidate", func() {
 
 			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
 
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err := templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err = templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			fleet, err = fleetStore.Get(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(fleet.Status.Conditions).ToNot(BeNil())
@@ -258,7 +280,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeFleetValid))
 			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
 
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			repos, err := fleetStore.GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
 			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
@@ -277,7 +299,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -293,21 +315,21 @@ var _ = Describe("FleetValidate", func() {
 
 			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem}
 
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err := templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err = templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			fleet, err = fleetStore.Get(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(fleet.Status.Conditions).ToNot(BeNil())
@@ -315,7 +337,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(fleet.Status.Conditions[0].Type).To(Equal(api.ConditionTypeFleetValid))
 			Expect(fleet.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
 
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet")
+			repos, err := fleetStore.GetRepositoryRefs(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(2))
 			repoNames := []string{*((repos.Items[0]).Metadata.Name), *((repos.Items[1]).Metadata.Name)}
@@ -334,7 +356,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -347,21 +369,21 @@ var _ = Describe("FleetValidate", func() {
 
 			fleet.Spec.Template.Spec.Config = &[]api.ConfigProviderSpec{gitItem}
 
-			tvList, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err := templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
 			Expect(err).To(HaveOccurred())
 
-			tvList, err = storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			tvList, err = templateVersionStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet")
+			fleet, err = fleetStore.Get(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(fleet.Status.Conditions).ToNot(BeNil())
