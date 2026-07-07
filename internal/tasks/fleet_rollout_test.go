@@ -395,6 +395,99 @@ func createTestDeviceWithLabels(name string, owner string, labels map[string]str
 	}
 }
 
+func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing.T) {
+	const tvName = "v1"
+	const image = "test-image:latest"
+
+	tests := []struct {
+		name                string
+		templateVersion     string
+		renderedVersion     string
+		deviceImage         string
+		expectReplaceDevice bool
+		description         string
+	}{
+		{
+			name:                "WhenVersionAndRenderedVersionAndSpecMatch",
+			templateVersion:     tvName,
+			renderedVersion:     tvName,
+			deviceImage:         image,
+			expectReplaceDevice: false,
+			description:         "When templateVersion, renderedTemplateVersion, and spec all match fleet, rollout should be skipped",
+		},
+		{
+			name:                "WhenRenderedVersionDiffersFromFleetVersion",
+			templateVersion:     tvName,
+			renderedVersion:     "v2",
+			deviceImage:         image,
+			expectReplaceDevice: true,
+			description:         "When renderedTemplateVersion differs from fleet templateVersion, rollout must not be skipped even if spec is unchanged",
+		},
+		{
+			name:                "WhenTemplateVersionDiffersFromFleetVersion",
+			templateVersion:     "v2",
+			renderedVersion:     "v2",
+			deviceImage:         image,
+			expectReplaceDevice: true,
+			description:         "When templateVersion differs from fleet templateVersion, rollout must not be skipped",
+		},
+		{
+			name:                "WhenSpecDiffersFromFleetSpec",
+			templateVersion:     tvName,
+			renderedVersion:     tvName,
+			deviceImage:         "old-image:latest",
+			expectReplaceDevice: true,
+			description:         "When spec differs from fleet spec, rollout must not be skipped even if versions match",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			orgId := uuid.New()
+			log := logrus.New()
+			fleetName := "test-fleet"
+			event := domain.Event{
+				InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
+			}
+			mockService := service.NewMockService(ctrl)
+			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
+			logic.owner = lo.FromPtr(util.SetResourceOwner(domain.FleetKind, fleetName))
+
+			annotations := map[string]string{
+				domain.DeviceAnnotationTemplateVersion:         tt.templateVersion,
+				domain.DeviceAnnotationRenderedTemplateVersion: tt.renderedVersion,
+			}
+			deviceName := "test-device"
+			ownerStr := logic.owner
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name:        &deviceName,
+					Owner:       &ownerStr,
+					Annotations: &annotations,
+				},
+				Spec: &domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{Image: tt.deviceImage},
+				},
+				Status: &domain.DeviceStatus{},
+			}
+
+			tv := createTestTemplateVersion(tvName)
+			tv.Status.Os = &domain.DeviceOsSpec{Image: image}
+
+			if tt.expectReplaceDevice {
+				mockService.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, domain.Status{Code: http.StatusOK})
+				mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+			}
+
+			_, err := logic.updateDeviceToFleetTemplate(context.Background(), device, tv, false)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestFleetRolloutsLogic_ReplaceComposeImageApplicationParameters(t *testing.T) {
 	tests := []struct {
 		name          string
