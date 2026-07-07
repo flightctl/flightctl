@@ -20,15 +20,30 @@ const (
 	metricsEndpointPath         = "/metrics"
 	telemetryGatewayConfigPath  = "jsonpath={.data.config\\.yaml}"
 	fleetImage                  = "quay.io/redhat/rhde:9.2"
+
+	ocpMonitoringStackPrometheusService = "flightctl-monitoring-stack-prometheus"
+	ocpMonitoringStackPrometheusPort    = 9090
 )
+
+func ocpPrometheusBackends(infraProvider infra.InfraProvider) ([]e2e.ServiceAccessBackend, error) {
+	releaseNamespace := infraProvider.GetExternalNamespace()
+	if releaseNamespace == "" {
+		return nil, fmt.Errorf("flightctl release namespace is not configured")
+	}
+	return []e2e.ServiceAccessBackend{
+		{
+			ServiceName: ocpMonitoringStackPrometheusService,
+			Namespaces:  []string{releaseNamespace},
+			Port:        ocpMonitoringStackPrometheusPort,
+			UseTLS:      false,
+			RequireAuth: false,
+		},
+	}, nil
+}
 
 var _ = Describe("Device observability", func() {
 	BeforeEach(func() {
 		providers := setup.GetDefaultProviders()
-		env := providers.Infra.GetEnvironmentType()
-		if env != infra.EnvironmentKind && env != infra.EnvironmentQuadlet {
-			Skip(fmt.Sprintf("device observability requires KIND or Quadlet (current: %s)", env))
-		}
 		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
 	})
 
@@ -48,7 +63,7 @@ var _ = Describe("Device observability", func() {
 			GinkgoWriter.Printf("Telemetry gateway configuration: %s\n", cfg)
 			Expect(cfg).To(ContainSubstring("prometheus"))
 			Expect(cfg).To(ContainSubstring("listen"))
-			if !infra.IsQuadletEnvironment() {
+			if p.Infra.GetEnvironmentType() == infra.EnvironmentKind {
 				Expect(cfg).To(ContainSubstring("logLevel"))
 				Expect(cfg).To(ContainSubstring("tls:"))
 				Expect(cfg).To(ContainSubstring("certFile"))
@@ -230,10 +245,6 @@ var _ = Describe("Device observability", func() {
 var _ = Describe("Service observability", func() {
 	BeforeEach(func() {
 		providers := setup.GetDefaultProviders()
-		env := providers.Infra.GetEnvironmentType()
-		if env != infra.EnvironmentKind && env != infra.EnvironmentQuadlet {
-			Skip(fmt.Sprintf("service observability metrics requires KIND or Quadlet (current: %s)", env))
-		}
 		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
 	})
 
@@ -251,7 +262,6 @@ var _ = Describe("Service observability", func() {
 				"flightctl_cpu_utilization",
 				"flightctl_memory_utilization",
 				"flightctl_disk_utilization",
-				"http_server_request_duration_seconds_bucket",
 				"flightctl_repositories_total",
 			}
 			for _, query := range metrics {
@@ -260,6 +270,11 @@ var _ = Describe("Service observability", func() {
 				GinkgoWriter.Printf("Query: %s\n", query)
 				Eventually(harness.PromQueryResultCount(promURL, query), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 			}
+			// Use PromQueryResultCountAny to handle both legacy and OTel-style metric names.
+			By("verifying HTTP server request duration metric")
+			GinkgoWriter.Printf("Prom URL: %s\n", promURL)
+			GinkgoWriter.Printf("Queries: %v\n", e2e.HTTPServerRequestDurationBucketQueries)
+			Eventually(harness.PromQueryResultCountAny(promURL, e2e.HTTPServerRequestDurationBucketQueries...), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 
 			By("creating test domain objects for detailed metrics verification")
 			// Note: Prometheus works on a pull scrape model, so the initial request to get metrics
@@ -408,12 +423,28 @@ func getPrometheusURL() (string, error) {
 }
 
 // getServiceObservabilityPrometheusURL returns the Prometheus URL for observability tests.
-// On Quadlet uses flightctl-prometheus; on KIND uses the aux testcontainer.
+// On Quadlet uses flightctl-prometheus; on OCP uses the COO MonitoringStack; on KIND uses the aux testcontainer.
 func getServiceObservabilityPrometheusURL() (string, func(), error) {
 	noopCleanup := func() {}
 	if infra.IsQuadletEnvironment() {
 		providers := setup.GetDefaultProviders()
 		url, cleanup, err := providers.Infra.ExposeService(infra.ServicePrometheus, "http")
+		if err != nil {
+			return "", noopCleanup, err
+		}
+		if cleanup == nil {
+			cleanup = noopCleanup
+		}
+		return url, cleanup, nil
+	}
+	providers := setup.GetDefaultProviders()
+	if providers.Infra.GetEnvironmentType() == infra.EnvironmentOCP {
+		harness := e2e.GetWorkerHarness()
+		backends, err := ocpPrometheusBackends(providers.Infra)
+		if err != nil {
+			return "", noopCleanup, err
+		}
+		url, _, _, cleanup, _, err := harness.StartFirstAvailableBackendAccess(backends, TENMINTIMEOUT)
 		if err != nil {
 			return "", noopCleanup, err
 		}

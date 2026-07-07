@@ -104,9 +104,16 @@ elif [ -n "$ip" ]; then
   gateway="telemetry.${ip}.${dns_suffix}:4317"
   log "Derived OTEL_GATEWAY=${gateway}"
 elif [ -n "$hostname" ]; then
-  # Quadlet exposes telemetry on the same host as the agent API (nginx stream :4317).
-  gateway="${hostname}:4317"
-  log "Derived OTEL_GATEWAY=${gateway} (hostname-based)"
+  telemetry_host="${hostname/agent-api./telemetry.}"
+  if [[ "$telemetry_host" != "$hostname" ]]; then
+    # OCP Route: telemetry.<baseDomain> on 443 (passthrough to pod 4317)
+    gateway="${telemetry_host}:443"
+    log "Derived OTEL_GATEWAY=${gateway} (telemetry route)"
+  else
+    # Quadlet exposes telemetry on the same host as the agent API (nginx stream :4317).
+    gateway="${hostname}:4317"
+    log "Derived OTEL_GATEWAY=${gateway} (hostname-based)"
+  fi
 else
   die "Could not extract IP or hostname from server URL: $server_url"
 fi
