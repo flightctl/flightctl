@@ -12,24 +12,27 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // ServiceHandler implements Service using the isolated fleet store. Only the fields
 // actually read by Fleet's methods are held: exhaustive inspection of every h.* reference
 // in the monolithic internal/service/fleet.go (all 14 interface methods + 2 private
-// callbacks) and the Fleet-specific code paths in internal/service/event_handler.go found
-// zero calls to deviceStore, repositoryStore, templateVersionStore, workerClient, or log.
-// GetFleetRepositoryRefs/OverwriteFleetRepositoryRefs delegate directly to fleetstore.Store,
-// which resolves the repository association via GORM (Association("Repositories")) with no
-// Go-level dependency on repository.Store.
+// callbacks) found zero calls to deviceStore, repositoryStore, templateVersionStore, or
+// workerClient. GetFleetRepositoryRefs/OverwriteFleetRepositoryRefs delegate directly to
+// fleetstore.Store, which resolves the repository association via GORM
+// (Association("Repositories")) with no Go-level dependency on repository.Store. The log
+// field was added when Fleet's own event-emission logic (previously centralized in
+// internal/service/events) moved into this package.
 type ServiceHandler struct {
 	store  fleetstore.Store
 	events events.Service
+	log    logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new fleet ServiceHandler instance.
-func NewServiceHandler(store fleetstore.Store, events events.Service) *ServiceHandler {
-	return &ServiceHandler{store: store, events: events}
+func NewServiceHandler(store fleetstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -185,7 +188,7 @@ func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.
 
 // callbackFleetUpdated is the fleet-specific callback that handles fleet events
 func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleFleetUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	EmitFleetUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackFleetDeleted is the fleet-specific callback that handles fleet deletion events

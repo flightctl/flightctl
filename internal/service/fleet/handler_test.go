@@ -14,6 +14,7 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -240,10 +241,13 @@ func (f *fakeFleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.U
 }
 
 // fakeEventsService is a recording fake for events.Service; embedding events.Service means
-// only the 2 callbacks Fleet actually invokes need overriding.
+// only the 2 generic methods Fleet's own event logic (EmitFleetUpdatedEvent, in events.go)
+// calls into need overriding. Fleet-specific decisions now live in this package, so tests
+// assert on the actual events recorded via CreateEvent rather than intercepting a
+// resource-specific callback.
 type fakeEventsService struct {
 	events.Service
-	updated []recordedCallback
+	created []*domain.Event
 	deleted []recordedCallback
 }
 
@@ -254,8 +258,11 @@ type recordedCallback struct {
 	err     error
 }
 
-func (f *fakeEventsService) HandleFleetUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, recordedCallback{orgId: orgId, name: name, created: created, err: err})
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -265,7 +272,7 @@ func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Conte
 func newTestHandler() (*ServiceHandler, *fakeFleetStore, *fakeEventsService) {
 	fakeStore := newFakeFleetStore()
 	fakeEvents := &fakeEventsService{}
-	return NewServiceHandler(fakeStore, fakeEvents), fakeStore, fakeEvents
+	return NewServiceHandler(fakeStore, fakeEvents, logrus.New()), fakeStore, fakeEvents
 }
 
 func createTestFleet(name string, owner *string) domain.Fleet {
@@ -304,8 +311,8 @@ func TestCreateFleet(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.fleets, "f1")
-		require.Len(t, fakeEvents.updated, 1)
-		require.True(t, fakeEvents.updated[0].created)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
 	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
@@ -398,7 +405,10 @@ func TestReplaceFleet(t *testing.T) {
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.fleets, "f1")
-		require.Len(t, fakeEvents.updated, 2) // one from create, one from replace
+		// Only the create produces a ResourceCreated event; replacing with identical
+		// metadata (no generation/labels/owner change) emits nothing further.
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 }
 
@@ -662,7 +672,7 @@ func TestListDisruptionBudgetFleets(t *testing.T) {
 }
 
 func TestUpdateFleetConditions(t *testing.T) {
-	t.Run("When the fleet exists it should update its conditions and fire a callback", func(t *testing.T) {
+	t.Run("When the fleet exists it should update its conditions without emitting an unrelated event", func(t *testing.T) {
 		h, fakeStore, fakeEvents := newTestHandler()
 		fl := createTestFleet("f1", nil)
 		fakeStore.fleets["f1"] = &fl
@@ -671,7 +681,9 @@ func TestUpdateFleetConditions(t *testing.T) {
 			{Type: "Approved", Status: "True"},
 		})
 		require.Equal(t, statusSuccessCode, status.Code)
-		require.Len(t, fakeEvents.updated, 1)
+		// A non-FleetValid condition change doesn't touch ObjectMeta and isn't the
+		// FleetValid condition emitFleetValidEvents watches, so no event is emitted.
+		require.Empty(t, fakeEvents.created)
 	})
 
 	t.Run("When the fleet does not exist it should return a not-found status", func(t *testing.T) {
@@ -683,7 +695,7 @@ func TestUpdateFleetConditions(t *testing.T) {
 }
 
 func TestUpdateFleetAnnotations(t *testing.T) {
-	t.Run("When the fleet exists it should update its annotations and fire a callback", func(t *testing.T) {
+	t.Run("When the fleet exists it should update its annotations without emitting an unrelated event", func(t *testing.T) {
 		h, fakeStore, fakeEvents := newTestHandler()
 		fl := createTestFleet("f1", nil)
 		fakeStore.fleets["f1"] = &fl
@@ -691,7 +703,8 @@ func TestUpdateFleetAnnotations(t *testing.T) {
 		status := h.UpdateFleetAnnotations(context.Background(), uuid.New(), "f1", map[string]string{"k": "v"}, nil)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, "v", (*fakeStore.fleets["f1"].Metadata.Annotations)["k"])
-		require.Len(t, fakeEvents.updated, 1)
+		// Annotations aren't tracked by ComputeResourceUpdatedDetails, so no event is emitted.
+		require.Empty(t, fakeEvents.created)
 	})
 
 	t.Run("When the fleet does not exist it should return a not-found status", func(t *testing.T) {
