@@ -123,7 +123,9 @@ var _ = Describe("Requeue Integration Tests", func() {
 		// Create consumer
 		consumer = tasks.NewConsumer(
 			imageBuilderStore,
-			mainStore,
+			mainStore.Organization(),
+			mainStore.Repository(),
+			mainStore.Catalog(),
 			nil, // kvStore
 			nil, // serviceHandler
 			imageBuilderService,

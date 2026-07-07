@@ -107,7 +107,9 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		// Create consumer
 		consumer = tasks.NewConsumer(
 			imageBuilderStore,
-			mainStore,
+			mainStore.Organization(),
+			mainStore.Repository(),
+			mainStore.Catalog(),
 			kvStoreInst,
 			nil, // serviceHandler
 			imageBuilderService,

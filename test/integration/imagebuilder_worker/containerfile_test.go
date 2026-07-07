@@ -181,7 +181,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -221,7 +221,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -295,7 +295,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			// Values are now in BuildArgs, not templated into Containerfile
@@ -316,7 +316,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.BuildArgs.RegistryHostname).To(Equal("registry.example.com"))
@@ -334,7 +334,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.BuildArgs.RegistryHostname).To(Equal("localhost:5000"))
@@ -351,7 +351,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("repository"))
@@ -385,7 +385,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("must be of type 'oci'"))
@@ -404,7 +404,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			containerfile := result.Containerfile
@@ -453,7 +453,7 @@ var _ = Describe("Containerfile Generation", func() {
 			// Generate multiple containerfiles - they should all be identical (static template)
 			var firstContainerfile string
 			for i := 0; i < 5; i++ {
-				result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+				result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 				Expect(err).ToNot(HaveOccurred())
 
 				if i == 0 {
@@ -488,7 +488,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -530,7 +530,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -564,7 +564,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
