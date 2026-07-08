@@ -254,7 +254,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, storeInst, provider, mockK8sClient, nil)
+	workerServer := workerserver.New(&serverCfg, serverLog, db, provider, mockK8sClient, nil)
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, db, ca, serverCerts, provider)
 	if err != nil {

@@ -23,7 +23,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
-	"github.com/flightctl/flightctl/internal/store"
+	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
@@ -231,7 +231,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 type VulnerabilitySyncExecutor struct {
 	log           logrus.FieldLogger
 	vulnClient    trustifyv2.VulnerabilityClient
-	findingStore  store.VulnerabilityFinding
+	findingStore  vulnerabilityfindingstore.Store
 	checkpointSvc checkpointservice.Service
 	eventSvc      eventservice.Service
 }
@@ -320,7 +320,7 @@ func InitializeTaskExecutors(
 	queuesProvider queues.Provider,
 	workerClient worker_client.WorkerClient,
 	workerMetrics *worker.WorkerCollector,
-	findingStore store.VulnerabilityFinding,
+	findingStore vulnerabilityfindingstore.Store,
 	vulnClient trustifyv2.VulnerabilityClient,
 	depSyncMetrics *periodicmetrics.DependencySyncCollector,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {

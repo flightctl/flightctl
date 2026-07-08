@@ -56,8 +56,11 @@ func main() {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
@@ -110,7 +113,7 @@ func main() {
 		}
 	}
 
-	server := workerserver.New(cfg, log, store, provider, k8sClient, workerCollector)
+	server := workerserver.New(cfg, log, db, provider, k8sClient, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

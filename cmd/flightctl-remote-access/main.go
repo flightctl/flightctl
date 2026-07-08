@@ -67,8 +67,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-	dataStore := store.NewStore(db, log.WithField("pkg", "store"))
-	defer dataStore.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
@@ -94,7 +97,7 @@ func main() {
 		log.Fatalf("starting rendered version bus: %v", err)
 	}
 
-	server, err := remoteaccessserver.New(log, cfg, caBundleCerts, serverCerts, dataStore, rendered.Bus.Instance())
+	server, err := remoteaccessserver.New(log, cfg, caBundleCerts, serverCerts, db, rendered.Bus.Instance())
 	if err != nil {
 		log.Fatalf("initializing remote-access server: %v", err)
 	}

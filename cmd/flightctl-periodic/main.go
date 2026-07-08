@@ -40,10 +40,13 @@ func main() {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
-	server := periodic.New(cfg, log, store)
+	server := periodic.New(cfg, log, db)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
