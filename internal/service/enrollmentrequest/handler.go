@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -647,16 +648,33 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name
 	return dev != nil, err
 }
 
-// callbackDeviceUpdated mirrors internal/service/device.go's callbackDeviceUpdated (out of
-// this story's scope) so createDeviceFromEnrollmentRequest's device-creation callback keeps
-// emitting the same device-updated event it does today.
+// callbackDeviceUpdated mirrors internal/service/device's own device-updated event logic so
+// createDeviceFromEnrollmentRequest's device-creation callback keeps emitting the same
+// device-updated event it does today. Calls into the device package directly (rather than a
+// shared events hub) since that's the package that owns this decision logic.
 func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleDeviceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	device.EmitDeviceUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
 func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *domain.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldEnrollmentRequest, newEnrollmentRequest *domain.EnrollmentRequest
+				ok                                         bool
+			)
+			if oldEnrollmentRequest, newEnrollmentRequest, ok = common.CastResources[domain.EnrollmentRequest](oldResource, newResource); ok && oldEnrollmentRequest != nil && newEnrollmentRequest != nil {
+				updateDetails = common.ComputeResourceUpdatedDetails(oldEnrollmentRequest.Metadata, newEnrollmentRequest.Metadata)
+			}
+		}
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
 }
 
 // callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
@@ -666,5 +684,12 @@ func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, r
 
 // callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
 func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+	} else {
+		// For enrollment request approval, we always emit the approved event on successful update
+		// since this callback is only called when the approval process succeeds
+		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
+	}
 }

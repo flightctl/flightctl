@@ -172,34 +172,36 @@ func (f *fakeKVStore) SetNX(ctx context.Context, key string, value []byte) (bool
 	return true, nil
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. EnrollmentRequest's own event
+// decision logic (in handler.go's callback* methods) now calls CreateEvent directly, so
+// tests assert on the actual emitted events (filtered by Reason where a scenario can emit
+// more than one, e.g. approval also creates a device) rather than intercepting
+// resource-specific callbacks that no longer exist on the slimmed events.Service interface.
 type fakeEventsService struct {
 	events.Service
 	createdEvents []*domain.Event
-	updated       []string
-	approved      []string
 	deleted       []string
-	deviceUpdated []string
 }
 
 func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
 	f.createdEvents = append(f.createdEvents, event)
-}
-
-func (f *fakeEventsService) HandleEnrollmentRequestUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, name)
-}
-
-func (f *fakeEventsService) HandleEnrollmentRequestApprovedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.approved = append(f.approved, name)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	f.deleted = append(f.deleted, name)
 }
 
-func (f *fakeEventsService) HandleDeviceUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.deviceUpdated = append(f.deviceUpdated, name)
+func (f *fakeEventsService) createdWithReason(reason domain.EventReason) []*domain.Event {
+	var matched []*domain.Event
+	for _, e := range f.createdEvents {
+		if e.Reason == reason {
+			matched = append(matched, e)
+		}
+	}
+	return matched
 }
 
 func newTestCA(t *testing.T) *crypto.CAClient {
@@ -265,7 +267,7 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.items, cn)
-		require.Len(t, fakeEvents.updated, 1)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated), 1)
 	})
 
 	t.Run("When the CSR is malformed it should return bad request", func(t *testing.T) {
@@ -445,7 +447,7 @@ func TestApproveEnrollmentRequest(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, device)
 		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
-		require.Len(t, fakeEvents.approved, 1)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonEnrollmentRequestApproved), 1)
 	})
 }
 

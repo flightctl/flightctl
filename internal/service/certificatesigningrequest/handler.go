@@ -493,7 +493,23 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.Certifi
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
 func (h *ServiceHandler) callbackCertificateSigningRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleCertificateSigningRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *domain.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldCSR, newCSR *domain.CertificateSigningRequest
+				ok             bool
+			)
+			if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
+				updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+			}
+		}
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
 }
 
 // callbackCertificateSigningRequestDeleted is the certificate signing request-specific callback that handles CSR deletion events

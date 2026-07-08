@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
@@ -44,7 +45,7 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 
 	result, err := h.store.Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
 	if err == nil {
-		h.events.EmitFleetRolloutStartedEvent(ctx, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+		fleet.EmitFleetRolloutStartedEvent(ctx, h.events, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
 	return result, common.StoreErrorToApiStatus(err, true, domain.TemplateVersionKind, templateVersion.Metadata.Name)
 }
@@ -114,7 +115,23 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, orgId uui
 
 // callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
 func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleTemplateVersionUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *domain.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldTemplateVersion, newTemplateVersion *domain.TemplateVersion
+				ok                                     bool
+			)
+			if oldTemplateVersion, newTemplateVersion, ok = common.CastResources[domain.TemplateVersion](oldResource, newResource); ok && oldTemplateVersion != nil && newTemplateVersion != nil {
+				updateDetails = common.ComputeResourceUpdatedDetails(oldTemplateVersion.Metadata, newTemplateVersion.Metadata)
+			}
+		}
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
 }
 
 // callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events

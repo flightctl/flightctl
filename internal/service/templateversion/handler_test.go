@@ -120,20 +120,22 @@ func (f *fakeKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key stri
 	return f.deleteErr
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. TemplateVersion's own event
+// decision logic (in handler.go's callbackTemplateVersionUpdated, and its use of
+// fleet.EmitFleetRolloutStartedEvent) now calls CreateEvent directly, so tests assert on the
+// actual emitted events rather than intercepting resource-specific methods that no longer
+// exist on the slimmed events.Service interface.
 type fakeEventsService struct {
 	events.Service
-	rolloutStartedCalls []string
-	updated             []string
-	deleted             []string
+	created []*domain.Event
+	deleted []string
 }
 
-func (f *fakeEventsService) EmitFleetRolloutStartedEvent(ctx context.Context, orgId uuid.UUID, templateVersionName string, fleetName string, immediateRollout bool) {
-	f.rolloutStartedCalls = append(f.rolloutStartedCalls, fmt.Sprintf("%s/%s", fleetName, templateVersionName))
-}
-
-func (f *fakeEventsService) HandleTemplateVersionUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, name)
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -171,7 +173,14 @@ func TestCreateTemplateVersion(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.items, tvKey{fleet: "myfleet", name: "v1"})
-		require.Equal(t, []string{"myfleet/v1"}, fakeEvents.rolloutStartedCalls)
+		// CreateTemplateVersion emits both the fleet-rollout-started event and the
+		// template version's own ResourceCreated event.
+		var reasons []domain.EventReason
+		for _, e := range fakeEvents.created {
+			reasons = append(reasons, e.Reason)
+		}
+		require.Contains(t, reasons, domain.EventReasonFleetRolloutStarted)
+		require.Contains(t, reasons, domain.EventReasonResourceCreated)
 	})
 
 	t.Run("When metadata.owner and spec.fleet disagree it should return bad request", func(t *testing.T) {

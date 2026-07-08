@@ -13,6 +13,7 @@ import (
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -150,10 +151,13 @@ func (f *fakeFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid
 	return nil
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. ResourceSync's own event
+// decision logic (in handler.go's callbackResourceSyncUpdated) now calls CreateEvent
+// directly, so tests assert on the actual emitted events rather than intercepting a
+// resource-specific callback.
 type fakeEventsService struct {
 	events.Service
-	updated []recordedCallback
+	created []*domain.Event
 	deleted []recordedCallback
 }
 
@@ -164,8 +168,11 @@ type recordedCallback struct {
 	err     error
 }
 
-func (f *fakeEventsService) HandleResourceSyncUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, recordedCallback{orgId: orgId, name: name, created: created, err: err})
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -177,7 +184,7 @@ func newTestHandler() (*ServiceHandler, *fakeResourceSyncStore, *fakeCatalogStor
 	catStore := &fakeCatalogStore{}
 	flStore := &fakeFleetStore{}
 	evStore := &fakeEventsService{}
-	return NewServiceHandler(rsStore, catStore, flStore, evStore), rsStore, catStore, flStore, evStore
+	return NewServiceHandler(rsStore, catStore, flStore, evStore, logrus.New()), rsStore, catStore, flStore, evStore
 }
 
 func testResourceSync(name string) domain.ResourceSync {
@@ -205,7 +212,8 @@ func TestCreateResourceSync(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.items, "foo")
-		require.Len(t, fakeEvents.updated, 1)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
 	t.Run("When names are very long it should still create successfully", func(t *testing.T) {

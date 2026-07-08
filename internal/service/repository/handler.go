@@ -172,7 +172,53 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, orgI
 
 // callbackRepositoryUpdated is the repository-specific callback that handles repository update events
 func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleRepositoryUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.RepositoryKind, name, status, nil))
+		return
+	}
+
+	var (
+		oldRepository, newRepository *domain.Repository
+		ok                           bool
+	)
+	if oldRepository, newRepository, ok = common.CastResources[domain.Repository](oldResource, newResource); !ok {
+		return
+	}
+
+	// Emit success event for create/update
+	if created {
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, nil, h.log, nil))
+	} else if oldRepository != nil && newRepository != nil {
+		// Check if the Accessible condition changed
+		var oldConditions, newConditions []domain.Condition
+		if oldRepository.Status != nil {
+			oldConditions = oldRepository.Status.Conditions
+		}
+		if newRepository.Status != nil {
+			newConditions = newRepository.Status.Conditions
+		}
+
+		oldAccessible := domain.FindStatusCondition(oldConditions, domain.ConditionTypeRepositoryAccessible)
+		newAccessible := domain.FindStatusCondition(newConditions, domain.ConditionTypeRepositoryAccessible)
+
+		if common.HasConditionChanged(oldAccessible, newAccessible) {
+			if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeRepositoryAccessible) {
+				h.events.CreateEvent(ctx, orgId, common.GetRepositoryAccessibleEvent(ctx, name))
+			} else {
+				message := "Repository access failed"
+				if newAccessible != nil && newAccessible.Message != "" {
+					message = newAccessible.Message
+				}
+				h.events.CreateEvent(ctx, orgId, common.GetRepositoryInaccessibleEvent(ctx, name, message))
+			}
+		}
+
+		updateDetails := common.ComputeResourceUpdatedDetails(oldRepository.Metadata, newRepository.Metadata)
+
+		// Also emit the standard update event
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, updateDetails, h.log, nil))
+	}
 }
 
 // callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events

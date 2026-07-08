@@ -15,19 +15,23 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service. Holds the isolated authprovider store and events.Service
-// (needed only for the 2 create/update/delete callbacks) — no `log`, no `workerClient`; neither
-// is referenced anywhere in the original authprovider.go/auth_config.go.
+// ServiceHandler implements Service. Holds the isolated authprovider store, events.Service,
+// and a logger — no `workerClient`; it is referenced nowhere in the original
+// authprovider.go/auth_config.go. The log field was added when AuthProvider's own
+// event-emission logic (previously centralized in internal/service/events) moved into this
+// package.
 type ServiceHandler struct {
 	store  authproviderstore.Store
 	events events.Service
+	log    logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new authprovider ServiceHandler instance.
-func NewServiceHandler(store authproviderstore.Store, events events.Service) *ServiceHandler {
-	return &ServiceHandler{store: store, events: events}
+func NewServiceHandler(store authproviderstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -300,10 +304,32 @@ func (h *ServiceHandler) GetAuthConfig(ctx context.Context, authConfig *domain.A
 
 // callbackAuthProviderUpdated is the auth provider-specific callback that handles auth provider update events
 func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleAuthProviderUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.AuthProviderKind, name, status, nil))
+		return
+	}
+
+	// Emit success event for create
+	if created {
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.AuthProviderKind, name, nil, h.log, nil))
+	} else {
+		// Handle update events
+		var oldAuthProvider, newAuthProvider *domain.AuthProvider
+		var ok bool
+		if oldAuthProvider, newAuthProvider, ok = common.CastResources[domain.AuthProvider](oldResource, newResource); !ok {
+			return
+		}
+
+		updateDetails := common.ComputeResourceUpdatedDetails(oldAuthProvider.Metadata, newAuthProvider.Metadata)
+		// Generate ResourceUpdated event if there are spec changes
+		if updateDetails != nil {
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.AuthProviderKind, name, updateDetails, h.log, nil))
+		}
+	}
 }
 
 // callbackAuthProviderDeleted is the auth provider-specific callback that handles auth provider deletion events
 func (h *ServiceHandler) callbackAuthProviderDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleAuthProviderDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

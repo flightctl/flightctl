@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -223,10 +224,12 @@ func (f *fakeCatalogStore) DeleteItem(ctx context.Context, orgId uuid.UUID, cata
 }
 
 // fakeEventsService is a recording fake for events.Service; embedding events.Service means
-// only the 2 callbacks Catalog actually invokes need overriding.
+// only the 2 generic methods Catalog's own event logic calls into need overriding.
+// Catalog-specific decisions now live in this package, so tests assert on the actual events
+// recorded via CreateEvent rather than intercepting a resource-specific callback.
 type fakeEventsService struct {
 	events.Service
-	updated []recordedCallback
+	created []*domain.Event
 	deleted []recordedCallback
 }
 
@@ -237,8 +240,11 @@ type recordedCallback struct {
 	err     error
 }
 
-func (f *fakeEventsService) HandleCatalogUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, recordedCallback{orgId: orgId, name: name, created: created, err: err})
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -248,7 +254,7 @@ func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Conte
 func newTestHandler() (*ServiceHandler, *fakeCatalogStore, *fakeEventsService) {
 	fakeStore := newFakeCatalogStore()
 	fakeEvents := &fakeEventsService{}
-	return NewServiceHandler(fakeStore, fakeEvents), fakeStore, fakeEvents
+	return NewServiceHandler(fakeStore, fakeEvents, logrus.New()), fakeStore, fakeEvents
 }
 
 func createTestCatalog(name string, owner *string) domain.Catalog {
@@ -300,8 +306,8 @@ func TestCreateCatalog(t *testing.T) {
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.catalogs, "c1")
-		require.Len(t, fakeEvents.updated, 1)
-		require.True(t, fakeEvents.updated[0].created)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
 	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
@@ -394,7 +400,10 @@ func TestReplaceCatalog(t *testing.T) {
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.catalogs, "c1")
-		require.Len(t, fakeEvents.updated, 2) // one from create, one from replace
+		// Only the create produces a ResourceCreated event; replacing with identical
+		// metadata (no generation/labels/owner change) emits nothing further.
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 }
 
@@ -505,7 +514,8 @@ func TestPatchCatalog(t *testing.T) {
 		result, status := h.PatchCatalog(context.Background(), uuid.New(), "c1", patch)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
-		require.Len(t, fakeEvents.updated, 1)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceUpdated, fakeEvents.created[0].Reason)
 	})
 }
 
@@ -528,7 +538,9 @@ func TestReplaceCatalogStatus(t *testing.T) {
 		result, status := h.ReplaceCatalogStatus(context.Background(), uuid.New(), "c1", catalog)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
-		require.Len(t, fakeEvents.updated, 1)
+		// Replacing the status with an otherwise-identical catalog doesn't touch
+		// generation/labels/owner, so no event is emitted.
+		require.Empty(t, fakeEvents.created)
 	})
 
 	t.Run("When the name in the path does not match metadata.name it should return a bad-request status", func(t *testing.T) {

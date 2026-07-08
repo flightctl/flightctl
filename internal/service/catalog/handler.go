@@ -11,21 +11,24 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 // ServiceHandler implements Service. It holds only the dependencies Catalog's methods
-// actually use: the catalog store and events.Service (needed only for the 2 update/delete
-// callbacks). No `log`, no `workerClient` — neither is referenced anywhere in the original
-// internal/service/catalog.go.
+// actually use: the catalog store, events.Service, and a logger — no `workerClient`, which is
+// referenced nowhere in the original internal/service/catalog.go. The log field was added
+// when Catalog's own event-emission logic (previously centralized in
+// internal/service/events) moved into this package.
 type ServiceHandler struct {
 	store  catalogstore.Store
 	events events.Service
+	log    logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new catalog ServiceHandler instance.
-func NewServiceHandler(store catalogstore.Store, events events.Service) *ServiceHandler {
-	return &ServiceHandler{store: store, events: events}
+func NewServiceHandler(store catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -329,7 +332,23 @@ func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID,
 
 // callbackCatalogUpdated is the catalog-specific callback that handles catalog events
 func (h *ServiceHandler) callbackCatalogUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleCatalogUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *domain.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldCatalog, newCatalog *domain.Catalog
+				ok                     bool
+			)
+			if oldCatalog, newCatalog, ok = common.CastResources[domain.Catalog](oldResource, newResource); ok && oldCatalog != nil && newCatalog != nil {
+				updateDetails = common.ComputeResourceUpdatedDetails(oldCatalog.Metadata, newCatalog.Metadata)
+			}
+		}
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
 }
 
 // callbackCatalogDeleted is the catalog-specific callback that handles catalog deletion events

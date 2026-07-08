@@ -140,10 +140,12 @@ func (f *fakeRepositoryStore) CountByOrg(_ context.Context, _ *uuid.UUID) ([]sto
 	return nil, nil
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. Repository's own event decision
+// logic (in handler.go's callbackRepositoryUpdated) now calls CreateEvent directly, so tests
+// assert on the actual emitted events rather than intercepting a resource-specific callback.
 type fakeEventsService struct {
 	events.Service
-	updated []recordedCallback
+	created []*domain.Event
 	deleted []recordedCallback
 }
 
@@ -154,8 +156,11 @@ type recordedCallback struct {
 	err     error
 }
 
-func (f *fakeEventsService) HandleRepositoryUpdatedEvents(_ context.Context, _ domain.ResourceKind, orgId uuid.UUID, name string, _, _ interface{}, created bool, err error) {
-	f.updated = append(f.updated, recordedCallback{orgId: orgId, name: name, created: created, err: err})
+func (f *fakeEventsService) CreateEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(_ context.Context, _ domain.ResourceKind, orgId uuid.UUID, name string, _, _ interface{}, created bool, err error) {
@@ -201,8 +206,8 @@ func TestCreateRepository(t *testing.T) {
 		require.Equal(t, "git-repo", *resp.Metadata.Name)
 		_, err := repoStore.Get(context.Background(), uuid.Nil, "git-repo")
 		require.NoError(t, err)
-		require.Len(t, ev.updated, 1)
-		require.True(t, ev.updated[0].created)
+		require.Len(t, ev.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
 	})
 
 	t.Run("When the repository spec is invalid it should return 400", func(t *testing.T) {
@@ -263,7 +268,11 @@ func TestReplaceRepository(t *testing.T) {
 		spec, err := resp.Spec.AsGitRepoSpec()
 		require.NoError(t, err)
 		require.Equal(t, "https://example.com/2.git", spec.Url)
-		require.Len(t, ev.updated, 2) // one from create, one from replace
+		// Only the create produces a ResourceCreated event; replacing the URL alone
+		// doesn't touch generation/labels/owner, so ComputeResourceUpdatedDetails sees
+		// no change and no further event is emitted.
+		require.Len(t, ev.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
 	})
 
 	t.Run("When the name in metadata does not match the path it should return 400", func(t *testing.T) {

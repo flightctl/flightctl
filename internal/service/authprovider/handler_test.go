@@ -15,6 +15,7 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -166,10 +167,13 @@ func (f *fakeAuthProviderStore) ListAll(ctx context.Context, listParams store.Li
 	return f.List(ctx, uuid.Nil, listParams)
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. AuthProvider's own event
+// decision logic (in handler.go's callbackAuthProviderUpdated) now calls CreateEvent
+// directly, so tests assert on the actual emitted events rather than intercepting a
+// resource-specific callback.
 type fakeEventsService struct {
 	events.Service
-	updated []recordedCallback
+	created []*domain.Event
 	deleted []recordedCallback
 }
 
@@ -180,18 +184,21 @@ type recordedCallback struct {
 	err     error
 }
 
-func (f *fakeEventsService) HandleAuthProviderUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, recordedCallback{orgId: orgId, name: name, created: created, err: err})
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
-func (f *fakeEventsService) HandleAuthProviderDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	f.deleted = append(f.deleted, recordedCallback{orgId: orgId, name: name, created: created, err: err})
 }
 
 func newTestHandler() (*ServiceHandler, *fakeAuthProviderStore, *fakeEventsService) {
 	fakeStore := newFakeAuthProviderStore()
 	fakeEvents := &fakeEventsService{}
-	return NewServiceHandler(fakeStore, fakeEvents), fakeStore, fakeEvents
+	return NewServiceHandler(fakeStore, fakeEvents, logrus.New()), fakeStore, fakeEvents
 }
 
 func TestCreateAuthProvider(t *testing.T) {
@@ -203,8 +210,8 @@ func TestCreateAuthProvider(t *testing.T) {
 		require.Equal(t, int32(201), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.providers, "p1")
-		require.Len(t, fakeEvents.updated, 1)
-		require.True(t, fakeEvents.updated[0].created)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
 	t.Run("When the spec fails validation it should return a bad-request status with sensitive fields redacted", func(t *testing.T) {
@@ -404,7 +411,10 @@ func TestReplaceAuthProvider(t *testing.T) {
 		require.Equal(t, int32(200), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.providers, "p1")
-		require.Len(t, fakeEvents.updated, 2) // one from create, one from replace
+		// Only the create produces a ResourceCreated event; replacing with identical
+		// data leaves generation/labels/owner unchanged, so no further event is emitted.
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 }
 
@@ -441,7 +451,8 @@ func TestPatchAuthProvider(t *testing.T) {
 		result, status := h.PatchAuthProvider(adminCtx(), uuid.New(), "p1", patch)
 		require.Equal(t, int32(200), status.Code)
 		require.NotNil(t, result)
-		require.Len(t, fakeEvents.updated, 1)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceUpdated, fakeEvents.created[0].Reason)
 	})
 }
 

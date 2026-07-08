@@ -154,15 +154,21 @@ func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, n
 	return er, nil
 }
 
-// fakeEventsService is a recording fake for events.Service.
+// fakeEventsService is a recording fake for events.Service. CertificateSigningRequest's own
+// event decision logic (in handler.go's callbackCertificateSigningRequestUpdated) now calls
+// CreateEvent directly, so tests assert on the actual emitted events rather than intercepting
+// the removed HandleCertificateSigningRequestUpdatedEvents method.
 type fakeEventsService struct {
 	events.Service
-	updated []string
+	created []*domain.Event
 	deleted []string
 }
 
-func (f *fakeEventsService) HandleCertificateSigningRequestUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	f.updated = append(f.updated, name)
+func (f *fakeEventsService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	f.created = append(f.created, event)
 }
 
 func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -338,7 +344,8 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 		require.True(t, domain.IsStatusConditionTrue(result.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved))
 		require.NotNil(t, result.Status.Certificate)
 		require.Contains(t, fakeStore.items, cn)
-		require.Len(t, fakeEvents.updated, 1)
+		require.Len(t, fakeEvents.created, 1)
+		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
 	t.Run("When the device-management signer is used it should be rejected", func(t *testing.T) {

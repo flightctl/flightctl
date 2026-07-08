@@ -11,24 +11,29 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
-// ServiceHandler implements Service. No `log`, no `workerClient` (neither is referenced in the
-// original resourcesync.go). catalogStore/fleetStore are the narrow, already-isolated STORE
+// ServiceHandler implements Service. No `workerClient` (not referenced in the original
+// resourcesync.go). catalogStore/fleetStore are the narrow, already-isolated STORE
 // sub-packages needed only by DeleteResourceSync's inline ownership-cleanup callback — not the
-// full Catalog/Fleet service handlers.
+// full Catalog/Fleet service handlers. The log field was added when ResourceSync's own
+// event-emission logic (previously centralized in internal/service/events) moved into this
+// package.
 type ServiceHandler struct {
 	store        resourcesyncstore.Store
 	catalogStore catalogstore.Store
 	fleetStore   fleetstore.Store
 	events       events.Service
+	log          logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new resourcesync ServiceHandler instance.
-func NewServiceHandler(store resourcesyncstore.Store, catalogStore catalogstore.Store, fleetStore fleetstore.Store, events events.Service) *ServiceHandler {
-	return &ServiceHandler{store: store, catalogStore: catalogStore, fleetStore: fleetStore, events: events}
+func NewServiceHandler(store resourcesyncstore.Store, catalogStore catalogstore.Store, fleetStore fleetstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, catalogStore: catalogStore, fleetStore: fleetStore, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -145,7 +150,107 @@ func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, orgId uu
 
 // callbackResourceSyncUpdated is the resource sync-specific callback that handles resource sync events
 func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleResourceSyncUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err != nil {
+		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		return
+	}
+
+	var (
+		oldResourceSync, newResourceSync *domain.ResourceSync
+		ok                               bool
+	)
+	if oldResourceSync, newResourceSync, ok = common.CastResources[domain.ResourceSync](oldResource, newResource); !ok {
+		return
+	}
+
+	// Emit success event for create/update
+	if created {
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log, nil))
+	} else if oldResourceSync != nil && newResourceSync != nil {
+		updateDetails := common.ComputeResourceUpdatedDetails(oldResourceSync.Metadata, newResourceSync.Metadata)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
+
+	// Emit condition-specific events
+	emitResourceSyncConditionEvents(ctx, h.events, orgId, name, oldResourceSync, newResourceSync)
+}
+
+func emitResourceSyncConditionEvents(ctx context.Context, eventsService events.Service, orgId uuid.UUID, name string, oldResourceSync, newResourceSync *domain.ResourceSync) {
+	if oldResourceSync == nil || newResourceSync == nil {
+		return
+	}
+
+	// Check for commit hash changes
+	var oldCommit, newCommit string
+	if oldResourceSync.Status != nil {
+		oldCommit = util.DefaultIfNil(oldResourceSync.Status.ObservedCommit, "")
+	}
+	if newResourceSync.Status != nil {
+		newCommit = util.DefaultIfNil(newResourceSync.Status.ObservedCommit, "")
+	}
+	if oldCommit != newCommit && newCommit != "" {
+		eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncCommitDetectedEvent(ctx, name, newCommit))
+	}
+
+	// Check for condition changes
+	var oldConditions, newConditions []domain.Condition
+	if oldResourceSync.Status != nil {
+		oldConditions = oldResourceSync.Status.Conditions
+	}
+	if newResourceSync.Status != nil {
+		newConditions = newResourceSync.Status.Conditions
+	}
+
+	// Accessible condition
+	oldAccessible := domain.FindStatusCondition(oldConditions, domain.ConditionTypeResourceSyncAccessible)
+	newAccessible := domain.FindStatusCondition(newConditions, domain.ConditionTypeResourceSyncAccessible)
+	if common.HasConditionChanged(oldAccessible, newAccessible) {
+		if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeResourceSyncAccessible) {
+			eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncAccessibleEvent(ctx, name))
+		} else {
+			message := "Repository access failed"
+			if newAccessible != nil && newAccessible.Message != "" {
+				message = newAccessible.Message
+			}
+			eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncInaccessibleEvent(ctx, name, message))
+		}
+	}
+
+	// ResourceParsed condition
+	oldParsed := domain.FindStatusCondition(oldConditions, domain.ConditionTypeResourceSyncResourceParsed)
+	newParsed := domain.FindStatusCondition(newConditions, domain.ConditionTypeResourceSyncResourceParsed)
+	if common.HasConditionChanged(oldParsed, newParsed) {
+		if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeResourceSyncResourceParsed) {
+			eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncParsedEvent(ctx, name))
+		} else {
+			message := "Resource parsing failed"
+			if newParsed != nil && newParsed.Message != "" {
+				message = newParsed.Message
+			}
+			eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncParsingFailedEvent(ctx, name, message))
+		}
+	}
+
+	// Synced condition
+	oldSynced := domain.FindStatusCondition(oldConditions, domain.ConditionTypeResourceSyncSynced)
+	newSynced := domain.FindStatusCondition(newConditions, domain.ConditionTypeResourceSyncSynced)
+	if common.HasConditionChanged(oldSynced, newSynced) {
+		if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeResourceSyncSynced) {
+			eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncSyncedEvent(ctx, name))
+		} else {
+			// Only emit failure event if it's an actual failure, not just "NewHashDetected"
+			// "NewHashDetected" is a normal state change, not a failure
+			// The commit detected event is already emitted when the hash changes
+			if newSynced != nil && newSynced.Reason != domain.ResourceSyncNewHashDetectedReason {
+				message := "Resource sync failed"
+				if newSynced.Message != "" {
+					message = newSynced.Message
+				}
+				eventsService.CreateEvent(ctx, orgId, common.GetResourceSyncSyncFailedEvent(ctx, name, message))
+			}
+		}
+	}
 }
 
 // callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
