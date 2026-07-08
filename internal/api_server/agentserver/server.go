@@ -292,8 +292,9 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	// Create versioning infrastructure
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, apimetaserver.MetadataResolver)
 
-	// Create handler for agent API
-	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
+	// Create handler for agent API. serviceHandler still backs all three focused fields here -
+	// see internal/api_server/server.go's v1beta1 transport handler construction for why.
+	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, serviceHandler, serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
 
 	// Create version-specific router with OpenAPI validation
 	agentV1Beta1Swagger, err := agentv1beta1.GetSwagger()

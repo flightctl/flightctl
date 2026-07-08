@@ -77,7 +77,11 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(
 		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
+	// serviceHandler (service.Service) still backs every focused interface parameter below -
+	// it structurally satisfies all of them. This is the task-migration story's staging step;
+	// a later story swaps in real per-resource service handlers here without touching
+	// LaunchConsumers' signature or the task bodies it dispatches to.
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

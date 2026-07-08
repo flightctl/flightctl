@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -52,7 +54,7 @@ func getUpdateTimeout(defaultUpdateTimeoutStr *domain.Duration) (time.Duration, 
 	return timeout, nil
 }
 
-func NewRolloutDeviceSelector(deviceSelection *domain.RolloutDeviceSelection, defaultUpdateTimeoutStr *domain.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *domain.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
+func NewRolloutDeviceSelector(deviceSelection *domain.RolloutDeviceSelection, defaultUpdateTimeoutStr *domain.Duration, deviceSvc deviceservice.Service, fleetSvc fleetservice.Service, orgId uuid.UUID, fleet *domain.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
 
 	updateTimeout, err := getUpdateTimeout(defaultUpdateTimeoutStr)
 	if err != nil {
@@ -64,13 +66,13 @@ func NewRolloutDeviceSelector(deviceSelection *domain.RolloutDeviceSelection, de
 	}
 	switch v := selectorInterface.(type) {
 	case domain.BatchSequence:
-		return newBatchSequenceSelector(v, updateTimeout, serviceHandler, orgId, fleet, templateVersionName, log), nil
+		return newBatchSequenceSelector(v, updateTimeout, deviceSvc, fleetSvc, orgId, fleet, templateVersionName, log), nil
 	default:
 		return nil, fmt.Errorf("unexpected selector %T", selectorInterface)
 	}
 }
 
-func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, serviceHandler service.Service) (bool, error) {
+func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, deviceSvc deviceservice.Service, fleetSvc fleetservice.Service) (bool, error) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	annotationsToDelete := []string{
 		domain.FleetAnnotationBatchNumber,
@@ -86,11 +88,11 @@ func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, s
 		return false, nil
 	}
 
-	if status := serviceHandler.UnmarkDevicesRolloutSelection(ctx, orgId, fleetName); status.Code != http.StatusOK {
-		return false, service.ApiStatusToErr(status)
+	if status := deviceSvc.UnmarkDevicesRolloutSelection(ctx, orgId, fleetName); status.Code != http.StatusOK {
+		return false, common.ApiStatusToErr(status)
 	}
-	if status := serviceHandler.UpdateFleetAnnotations(ctx, orgId, fleetName, nil, annotationsToDelete); status.Code != http.StatusOK {
-		return false, service.ApiStatusToErr(status)
+	if status := fleetSvc.UpdateFleetAnnotations(ctx, orgId, fleetName, nil, annotationsToDelete); status.Code != http.StatusOK {
+		return false, common.ApiStatusToErr(status)
 	}
 	return true, nil
 }

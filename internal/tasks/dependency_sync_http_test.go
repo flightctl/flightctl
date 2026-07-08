@@ -78,7 +78,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -111,7 +111,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -140,7 +140,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -186,7 +186,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -202,7 +202,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return([]model.HttpDependencyProbe{}, statusOK)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called with empty work list")
 				return "", 0, nil
@@ -234,7 +234,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -264,7 +264,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -297,7 +297,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -314,7 +314,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called when RepoSpec is nil")
 				return "", 0, nil
@@ -348,7 +348,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -363,7 +363,7 @@ func TestNewDependencySyncHttp(t *testing.T) {
 	defer ctrl.Finish()
 	mockService := service.NewMockService(ctrl)
 
-	d := NewDependencySyncHttp(logrus.New(), mockService, &config.Config{}, nil)
+	d := NewDependencySyncHttp(logrus.New(), mockService, mockService, mockService, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.conditionalHead)

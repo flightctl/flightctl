@@ -504,8 +504,8 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) domain.Status {
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)

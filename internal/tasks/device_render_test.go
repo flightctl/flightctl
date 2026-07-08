@@ -159,7 +159,7 @@ func newFleetOwnedLogic(
 	event domain.Event,
 	fleet, templateVersion string,
 ) DeviceRenderLogic {
-	l := NewDeviceRenderLogic(logrus.New(), svc, k8s, kv, &config.Config{}, orgId, event)
+	l := NewDeviceRenderLogic(logrus.New(), svc, svc, k8s, kv, &config.Config{}, orgId, event)
 	l.ownerFleet = &fleet
 	l.templateVersion = &templateVersion
 	return l

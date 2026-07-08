@@ -86,7 +86,9 @@ func main() {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}, false))
 
 	server := alert_exporter.New(cfg, log)
-	if err := server.Run(ctx, serviceHandler); err != nil {
+	// serviceHandler (service.Service) structurally satisfies every focused interface
+	// Run takes below - staging step ahead of real per-resource construction.
+	if err := server.Run(ctx, serviceHandler, serviceHandler, serviceHandler); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
 }

@@ -161,7 +161,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -220,7 +220,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
@@ -277,7 +277,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -334,7 +334,7 @@ var _ = Describe("FleetValidate", func() {
 					Name: "myfleet",
 				},
 			}
-			logic := tasks.NewFleetValidateLogic(log, serviceHandler, nil, orgId, event)
+			logic := tasks.NewFleetValidateLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, nil, orgId, event)
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)

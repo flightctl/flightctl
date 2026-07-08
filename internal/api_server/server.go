@@ -227,9 +227,16 @@ func (s *Server) Run(ctx context.Context) error {
 	// Create version negotiator with v1beta1 as default
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
-	// Create v1beta1 transport handler
+	// Create v1beta1 transport handler. serviceHandler (service.Service) still backs every
+	// focused interface field below - it structurally satisfies all of them (verified: every
+	// focused sub-package method signature matches the monolith's exactly). This is the
+	// transport-migration story's staging step; a later story swaps in real per-resource
+	// service handlers here without touching TransportHandler's constructor or method bodies
+	// again.
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
-		serviceHandler, convertv1beta1.NewConverter(),
+		serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler,
+		serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler,
+		convertv1beta1.NewConverter(),
 		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,
 	)
 
@@ -267,9 +274,10 @@ func (s *Server) Run(ctx context.Context) error {
 		SilenceServersWarning: true,
 	})
 
-	// Create v1alpha1 transport handler for alpha-stage resources (Catalog)
+	// Create v1alpha1 transport handler for alpha-stage resources (Catalog). See the v1beta1
+	// handler construction above for why the same serviceHandler value backs both new fields.
 	handlerV1Alpha1 := transportv1alpha1.NewTransportHandler(
-		serviceHandler, convertv1alpha1.NewConverter(),
+		serviceHandler, serviceHandler, convertv1alpha1.NewConverter(),
 	)
 
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{

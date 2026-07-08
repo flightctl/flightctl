@@ -12,7 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	testutil "github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util/testdata"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"

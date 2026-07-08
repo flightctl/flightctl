@@ -153,7 +153,7 @@ var _ = Describe("RepoUpdate", func() {
 					Name: "myrepository-1",
 				},
 			}
-			logic := tasks.NewRepositoryUpdateLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewRepositoryUpdateLogic(log, serviceHandler, serviceHandler, orgId, event)
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())

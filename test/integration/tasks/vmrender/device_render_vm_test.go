@@ -131,7 +131,7 @@ var _ = Describe("VmApplicationRender", func() {
 			InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
 		}
 
-		logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+		logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
 			WithVmConverter(vmConverter)
 		Expect(logic.RenderDevice(ctx)).To(Succeed())
 

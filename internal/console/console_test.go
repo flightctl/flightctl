@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -51,7 +51,7 @@ func TestConsoleSessionManager_StartSession_DeviceNotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -85,7 +85,7 @@ func TestConsoleSessionManager_StartSession_DecommissionedDevice(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -124,7 +124,7 @@ func TestConsoleSessionManager_StartSession_MissingMetadata(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -163,7 +163,7 @@ func TestConsoleSessionManager_StartSession_DoesNotBumpDeviceAnnotationRenderedV
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -208,7 +208,7 @@ func TestConsoleSessionManager_StartSession_CallsNotifyConsoleOnSuccess(t *testi
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -235,7 +235,7 @@ func TestConsoleSessionManager_StartSession_ProceedsWhenNotifyConsoleFails(t *te
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{}
 	logger := logrus.NewEntry(logrus.New())
@@ -262,7 +262,7 @@ func TestConsoleSessionManager_CloseSession_DoesNotCallNotifier(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockService := service.NewMockService(ctrl)
+	mockService := deviceservice.NewMockService(ctrl)
 	mockRegistration := &MockSessionRegistration{}
 	mockNotifier := &MockConsoleEventNotifier{} // no expectations — must not be called
 	logger := logrus.NewEntry(logrus.New())

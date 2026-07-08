@@ -284,7 +284,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create FleetRolloutsLogic instance
-			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
+			logic := NewFleetRolloutsLogic(log, mockService, mockService, mockService, mockService, orgId, event)
 
 			// Execute - this will now process the device through the full rollout flow
 			err := logic.RolloutFleet(context.Background())
@@ -346,7 +346,7 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 			mockService := service.NewMockService(ctrl)
 
 			// Create FleetRolloutsLogic instance
-			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
+			logic := NewFleetRolloutsLogic(log, mockService, mockService, mockService, mockService, orgId, event)
 
 			// Set the owner field to match the device owner
 			logic.owner = "fleet/test-fleet"
@@ -1199,10 +1199,13 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(okStatus).AnyTimes()
 
 		logic := FleetRolloutsLogic{
-			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
-			owner:          owner,
+			log:                logrus.New(),
+			fleetSvc:           mockSvc,
+			templateversionSvc: mockSvc,
+			deviceSvc:          mockSvc,
+			dependencyrefSvc:   mockSvc,
+			orgId:              orgId,
+			owner:              owner,
 			event: domain.Event{
 				InvolvedObject: domain.ObjectReference{Name: fleetName},
 			},
@@ -1443,9 +1446,12 @@ func TestDeviceDependencyRefLifecycle(t *testing.T) {
 		).Return(okStatus)
 
 		logic := FleetRolloutsLogic{
-			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
+			log:                logrus.New(),
+			fleetSvc:           mockSvc,
+			templateversionSvc: mockSvc,
+			deviceSvc:          mockSvc,
+			dependencyrefSvc:   mockSvc,
+			orgId:              orgId,
 			event: domain.Event{
 				InvolvedObject: domain.ObjectReference{Name: "device-1", Kind: domain.DeviceKind},
 			},

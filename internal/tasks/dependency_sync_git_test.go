@@ -84,7 +84,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -117,7 +117,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -154,7 +154,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -168,7 +168,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return([]model.GitDependencyProbe{}, statusOK)
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 				t.Fatal("ls-remote should not be called with empty work list")
 				return nil, nil
@@ -200,7 +200,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -230,7 +230,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -263,7 +263,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -300,7 +300,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
 
 		d := &DependencySyncGit{
-			log: logrus.New(), serviceHandler: mockService,
+			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -314,7 +314,7 @@ func TestNewDependencySyncGit(t *testing.T) {
 	defer ctrl.Finish()
 	mockService := service.NewMockService(ctrl)
 
-	d := NewDependencySyncGit(logrus.New(), mockService, &config.Config{}, nil)
+	d := NewDependencySyncGit(logrus.New(), mockService, mockService, mockService, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.lsRemote)

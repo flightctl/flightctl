@@ -555,7 +555,7 @@ func TestUpdateRenderedDevice(t *testing.T) {
 		Status:   lo.ToPtr(domain.NewDeviceStatus()),
 	}, nil)
 	require.NoError(t, err)
-	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", nil)
+	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", nil, false)
 	require.Equal(t, int32(http.StatusOK), status.Code)
 }
 

@@ -58,7 +58,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -271,7 +271,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -389,7 +389,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Len(0)).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 		require.NoError(t, err)
 	})
@@ -458,7 +458,7 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 
 		require.NoError(t, err)
@@ -490,7 +490,7 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
 		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Nil()).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 		require.NoError(t, err)
 	})
@@ -511,7 +511,7 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
 		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Len(0)).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 		require.NoError(t, err)
 	})
@@ -534,7 +534,7 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 
 		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, fleetName).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.HandleDeletion(context.Background(), event)
 		require.NoError(t, err)
 	})
@@ -552,7 +552,7 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 
 		mockSvc.EXPECT().DeleteDependencyRefsByDevice(gomock.Any(), orgId, deviceName).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
 		err := logic.HandleDeletion(context.Background(), event)
 		require.NoError(t, err)
 	})

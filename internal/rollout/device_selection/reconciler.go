@@ -5,8 +5,10 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -20,14 +22,18 @@ type Reconciler interface {
 const DeviceSelectionTaskName = "rollout-device-selection"
 
 type reconciler struct {
-	serviceHandler service.Service
-	log            logrus.FieldLogger
+	deviceSvc deviceservice.Service
+	fleetSvc  fleetservice.Service
+	eventSvc  eventservice.Service
+	log       logrus.FieldLogger
 }
 
-func NewReconciler(serviceHandler service.Service, log logrus.FieldLogger) Reconciler {
+func NewReconciler(deviceSvc deviceservice.Service, fleetSvc fleetservice.Service, eventSvc eventservice.Service, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
-		serviceHandler: serviceHandler,
-		log:            log,
+		deviceSvc: deviceSvc,
+		fleetSvc:  fleetSvc,
+		eventSvc:  eventSvc,
+		log:       log,
 	}
 }
 
@@ -38,7 +44,7 @@ func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.
 		templateVersionName = "unknown"
 		r.log.Warnf("%v/%s: Active rollout detected but no template version found, using 'unknown'", orgId, fleetName)
 	}
-	r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
+	r.eventSvc.CreateEvent(ctx, orgId, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
 }
 
 func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet, templateVersionName string) {
@@ -46,7 +52,7 @@ func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, o
 	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), domain.FleetAnnotationBatchNumber)
 	if exists {
 		if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr); evt != nil {
-			r.serviceHandler.CreateEvent(ctx, orgId, evt)
+			r.eventSvc.CreateEvent(ctx, orgId, evt)
 		} else {
 			r.log.Warnf("%v/%s: Failed to build FleetRolloutBatchDispatched event", orgId, fleetName)
 		}
@@ -68,7 +74,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	}
 	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
 		r.log.Debugf("No device selection definition for fleet %v/%s", orgId, fleetName)
-		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.serviceHandler)
+		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.deviceSvc, r.fleetSvc)
 		if err != nil {
 			r.log.WithError(err).Errorf("%v/%s: CleanupRollout", orgId, fleetName)
 		}
@@ -84,7 +90,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		r.log.Warnf("No template version for fleet %v/%s", orgId, fleetName)
 		return
 	}
-	selector, err := NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, fleet.Spec.RolloutPolicy.DefaultUpdateTimeout, r.serviceHandler, orgId, &fleet, templateVersionName, r.log)
+	selector, err := NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, fleet.Spec.RolloutPolicy.DefaultUpdateTimeout, r.deviceSvc, r.fleetSvc, orgId, &fleet, templateVersionName, r.log)
 	if err != nil {
 		r.log.WithError(err).Errorf("%v/%s: NewRolloutDeviceSelector", orgId, fleetName)
 		return
@@ -185,9 +191,9 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
-	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx, orgID)
+	fleetList, status := r.fleetSvc.ListFleetRolloutDeviceSelection(ctx, orgID)
 	if status.Code != http.StatusOK {
-		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
+		r.log.WithError(common.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
 		return
 	}
 	for _, fleet := range fleetList.Items {

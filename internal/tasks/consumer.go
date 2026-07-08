@@ -14,7 +14,12 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -23,7 +28,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, repositorySvc repositoryservice.Service, eventSvc eventservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -72,42 +77,42 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetRollout"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldReconcileDeviceOwnership(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetSelectorMatching"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, deviceSvc, fleetSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldValidateFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetValidation"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, log)
+				return fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, fleetSvc, templateversionSvc, deviceSvc, repositorySvc, k8sClient, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldPopulateDependencyRefs(ctx, eventWithOrgId.Event, log) {
 			taskName = "populateDependencyRefs"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return populateDependencyRefs(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+				return populateDependencyRefs(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, fleetSvc, deviceSvc, dependencyrefSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, kvStore, cfg, log)
+				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, deviceSvc, repositorySvc, k8sClient, kvStore, cfg, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldUpdateRepositoryReferers(ctx, eventWithOrgId.Event, log) {
 			taskName = "repositoryUpdate"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+				return repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, repositorySvc, eventSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
@@ -128,7 +133,7 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 			// ensure emission even if processing ctx timed out
 			emitCtx, cancelEmit := context.WithTimeout(context.Background(), AckTimeout)
 			defer cancelEmit()
-			EmitInternalTaskFailedEvent(emitCtx, eventWithOrgId.OrgId, errorMessage, eventWithOrgId.Event, serviceHandler)
+			EmitInternalTaskFailedEvent(emitCtx, eventWithOrgId.OrgId, errorMessage, eventWithOrgId.Event, eventSvc)
 			returnErr = errors.New(errorMessage)
 		}
 
@@ -333,7 +338,12 @@ func hasUpdatedFields(details *domain.EventDetails, log logrus.FieldLogger, fiel
 
 func LaunchConsumers(ctx context.Context,
 	queuesProvider queues.Provider,
-	serviceHandler service.Service,
+	fleetSvc fleetservice.Service,
+	templateversionSvc templateversionservice.Service,
+	deviceSvc deviceservice.Service,
+	dependencyrefSvc dependencyrefservice.Service,
+	repositorySvc repositoryservice.Service,
+	eventSvc eventservice.Service,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
 	cfg *config.Config,
@@ -356,7 +366,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
 				return err
 			}
 		}

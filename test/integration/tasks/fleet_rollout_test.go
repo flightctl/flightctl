@@ -124,7 +124,7 @@ var _ = Describe("FleetRollout", func() {
 					Name: fleetName,
 				},
 			}
-			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			logic.SetItemsPerPage(2)
 
 			// First update
@@ -166,7 +166,7 @@ var _ = Describe("FleetRollout", func() {
 					Name: "mydevice-1",
 				},
 			}
-			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			logic.SetItemsPerPage(2)
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -246,7 +246,7 @@ var _ = Describe("FleetRollout", func() {
 						Name: fleetName,
 					},
 				}
-				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 				err = logic.RolloutFleet(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				for i := 1; i <= numDevices; i++ {
@@ -314,7 +314,7 @@ var _ = Describe("FleetRollout", func() {
 						Name: "mydevice-1",
 					},
 				}
-				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 				err = logic.RolloutDevice(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
@@ -360,7 +360,7 @@ var _ = Describe("FleetRollout", func() {
 					Name: "mydevice-1",
 				},
 			}
-			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -410,7 +410,7 @@ var _ = Describe("FleetRollout", func() {
 					Name: "mydevice-1",
 				},
 			}
-			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 

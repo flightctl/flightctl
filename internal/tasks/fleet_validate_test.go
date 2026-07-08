@@ -90,7 +90,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create FleetValidateLogic instance
-			logic := NewFleetValidateLogic(log, mockService, mockK8SClient, orgId, event)
+			logic := NewFleetValidateLogic(log, mockService, mockService, mockService, mockService, mockK8SClient, orgId, event)
 
 			// Execute
 			err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())

@@ -66,7 +66,7 @@ func loadFixtures(t *testing.T, efs embed.FS, root string) []GenericResourceMap 
 	err := copyEmbedToMemfs(efs, root, mfs, "/catalog")
 	require.NoError(t, err)
 
-	rs := NewResourceSync(nil, logrus.New(), nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, logrus.New(), nil, nil)
 	resources, err := rs.extractResourcesFromDir(mfs, "/catalog")
 	require.NoError(t, err)
 	return resources
@@ -108,7 +108,7 @@ func TestSyncCatalogs_InitialCreate(t *testing.T) {
 
 	mockSvc := service.NewMockService(ctrl)
 	log := logrus.New()
-	rs := NewResourceSync(mockSvc, log, nil, nil)
+	rs := NewResourceSync(mockSvc, mockSvc, mockSvc, mockSvc, log, nil, nil)
 
 	orgId := uuid.New()
 	resourceName := "test-rs"
@@ -184,7 +184,7 @@ func TestSyncCatalogs_UpdateAndRemove(t *testing.T) {
 
 	mockSvc := service.NewMockService(ctrl)
 	log := logrus.New()
-	rs := NewResourceSync(mockSvc, log, nil, nil)
+	rs := NewResourceSync(mockSvc, mockSvc, mockSvc, mockSvc, log, nil, nil)
 
 	orgId := uuid.New()
 	resourceName := "test-rs"
@@ -277,7 +277,7 @@ func TestSyncCatalogs_RemoveAll(t *testing.T) {
 
 	mockSvc := service.NewMockService(ctrl)
 	log := logrus.New()
-	rs := NewResourceSync(mockSvc, log, nil, nil)
+	rs := NewResourceSync(mockSvc, mockSvc, mockSvc, mockSvc, log, nil, nil)
 
 	orgId := uuid.New()
 	resourceName := "test-rs"
@@ -326,7 +326,7 @@ func TestSyncCatalogs_DeleteOrdering(t *testing.T) {
 
 	mockSvc := service.NewMockService(ctrl)
 	log := logrus.New()
-	rs := NewResourceSync(mockSvc, log, nil, nil)
+	rs := NewResourceSync(mockSvc, mockSvc, mockSvc, mockSvc, log, nil, nil)
 
 	orgId := uuid.New()
 	resourceName := "test-rs"
@@ -355,7 +355,7 @@ func TestSyncCatalogs_DeleteOrdering(t *testing.T) {
 func TestSyncCatalogs_MultiversionParse(t *testing.T) {
 	resources := loadFixtures(t, catalogMultiversionFS, "testdata/catalog_multiversion")
 
-	rs := NewResourceSync(nil, logrus.New(), nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, logrus.New(), nil, nil)
 
 	catalogResources := filterByKind(resources, domain.CatalogKind)
 	itemResources := filterByKind(resources, domain.CatalogItemKind)
@@ -431,7 +431,7 @@ func TestSyncCatalogs_MultiversionSync(t *testing.T) {
 
 	mockSvc := service.NewMockService(ctrl)
 	log := logrus.New()
-	rs := NewResourceSync(mockSvc, log, nil, nil)
+	rs := NewResourceSync(mockSvc, mockSvc, mockSvc, mockSvc, log, nil, nil)
 
 	orgId := uuid.New()
 	resourceName := "test-rs"

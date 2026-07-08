@@ -122,8 +122,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
-	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
+	// Initialize the task executors.
+	// serviceHandler (service.Service) structurally satisfies every focused interface
+	// InitializeTaskExecutors takes below - staging step ahead of real per-resource construction.
+	periodicTaskExecutors := InitializeTaskExecutors(s.log,
+		serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler, serviceHandler,
+		serviceHandler, serviceHandler, serviceHandler, serviceHandler,
+		s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -195,7 +200,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if secretInformerClientset != nil {
-		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
+		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, serviceHandler, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

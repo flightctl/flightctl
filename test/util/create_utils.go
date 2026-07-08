@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/test/util/testdata"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -287,57 +288,12 @@ services:
 	return sb.String()
 }
 
-// ReturnTestAuthProvider creates a test auth provider with the given parameters
+// ReturnTestAuthProvider creates a test auth provider with the given parameters. Forwards to
+// test/util/testdata, a leaf package with no internal/api_server (and transitively
+// internal/transport) dependency, so internal/service/{resource} unit tests can call this
+// builder without an import cycle back through the transport layer.
 func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels *map[string]string) api.AuthProvider {
-	if issuer == "" {
-		issuer = "https://accounts.google.com"
-	}
-
-	// Create organization assignment
-	assignment := api.AuthOrganizationAssignment{}
-	staticAssignment := api.AuthStaticOrganizationAssignment{
-		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
-		OrganizationName: "test-org",
-	}
-	if err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment); err != nil {
-		panic(fmt.Sprintf("failed to create organization assignment: %v", err))
-	}
-
-	// Create role assignment
-	roleAssignment := api.AuthRoleAssignment{}
-	staticRoleAssignment := api.AuthStaticRoleAssignment{
-		Type:  api.AuthStaticRoleAssignmentTypeStatic,
-		Roles: []string{api.ExternalRoleViewer},
-	}
-	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
-		panic(fmt.Sprintf("failed to create role assignment: %v", err))
-	}
-
-	// Create OIDC provider spec
-	oidcSpec := api.OIDCProviderSpec{
-		ProviderType:           api.Oidc,
-		Issuer:                 issuer,
-		ClientId:               fmt.Sprintf("test-client-id-%s", name),
-		ClientSecret:           "test-client-secret",
-		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
-		Enabled:                lo.ToPtr(true),
-		UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
-		RoleAssignment:         roleAssignment,
-		OrganizationAssignment: assignment,
-	}
-
-	// Create AuthProvider with OIDC spec
-	authProvider := api.AuthProvider{
-		Metadata: api.ObjectMeta{
-			Name:   lo.ToPtr(name),
-			Labels: labels,
-		},
-	}
-	if err := authProvider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
-		panic(fmt.Sprintf("failed to create auth provider spec: %v", err))
-	}
-
-	return authProvider
+	return testdata.ReturnTestAuthProvider(orgId, name, issuer, labels)
 }
 
 // CreateTestAuthProvider creates a test auth provider in the store
@@ -525,15 +481,7 @@ func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore store.A
 
 // CreateTestOrganizationAssignment creates a test organization assignment
 func CreateTestOrganizationAssignment() api.AuthOrganizationAssignment {
-	assignment := api.AuthOrganizationAssignment{}
-	staticAssignment := api.AuthStaticOrganizationAssignment{
-		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
-		OrganizationName: "default-org",
-	}
-	if err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment); err != nil {
-		panic(fmt.Sprintf("failed to create organization assignment: %v", err))
-	}
-	return assignment
+	return testdata.CreateTestOrganizationAssignment()
 }
 
 func BuildInlineConfigSpec(name, filePath, content, user string) (api.ConfigProviderSpec, error) {

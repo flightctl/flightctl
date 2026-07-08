@@ -59,7 +59,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
-		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil, nil)
+		resourceSync = tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, nil)
 
 		// Set up mock expectations for the publisher
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
@@ -516,7 +516,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should remove ignored fields during resource parsing", func() {
 			// Create a ResourceSync with custom ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion", "/metadata/labels/test-label"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
 
 			// Create test resources with fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -602,7 +602,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 		It("should not remove fields when no ignore list is provided", func() {
 			// Create a ResourceSync without ignore fields
-			resourceSyncNoIgnores := tasks.NewResourceSync(serviceHandler, log, nil, nil)
+			resourceSyncNoIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, nil)
 
 			// Create test resources with fields that would normally be ignored
 			resources := []tasks.GenericResourceMap{
@@ -736,7 +736,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should handle non-existent paths gracefully", func() {
 			// Create a ResourceSync with ignore fields that don't exist in the resource
 			ignoreFields := []string{"/metadata/nonExistentField", "/spec/nonExistentField"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
 
 			// Create test resources without the fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -780,7 +780,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should apply field removal during full sync process", func() {
 			// Create a ResourceSync instance with ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, nil, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, serviceHandler, serviceHandler, serviceHandler, log, nil, ignoreFields)
 
 			// Create test resources with resourceVersion that should be removed
 			resources := []tasks.GenericResourceMap{

@@ -45,8 +45,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		})
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "1001")
 
@@ -63,8 +63,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "db-creds", "1000").Return([]model.SecretDependencyRef{}, statusOK)
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "1000")
 	})
@@ -92,8 +92,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 			})
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "1000")
 
@@ -123,8 +123,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		})
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "1001")
 
@@ -149,8 +149,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		})
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "db-creds", "501")
 
@@ -169,8 +169,8 @@ func TestDependencySyncSecret_Reconcile(t *testing.T) {
 		mockService.EXPECT().ListSecretDependencyTargets(gomock.Any(), "prod", "unknown", "100").Return([]model.SecretDependencyRef{}, statusOK)
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.reconcile(ctx, "prod", "unknown", "100")
 	})
@@ -186,8 +186,8 @@ func TestDependencySyncSecret_ContextCancellation(t *testing.T) {
 		cancel()
 
 		d := &DependencySyncSecret{
-			log:            logrus.New(),
-			serviceHandler: mockService,
+			log:              logrus.New(),
+			dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
 		}
 		d.handleSecretEvent(cancelledCtx, &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "db-creds", ResourceVersion: "1000"},

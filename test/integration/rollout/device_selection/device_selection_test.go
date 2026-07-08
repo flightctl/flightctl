@@ -391,7 +391,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
-			selector, err := device_selection.NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, updateTimeout, serviceHandler, store.NullOrgId, fleet, tvName, log)
+			selector, err := device_selection.NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, updateTimeout, serviceHandler, serviceHandler, store.NullOrgId, fleet, tvName, log)
 			Expect(err).ToNot(HaveOccurred())
 			return selector
 		}
@@ -647,19 +647,19 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 		It("single fleet - no devices", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 0, false)
-			reconciler := device_selection.NewReconciler(serviceHandler, log)
+			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(-1))
 		})
 		It("single fleet - single device", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 1, false)
-			reconciler := device_selection.NewReconciler(serviceHandler, log)
+			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(-1))
 		})
 		It("single fleet with template version - single device", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 1, true)
-			reconciler := device_selection.NewReconciler(serviceHandler, log)
+			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
 			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(3))
@@ -671,7 +671,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		It("single fleet with template version - multiple devices", func() {
 			initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-			reconciler := device_selection.NewReconciler(serviceHandler, log)
+			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
 			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(0))
@@ -732,7 +732,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			It("device selection definition updated", func() {
 				initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 				setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-				reconciler := device_selection.NewReconciler(serviceHandler, log)
+				reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
 				mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 				checkFleetAnnotations(true)
 				reconciler.Reconcile(ctx, store.NullOrgId)

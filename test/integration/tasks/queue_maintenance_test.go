@@ -178,7 +178,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		workerClient := worker_client.NewWorkerClient(queuePublisher, log)
 
 		// Create queue maintenance task
-		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider, workerClient, nil)
+		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, mockService, mockService, provider, workerClient, nil)
 	})
 
 	AfterEach(func() {

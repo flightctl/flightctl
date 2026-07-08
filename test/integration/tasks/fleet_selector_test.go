@@ -71,7 +71,7 @@ var _ = Describe("FleetSelector", func() {
 				Name: "fleet",
 			},
 		}
-		logic = tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
+		logic = tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, serviceHandler, orgId, event)
 		logic.SetItemsPerPage(2)
 	})
 
@@ -441,7 +441,7 @@ var _ = Describe("FleetSelector", func() {
 						Name: *device.Metadata.Name,
 					},
 				}
-				deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
+				deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, serviceHandler, orgId, event)
 				deviceLogic.SetItemsPerPage(2)
 
 				err = deviceLogic.DeviceLabelsUpdated(ctx)
@@ -565,7 +565,7 @@ var _ = Describe("FleetSelector", func() {
 					Name: "no-labels-device",
 				},
 			}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)
@@ -594,7 +594,7 @@ var _ = Describe("FleetSelector", func() {
 					Name: "empty-labels-device",
 				},
 			}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)
@@ -623,7 +623,7 @@ var _ = Describe("FleetSelector", func() {
 					Name: "non-fleet-owner-device",
 				},
 			}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)

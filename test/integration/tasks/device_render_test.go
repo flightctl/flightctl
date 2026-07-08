@@ -183,7 +183,7 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
 				err = logic.RenderDevice(ctx)
 
 				// Should succeed - safe paths pass validation
@@ -218,7 +218,7 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
 				err = logic.RenderDevice(ctx)
 
 				// Should fail - derived paths under forbidden root are rejected
@@ -265,7 +265,7 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
 				err = logic.RenderDevice(ctx)
 
 				Expect(err).To(HaveOccurred())
@@ -387,7 +387,7 @@ var _ = Describe("DeviceRender", func() {
 					Name: deviceName,
 				},
 			}
-			rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			err = rolloutLogic.RolloutDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -527,7 +527,7 @@ var _ = Describe("DeviceRender", func() {
 					Name: deviceName,
 				},
 			}
-			rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, serviceHandler, serviceHandler, serviceHandler, orgId, event)
 			err = rolloutLogic.RolloutDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -585,7 +585,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -627,7 +627,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -673,7 +673,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -713,7 +713,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &failingK8sClient{}, kvStoreInst, nil, orgId, event)
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &failingK8sClient{}, kvStoreInst, nil, orgId, event)
 			err = logic.RenderDevice(ctx)
 			Expect(err).To(HaveOccurred())
 
@@ -785,7 +785,7 @@ var _ = Describe("DeviceRender", func() {
 			status := serviceHandler.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
-			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -817,7 +817,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonFleetRolloutDeviceSelected,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, secondEvent)
+			logic = tasks.NewDeviceRenderLogic(log, serviceHandler, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, secondEvent)
 			err = logic.RenderDevice(ctx)
 			Expect(err).ToNot(HaveOccurred())
 

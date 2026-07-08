@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 )
@@ -18,14 +18,14 @@ const (
 
 type EventCleanup struct {
 	log             logrus.FieldLogger
-	serviceHandler  service.Service
+	eventSvc        event.Service
 	retentionPeriod util.Duration
 }
 
-func NewEventCleanup(log logrus.FieldLogger, serviceHandler service.Service, retentionPeriod util.Duration) *EventCleanup {
+func NewEventCleanup(log logrus.FieldLogger, eventSvc event.Service, retentionPeriod util.Duration) *EventCleanup {
 	return &EventCleanup{
 		log:             log,
-		serviceHandler:  serviceHandler,
+		eventSvc:        eventSvc,
 		retentionPeriod: retentionPeriod,
 	}
 }
@@ -37,7 +37,7 @@ func (t *EventCleanup) Poll(ctx context.Context) {
 	defer cancel()
 
 	cutoffTime := time.Now().Add(-time.Duration(t.retentionPeriod))
-	numDeleted, status := t.serviceHandler.DeleteEventsOlderThan(ctx, cutoffTime)
+	numDeleted, status := t.eventSvc.DeleteEventsOlderThan(ctx, cutoffTime)
 	if status.Code != http.StatusOK {
 		t.log.Errorf("failed to clean up events: %s", status.Message)
 		return

@@ -95,7 +95,7 @@ var _ = Describe("Alert Exporter", func() {
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
-		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
+		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler, serviceHandler, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)
 
 		err = db.WithContext(ctx).Exec(`
