@@ -229,7 +229,7 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 	if err := os.Chdir(tmpDir); err != nil {
 		return fmt.Errorf("change to bundle temp dir: %w", err)
 	}
-	if mErr := WriteManifest(variant, bundleImages, manifestRPMs); mErr != nil {
+	if mErr := WriteManifest(variant, bundled, manifestRPMs); mErr != nil {
 		logWarn("write manifest: %v", mErr)
 	}
 	if err := os.Chdir(origDir); err != nil {
