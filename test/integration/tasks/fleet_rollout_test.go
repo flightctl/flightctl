@@ -74,10 +74,10 @@ var _ = Describe("FleetRollout", func() {
 		log                *logrus.Logger
 		ctx                context.Context
 		orgId              uuid.UUID
-		deviceStore        store.Device
+		deviceStore        devicestore.Store
 		newDeviceStore     devicestore.Store
-		fleetStore         store.Fleet
-		tvStore            store.TemplateVersion
+		fleetStore         fleetstore.Store
+		tvStore            templateversionstore.Store
 		fleetSvc           fleetservice.Service
 		templateVersionSvc templateversionservice.Service
 		deviceSvc          deviceservice.Service
@@ -101,8 +101,8 @@ var _ = Describe("FleetRollout", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
 		newDeviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
@@ -253,7 +253,7 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-				devices, err := deviceStore.List(ctx, orgId, store.DeviceListParams{})
+				devices, err := deviceStore.List(ctx, orgId, devicestore.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(len(devices.Items)).To(Equal(numDevices))
 

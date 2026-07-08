@@ -40,7 +40,7 @@ var _ = Describe("FleetValidate", func() {
 		log                  *logrus.Logger
 		ctx                  context.Context
 		orgId                uuid.UUID
-		fleetStore           store.Fleet
+		fleetStore           fleetstore.Store
 		templateVersionSvc   templateversionservice.Service
 		deviceSvc            deviceservice.Service
 		repositorySvc        repositoryservice.Service
@@ -69,7 +69,7 @@ var _ = Describe("FleetValidate", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		templateVersionStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 		deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))

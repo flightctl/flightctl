@@ -6,6 +6,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -24,7 +25,7 @@ var _ = Describe("TemplateVersion", func() {
 		ctx               context.Context
 		orgId             uuid.UUID
 		tvStore           templateversionstore.Store
-		fleetStore        store.Fleet
+		fleetStore        fleetstore.Store
 		organizationStore organizationstore.Store
 		cfg               *config.Config
 		dbName            string
@@ -38,7 +39,7 @@ var _ = Describe("TemplateVersion", func() {
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
 		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()

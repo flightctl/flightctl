@@ -7,8 +7,10 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -27,8 +29,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		log               *logrus.Logger
 		ctx               context.Context
 		orgId             uuid.UUID
-		resourceSyncStore store.ResourceSync
-		fleetStore        store.Fleet
+		resourceSyncStore resourcesyncstore.Store
+		fleetStore        fleetstore.Store
 		organizationStore organizationstore.Store
 		cfg               *config.Config
 		dbName            string
@@ -43,8 +45,8 @@ var _ = Describe("ResourceSyncStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		resourceSyncStore = store.NewResourceSync(db, log.WithField("pkg", "resourcesync-store"))
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		resourceSyncStore = resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()

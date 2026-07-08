@@ -9,9 +9,12 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -30,9 +33,9 @@ var _ = Describe("FleetStore create", func() {
 		log               *logrus.Logger
 		ctx               context.Context
 		orgId             uuid.UUID
-		fleetStore        store.Fleet
-		deviceStore       store.Device
-		resourceSyncStore store.ResourceSync
+		fleetStore        fleetstore.Store
+		deviceStore       devicestore.Store
+		resourceSyncStore resourcesyncstore.Store
 		repositoryStore   repositorystore.Store
 		organizationStore organizationstore.Store
 		cfg               *config.Config
@@ -50,9 +53,9 @@ var _ = Describe("FleetStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
-		resourceSyncStore = store.NewResourceSync(db, log.WithField("pkg", "resourcesync-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		resourceSyncStore = resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
 		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
 
@@ -150,7 +153,7 @@ var _ = Describe("FleetStore create", func() {
 			// mydevice-3 | Healthy   | Online    | Updating
 			// mydevice-4 | Healthy   | Rebooting | Updating
 			// mydevice-5 | Error     | Error     | Unknown
-			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1", store.GetWithDeviceSummary(true))
+			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1", fleetstore.GetWithDeviceSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
 			Expect(fleet.Status.DevicesSummary.Total).To(Equal(int64(5)))
@@ -337,7 +340,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			lo.ForEach(fleets.Items, func(f api.Fleet, _ int) { Expect(f.Status.DevicesSummary).To(BeNil()) })
-			fleets, err = fleetStore.List(ctx, orgId, store.ListParams{}, store.ListWithDevicesSummary(true))
+			fleets, err = fleetStore.List(ctx, orgId, store.ListParams{}, fleetstore.ListWithDevicesSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {

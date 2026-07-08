@@ -103,10 +103,10 @@ var _ = Describe("DeviceRender", func() {
 		log                *logrus.Logger
 		ctx                context.Context
 		orgId              uuid.UUID
-		deviceStore        store.Device
-		fleetStore         store.Fleet
-		tvStore            store.TemplateVersion
-		repoStore          store.Repository
+		deviceStore        devicestore.Store
+		fleetStore         fleetstore.Store
+		tvStore            templateversionstore.Store
+		repoStore          repositorystore.Store
 		deviceSvc          deviceservice.Service
 		repositorySvc      repositoryservice.Service
 		fleetSvc           fleetservice.Service
@@ -136,8 +136,8 @@ var _ = Describe("DeviceRender", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
 		repoStore = store.NewRepository(db, log.WithField("pkg", "repository-store"))
 		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))

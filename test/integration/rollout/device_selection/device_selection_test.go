@@ -23,6 +23,7 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -78,9 +79,9 @@ var _ = Describe("Rollout batch sequence test", func() {
 		log              *logrus.Logger
 		dbName           string
 		cfg              *config.Config
-		fleetStore       store.Fleet
-		deviceStore      store.Device
-		tvStore          store.TemplateVersion
+		fleetStore       fleetstore.Store
+		deviceStore      devicestore.Store
+		tvStore          templateversionstore.Store
 		deviceSvc        deviceservice.Service
 		fleetSvc         fleetservice.Service
 		eventSvc         eventservice.Service
@@ -330,7 +331,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
+		devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -371,8 +372,8 @@ var _ = Describe("Rollout batch sequence test", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
@@ -399,7 +400,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, deviceStore, store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
+				devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					device := &devices.Items[i]
@@ -610,7 +611,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			}
 			if numDevices > 0 {
 				testutil.CreateTestDevices(ctx, numDevices, deviceStore, store.NullOrgId, util.SetResourceOwner(api.FleetKind, name), false)
-				devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
+				devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]
@@ -622,7 +623,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		}
 
 		setDevicesComplete := func(fleetName, tvName string) {
-			devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{
+			devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
 						Key:      api.DeviceAnnotationSelectedForRollout,

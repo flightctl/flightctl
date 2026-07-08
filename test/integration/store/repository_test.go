@@ -8,6 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -38,8 +40,8 @@ var _ = Describe("RepositoryStore create", func() {
 		ctx                 context.Context
 		orgId               uuid.UUID
 		repositoryStore     repositorystore.Store
-		deviceStore         store.Device
-		fleetStore          store.Fleet
+		deviceStore         devicestore.Store
+		fleetStore          fleetstore.Store
 		organizationStore   organizationstore.Store
 		cfg                 *config.Config
 		dbName              string
@@ -57,8 +59,8 @@ var _ = Describe("RepositoryStore create", func() {
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
 		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
 		eventCallbackCalled = false
 		eventCallback = store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {

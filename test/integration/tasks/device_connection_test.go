@@ -34,7 +34,7 @@ var _ = Describe("DeviceConnection", func() {
 		log            *logrus.Logger
 		ctx            context.Context
 		orgId          uuid.UUID
-		deviceStore    store.Device
+		deviceStore    devicestore.Store
 		cfg            *config.Config
 		dbName         string
 		db             *gorm.DB
@@ -52,7 +52,7 @@ var _ = Describe("DeviceConnection", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))

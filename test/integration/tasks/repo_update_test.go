@@ -10,7 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -31,8 +33,8 @@ var _ = Describe("RepoUpdate", func() {
 		log           *logrus.Logger
 		ctx           context.Context
 		orgId         uuid.UUID
-		fleetStore    store.Fleet
-		deviceStore   store.Device
+		fleetStore    fleetstore.Store
+		deviceStore   devicestore.Store
 		repositorySvc repositoryservice.Service
 		eventSvc      eventservice.Service
 		cfg           *config.Config
@@ -50,8 +52,8 @@ var _ = Describe("RepoUpdate", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())

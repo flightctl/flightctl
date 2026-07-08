@@ -65,7 +65,7 @@ var _ = Describe("VmApplicationRender", func() {
 		log               *logrus.Logger
 		ctx               context.Context
 		orgId             uuid.UUID
-		deviceStore       store.Device
+		deviceStore       devicestore.Store
 		deviceSvc         deviceservice.Service
 		repositorySvc     repositoryservice.Service
 		cfg               *config.Config
@@ -89,7 +89,7 @@ var _ = Describe("VmApplicationRender", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
