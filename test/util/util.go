@@ -26,12 +26,10 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
-	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -283,37 +281,6 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)
 	}
 	return agentServer, listener, nil
-}
-
-// NewTestStore creates a new test store and returns the store and the database name.
-func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
-	// cfg.Database.Name = ""
-	dbTemp, err := store.InitDB(&cfg, log)
-	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: error initializing test DB: %w", err)
-	}
-	defer testdb.CloseDB(dbTemp)
-
-	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
-	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
-	if dbTemp.Error != nil {
-		return nil, "", fmt.Errorf("NewTestStore: creating test db %s: %w", randomDBName, dbTemp.Error)
-	}
-
-	cfg.Database.Name = randomDBName
-	db, err := store.InitDB(&cfg, log)
-	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: initializing test db %s: %w", randomDBName, err)
-	}
-
-	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.RunMigrations(ctx)
-	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: performing migrations: %w", err)
-	}
-
-	return dbStore, randomDBName, nil
 }
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.

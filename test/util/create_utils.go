@@ -9,7 +9,15 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/test/util/testdata"
@@ -18,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-func CreateTestOrganization(ctx context.Context, organizationStore store.Organization, orgId uuid.UUID) error {
+func CreateTestOrganization(ctx context.Context, organizationStore organizationstore.Store, orgId uuid.UUID) error {
 	externalID := fmt.Sprintf("external-id-%s", orgId.String())
 	org := &model.Organization{
 		ID:          orgId,
@@ -92,7 +100,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	return resource
 }
 
-func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
+func CreateTestDevice(ctx context.Context, deviceStore devicestore.Store, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
 	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
@@ -101,11 +109,11 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 	}
 }
 
-func CreateTestDevices(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool) {
+func CreateTestDevices(ctx context.Context, numDevices int, deviceStore devicestore.Store, orgId uuid.UUID, owner *string, sameVals bool) {
 	CreateTestDevicesWithOffset(ctx, numDevices, deviceStore, orgId, owner, sameVals, 0)
 }
 
-func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStore store.Device, orgId uuid.UUID, owner *string, sameVals bool, offset int) {
+func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStore devicestore.Store, orgId uuid.UUID, owner *string, sameVals bool, offset int) {
 	for i := 1; i <= numDevices; i++ {
 		num := i + offset
 		labels := map[string]string{"key": fmt.Sprintf("value-%d", num), "otherkey": "othervalue", "version": fmt.Sprintf("%d", num)}
@@ -118,7 +126,7 @@ func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStor
 	}
 }
 
-func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUID, name string, selector *map[string]string, owner *string) {
+func CreateTestFleet(ctx context.Context, fleetStore fleetstore.Store, orgId uuid.UUID, name string, selector *map[string]string, owner *string) {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
 			Name:   &name,
@@ -137,7 +145,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	}
 }
 
-func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet, orgId uuid.UUID, namePrefix string, sameVals bool, owner *string) {
+func CreateTestFleets(ctx context.Context, numFleets int, fleetStore fleetstore.Store, orgId uuid.UUID, namePrefix string, sameVals bool, owner *string) {
 	for i := 1; i <= numFleets; i++ {
 		selector := map[string]string{"key": fmt.Sprintf("value-%d", i)}
 		if sameVals {
@@ -147,7 +155,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 	}
 }
 
-func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
+func CreateTestTemplateVersion(ctx context.Context, tvStore templateversionstore.Store, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
 	owner := util.SetResourceOwner(api.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
@@ -169,7 +177,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 	return err
 }
 
-func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore store.TemplateVersion, orgId uuid.UUID, fleet string) error {
+func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tvStore templateversionstore.Store, orgId uuid.UUID, fleet string) error {
 	for i := 1; i <= numTemplateVersions; i++ {
 		status := api.TemplateVersionStatus{Os: &api.DeviceOsSpec{Image: "myimage"}}
 		err := CreateTestTemplateVersion(ctx, tvStore, orgId, fleet, fmt.Sprintf("1.0.%d", i), &status)
@@ -180,7 +188,7 @@ func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tv
 	return nil
 }
 
-func CreateRepositories(ctx context.Context, numRepositories int, repositoryStore store.Repository, orgId uuid.UUID) error {
+func CreateRepositories(ctx context.Context, numRepositories int, repositoryStore repositorystore.Store, orgId uuid.UUID) error {
 	for i := 1; i <= numRepositories; i++ {
 		spec := api.RepositorySpec{}
 		err := spec.FromGitRepoSpec(api.GitRepoSpec{
@@ -207,7 +215,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, repositoryStor
 	return nil
 }
 
-func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, enrollmentRequestStore store.EnrollmentRequest, orgId uuid.UUID) {
+func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, enrollmentRequestStore enrollmentrequeststore.Store, orgId uuid.UUID) {
 	for i := 1; i <= numEnrollmentRequests; i++ {
 		resource := api.EnrollmentRequest{
 			Metadata: api.ObjectMeta{
@@ -233,7 +241,7 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 	}
 }
 
-func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resourceSyncStore store.ResourceSync, orgId uuid.UUID) {
+func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resourceSyncStore resourcesyncstore.Store, orgId uuid.UUID) {
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
@@ -297,7 +305,7 @@ func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels 
 }
 
 // CreateTestAuthProvider creates a test auth provider in the store
-func CreateTestAuthProvider(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
+func CreateTestAuthProvider(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
 	resource := ReturnTestAuthProvider(orgId, name, issuer, labels)
 	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
 	_, err := authStore.Create(ctx, orgId, &resource, callback)
@@ -307,12 +315,12 @@ func CreateTestAuthProvider(ctx context.Context, authStore store.AuthProvider, o
 }
 
 // CreateTestAuthProviders creates multiple test auth providers
-func CreateTestAuthProviders(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool) {
+func CreateTestAuthProviders(ctx context.Context, numProviders int, authStore authproviderstore.Store, orgId uuid.UUID, sameVals bool) {
 	CreateTestAuthProvidersWithOffset(ctx, numProviders, authStore, orgId, sameVals, 0)
 }
 
 // CreateTestAuthProvidersWithOffset creates multiple test OIDC providers with an offset
-func CreateTestAuthProvidersWithOffset(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool, offset int) {
+func CreateTestAuthProvidersWithOffset(ctx context.Context, numProviders int, authStore authproviderstore.Store, orgId uuid.UUID, sameVals bool, offset int) {
 	issuers := []string{
 		"https://accounts.google.com",
 		"https://login.microsoftonline.com",
@@ -340,7 +348,7 @@ func CreateTestAuthProvidersWithOffset(ctx context.Context, numProviders int, au
 }
 
 // CreateTestAuthProviderWithStaticOrg creates a test OIDC provider with static organization assignment
-func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, orgName string) {
+func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string, orgName string) {
 	assignment := api.AuthOrganizationAssignment{}
 	staticAssignment := api.AuthStaticOrganizationAssignment{
 		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
@@ -379,7 +387,7 @@ func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore store.Au
 }
 
 // CreateTestAuthProviderWithDynamicOrg creates a test OIDC provider with dynamic organization assignment
-func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string) {
+func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string) {
 	assignment := api.AuthOrganizationAssignment{}
 	dynamicAssignment := api.AuthDynamicOrganizationAssignment{
 		Type:      api.AuthDynamicOrganizationAssignmentTypeDynamic,
@@ -429,7 +437,7 @@ func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore store.A
 }
 
 // CreateTestAuthProviderWithPerUserOrg creates a test OIDC provider with per-user organization assignment
-func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, prefix *string, suffix *string) {
+func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string, prefix *string, suffix *string) {
 	assignment := api.AuthOrganizationAssignment{}
 	perUserAssignment := api.AuthPerUserOrganizationAssignment{
 		Type:                   api.PerUser,
