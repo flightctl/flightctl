@@ -66,7 +66,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore.Organization(), orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories

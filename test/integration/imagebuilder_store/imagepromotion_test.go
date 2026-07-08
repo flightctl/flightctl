@@ -83,7 +83,7 @@ var _ = Describe("ImagePromotionStore", func() {
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -166,7 +166,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			wrongOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, wrongOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), wrongOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImagePromotion().Get(ctx, wrongOrgId, "org-test")
@@ -209,7 +209,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := storeInst.ImagePromotion().List(ctx, otherOrgId, flightctlstore.ListParams{})
@@ -254,7 +254,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			deleted, err := storeInst.ImagePromotion().Delete(ctx, otherOrgId, "cross-org-delete")
@@ -499,7 +499,7 @@ var _ = Describe("ImagePromotionStore", func() {
 
 		It("should not return promotions from a different org", func() {
 			otherOrgId := uuid.New()
-			err := testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err := testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			waiting := newTestImagePromotionWithStatus("other-org-promotion", "shared-build", api.ImagePromotionConditionReasonWaitingForArtifacts)

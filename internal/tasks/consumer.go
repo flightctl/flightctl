@@ -119,7 +119,7 @@ func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templatever
 		if shouldReconcileFleetApplicationLifecycle(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetApplicationLifecycle"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return fleetApplicationLifecycle(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+				return fleetApplicationLifecycle(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, fleetSvc, deviceSvc, eventSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}

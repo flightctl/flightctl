@@ -53,7 +53,7 @@ var _ = Describe("RepoUpdate", func() {
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
 
 		// Create 2 git config items, each to a different repo
-		err = testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+		err = testutil.CreateRepositories(ctx, 2, storeInst.Repository(), orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig1 := &api.GitConfigProviderSpec{

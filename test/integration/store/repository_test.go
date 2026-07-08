@@ -9,6 +9,8 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -35,7 +37,10 @@ var _ = Describe("RepositoryStore create", func() {
 		log                 *logrus.Logger
 		ctx                 context.Context
 		orgId               uuid.UUID
-		storeInst           store.Store
+		repositoryStore     repositorystore.Store
+		deviceStore         store.Device
+		fleetStore          store.Fleet
+		organizationStore   organizationstore.Store
 		cfg                 *config.Config
 		dbName              string
 		db                  *gorm.DB
@@ -51,17 +56,20 @@ var _ = Describe("RepositoryStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 		eventCallbackCalled = false
 		eventCallback = store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 			eventCallbackCalled = true
 		})
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		err = testutil.CreateRepositories(ctx, 3, storeInst, orgId)
+		err = testutil.CreateRepositories(ctx, 3, repositoryStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
@@ -70,50 +78,49 @@ var _ = Describe("RepositoryStore create", func() {
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Repository store", func() {
 		It("Get repository success", func() {
-			repo, err := storeInst.Repository().Get(ctx, orgId, "myrepository-1")
+			repo, err := repositoryStore.Get(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*repo.Metadata.Name).To(Equal("myrepository-1"))
 		})
 
 		It("Get repository - not found error", func() {
-			_, err := storeInst.Repository().Get(ctx, orgId, "nonexistent")
+			_, err := repositoryStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get repository - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := storeInst.Repository().Get(ctx, badOrgId, "myrepository-1")
+			_, err := repositoryStore.Get(ctx, badOrgId, "myrepository-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get repository - nil spec - not found error", func() {
-			_, err := storeInst.Repository().Get(ctx, orgId, "nilspec")
+			_, err := repositoryStore.Get(ctx, orgId, "nilspec")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete repository success", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", eventCallback)
+			err := repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", eventCallback)
+			err := repositoryStore.Delete(ctx, orgId, "nonexistent", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeFalse())
 		})
 
 		It("Delete repository success when nil spec", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "nilspec", eventCallback)
+			err := repositoryStore.Delete(ctx, orgId, "nilspec", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeFalse())
 		})
@@ -125,7 +132,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(result.Error).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{Limit: 1000}
-			allRepositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			allRepositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allRepositories.Items)).To(Equal(numRepositories))
 			allRepoNames := make([]string, len(allRepositories.Items))
@@ -135,7 +142,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 			foundRepoNames := make([]string, len(allRepositories.Items))
 			listParams.Limit = 1
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -144,7 +151,7 @@ var _ = Describe("RepositoryStore create", func() {
 			cont, err := store.ParseContinueString(repositories.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -153,7 +160,7 @@ var _ = Describe("RepositoryStore create", func() {
 			cont, err = store.ParseContinueString(repositories.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(repositories.Metadata.RemainingItemCount).To(BeNil())
@@ -169,7 +176,7 @@ var _ = Describe("RepositoryStore create", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
 				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("myrepository-1"))
@@ -189,7 +196,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
@@ -216,7 +223,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
@@ -243,7 +250,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
@@ -257,38 +264,38 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repo with fleet association", func() {
-			testutil.CreateTestFleets(ctx, 1, storeInst.Fleet(), orgId, "myfleet", false, nil)
+			testutil.CreateTestFleets(ctx, 1, fleetStore, orgId, "myfleet", false, nil)
 
-			err := storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
+			err := fleetStore.OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
+			repos, err := fleetStore.GetRepositoryRefs(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", eventCallback)
+			err = repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("Delete repo with device association", func() {
-			testutil.CreateTestDevices(ctx, 1, storeInst.Device(), orgId, nil, false)
+			testutil.CreateTestDevices(ctx, 1, deviceStore, orgId, nil, false)
 
-			err := storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			err := deviceStore.OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			repos, err := deviceStore.GetRepositoryRefs(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", eventCallback)
+			err = repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("CountByOrg - with specific orgId", func() {
 			// Test with specific orgId
-			results, err := storeInst.Repository().CountByOrg(ctx, &orgId)
+			results, err := repositoryStore.CountByOrg(ctx, &orgId)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].OrgID).To(Equal(orgId.String()))
@@ -310,11 +317,11 @@ var _ = Describe("RepositoryStore create", func() {
 					},
 					Spec: spec,
 				}
-				_, err = storeInst.Repository().Create(ctx, orgId, &resource, eventCallback)
+				_, err = repositoryStore.Create(ctx, orgId, &resource, eventCallback)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
-			results, err = storeInst.Repository().CountByOrg(ctx, &orgId)
+			results, err = repositoryStore.CountByOrg(ctx, &orgId)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].OrgID).To(Equal(orgId.String()))
@@ -324,13 +331,13 @@ var _ = Describe("RepositoryStore create", func() {
 		It("CountByOrg - with nil orgId (all orgs)", func() {
 			// Create repositories in another organization
 			otherOrgId := uuid.New()
-			err := testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			err := testutil.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
-			err = testutil.CreateRepositories(ctx, 2, storeInst, otherOrgId)
+			err = testutil.CreateRepositories(ctx, 2, repositoryStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test with nil orgId (should get all orgs)
-			results, err := storeInst.Repository().CountByOrg(ctx, nil)
+			results, err := repositoryStore.CountByOrg(ctx, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).To(HaveLen(2)) // Should have results for both organizations
 
@@ -365,7 +372,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -403,7 +410,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
@@ -432,7 +439,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specRw,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repoRw, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoRw, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			specR := api.RepositorySpec{}
@@ -450,7 +457,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specR,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repoR, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoR, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only read-write repositories
@@ -458,7 +465,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Limit:         1000,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.accessMode": "ReadWrite"}),
 			}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-output-registry"))
@@ -472,7 +479,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 			// List only read-only repositories
 			listParams.FieldSelector = selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.accessMode": "Read"})
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-input-registry"))
@@ -503,11 +510,11 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
-			repo, err := storeInst.Repository().Get(ctx, orgId, "oci-get-test")
+			repo, err := repositoryStore.Get(ctx, orgId, "oci-get-test")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*repo.Metadata.Name).To(Equal("oci-get-test"))
 
@@ -541,7 +548,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specOciRead,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repoOciRead, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoOciRead, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create an OCI repository with ReadWrite access
@@ -560,7 +567,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specOciRw,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repoOciRw, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoOciRw, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List with combined filter: type=oci AND accessMode=ReadWrite
@@ -571,7 +578,7 @@ var _ = Describe("RepositoryStore create", func() {
 					"spec.accessMode": "ReadWrite",
 				}),
 			}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-combined-rw"))
@@ -581,7 +588,7 @@ var _ = Describe("RepositoryStore create", func() {
 				"spec.type":       "oci",
 				"spec.accessMode": "Read",
 			})
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-combined-read"))
@@ -602,7 +609,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only OCI type repositories
@@ -610,14 +617,14 @@ var _ = Describe("RepositoryStore create", func() {
 				Limit:         1000,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "oci"}),
 			}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-type-test"))
 
 			// List only git type repositories (existing ones from BeforeEach)
 			listParams.FieldSelector = selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "git"})
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err = repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(numRepositories)) // Original git repos
 		})
@@ -646,7 +653,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -684,7 +691,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
@@ -717,11 +724,11 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
-			repo, err := storeInst.Repository().Get(ctx, orgId, "ssh-get-test")
+			repo, err := repositoryStore.Get(ctx, orgId, "ssh-get-test")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*repo.Metadata.Name).To(Equal("ssh-get-test"))
 
@@ -755,7 +762,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			_, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -773,7 +780,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 
@@ -806,21 +813,21 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it exists
-			_, err = storeInst.Repository().Get(ctx, orgId, "ssh-delete-test")
+			_, err = repositoryStore.Get(ctx, orgId, "ssh-delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
 			eventCallbackCalled = false
-			err = storeInst.Repository().Delete(ctx, orgId, "ssh-delete-test", eventCallback)
+			err = repositoryStore.Delete(ctx, orgId, "ssh-delete-test", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify it no longer exists
-			_, err = storeInst.Repository().Get(ctx, orgId, "ssh-delete-test")
+			_, err = repositoryStore.Get(ctx, orgId, "ssh-delete-test")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
@@ -849,7 +856,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -887,7 +894,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
@@ -926,7 +933,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
@@ -963,7 +970,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
@@ -997,11 +1004,11 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
-			repo, err := storeInst.Repository().Get(ctx, orgId, "http-get-test")
+			repo, err := repositoryStore.Get(ctx, orgId, "http-get-test")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*repo.Metadata.Name).To(Equal("http-get-test"))
 
@@ -1037,7 +1044,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			_, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1053,7 +1060,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 
@@ -1084,21 +1091,21 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it exists
-			_, err = storeInst.Repository().Get(ctx, orgId, "http-delete-test")
+			_, err = repositoryStore.Get(ctx, orgId, "http-delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
 			eventCallbackCalled = false
-			err = storeInst.Repository().Delete(ctx, orgId, "http-delete-test", eventCallback)
+			err = repositoryStore.Delete(ctx, orgId, "http-delete-test", eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify it no longer exists
-			_, err = storeInst.Repository().Get(ctx, orgId, "http-delete-test")
+			_, err = repositoryStore.Get(ctx, orgId, "http-delete-test")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
@@ -1122,7 +1129,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only HTTP type repositories
@@ -1130,7 +1137,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Limit:         1000,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "http"}),
 			}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			repositories, err := repositoryStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(repositories.Items)).To(Equal(1))
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("http-list-test"))

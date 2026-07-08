@@ -7,6 +7,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -19,13 +21,14 @@ import (
 
 var _ = Describe("SyncStateStore", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		storeInst store.Store
-		cfg       *config.Config
-		dbName    string
-		db        *gorm.DB
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		syncStateStore    syncstatestore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -34,27 +37,27 @@ var _ = Describe("SyncStateStore", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		syncStateStore = syncstatestore.NewSyncStateStore(db, log.WithField("pkg", "syncstate-store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("When running initial migration", func() {
 		It("should create the sync_state table without error", func() {
-			Expect(storeInst.SyncState()).ToNot(BeNil())
+			Expect(syncStateStore).ToNot(BeNil())
 		})
 	})
 
 	Context("When getting a non-existent sync state", func() {
 		It("should return nil without error", func() {
-			result, err := storeInst.SyncState().Get(ctx, orgId, "git:nonexistent/main")
+			result, err := syncStateStore.Get(ctx, orgId, "git:nonexistent/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).To(BeNil())
 		})
@@ -70,10 +73,10 @@ var _ = Describe("SyncStateStore", func() {
 				LastCheckedAt: now,
 				LastChangeAt:  &now,
 			}
-			err := storeInst.SyncState().Set(ctx, orgId, state)
+			err := syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, orgId, "git:my-repo/main")
+			result, err := syncStateStore.Get(ctx, orgId, "git:my-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(result.OrgID).To(Equal(orgId))
@@ -94,17 +97,17 @@ var _ = Describe("SyncStateStore", func() {
 				Fingerprint:   "abc123",
 				LastCheckedAt: now,
 			}
-			err := storeInst.SyncState().Set(ctx, orgId, state)
+			err := syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
 			later := now.Add(5 * time.Minute)
 			state.Fingerprint = "def456"
 			state.LastCheckedAt = later
 			state.LastChangeAt = &later
-			err = storeInst.SyncState().Set(ctx, orgId, state)
+			err = syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, orgId, "git:my-repo/main")
+			result, err := syncStateStore.Get(ctx, orgId, "git:my-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Fingerprint).To(Equal("def456"))
 			Expect(result.LastCheckedAt.UTC()).To(BeTemporally("~", later, time.Millisecond))
@@ -120,14 +123,14 @@ var _ = Describe("SyncStateStore", func() {
 				Fingerprint:   "abc123",
 				LastCheckedAt: now,
 			}
-			err := storeInst.SyncState().Set(ctx, orgId, state)
+			err := syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
 			later := now.Add(10 * time.Minute)
-			err = storeInst.SyncState().SetLastCheckedAt(ctx, orgId, "git:my-repo/main", later)
+			err = syncStateStore.SetLastCheckedAt(ctx, orgId, "git:my-repo/main", later)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, orgId, "git:my-repo/main")
+			result, err := syncStateStore.Get(ctx, orgId, "git:my-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Fingerprint).To(Equal("abc123"))
 			Expect(result.LastCheckedAt.UTC()).To(BeTemporally("~", later, time.Millisecond))
@@ -143,17 +146,17 @@ var _ = Describe("SyncStateStore", func() {
 				Fingerprint:   "rv1000",
 				LastCheckedAt: now,
 			}
-			err := storeInst.SyncState().Set(ctx, uuid.Nil, state)
+			err := syncStateStore.Set(ctx, uuid.Nil, state)
 			Expect(err).ToNot(HaveOccurred())
 
 			later := now.Add(5 * time.Minute)
 			state.Fingerprint = "rv1001"
 			state.LastCheckedAt = later
 			state.LastChangeAt = &later
-			err = storeInst.SyncState().Set(ctx, uuid.Nil, state)
+			err = syncStateStore.Set(ctx, uuid.Nil, state)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, uuid.Nil, "secret:prod/db-creds")
+			result, err := syncStateStore.Get(ctx, uuid.Nil, "secret:prod/db-creds")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(result.Fingerprint).To(Equal("rv1001"))
@@ -172,10 +175,10 @@ var _ = Describe("SyncStateStore", func() {
 				ProbeStatus:   "ProbeFailed",
 				ProbeMessage:  "connection refused",
 			}
-			err := storeInst.SyncState().Set(ctx, orgId, state)
+			err := syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, orgId, "git:probe-repo/main")
+			result, err := syncStateStore.Get(ctx, orgId, "git:probe-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(result.ProbeStatus).To(Equal("ProbeFailed"))
@@ -200,14 +203,14 @@ var _ = Describe("SyncStateStore", func() {
 					ProbeMessage:  "timeout",
 				},
 			}
-			err := storeInst.SyncState().BulkUpsert(ctx, orgId, states)
+			err := syncStateStore.BulkUpsert(ctx, orgId, states)
 			Expect(err).ToNot(HaveOccurred())
 
-			r1, err := storeInst.SyncState().Get(ctx, orgId, "git:bulk-repo/main")
+			r1, err := syncStateStore.Get(ctx, orgId, "git:bulk-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r1.ProbeStatus).To(Equal("Synced"))
 
-			r2, err := storeInst.SyncState().Get(ctx, orgId, "http:bulk-repo/config")
+			r2, err := syncStateStore.Get(ctx, orgId, "http:bulk-repo/config")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r2.ProbeStatus).To(Equal("ProbeFailed"))
 			Expect(r2.ProbeMessage).To(Equal("timeout"))
@@ -223,14 +226,14 @@ var _ = Describe("SyncStateStore", func() {
 				Fingerprint:   "abc123",
 				LastCheckedAt: now,
 			}
-			err := storeInst.SyncState().Set(ctx, orgId, state)
+			err := syncStateStore.Set(ctx, orgId, state)
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrg := uuid.New()
-			err = testutil.CreateTestOrganization(ctx, storeInst, otherOrg)
+			err = testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := storeInst.SyncState().Get(ctx, otherOrg, "git:my-repo/main")
+			result, err := syncStateStore.Get(ctx, otherOrg, "git:my-repo/main")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).To(BeNil())
 		})

@@ -69,6 +69,7 @@ type Store interface {
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
@@ -844,7 +845,11 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 	return device, err
 }
 
-func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+// updateAnnotationsCAS loads the device's current annotations, applies transform to compute the
+// new annotations map, and writes it back guarded by the resource_version optimistic-lock clause,
+// shared by updateAnnotations and mutateAnnotation so their read/update/retry semantics (deadlock
+// detection, ErrNoRowsUpdated on a lost race) can't drift between the two.
+func (s *DeviceStore) updateAnnotationsCAS(ctx context.Context, orgId uuid.UUID, name string, transform func(map[string]string) (map[string]string, error)) (bool, error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -852,20 +857,19 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
-
-	for _, deleteKey := range deleteKeys {
-		delete(existingAnnotations, deleteKey)
+	newAnnotations, err := transform(existingAnnotations)
+	if err != nil {
+		return false, err
 	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      model.MakeJSONMap(existingAnnotations),
+		"annotations":      model.MakeJSONMap(newAnnotations),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 
-	err := store.ErrorFromGormError(result.Error)
-	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+	updateErr := store.ErrorFromGormError(result.Error)
+	if updateErr != nil {
+		return strings.Contains(updateErr.Error(), "deadlock"), updateErr
 	}
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
@@ -873,9 +877,42 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	return false, nil
 }
 
+func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+	return s.updateAnnotationsCAS(ctx, orgId, name, func(existingAnnotations map[string]string) (map[string]string, error) {
+		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
+		for _, deleteKey := range deleteKeys {
+			delete(existingAnnotations, deleteKey)
+		}
+		return existingAnnotations, nil
+	})
+}
+
 func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return retryUpdate(func() (bool, error) {
 		return s.updateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	})
+}
+
+// mutateAnnotation freshly reads the device's current annotations on every attempt and calls
+// mutate with the current value of key (the empty string if unset), storing the returned value
+// back under that same key. Unlike updateAnnotations/UpdateAnnotations, which apply a value
+// computed once outside the retry loop, this re-invokes mutate against the freshly-read value
+// on every retry, making it safe for atomic read-modify-write updates (e.g. incrementing a
+// counter) under concurrent writers.
+func (s *DeviceStore) mutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) (bool, error) {
+	return s.updateAnnotationsCAS(ctx, orgId, name, func(existingAnnotations map[string]string) (map[string]string, error) {
+		newValue, err := mutate(existingAnnotations[key])
+		if err != nil {
+			return nil, err
+		}
+		existingAnnotations[key] = newValue
+		return existingAnnotations, nil
+	})
+}
+
+func (s *DeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	return retryUpdate(func() (bool, error) {
+		return s.mutateAnnotation(ctx, orgId, name, key, mutate)
 	})
 }
 

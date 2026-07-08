@@ -140,6 +140,22 @@ func (_d *TracedService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID
 	return fp1, s1
 }
 
+func (_d *TracedService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (fp1 *domain.Fleet, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "StartFleetApplication")
+
+	fp1, s1 = _d.inner.StartFleetApplication(ctx, orgId, name, appName)
+	endSpan(span, s1)
+	return fp1, s1
+}
+
+func (_d *TracedService) StopFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (fp1 *domain.Fleet, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "StopFleetApplication")
+
+	fp1, s1 = _d.inner.StopFleetApplication(ctx, orgId, name, appName)
+	endSpan(span, s1)
+	return fp1, s1
+}
+
 func (_d *TracedService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateFleetAnnotations")
 

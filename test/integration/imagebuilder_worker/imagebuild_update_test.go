@@ -77,7 +77,7 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStore.Organization(), orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories for ImageBuild/ImageExport tests with unique test-id-based names

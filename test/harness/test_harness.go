@@ -25,8 +25,17 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/rendered"
-	"github.com/flightctl/flightctl/internal/service"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -70,14 +79,22 @@ type TestHarness struct {
 	redisPassword domain.SecureString
 
 	// attributes for the test harness
-	Context        context.Context
-	Server         *apiserver.Server
-	Agent          *agent.Agent
-	Client         *apiclient.ClientWithResponses
-	Store          *store.Store
-	ServiceHandler service.Service // Service handler for direct service calls (bypasses HTTP/auth)
-	KVStore        kvstore.KVStore // Same Redis as service; use to set awaiting-reconnect / rendered keys for tests
-	TestDirPath    string
+	Context     context.Context
+	Server      *apiserver.Server
+	Agent       *agent.Agent
+	Client      *apiclient.ClientWithResponses
+	DeviceStore devicestore.Store
+
+	// Focused service handlers for direct service calls (bypasses HTTP/auth). Only the
+	// resources actually exercised by harness consumers are exposed here - see
+	// test/integration/agent/agent_test.go for the full set of methods used.
+	Device                    deviceservice.Service
+	EnrollmentRequest         enrollmentrequestservice.Service
+	Fleet                     fleetservice.Service
+	CertificateSigningRequest certificatesigningrequestservice.Service
+
+	KVStore     kvstore.KVStore // Same Redis as service; use to set awaiting-reconnect / rendered keys for tests
+	TestDirPath string
 }
 
 type TestHarnessOption func(h *TestHarness)
@@ -206,7 +223,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: CreateTestDB: %w", err)
 	}
-	storeInst := store.NewStore(db, serverLog.WithField("pkg", "store"))
+	deviceStore := devicestore.NewDeviceStore(db, serverLog.WithField("pkg", "device-store"))
+	fleetStore := fleetstore.NewFleetStore(db, serverLog.WithField("pkg", "fleet-store"))
+	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, serverLog.WithField("pkg", "enrollmentrequest-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, serverLog.WithField("pkg", "csr-store"))
+	eventStore := eventstore.NewEventStore(db, serverLog.WithField("pkg", "event-store"))
 	serverCfg.Database.Name = dbName
 
 	// Apply Redis params from options to server config
@@ -351,7 +372,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		cancelCtx:             cancel,
 		Server:                apiServer,
 		Client:                client,
-		Store:                 &storeInst,
+		DeviceStore:           deviceStore,
 		KVStore:               kvStore,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
@@ -380,7 +401,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
-	testHarness.ServiceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, ca, serverLog, "", "", []string{}, testHarness.vulnerabilityEnabled)
+	eventsSvc := events.NewServiceHandler(eventStore, workerClient, serverLog)
+	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", serverLog)
+	testHarness.Fleet = fleetservice.NewServiceHandler(fleetStore, eventsSvc, serverLog)
+	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, ca, kvStore, eventsSvc, serverLog, []string{}, "", "")
+	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, serverLog)
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {

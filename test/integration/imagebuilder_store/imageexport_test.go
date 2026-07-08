@@ -89,7 +89,7 @@ var _ = Describe("ImageExportStore", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -158,7 +158,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org for isolation test
 			wrongOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, wrongOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), wrongOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImageExport().Get(ctx, wrongOrgId, "org-test")
@@ -201,7 +201,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org for isolation test
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := storeInst.ImageExport().List(ctx, otherOrgId, flightctlstore.ListParams{})
@@ -431,7 +431,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with same name in second org

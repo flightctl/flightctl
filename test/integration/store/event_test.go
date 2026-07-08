@@ -8,7 +8,9 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -23,13 +25,13 @@ import (
 
 var _ = Describe("EventStore Integration Tests", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		storeInst store.Store
-		cfg       *config.Config
-		dbName    string
-		db        *gorm.DB
+		log        *logrus.Logger
+		ctx        context.Context
+		orgId      uuid.UUID
+		eventStore eventstore.Store
+		cfg        *config.Config
+		dbName     string
+		db         *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -38,13 +40,14 @@ var _ = Describe("EventStore Integration Tests", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		organizationStore := organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		createEvents(ctx, storeInst, orgId)
+		createEvents(ctx, eventStore, orgId)
 
 		now := time.Now()
 		oneMinuteAgo := now.Add(-1 * time.Minute)
@@ -65,14 +68,13 @@ var _ = Describe("EventStore Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Event Store", func() {
 		It("List all events", func() {
 			listParams := store.ListParams{Limit: 100, SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName}, SortOrder: lo.ToPtr(store.SortDesc)}
-			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err := eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventList.Items).To(HaveLen(6))
 
@@ -87,7 +89,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 
 		It("List all events with paging", func() {
 			listParams := store.ListParams{Limit: 2, SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName}, SortOrder: lo.ToPtr(store.SortDesc)}
-			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err := eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventList.Items).To(HaveLen(2))
 
@@ -101,7 +103,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 			cont, err := store.ParseContinueString(eventList.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			eventList, err = storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err = eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventList.Items).To(HaveLen(2))
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event4"))
@@ -113,7 +115,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 			cont, err = store.ParseContinueString(eventList.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			eventList, err = storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err = eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventList.Items).To(HaveLen(2))
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event2"))
@@ -131,7 +133,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					map[string]string{"reason": string(api.EventReasonResourceDeleted)}, selector.WithPrivateSelectors()),
 			}
 
-			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err := eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(2))
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event5"))
@@ -147,7 +149,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					map[string]string{"actor": "user:admin"}, selector.WithPrivateSelectors()),
 			}
 
-			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err := eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(2))
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event5"))
@@ -164,7 +166,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					selector.WithPrivateSelectors()),
 			}
 
-			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+			eventList, err := eventStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(1))
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event2"))
@@ -172,7 +174,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 	})
 })
 
-func createEvents(ctx context.Context, store store.Store, orgId uuid.UUID) {
+func createEvents(ctx context.Context, store eventstore.Store, orgId uuid.UUID) {
 	for i := 1; i <= 6; i++ {
 		name := fmt.Sprintf("event%d", i)
 		ev := &api.Event{
@@ -184,7 +186,7 @@ func createEvents(ctx context.Context, store store.Store, orgId uuid.UUID) {
 			ev.Reason = api.EventReasonResourceDeleted
 			ev.Actor = "user:admin"
 		}
-		err := store.Event().Create(ctx, orgId, ev)
+		err := store.Create(ctx, orgId, ev)
 		Expect(err).ToNot(HaveOccurred())
 	}
 }

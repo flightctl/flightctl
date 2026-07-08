@@ -382,7 +382,6 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	var (
-		isNew                   bool
 		kvRenderedVersion       string
 		err                     error
 		isAgent                 bool
@@ -400,16 +399,24 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 	}
 
 	if params.KnownRenderedVersion != nil && !processedAwaitReconnect {
-		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
+		n, gotNotification, err := rendered.Bus.Instance().WaitForNotification(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
-			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
-			return nil, domain.StatusInternalServerError(fmt.Sprintf("failed to wait for new rendered version: %v", err))
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for notification: %v", orgId, name, err)
+			return nil, domain.StatusInternalServerError(fmt.Sprintf("failed to wait for notification: %v", err))
 		}
-		if !isNew {
+		if !gotNotification {
 			return nil, domain.StatusNoContent()
 		}
+		switch n.Type {
+		case rendered.NotificationTypeSpecUpdated:
+			kvRenderedVersion = n.RenderedVersion
+		case rendered.NotificationTypeConsole:
+			if err := rendered.Bus.Instance().ClearConsoleNotification(ctx, orgId, name); err != nil {
+				h.log.Warnf("GetRenderedDevice %s/%s: failed to clear console notification: %v", orgId, name, err)
+			}
+		}
 	}
-	// When processedAwaitReconnect we skip WaitForNewVersion and return the current device (200)
+	// When processedAwaitReconnect we skip WaitForNotification and return the current device (200)
 	// so the agent sees the updated state and re-pushes its status.
 
 	if isAgent {

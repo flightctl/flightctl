@@ -224,6 +224,36 @@ func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, orgId, name, fleet an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetStatus", reflect.TypeOf((*MockService)(nil).ReplaceFleetStatus), ctx, orgId, name, fleet)
 }
 
+// StartFleetApplication mocks base method.
+func (m *MockService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Fleet, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartFleetApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// StartFleetApplication indicates an expected call of StartFleetApplication.
+func (mr *MockServiceMockRecorder) StartFleetApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartFleetApplication", reflect.TypeOf((*MockService)(nil).StartFleetApplication), ctx, orgId, name, appName)
+}
+
+// StopFleetApplication mocks base method.
+func (m *MockService) StopFleetApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Fleet, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StopFleetApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// StopFleetApplication indicates an expected call of StopFleetApplication.
+func (mr *MockServiceMockRecorder) StopFleetApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopFleetApplication", reflect.TypeOf((*MockService)(nil).StopFleetApplication), ctx, orgId, name, appName)
+}
+
 // UpdateFleetAnnotations mocks base method.
 func (m *MockService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()

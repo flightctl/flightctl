@@ -292,8 +292,8 @@ func (f FleetRolloutsLogic) syncFleetApplicationLifecycleDefault(ctx context.Con
 	}
 
 	deviceName := lo.FromPtr(device.Metadata.Name)
-	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: fleetRaw}, nil)
-	return service.ApiStatusToErr(status)
+	status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: fleetRaw}, nil)
+	return common.ApiStatusToErr(status)
 }
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {

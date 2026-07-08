@@ -153,7 +153,7 @@ var _ = Describe("Containerfile Generation", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create service handler for enrollment credential generation

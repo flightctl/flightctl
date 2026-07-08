@@ -18,14 +18,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-func CreateTestOrganization(ctx context.Context, storeInst store.Store, orgId uuid.UUID) error {
+func CreateTestOrganization(ctx context.Context, organizationStore store.Organization, orgId uuid.UUID) error {
 	externalID := fmt.Sprintf("external-id-%s", orgId.String())
 	org := &model.Organization{
 		ID:          orgId,
 		ExternalID:  externalID,
 		DisplayName: "Test Organization",
 	}
-	_, err := storeInst.Organization().Create(ctx, org)
+	_, err := organizationStore.Create(ctx, org)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func CreateTestTemplateVersions(ctx context.Context, numTemplateVersions int, tv
 	return nil
 }
 
-func CreateRepositories(ctx context.Context, numRepositories int, storeInst store.Store, orgId uuid.UUID) error {
+func CreateRepositories(ctx context.Context, numRepositories int, repositoryStore store.Repository, orgId uuid.UUID) error {
 	for i := 1; i <= numRepositories; i++ {
 		spec := api.RepositorySpec{}
 		err := spec.FromGitRepoSpec(api.GitRepoSpec{
@@ -199,7 +199,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 
 		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
+		_, err = repositoryStore.Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err
 		}
@@ -207,7 +207,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 	return nil
 }
 
-func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, store store.Store, orgId uuid.UUID) {
+func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, enrollmentRequestStore store.EnrollmentRequest, orgId uuid.UUID) {
 	for i := 1; i <= numEnrollmentRequests; i++ {
 		resource := api.EnrollmentRequest{
 			Metadata: api.ObjectMeta{
@@ -222,18 +222,18 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 			},
 		}
 
-		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource, nil)
+		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource, nil)
+		_, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}
 	}
 }
 
-func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst store.Store, orgId uuid.UUID) {
+func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resourceSyncStore store.ResourceSync, orgId uuid.UUID) {
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
@@ -246,7 +246,7 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeIns
 			},
 		}
 
-		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource, nil)
+		_, err := resourceSyncStore.Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}
