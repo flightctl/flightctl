@@ -45,8 +45,9 @@ func TestManager_RegisterStrategy(t *testing.T) {
 
 			mgr.RegisterStrategy(strategy, true)
 
-			assert.Contains(t, mgr.strategies, tt.expectedInMap)
-			assert.Equal(t, tt.expectedInMap, mgr.activeStrategy, "last registered should be active")
+			_, exists := mgr.GetStrategy(tt.expectedInMap)
+			assert.True(t, exists, "strategy should be registered")
+			assert.Equal(t, tt.expectedInMap, mgr.ActiveStrategyVersion(), "last registered should be active")
 		})
 	}
 }
@@ -58,12 +59,12 @@ func TestManager_RegisterMultipleStrategies(t *testing.T) {
 	v2 := &mockStrategy{version: "v2"}
 
 	mgr.RegisterStrategy(v1, true)
-	assert.Equal(t, "v1", mgr.activeStrategy, "v1 should be active after first register")
+	assert.Equal(t, "v1", mgr.ActiveStrategyVersion(), "v1 should be active after first register")
 
 	mgr.RegisterStrategy(v2, true)
-	assert.Equal(t, "v2", mgr.activeStrategy, "v2 should be active after second register")
+	assert.Equal(t, "v2", mgr.ActiveStrategyVersion(), "v2 should be active after second register")
 
-	assert.Len(t, mgr.strategies, 2, "both strategies should be registered")
+	assert.Equal(t, 2, mgr.StrategyCount(), "both strategies should be registered")
 }
 
 func TestManager_RegisterStrategy_ExplicitActivation(t *testing.T) {
@@ -73,21 +74,23 @@ func TestManager_RegisterStrategy_ExplicitActivation(t *testing.T) {
 
 	// Register v1 as active
 	mgr.RegisterStrategy(v1, true)
-	assert.Equal(t, "v1", mgr.activeStrategy, "v1 should be active when setActive=true")
+	assert.Equal(t, "v1", mgr.ActiveStrategyVersion(), "v1 should be active when setActive=true")
 
 	// Register v2 but DON'T activate it
 	mgr.RegisterStrategy(v2, false)
-	assert.Equal(t, "v1", mgr.activeStrategy, "v1 should still be active when v2 registered with setActive=false")
+	assert.Equal(t, "v1", mgr.ActiveStrategyVersion(), "v1 should still be active when v2 registered with setActive=false")
 
 	// Both should be registered
-	assert.Len(t, mgr.strategies, 2, "both strategies should be registered")
-	assert.NotNil(t, mgr.strategies["v1"])
-	assert.NotNil(t, mgr.strategies["v2"])
+	assert.Equal(t, 2, mgr.StrategyCount(), "both strategies should be registered")
+	_, v1Exists := mgr.GetStrategy("v1")
+	assert.True(t, v1Exists, "v1 should be registered")
+	_, v2Exists := mgr.GetStrategy("v2")
+	assert.True(t, v2Exists, "v2 should be registered")
 
 	// Can still explicitly activate v2
 	err := mgr.SetActiveStrategy("v2")
 	require.NoError(t, err)
-	assert.Equal(t, "v2", mgr.activeStrategy, "v2 should be active after SetActiveStrategy")
+	assert.Equal(t, "v2", mgr.ActiveStrategyVersion(), "v2 should be active after SetActiveStrategy")
 }
 
 func TestManager_SetActiveStrategy(t *testing.T) {
@@ -101,12 +104,12 @@ func TestManager_SetActiveStrategy(t *testing.T) {
 	// Switch back to v1
 	err := mgr.SetActiveStrategy("v1")
 	require.NoError(t, err)
-	assert.Equal(t, "v1", mgr.activeStrategy)
+	assert.Equal(t, "v1", mgr.ActiveStrategyVersion())
 
 	// Version normalization should work
 	err = mgr.SetActiveStrategy("V1")
 	require.NoError(t, err)
-	assert.Equal(t, "v1", mgr.activeStrategy)
+	assert.Equal(t, "v1", mgr.ActiveStrategyVersion())
 
 	// Unknown version should error
 	err = mgr.SetActiveStrategy("v3")

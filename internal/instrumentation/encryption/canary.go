@@ -42,7 +42,7 @@ type ValidationResult struct {
 type CanaryManager struct {
 	encMgr  *Manager
 	store   CanaryStore
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	ensured map[string]bool // "strategy/keyID" -> true (do-once per session)
 }
 
@@ -61,11 +61,19 @@ func NewCanaryManager(encMgr *Manager, store CanaryStore) *CanaryManager {
 func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID string) error {
 	key := fmt.Sprintf("%s/%s", strategy, keyID)
 
-	// Hold lock for entire check-and-create to prevent TOCTOU race
+	// Fast path: check if already ensured (read lock)
+	cm.mu.RLock()
+	if cm.ensured[key] {
+		cm.mu.RUnlock()
+		return nil
+	}
+	cm.mu.RUnlock()
+
+	// Slow path: need to check storage and potentially create
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// Do-once check (session-level cache)
+	// Double-check after acquiring write lock (another goroutine may have created it)
 	if cm.ensured[key] {
 		return nil
 	}
@@ -157,15 +165,14 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 // GetActiveCanary returns the canary for the currently active strategy/key.
 // Returns nil if not found.
 func (cm *CanaryManager) GetActiveCanary(ctx context.Context) (*Canary, error) {
-	if cm.encMgr.activeStrategy == "" {
+	version, strategy := cm.encMgr.GetActiveStrategy()
+	if version == "" {
 		return nil, fmt.Errorf("no active strategy set")
 	}
-
-	strategy, exists := cm.encMgr.strategies[cm.encMgr.activeStrategy]
-	if !exists {
-		return nil, fmt.Errorf("active strategy %s not found", cm.encMgr.activeStrategy)
+	if strategy == nil {
+		return nil, fmt.Errorf("active strategy %s not found", version)
 	}
 
 	keyID := strategy.ActiveKeyID()
-	return cm.store.Get(cm.encMgr.activeStrategy, keyID)
+	return cm.store.Get(version, keyID)
 }

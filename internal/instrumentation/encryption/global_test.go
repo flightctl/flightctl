@@ -294,7 +294,9 @@ func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T)
 	require.NoError(t, err)
 
 	// Add second key manually and create a canary for it
-	v1Strategy := GlobalManager().strategies["v1"].(*V1Strategy)
+	strategy, exists := GlobalManager().GetStrategy("v1")
+	require.True(t, exists)
+	v1Strategy := strategy.(*V1Strategy)
 	key2Bytes, _ := crypto.DecodeAES256Key(key2)
 	_ = v1Strategy.AddKey("oldkey", key2Bytes, true)
 

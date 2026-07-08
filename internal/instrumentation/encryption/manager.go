@@ -28,6 +28,14 @@ func (m *Manager) GetActiveStrategy() (version string, strategy Strategy) {
 	return version, strategy
 }
 
+// ActiveStrategyVersion returns just the active strategy version string.
+// Returns empty string if no active strategy is set.
+func (m *Manager) ActiveStrategyVersion() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.activeStrategy
+}
+
 // GetStrategy returns the strategy for the given version.
 // The version is automatically normalized to kebab-case.
 // Returns (nil, false) if the strategy is not registered.
@@ -38,6 +46,13 @@ func (m *Manager) GetStrategy(version string) (Strategy, bool) {
 
 	strategy, exists := m.strategies[normalized]
 	return strategy, exists
+}
+
+// StrategyCount returns the number of registered strategies.
+func (m *Manager) StrategyCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.strategies)
 }
 
 // RegisterStrategy adds an encryption strategy to the manager.

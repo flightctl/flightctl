@@ -394,7 +394,7 @@ func TestNewV1Strategy_KeyTooShort(t *testing.T) {
 
 	_, err = NewV1Strategy()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "32-byte key")
+	assert.Contains(t, err.Error(), "32 bytes")
 }
 
 func TestGenerateAES256Key(t *testing.T) {
@@ -540,4 +540,15 @@ func testDecrypt(t *testing.T, strategy *V1Strategy, ctx context.Context, encryp
 		return nil, err
 	}
 	return strategy.DecryptParsed(ctx, parsed)
+}
+
+func TestV1Strategy_AddKey_RejectsZeroKey(t *testing.T) {
+	strategy := newV1Strategy()
+
+	zeroKey := make([]byte, 32) // All zeros
+
+	err := strategy.AddKey("zero-key", zeroKey, true)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "all zeros")
+	assert.Contains(t, err.Error(), "configuration error")
 }

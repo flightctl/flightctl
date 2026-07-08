@@ -1,6 +1,7 @@
 package encryption
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -14,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/pkg/crypto"
 )
 
 // defaultKeyFile returns the default path for the v1 encryption key file.
@@ -52,7 +54,7 @@ func NewV1Strategy() (*V1Strategy, error) {
 
 	// Try environment variable first
 	if envKey := os.Getenv("FLIGHTCTL_ENCRYPTION_KEY"); envKey != "" {
-		encodedKey = envKey
+		encodedKey = strings.TrimSpace(envKey)
 	} else {
 		// Try default key file
 		keyBytes, err := os.ReadFile(keyPath)
@@ -62,7 +64,7 @@ func NewV1Strategy() (*V1Strategy, error) {
 		encodedKey = strings.TrimSpace(string(keyBytes))
 	}
 
-	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	key, err := crypto.DecodeAES256Key(encodedKey)
 	if err != nil {
 		return nil, fmt.Errorf("decode encryption key: %w", err)
 	}
@@ -80,6 +82,12 @@ func NewV1Strategy() (*V1Strategy, error) {
 func (s *V1Strategy) AddKey(keyID string, key []byte, setActive bool) error {
 	if len(key) != 32 {
 		return fmt.Errorf("v1 strategy requires 32-byte key, got %d bytes", len(key))
+	}
+
+	// Check for zeroed-out key (configuration error)
+	zeroKey := make([]byte, 32)
+	if bytes.Equal(key, zeroKey) {
+		return fmt.Errorf("key %s is all zeros - likely a configuration error", keyID)
 	}
 
 	block, err := aes.NewCipher(key)
@@ -139,7 +147,14 @@ func (s *V1Strategy) ConfiguredKeys() []string {
 
 // String returns human-readable status information about this strategy.
 func (s *V1Strategy) String() string {
-	return fmt.Sprintf("%s, active_key=%s, keys=%v", s.Algorithm(), s.activeKey, s.ConfiguredKeys())
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	keyIDs := make([]string, 0, len(s.keys))
+	for keyID := range s.keys {
+		keyIDs = append(keyIDs, keyID)
+	}
+	return fmt.Sprintf("%s, active_key=%s, keys=%v", s.Algorithm(), s.activeKey, keyIDs)
 }
 
 // ActiveKeyID returns the identifier of the currently active encryption key.

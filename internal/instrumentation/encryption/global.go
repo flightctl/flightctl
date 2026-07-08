@@ -67,12 +67,12 @@ func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanarySt
 		manager.RegisterStrategy(v1Strategy, true)
 
 		// Determine active strategy info for logging
-		activeStrategy := manager.activeStrategy
+		activeVersion, activeStrategy := manager.GetActiveStrategy()
 		var activeKeyID string
-		if strategy, exists := manager.strategies[activeStrategy]; exists {
-			activeKeyID = strategy.ActiveKeyID()
+		if activeStrategy != nil {
+			activeKeyID = activeStrategy.ActiveKeyID()
 		}
-		strategyInfo := fmt.Sprintf("active=%s/%s", activeStrategy, activeKeyID)
+		strategyInfo := fmt.Sprintf("active=%s/%s", activeVersion, activeKeyID)
 
 		// Initialize canary manager (optional)
 		var canaryManager *CanaryManager
@@ -92,7 +92,7 @@ func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanarySt
 			failedCount := 0
 			for _, result := range results {
 				if result.Status != "ok" {
-					isActive := (result.Strategy == activeStrategy && result.KeyID == activeKeyID)
+					isActive := (result.Strategy == activeVersion && result.KeyID == activeKeyID)
 					if isActive {
 						// CRITICAL: Active key cannot decrypt its canary
 						log.Errorf("CRITICAL: Active encryption key %s/%s cannot decrypt canary: %s",
@@ -172,6 +172,7 @@ func Encrypt(ctx context.Context, plaintext Plaintext) (Ciphertext, error) {
 	// Ensure canary exists for active key (if canary manager is enabled)
 	globalManagerMu.RLock()
 	canaryMgr := globalCanaryManager // Can be nil
+	logger := globalLogger           // Can be nil
 	globalManagerMu.RUnlock()
 
 	if canaryMgr != nil {
@@ -182,11 +183,9 @@ func Encrypt(ctx context.Context, plaintext Plaintext) (Ciphertext, error) {
 			// Note: EnsureCanary has internal do-once logic, safe to call on every encrypt
 			if err := canaryMgr.EnsureCanary(ctx, activeStrategy, activeKeyID); err != nil {
 				// Log error but don't fail encryption (canary is verification, not critical path)
-				globalManagerMu.RLock()
-				if globalLogger != nil {
-					globalLogger.Errorf("Failed to ensure canary for %s/%s: %v", activeStrategy, activeKeyID, err)
+				if logger != nil {
+					logger.Errorf("Failed to ensure canary for %s/%s: %v", activeStrategy, activeKeyID, err)
 				}
-				globalManagerMu.RUnlock()
 			}
 		}
 	}
