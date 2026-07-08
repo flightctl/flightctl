@@ -19,19 +19,20 @@ import (
 
 type IntegrationTestCallback func()
 
+// extInt requires P to be a pointer to M and to implement model.ResourceInterface,
+// so any model whose pointer implements model.ResourceInterface can be used here
+// without modifying this file.
+type extInt[M any] interface {
+	model.ResourceInterface
+	*M
+}
+
 // GenericStore provides generic CRUD operations for resources
 // P is a pointer to a model, for example: *model.Device
 // M is the model, for example: model.Device
 // A is the API resource, for example: domain.Device
 // AL is the API list, for example: domain.DeviceList
-type Model interface {
-	model.AuthProvider | model.Catalog | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
-}
-type extInt[M any] interface {
-	model.ResourceInterface
-	*M
-}
-type GenericStore[P extInt[M], M Model, A any, AL any] struct {
+type GenericStore[P extInt[M], M any, A any, AL any] struct {
 	dbHandler *gorm.DB
 	log       logrus.FieldLogger
 
@@ -50,7 +51,7 @@ type Resource struct {
 	Name  string
 }
 
-func NewGenericStore[P extInt[M], M Model, A any, AL any](
+func NewGenericStore[P extInt[M], M any, A any, AL any](
 	db *gorm.DB,
 	log logrus.FieldLogger,
 	apiToModelPtr func(*A) (P, error),
@@ -362,7 +363,7 @@ func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid
 	return apiResource, nil
 }
 
-func hasSpecColumn[M Model]() bool {
+func hasSpecColumn[M any]() bool {
 	switch any(new(M)).(type) {
 	case *model.Event:
 		return false
