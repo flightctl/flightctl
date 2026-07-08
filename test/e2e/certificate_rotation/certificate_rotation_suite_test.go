@@ -3,14 +3,23 @@ package certificate_rotation_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+)
+
+const (
+	// apiLoginReadyTimeout is how long AfterSuite waits for flightctl login after
+	// restoring the API deployment (route may lag behind pod Ready on OCP).
+	apiLoginReadyTimeout = 5 * time.Minute
+	apiLoginReadyPolling = 5 * time.Second
 )
 
 func TestCertificateRotation(t *testing.T) {
@@ -38,6 +47,14 @@ var _ = AfterSuite(func() {
 		err := providers.Lifecycle.RemoveDeploymentEnv(infra.ServiceAPI, "FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS")
 		Expect(err).ToNot(HaveOccurred())
 	}
+
+	// Restore default cert TTL triggers an API rollout. Retry login until the route
+	// is ready so the next suite (e.g. cli) does not fail in BeforeEach.
+	harness := e2e.GetWorkerHarness()
+	Eventually(func() error {
+		_, err := login.LoginToAPIWithToken(harness)
+		return err
+	}).WithTimeout(apiLoginReadyTimeout).WithPolling(apiLoginReadyPolling).Should(Succeed())
 
 	if auxSvcs != nil {
 		auxSvcs.Cleanup(context.Background())
