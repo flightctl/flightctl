@@ -13,10 +13,11 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -37,7 +38,7 @@ type Worker struct {
 	kvStore           kvstore.KVStore
 	queuesProvider    queues.Provider
 	ca                *crypto.CAClient
-	serviceHandler    *service.ServiceHandler
+	serviceHandler    *certificatesigningrequestservice.ServiceHandler
 }
 
 // New returns a new instance of an ImageBuilder Worker server.
@@ -55,11 +56,13 @@ func New(
 	catalogStore := catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
 	eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 
-	// Create service handler for internal operations (enrollment credential generation).
-	// GenerateEnrollmentCredential has no focused-package home yet (see EDM-4687), so
-	// this still requires constructing the full monolith store/service handler.
-	mainStore := store.NewStore(db, log.WithField("pkg", "store"))
-	serviceHandler := service.NewServiceHandler(mainStore, nil, kvStore, ca, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl, nil, false)
+	// Service handler for internal operations (enrollment credential generation).
+	// nil worker_client: matches Run()'s eventsSvc - events are stored in DB for audit/logging
+	// but are not pushed to TaskQueue.
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
+	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
+	eventsSvc := events.NewServiceHandler(eventStore, nil, log.WithField("component", "events"))
+	serviceHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl)
 
 	return &Worker{
 		cfg:               cfg,

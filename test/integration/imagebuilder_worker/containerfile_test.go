@@ -14,8 +14,14 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
-	"github.com/flightctl/flightctl/internal/service"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/service/events"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
@@ -96,7 +102,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 	return imageBuild
 }
 
-func createOCIRepository(ctx context.Context, repoStore flightctlstore.Repository, orgId uuid.UUID, name string, registry string, scheme *v1beta1.OciRepoSpecScheme) (*v1beta1.Repository, error) {
+func createOCIRepository(ctx context.Context, repoStore repositorystore.Store, orgId uuid.UUID, name string, registry string, scheme *v1beta1.OciRepoSpecScheme) (*v1beta1.Repository, error) {
 	ociSpec := v1beta1.OciRepoSpec{
 		Registry: registry,
 		Type:     v1beta1.OciRepoSpecTypeOci,
@@ -121,15 +127,16 @@ func createOCIRepository(ctx context.Context, repoStore flightctlstore.Repositor
 
 var _ = Describe("Containerfile Generation", func() {
 	var (
-		log            *logrus.Logger
-		ctx            context.Context
-		orgId          uuid.UUID
-		storeInst      store.Store
-		mainStoreInst  flightctlstore.Store
-		cfg            *config.Config
-		dbName         string
-		db             *gorm.DB
-		serviceHandler *service.ServiceHandler
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		storeInst         store.Store
+		organizationStore organizationstore.Store
+		repositoryStore   repositorystore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
+		serviceHandler    *certificatesigningrequestservice.ServiceHandler
 	)
 
 	BeforeEach(func() {
@@ -140,7 +147,8 @@ var _ = Describe("Containerfile Generation", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
+		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
@@ -153,22 +161,25 @@ var _ = Describe("Containerfile Generation", func() {
 
 		// Create test organization (required for foreign key constraint)
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst.Organization(), orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create service handler for enrollment credential generation
-		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{}, false)
+		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
+		enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+		serviceHandler = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, caClient, eventsSvc, log, "https://api.example.com", "https://ui.example.com")
 	})
 
 	AfterEach(func() {
-		_ = mainStoreInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Late binding containerfile generation", func() {
 		It("should generate containerfile with correct content for late binding", func() {
 			// Create OCI repository
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "quay.io", nil)
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "quay.io", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with late binding
@@ -181,7 +192,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -208,7 +219,7 @@ var _ = Describe("Containerfile Generation", func() {
 	Context("Early binding containerfile generation", func() {
 		It("should generate containerfile with agent config for early binding", func() {
 			// Create OCI repository
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with early binding
@@ -221,7 +232,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -284,7 +295,7 @@ var _ = Describe("Containerfile Generation", func() {
 
 	Context("Repository URL handling", func() {
 		It("should handle repository without scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "no-scheme-repo", "quay.io", nil)
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "no-scheme-repo", "quay.io", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -295,7 +306,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			// Values are now in BuildArgs, not templated into Containerfile
@@ -305,7 +316,7 @@ var _ = Describe("Containerfile Generation", func() {
 		})
 
 		It("should handle repository with https scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -316,14 +327,14 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.BuildArgs.RegistryHostname).To(Equal("registry.example.com"))
 		})
 
 		It("should handle repository with http scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.Http))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.Http))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -334,7 +345,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.BuildArgs.RegistryHostname).To(Equal("localhost:5000"))
@@ -351,7 +362,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			_, err = tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("repository"))
@@ -374,7 +385,7 @@ var _ = Describe("Containerfile Generation", func() {
 			}
 			callback := flightctlstore.EventCallback(func(context.Context, v1beta1.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 			})
-			_, err = mainStoreInst.Repository().Create(ctx, orgId, &gitRepo, callback)
+			_, err = repositoryStore.Create(ctx, orgId, &gitRepo, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -385,7 +396,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			_, err = tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("must be of type 'oci'"))
@@ -394,7 +405,7 @@ var _ = Describe("Containerfile Generation", func() {
 
 	Context("Containerfile template validation", func() {
 		It("should generate valid Containerfile syntax", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "quay.io", nil)
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "quay.io", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -404,7 +415,7 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			containerfile := result.Containerfile
@@ -440,7 +451,7 @@ var _ = Describe("Containerfile Generation", func() {
 		})
 
 		It("should return consistent static template for multiple generations", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "quay.io", nil)
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "quay.io", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "early")
@@ -453,7 +464,7 @@ var _ = Describe("Containerfile Generation", func() {
 			// Generate multiple containerfiles - they should all be identical (static template)
 			var firstContainerfile string
 			for i := 0; i < 5; i++ {
-				result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+				result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 				Expect(err).ToNot(HaveOccurred())
 
 				if i == 0 {
@@ -468,9 +479,9 @@ var _ = Describe("Containerfile Generation", func() {
 	Context("User configuration in containerfile generation", func() {
 		It("should generate containerfile with user configuration for late binding", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err = createOCIRepository(ctx, repositoryStore, orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with late binding and user configuration
@@ -488,7 +499,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -510,9 +521,9 @@ var _ = Describe("Containerfile Generation", func() {
 
 		It("should generate containerfile with user configuration for early binding", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err = createOCIRepository(ctx, repositoryStore, orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with early binding and user configuration
@@ -530,7 +541,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
@@ -548,9 +559,9 @@ var _ = Describe("Containerfile Generation", func() {
 
 		It("should not include user configuration when not provided", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err := createOCIRepository(ctx, repositoryStore, orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			_, err = createOCIRepository(ctx, repositoryStore, orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild without user configuration
@@ -564,7 +575,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Generate containerfile
-			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst.Repository(), serviceHandler, orgId, loadedBuild, log)
+			result, err := tasks.GenerateContainerfile(ctx, repositoryStore, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())

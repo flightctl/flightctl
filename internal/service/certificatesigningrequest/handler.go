@@ -38,11 +38,15 @@ type ServiceHandler struct {
 	ca                     *crypto.CAClient
 	events                 events.Service
 	log                    logrus.FieldLogger
+	agentEndpoint          string
+	uiUrl                  string
 }
 
 // NewServiceHandler creates a new certificatesigningrequest ServiceHandler instance.
-func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentRequestStore enrollmentrequeststore.Store, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, enrollmentRequestStore: enrollmentRequestStore, ca: ca, events: events, log: log}
+// agentEndpoint/uiUrl are only used by GenerateEnrollmentCredential (they're embedded in the
+// returned crypto.EnrollmentCredential); pass "" if a caller never needs enrollment credentials.
+func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentRequestStore enrollmentrequeststore.Store, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+	return &ServiceHandler{store: store, enrollmentRequestStore: enrollmentRequestStore, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
 }
 
 var _ Service = (*ServiceHandler)(nil)

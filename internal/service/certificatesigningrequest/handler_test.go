@@ -188,7 +188,7 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningReque
 	ev := &fakeEventsService{}
 	caClient, cfg := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(csrStore, erStore, caClient, ev, logger), csrStore, erStore, ev, cfg
+	return NewServiceHandler(csrStore, erStore, caClient, ev, logger, "", ""), csrStore, erStore, ev, cfg
 }
 
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.

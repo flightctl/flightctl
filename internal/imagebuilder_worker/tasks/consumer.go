@@ -14,7 +14,7 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -38,7 +38,7 @@ type Consumer struct {
 	repositoryStore     repositorystore.Store
 	catalogStore        catalogstore.Store
 	kvStore             kvstore.KVStore
-	serviceHandler      *service.ServiceHandler
+	serviceHandler      *certificatesigningrequestservice.ServiceHandler
 	imageBuilderService imagebuilderapi.Service
 	queueProducer       queues.QueueProducer
 	cfg                 *config.Config
@@ -52,7 +52,7 @@ func NewConsumer(
 	repositoryStore repositorystore.Store,
 	catalogStore catalogstore.Store,
 	kvStore kvstore.KVStore,
-	serviceHandler *service.ServiceHandler,
+	serviceHandler *certificatesigningrequestservice.ServiceHandler,
 	imageBuilderService imagebuilderapi.Service,
 	queueProducer queues.QueueProducer,
 	cfg *config.Config,
@@ -228,7 +228,7 @@ func LaunchConsumers(
 	repositoryStore repositorystore.Store,
 	catalogStore catalogstore.Store,
 	kvStore kvstore.KVStore,
-	serviceHandler *service.ServiceHandler,
+	serviceHandler *certificatesigningrequestservice.ServiceHandler,
 	imageBuilderService imagebuilderapi.Service,
 	cfg *config.Config,
 	log logrus.FieldLogger,

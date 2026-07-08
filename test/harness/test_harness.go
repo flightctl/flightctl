@@ -405,7 +405,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", serverLog)
 	testHarness.Fleet = fleetservice.NewServiceHandler(fleetStore, eventsSvc, serverLog)
 	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, ca, kvStore, eventsSvc, serverLog, []string{}, "", "")
-	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, serverLog)
+	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, serverLog, "", "")
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {
