@@ -13,8 +13,14 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -72,8 +78,12 @@ var _ = Describe("Rollout batch sequence test", func() {
 		log              *logrus.Logger
 		dbName           string
 		cfg              *config.Config
-		storeInst        store.Store
-		serviceHandler   service.Service
+		fleetStore       store.Fleet
+		deviceStore      store.Device
+		tvStore          store.TemplateVersion
+		deviceSvc        deviceservice.Service
+		fleetSvc         fleetservice.Service
+		eventSvc         eventservice.Service
 		tvName           string
 		db               *gorm.DB
 		ctrl             *gomock.Controller
@@ -95,13 +105,13 @@ var _ = Describe("Rollout batch sequence test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationLastBatchCompletionReport: fmt.Sprintf(`{"successPercentage":%d}`, percentage),
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	setAutomaticApproval := func(fleetName string) {
 		annotations := map[string]string{
 			api.FleetAnnotationRolloutApprovalMethod: "automatic",
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	rolloutDeviceSelection := func(b api.BatchSequence) *api.RolloutDeviceSelection {
 		ret := &api.RolloutDeviceSelection{}
@@ -122,7 +132,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			},
 		}
 
-		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -140,24 +150,24 @@ var _ = Describe("Rollout batch sequence test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 	setRolledOut := func(deviceName string) {
 		annotations := map[string]string{
 			api.DeviceAnnotationTemplateVersion: tvName,
 		}
-		Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
+		Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
 	}
 
 	setRendered := func(deviceName string) {
@@ -165,7 +175,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			api.DeviceAnnotationRenderedTemplateVersion: tvName,
 			api.DeviceAnnotationRenderedVersion:         "5",
 		}
-		Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
+		Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
 		Expect(db.WithContext(ctx).Model(&model.Device{}).Where("org_id = ? and name = ?", store.NullOrgId, deviceName).Update("render_timestamp", time.Now()).Error).ToNot(HaveOccurred())
 	}
 
@@ -180,7 +190,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 	}
 
 	setFailed := func(deviceName string) {
-		device, err := storeInst.Device().Get(ctx, store.NullOrgId, deviceName)
+		device, err := deviceStore.Get(ctx, store.NullOrgId, deviceName)
 		Expect(err).ToNot(HaveOccurred())
 		var condition *api.Condition
 		for i := range device.Status.Conditions {
@@ -197,7 +207,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			condition = &device.Status.Conditions[len(device.Status.Conditions)-1]
 		}
 		condition.Reason = "Error"
-		_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, device, nil)
+		_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, device, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -320,7 +330,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
+		devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -361,17 +371,24 @@ var _ = Describe("Rollout batch sequence test", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		fleetStore = store.NewFleet(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = store.NewDevice(db, log.WithField("pkg", "device-store"))
+		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
+		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
 		publisher := queues.NewMockQueueProducer(ctrl)
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, mockWorkerClient, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 	})
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -381,17 +398,17 @@ var _ = Describe("Rollout batch sequence test", func() {
 			fleet := createTestFleetWithThreshold(FleetName, sequence, threshold)
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
-				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
+				testutil.CreateTestDevices(ctx, numDevices, deviceStore, store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
+				devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					device := &devices.Items[i]
 					device.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, device, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, device, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
-			selector, err := device_selection.NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, updateTimeout, serviceHandler, serviceHandler, store.NullOrgId, fleet, tvName, log)
+			selector, err := device_selection.NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, updateTimeout, deviceSvc, fleetSvc, store.NullOrgId, fleet, tvName, log)
 			Expect(err).ToNot(HaveOccurred())
 			return selector
 		}
@@ -404,7 +421,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			annotations := map[string]string{
 				api.DeviceAnnotationSelectedForRollout: "",
 			}
-			Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
+			Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, deviceName, annotations, nil)).ToNot(HaveOccurred())
 		}
 
 		It("single batch - no devices", func() {
@@ -563,7 +580,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				selection, err := selector.CurrentSelection(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(selection.SetCompletionReport(ctx)).ToNot(HaveOccurred())
-				fleet, err := storeInst.Fleet().Get(ctx, store.NullOrgId, FleetName)
+				fleet, err := fleetStore.Get(ctx, store.NullOrgId, FleetName)
 				Expect(err).ToNot(HaveOccurred())
 				val, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationLastBatchCompletionReport)
 				Expect(exists).To(Equal(selected != nil && selected.length > 0))
@@ -592,20 +609,20 @@ var _ = Describe("Rollout batch sequence test", func() {
 				createTestTemplateVersion(name)
 			}
 			if numDevices > 0 {
-				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, name), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
+				testutil.CreateTestDevices(ctx, numDevices, deviceStore, store.NullOrgId, util.SetResourceOwner(api.FleetKind, name), false)
+				devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
 		}
 
 		setDevicesComplete := func(fleetName, tvName string) {
-			devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{
+			devices, err := deviceStore.List(ctx, store.NullOrgId, store.DeviceListParams{
 				ListParams: store.ListParams{
 					AnnotationSelector: selector.NewAnnotationSelectorOrDie(api.MatchExpression{
 						Key:      api.DeviceAnnotationSelectedForRollout,
@@ -623,14 +640,14 @@ var _ = Describe("Rollout batch sequence test", func() {
 					api.DeviceAnnotationRenderedTemplateVersion: tvName,
 					api.DeviceAnnotationRenderedVersion:         renderedVersion,
 				}
-				Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
+				Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 				d.Status.Config.RenderedVersion = renderedVersion
-				_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
+				_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		}
 		getBatchLocation := func(fleetName string) int {
-			fleet, err := storeInst.Fleet().Get(ctx, store.NullOrgId, fleetName)
+			fleet, err := fleetStore.Get(ctx, store.NullOrgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			m := lo.FromPtr(fleet.Metadata.Annotations)
 			if m == nil {
@@ -647,19 +664,19 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 		It("single fleet - no devices", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 0, false)
-			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
+			reconciler := device_selection.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(-1))
 		})
 		It("single fleet - single device", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 1, false)
-			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
+			reconciler := device_selection.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(-1))
 		})
 		It("single fleet with template version - single device", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 1, true)
-			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
+			reconciler := device_selection.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(3))
@@ -671,7 +688,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		It("single fleet with template version - multiple devices", func() {
 			initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-			reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
+			reconciler := device_selection.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			Expect(getBatchLocation(FleetName)).To(Equal(0))
@@ -700,13 +717,13 @@ var _ = Describe("Rollout batch sequence test", func() {
 		})
 		Context("definition updated", func() {
 			updateDefinition := func(definition *api.RolloutDeviceSelection) {
-				fleet, err := storeInst.Fleet().Get(ctx, store.NullOrgId, FleetName)
+				fleet, err := fleetStore.Get(ctx, store.NullOrgId, FleetName)
 				Expect(err).ToNot(HaveOccurred())
 				if fleet.Spec.RolloutPolicy == nil {
 					fleet.Spec.RolloutPolicy = &api.RolloutPolicy{}
 				}
 				fleet.Spec.RolloutPolicy.DeviceSelection = definition
-				_, err = storeInst.Fleet().Update(ctx, store.NullOrgId, fleet, nil, false, nil)
+				_, err = fleetStore.Update(ctx, store.NullOrgId, fleet, nil, false, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			fromBatchSequence := func(b api.BatchSequence) *api.RolloutDeviceSelection {
@@ -715,7 +732,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				return &ret
 			}
 			checkFleetAnnotations := func(expected bool) {
-				fleet, err := storeInst.Fleet().Get(ctx, store.NullOrgId, FleetName)
+				fleet, err := fleetStore.Get(ctx, store.NullOrgId, FleetName)
 				Expect(err).ToNot(HaveOccurred())
 				fleetAnnotations := []string{
 					api.FleetAnnotationBatchNumber,
@@ -732,7 +749,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			It("device selection definition updated", func() {
 				initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 				setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-				reconciler := device_selection.NewReconciler(serviceHandler, serviceHandler, serviceHandler, log)
+				reconciler := device_selection.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 				mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 				checkFleetAnnotations(true)
 				reconciler.Reconcile(ctx, store.NullOrgId)
