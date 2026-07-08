@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -24,7 +26,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has non-parameterized git and HTTP config it should create fleet-level refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		repo := "my-repo"
 		revision := "main"
@@ -48,17 +52,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -84,7 +88,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has multiple git configs it should produce refs with independent pointers", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -103,17 +109,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -127,7 +133,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has parameterized git revision it should skip that ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -145,17 +153,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -165,7 +173,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has non-parameterized secret config it should create fleet-level ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -183,17 +193,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -205,7 +215,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has parameterized secret namespace it should skip that ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -223,17 +235,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -243,7 +255,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has parameterized secret name it should skip that ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -261,17 +275,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -281,7 +295,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has parameterized HTTP suffix it should skip that ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		paramSuffix := "/{{ .metadata.labels.env }}/config.json"
 		fleet := &domain.Fleet{
@@ -300,17 +316,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -320,7 +336,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has static HTTP suffix it should create fleet-level ref", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		suffix := "/config.json"
 		fleet := &domain.Fleet{
@@ -339,17 +357,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -361,7 +379,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has nil HTTP suffix it should create fleet-level ref with empty suffix", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -379,17 +399,17 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 
 		require.NoError(t, err)
@@ -401,7 +421,9 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 	t.Run("When fleet has no config it should replace with empty refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleet := &domain.Fleet{
 			Metadata: domain.ObjectMeta{Name: &fleetName},
@@ -415,10 +437,10 @@ func TestPopulateDependencyRefs_Fleet(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
-		mockSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Len(0)).Return(okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
+		mockDependencyRefSvc.EXPECT().ReplaceDependencyRefsByFleet(gomock.Any(), orgId, fleetName, gomock.Len(0)).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForFleet(context.Background(), fleetName)
 		require.NoError(t, err)
 	})
@@ -432,7 +454,9 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 	t.Run("When standalone device has git config it should create device-level refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		repo := "my-repo"
 		revision := "main"
@@ -448,17 +472,17 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
 
 		var capturedRefs []model.DependencyRef
-		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).DoAndReturn(
+		mockDependencyRefSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, _ string, refs []model.DependencyRef) domain.Status {
 				capturedRefs = refs
 				return okStatus
 			},
 		)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 
 		require.NoError(t, err)
@@ -472,7 +496,9 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 	t.Run("When device is fleet-owned it should clean up standalone refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		owner := "Fleet/my-fleet"
 		device := &domain.Device{
@@ -487,10 +513,10 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 			},
 		}
 
-		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
-		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Nil()).Return(okStatus)
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
+		mockDependencyRefSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Nil()).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 		require.NoError(t, err)
 	})
@@ -498,7 +524,9 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 	t.Run("When standalone device has no config it should replace with empty refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		device := &domain.Device{
 			Metadata: domain.ObjectMeta{
@@ -508,10 +536,10 @@ func TestPopulateDependencyRefs_StandaloneDevice(t *testing.T) {
 			Spec: &domain.DeviceSpec{Config: nil},
 		}
 
-		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
-		mockSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Len(0)).Return(okStatus)
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
+		mockDependencyRefSvc.EXPECT().ReplaceStandaloneDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Len(0)).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.PopulateForDevice(context.Background(), deviceName)
 		require.NoError(t, err)
 	})
@@ -524,7 +552,9 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 	t.Run("When fleet is deleted it should delete all fleet refs", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		fleetName := "deleted-fleet"
 		event := domain.Event{
@@ -532,9 +562,9 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 			InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
 		}
 
-		mockSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, fleetName).Return(okStatus)
+		mockDependencyRefSvc.EXPECT().DeleteDependencyRefsByFleet(gomock.Any(), orgId, fleetName).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.HandleDeletion(context.Background(), event)
 		require.NoError(t, err)
 	})
@@ -542,7 +572,9 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 	t.Run("When device is deleted it should delete all refs for that device", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 
 		deviceName := "deleted-device"
 		event := domain.Event{
@@ -550,9 +582,9 @@ func TestPopulateDependencyRefs_Deletion(t *testing.T) {
 			InvolvedObject: domain.ObjectReference{Kind: domain.DeviceKind, Name: deviceName},
 		}
 
-		mockSvc.EXPECT().DeleteDependencyRefsByDevice(gomock.Any(), orgId, deviceName).Return(okStatus)
+		mockDependencyRefSvc.EXPECT().DeleteDependencyRefsByDevice(gomock.Any(), orgId, deviceName).Return(okStatus)
 
-		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockSvc, mockSvc, mockSvc, orgId)
+		logic := NewPopulateDependencyRefsLogic(logrus.New(), mockFleetSvc, mockDeviceSvc, mockDependencyRefSvc, orgId)
 		err := logic.HandleDeletion(context.Background(), event)
 		require.NoError(t, err)
 	})

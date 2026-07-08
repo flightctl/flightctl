@@ -280,7 +280,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			const numConcurrentCalls = 10
 			errChan := make(chan error, numConcurrentCalls)
 
-			orgStore := store.NewOrganization(freshGormDb)
+			orgStore := organizationstore.NewOrganizationStore(freshGormDb)
 			for i := 0; i < numConcurrentCalls; i++ {
 				go func() {
 					err := orgStore.InitialMigration(freshCtx)

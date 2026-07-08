@@ -103,7 +103,7 @@ var _ = Describe("FleetRollout", func() {
 		Expect(err).NotTo(HaveOccurred())
 		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
-		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
+		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 		newDeviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		newTvStore := templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))

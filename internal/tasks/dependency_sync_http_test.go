@@ -12,7 +12,9 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -52,15 +54,17 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When a change is detected it should bulk upsert sync state and emit events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("http-repo", "/config.json", lo.ToPtr(`"old-etag"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, `"new-etag"`, states[0].Fingerprint)
@@ -69,7 +73,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			})
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -78,7 +82,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -91,15 +95,17 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When no change is detected (304) it should bulk update last_checked_at and clear ProbeFailed", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("http-repo", "/config.json", lo.ToPtr(`"same-etag"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
 				require.Len(t, keys, 1)
 				assert.Equal(t, "http:http-repo/config.json", keys[0])
@@ -111,7 +117,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -120,15 +126,17 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When endpoint lacks ETag and Last-Modified it should log warning and still update last_checked_at", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("http-repo", "/config.json", lo.ToPtr(`"old-etag"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
 				require.Len(t, keys, 1)
 				assert.Equal(t, "http:http-repo/config.json", keys[0])
@@ -140,7 +148,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -149,16 +157,18 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When HTTP request errors it should emit probe failure event and record ProbeFailed status", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("failing-repo", "/fail", lo.ToPtr(`"etag1"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 			makeHttpProbe("ok-repo", "/ok", lo.ToPtr(`"old-etag"`), model.StringArray{"fleet-2"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 2)
 				failState := states[0]
@@ -174,7 +184,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			})
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -186,7 +196,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -197,12 +207,14 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When work list is empty it should be a no-op", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return([]model.HttpDependencyProbe{}, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return([]model.HttpDependencyProbe{}, statusOK)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called with empty work list")
 				return "", 0, nil
@@ -214,18 +226,20 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When multiple fleets reference the same repo+suffix it should fan out events to each", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("shared-repo", "/config.json", lo.ToPtr(`"old-etag"`), model.StringArray{"fleet-a", "fleet-b"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -234,7 +248,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -244,18 +258,20 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When standalone device has a dependency it should emit device event", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("http-repo", "/config.json", lo.ToPtr(`"old-etag"`), nil, model.StringArray{"device-standalone"}, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -264,7 +280,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -277,15 +293,17 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When first seen it should store fingerprint without emitting events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("http-repo", "/config.json", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, `"initial-etag"`, states[0].Fingerprint)
@@ -297,7 +315,7 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -306,15 +324,17 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When repository spec is nil it should skip the probe entirely", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("orphan-repo", "/config.json", nil, model.StringArray{"fleet-1"}, nil, nil),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: func(_ context.Context, _ *http.Client, _ string, _ domain.HttpRepoSpec, _ string) (string, int, error) {
 				t.Fatal("conditionalHead should not be called when RepoSpec is nil")
 				return "", 0, nil
@@ -326,14 +346,16 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 	t.Run("When multiple probes exist each should get its own HTTP request", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := httpRepoSpec(t, "https://example.com")
 		probes := []model.HttpDependencyProbe{
 			makeHttpProbe("repo-1", "/a.json", lo.ToPtr(`"etag-a"`), model.StringArray{"fleet-1"}, nil, repoSpec),
 			makeHttpProbe("repo-1", "/b.json", lo.ToPtr(`"etag-b"`), model.StringArray{"fleet-2"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueHttpDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		requestedURLs := make(map[string]bool)
 		var mu sync.Mutex
@@ -344,11 +366,11 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 			return `"new-etag"`, http.StatusOK, nil
 		}
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
 
 		d := &DependencySyncHttp{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, conditionalHead: conditionalHead, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -361,9 +383,11 @@ func TestDependencySyncHttp_Poll(t *testing.T) {
 func TestNewDependencySyncHttp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockService := service.NewMockService(ctrl)
+	mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+	mockEventSvc := eventservice.NewMockService(ctrl)
+	mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
-	d := NewDependencySyncHttp(logrus.New(), mockService, mockService, mockService, &config.Config{}, nil)
+	d := NewDependencySyncHttp(logrus.New(), mockDependencyRefSvc, mockEventSvc, mockSyncStateSvc, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.conditionalHead)

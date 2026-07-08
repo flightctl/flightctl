@@ -10,7 +10,9 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/uuid"
@@ -58,15 +60,17 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When a change is detected it should bulk upsert sync state and emit events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("my-repo", "main", lo.ToPtr("oldsha999"), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, "newsha123456789", states[0].Fingerprint)
@@ -75,7 +79,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			})
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -84,7 +88,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -97,15 +101,17 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When no change is detected it should update last_checked_at and clear any stale ProbeFailed", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("my-repo", "main", lo.ToPtr("samesha123"), model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpdateSyncStateLastCheckedAt(gomock.Any(), orgId, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, keys []string, _ time.Time) domain.Status {
 				require.Len(t, keys, 1)
 				assert.Equal(t, "git:my-repo/main", keys[0])
@@ -117,7 +123,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -126,21 +132,23 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When probe errors it should emit probe failure events and set ProbeFailed status", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("my-repo", "main", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			assert.Equal(t, domain.EventReasonDependencySyncProbeFailed, event.Reason)
 			assert.Equal(t, domain.FleetKind, event.InvolvedObject.Kind)
 			assert.Equal(t, "fleet-1", event.InvolvedObject.Name)
 		})
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, "ProbeFailed", states[0].ProbeStatus)
@@ -154,7 +162,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -163,12 +171,14 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When work list is empty it should be a no-op", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return([]model.GitDependencyProbe{}, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return([]model.GitDependencyProbe{}, statusOK)
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
 				t.Fatal("ls-remote should not be called with empty work list")
 				return nil, nil
@@ -180,18 +190,20 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When multiple fleets reference the same repo it should fan out events to each", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("shared-repo", "main", lo.ToPtr("oldsha"), model.StringArray{"fleet-a", "fleet-b"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -200,7 +212,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -210,18 +222,20 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When standalone device has a dependency it should emit device event", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("my-repo", "main", lo.ToPtr("oldsha"), nil, model.StringArray{"device-standalone"}, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).Return(statusOK)
 
 		var events []emittedEvent
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Do(func(_ context.Context, _ uuid.UUID, event *domain.Event) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
@@ -230,7 +244,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -243,15 +257,17 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When first seen it should store fingerprint without emitting events", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("new-repo", "main", nil, model.StringArray{"fleet-1"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				require.Len(t, states, 1)
 				assert.Equal(t, "initialsha123", states[0].Fingerprint)
@@ -263,7 +279,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		}
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -272,14 +288,16 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 	t.Run("When multiple revisions exist for the same repo it should call ls-remote once", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockService := service.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
 		repoSpec := gitRepoSpec(t, "https://example.com/repo.git")
 		probes := []model.GitDependencyProbe{
 			makeProbe("my-repo", "main", lo.ToPtr("oldsha1"), model.StringArray{"fleet-1"}, nil, repoSpec),
 			makeProbe("my-repo", "v1.0", lo.ToPtr("oldsha2"), model.StringArray{"fleet-2"}, nil, repoSpec),
 		}
-		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
+		mockDependencyRefSvc.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		lsRemoteCalls := 0
 		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
@@ -291,16 +309,16 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			}, nil
 		}
 
-		mockService.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
+		mockSyncStateSvc.EXPECT().BulkUpsertSyncState(gomock.Any(), orgId, gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ uuid.UUID, states []model.SyncState) domain.Status {
 				assert.Len(t, states, 2)
 				return statusOK
 			})
 
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, gomock.Any()).Times(2)
 
 		d := &DependencySyncGit{
-			log: logrus.New(), dependencyrefSvc: mockService, eventSvc: mockService, syncstateSvc: mockService,
+			log: logrus.New(), dependencyrefSvc: mockDependencyRefSvc, eventSvc: mockEventSvc, syncstateSvc: mockSyncStateSvc,
 			cfg: &config.Config{}, lsRemote: lsRemote, maxConcurrent: 10,
 		}
 		d.Poll(ctx, orgId)
@@ -312,9 +330,11 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 func TestNewDependencySyncGit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockService := service.NewMockService(ctrl)
+	mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
+	mockEventSvc := eventservice.NewMockService(ctrl)
+	mockSyncStateSvc := syncstateservice.NewMockService(ctrl)
 
-	d := NewDependencySyncGit(logrus.New(), mockService, mockService, mockService, &config.Config{}, nil)
+	d := NewDependencySyncGit(logrus.New(), mockDependencyRefSvc, mockEventSvc, mockSyncStateSvc, &config.Config{}, nil)
 	require.NotNil(t, d)
 	assert.Equal(t, 10, d.maxConcurrent)
 	assert.NotNil(t, d.lsRemote)

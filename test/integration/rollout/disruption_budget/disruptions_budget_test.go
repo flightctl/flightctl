@@ -233,7 +233,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		Expect(err).NotTo(HaveOccurred())
 		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
-		tvStore = store.NewTemplateVersion(db, log.WithField("pkg", "templateversion-store"))
+		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
