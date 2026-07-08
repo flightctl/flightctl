@@ -10,8 +10,12 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -47,7 +51,9 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 	for _, deviceCount := range []int{1000, 2000, 5000} {
 		cfg, dbName, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		require.NoError(err)
-		dbStore := store.NewStore(db, log.WithField("pkg", "store"))
+		deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 
 		ctrl := gomock.NewController(b)
 		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
@@ -55,7 +61,8 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		serviceHandler := deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", log)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
@@ -67,7 +74,6 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		}
 		cleanupFn := func() {
 			kvStore.Close()
-			_ = dbStore.Close()
 			require.NoError(testdb.DeleteTestDB(ctx, log, cfg, db, dbName))
 		}
 		b.Run(fmt.Sprintf("update_summary_status_%d_devices", deviceCount), func(b *testing.B) {
@@ -78,7 +84,7 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 	}
 }
 
-func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler service.Service, deviceNames []string) error {
+func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler deviceservice.Service, deviceNames []string) error {
 	connection := NewDeviceConnection(log, serviceHandler)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
