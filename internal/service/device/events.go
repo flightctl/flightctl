@@ -32,11 +32,7 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 
 	// Only generate status change events when the device is not being created
 	if !created {
-		// The 5th parameter (st store.Store) of ComputeDeviceStatusChanges is provably dead
-		// code (never dereferenced in its body) and event.Store has no relationship to the
-		// full store.Store aggregate, so nil is passed here instead of a store value. See
-		// 01-context.md's Discrepancy note for the full rationale.
-		statusUpdates := common.ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, nil)
+		statusUpdates := common.ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId)
 
 		// Deduplicate DeviceDisconnected events - if multiple status fields changed to Unknown,
 		// only emit one DeviceDisconnected event

@@ -8,7 +8,6 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/store"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -332,7 +331,7 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	}
 }
 
-func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
+func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID) ResourceUpdates {
 	resourceUpdates := make(ResourceUpdates, 0, 7)
 
 	// Don't generate status change events during device creation (when oldDevice is nil)

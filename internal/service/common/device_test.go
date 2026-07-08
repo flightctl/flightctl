@@ -64,13 +64,13 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	}
 
 	// Test case 1: Device with update error should emit DeviceUpdateFailed event
-	updates := ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithError, orgId, nil)
+	updates := ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithError, orgId)
 	assert.Len(t, updates, 1)
 	assert.Equal(t, domain.EventReasonDeviceUpdateFailed, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "update failed")
 
 	// Test case 2: Device without update error should emit DeviceContentOutOfDate event
-	updates = ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithoutError, orgId, nil)
+	updates = ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithoutError, orgId)
 	assert.Len(t, updates, 1)
 	assert.Equal(t, domain.EventReasonDeviceContentOutOfDate, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "has not been updated")
@@ -130,7 +130,7 @@ func TestComputeDeviceStatusChanges_OSImageChanged_EDM3986(t *testing.T) {
 				},
 			}
 
-			updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, nil)
+			updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId)
 
 			var osImageEvents []ResourceUpdate
 			for _, u := range updates {
@@ -188,7 +188,7 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 	}
 
 	// Test transition from UpToDate to OutOfDate with error
-	updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, nil)
+	updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId)
 	assert.Len(t, updates, 1)
 	assert.Equal(t, domain.EventReasonDeviceUpdateFailed, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "update failed")
