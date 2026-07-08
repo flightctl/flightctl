@@ -25,6 +25,9 @@ Volume=flightctl-worker-storage:/var/lib/containers
 # Optional: Mount RHEL entitlement certs for subscription-only repos (auto-detected if present).
 # On RHEL hosts with active subscription, uncomment to use host entitlements:
 # Volume=/etc/pki/entitlement:/etc/pki/entitlement:ro,z
+# Optional: Mount registry credentials for pulling builder service images from a private or
+# air-gapped registry. The file must be in podman/Docker auth.json format.
+# Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
 PodmanArgs=--privileged
 
 [Service]

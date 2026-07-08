@@ -421,6 +421,11 @@ imageBuilderWorker:
   rhsmCaSecretName: ""
   # -- Builder images (podman, bootc-image-builder, syft) and skip-TLS options
   serviceImages:
+    # -- Secret name containing registry credentials (auth.json) for pulling builder service images.
+    # Required when serviceImages are hosted in an authenticated or air-gapped registry.
+    # The secret must contain a key named `auth.json` in standard podman/Docker auth format.
+    # Mounted read-only at /root/.config/containers/auth.json inside the worker container.
+    pullSecretName: ""
     podman:
       # -- Podman builder image (leave empty to use default).
       image: ""

@@ -201,6 +201,7 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
 | `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
 | `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder, Syft). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
+| `imageBuilderWorker.serviceImages.pullSecretName` | string | `""` | Kubernetes secret containing a key `auth.json` with registry credentials for pulling serviceImages. Mounted at `/root/.config/containers/auth.json`. Required when serviceImages are in an authenticated or air-gapped registry. |
 | `imageBuilderWorker.serviceImages.syft.image` | string | `""` | Syft image used for SBOM scans. If empty, the worker uses the built-in default image (see the Helm chart `README` parameter description for the current reference). |
 | `imageBuilderWorker.serviceImages.syft.skipTlsVerify` | bool | `false` | Set to `true` to skip TLS verification when pulling the Syft image. |
 | `imageBuilderWorker.sbom.enabled` | bool | `true` | After a successful image push, run SBOM generation (Syft) when `true`. |
@@ -273,6 +274,88 @@ To use a custom CA for the registry that serves the Podman or bootc-image-builde
 
 - **Helm:** Add a volume from a Secret or ConfigMap that contains the CA file (e.g. key `ca.crt`), and a volumeMount on the imagebuilder worker Deployment that mounts it at `/etc/containers/certs.d/<registry>/ca.crt`. Use the same registry host value as in your builder image reference.
 - **Podman Quadlets:** Add a `Volume=` line to the imagebuilder worker container unit so the host path (or path where the CA file lives) is mounted at `/etc/containers/certs.d/<registry>/ca.crt` inside the container.
+
+## Authenticating to a private registry for builder service images
+
+In air-gapped or authenticated-registry environments, the imagebuilder-worker must authenticate when pulling the builder service images (podman, bootc-image-builder, Syft) from a private registry. The worker pod's inner podman process does **not** inherit cluster-level `ImageTagMirrorSet` rules or `imagePullSecrets` — you must mount a registry credential file directly into the worker container.
+
+### Credential file format
+
+Create an `auth.json` file in standard podman/Docker credential format:
+
+```json
+{
+  "auths": {
+    "my-internal.registry.example.com:5000": {
+      "auth": "<base64-encoded-user:password>"
+    }
+  }
+}
+```
+
+To generate the `auth` value:
+
+```bash
+echo -n "myuser:mypassword" | base64
+```
+
+### Kubernetes (Helm)
+
+Create a Kubernetes secret from the `auth.json` file:
+
+```bash
+kubectl create secret generic service-images-pull-secret \
+  -n flightctl \
+  --from-file=auth.json=/path/to/auth.json
+```
+
+Configure the Helm chart to mount it:
+
+```yaml
+imageBuilderWorker:
+  serviceImages:
+    pullSecretName: "service-images-pull-secret"
+```
+
+The secret is mounted read-only at `/root/.config/containers/auth.json` inside the worker pod, which is the default credential lookup path for podman running as root.
+
+Apply the change:
+
+```bash
+helm upgrade flightctl flightctl-chart.tgz \
+    --reset-then-reuse-values \
+    --set imageBuilderWorker.serviceImages.pullSecretName=service-images-pull-secret
+```
+
+### Podman Quadlet
+
+Copy the credential file to the host:
+
+```bash
+sudo mkdir -p /etc/flightctl
+sudo cp /path/to/auth.json /etc/flightctl/service-images-auth.json
+sudo chmod 600 /etc/flightctl/service-images-auth.json
+```
+
+Edit `/usr/share/containers/systemd/flightctl-imagebuilder-worker.container` and uncomment (or add) the Volume line:
+
+```ini
+[Container]
+# ... other settings ...
+Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
+```
+
+Reload and restart the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-imagebuilder-worker.service
+```
+
+> [!NOTE]
+> The credential file is mounted directly from the host. Keep it protected with mode `600`
+> and owned by `root`. Rotate credentials in place — there is no need to restart the service
+> as long as the file path is unchanged and the next `podman pull` occurs after the update.
 
 ## Disconnected environments: base OS image
 
@@ -439,12 +522,21 @@ Override the service images and RPM repo URL to use your internal registry.
 
 #### Kubernetes / Helm
 
+If the internal registry requires authentication, create the credentials secret first:
+
+```bash
+kubectl create secret generic service-images-pull-secret \
+  -n flightctl \
+  --from-file=auth.json=/path/to/auth.json
+```
+
 Create a `disconnected-values.yaml`:
 
 ```yaml
 imageBuilderWorker:
   rpmRepoUrl: "http://my-rpm-mirror.example.com:8080/flightctl-local.repo"
   serviceImages:
+    pullSecretName: "service-images-pull-secret"   # omit if registry is unauthenticated
     podman:
       image: "my-internal.registry.example.com:5000/podman/stable:v5.7.1"
     bootcImageBuilder:
@@ -565,6 +657,7 @@ reference ready to use in a Fleet template.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Stuck in `Pending` | Worker pod cannot pull podman or bootc-image-builder | Set `serviceImages` overrides to internal registry |
+| `unauthorized` or `authentication required` pulling serviceImages | No registry credentials for private serviceImages registry | Create a `pullSecretName` secret and set `serviceImages.pullSecretName` (Helm) or mount `auth.json` (Quadlet) |
 | `FROM` pull fails | Base OS not in internal registry, or Repository URL wrong | Mirror base image; verify `spec.url` in source Repository |
 | `Package not found` | RPM repo URL unreachable from build pod | Set `rpmRepoUrl` to internal mirror |
 | Push fails with `no such host` | Destination registry unreachable | Verify destination Repository URL and network policy |

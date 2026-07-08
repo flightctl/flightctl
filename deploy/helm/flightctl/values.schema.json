@@ -671,6 +671,10 @@
           "type": "object",
           "description": "Builder images (podman, bootc-image-builder, syft) and skip-TLS options",
           "properties": {
+            "pullSecretName": {
+              "type": "string",
+              "description": "Secret name containing registry credentials (auth.json) for pulling builder service images. The secret must have a key named auth.json in podman/Docker auth format."
+            },
             "podman": {
               "type": "object",
               "properties": {
