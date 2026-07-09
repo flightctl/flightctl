@@ -1239,8 +1239,10 @@ func TestQueueLifecycle(t *testing.T) {
 			second: &lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning, restartGen: 1},
 			// no action on first call (same gen)
 			setupSecond: func(mockExec *executer.MockExecuter) {
-				mockExecPodmanComposeStop(mockExec, appName)
-				mockExecPodmanComposeStart(mockExec, appName)
+				gomock.InOrder(
+					mockExecPodmanComposeStop(mockExec, appName),
+					mockExecPodmanComposeStart(mockExec, appName),
+				)
 			},
 		},
 		{

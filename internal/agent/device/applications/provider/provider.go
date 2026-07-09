@@ -852,7 +852,11 @@ func WithAppDataCache(cache map[string]*AppData) ParseOpt {
 // Lifecycle intent fields (DesiredState, RestartGeneration) are excluded because
 // a change to them should not trigger a reinstall.
 func isEqual(a, b Provider) bool {
-	as, bs := *a.Spec(), *b.Spec()
+	aSpec, bSpec := a.Spec(), b.Spec()
+	if aSpec == nil || bSpec == nil {
+		return aSpec == bSpec
+	}
+	as, bs := *aSpec, *bSpec
 	clearLifecycleFields(&as)
 	clearLifecycleFields(&bs)
 	return reflect.DeepEqual(as, bs)

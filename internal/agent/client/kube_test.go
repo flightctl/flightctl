@@ -304,7 +304,11 @@ func TestKube_ScaleWorkloadsByLabel(t *testing.T) {
 					Return(tc.mockStdout, tc.mockStderr, tc.mockExitCode)
 			}
 
-			err := k8s.ScaleWorkloadsByLabel(context.Background(), tc.namespace, tc.labelSelector, tc.kubeconfigPath, tc.replicas)
+			var scaleOpts []KubeOption
+			if tc.kubeconfigPath != "" {
+				scaleOpts = append(scaleOpts, WithKubeKubeconfig(tc.kubeconfigPath))
+			}
+			err := k8s.ScaleWorkloadsByLabel(context.Background(), tc.namespace, tc.labelSelector, tc.replicas, scaleOpts...)
 
 			if tc.wantErr {
 				require.Error(err)

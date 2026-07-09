@@ -77,10 +77,10 @@ func TestKubernetesMonitor_QueueLifecycle(t *testing.T) {
 			second: &lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning, restartGen: 1},
 			// no action on first call (same intent)
 			setupSecond: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
-				gomock.InOrder(
-					setupKubeScaleMock(mockExec, appName, kubeconfigPath, 0),
-				)
-				setupHelmUpgradeMock(mockExec, mockRW, appName, kubeconfigPath)
+				scaleCall := setupKubeScaleMock(mockExec, appName, kubeconfigPath, 0)
+				upgradeCalls := setupHelmUpgradeMock(mockExec, mockRW, appName, kubeconfigPath)
+				// setupHelmUpgradeMock already orders its own calls; chain the scale call before the first of them.
+				gomock.InOrder(scaleCall, upgradeCalls[0])
 			},
 		},
 		{
@@ -197,7 +197,7 @@ func TestKubernetesMonitor_RestartApp_AppNotFound(t *testing.T) {
 
 	monitor := newTestKubernetesMonitor(testLog, mockExec, mockRW, "/tmp/kc")
 
-	err := monitor.RestartApp(ctx, "nonexistent-app-id")
+	err := monitor.RestartApp(ctx, "nonexistent-app-id", 0)
 	require.Error(err)
 	require.ErrorIs(err, errors.ErrAppNotFound)
 }
@@ -415,20 +415,18 @@ func setupKubeScaleMock(mockExec *executer.MockExecuter, appName, kubeconfigPath
 	}).Return("", "", 0)
 }
 
-// setupHelmUpgradeMock sets up mock expectations for the helm upgrade --install chain.
+// setupHelmUpgradeMock sets up mock expectations for the helm upgrade --install chain and
+// returns the calls in order so callers can chain them with preceding/following expectations.
 // Uses gomock.Any() for the helm args to avoid depending on the OSExecutableResolver path.
-func setupHelmUpgradeMock(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter, appName, kubeconfigPath string) {
+func setupHelmUpgradeMock(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter, appName, kubeconfigPath string) []*gomock.Call {
 	namespace := helm.AppNamespace(nil, appName)
-	gomock.InOrder(
-		// helm version --short
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", gomock.Any()).Return("v3.14.0", "", 0),
-		// kubectl get namespace ...
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-			"get", "namespace", namespace, "--kubeconfig", kubeconfigPath,
-		}).Return(namespace+"   Active   1d", "", 0),
-		// PathExists check for kubeconfig
-		mockRW.EXPECT().PathExists(kubeconfigPath).Return(true, nil),
-		// helm upgrade --install ...
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", gomock.Any()).Return("", "", 0),
-	)
+	versionCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", gomock.Any()).Return("v3.14.0", "", 0)
+	getNamespaceCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+		"get", "namespace", namespace, "--kubeconfig", kubeconfigPath,
+	}).Return(namespace+"   Active   1d", "", 0)
+	pathExistsCall := mockRW.EXPECT().PathExists(kubeconfigPath).Return(true, nil)
+	upgradeCall := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", gomock.Any()).Return("", "", 0)
+
+	gomock.InOrder(versionCall, getNamespaceCall, pathExistsCall, upgradeCall)
+	return []*gomock.Call{versionCall, getNamespaceCall, pathExistsCall, upgradeCall}
 }

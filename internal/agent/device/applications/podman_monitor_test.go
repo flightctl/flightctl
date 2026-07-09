@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -1456,7 +1457,7 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 			name:    "When RestartApp is called for a quadlet app it should restart the target",
 			appType: v1beta1.AppTypeQuadlet,
 			operation: func(m *PodmanMonitor, appID string) error {
-				return m.RestartApp(context.Background(), appID)
+				return m.RestartApp(context.Background(), appID, 1)
 			},
 			setupMocks: func(m *systemd.MockManager) {
 				m.EXPECT().Restart(gomock.Any(), targetName).Return(nil)
@@ -1533,6 +1534,6 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 		testLog := log.NewPrefixLogger("test")
 		monitor := NewPodmanMonitor(testLog, nil, nil, "", nil)
 		err := monitor.StopApp(context.Background(), "nonexistent-id")
-		require.Error(err)
+		require.ErrorIs(err, errors.ErrAppNotFound)
 	})
 }

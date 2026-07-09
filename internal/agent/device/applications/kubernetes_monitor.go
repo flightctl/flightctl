@@ -132,8 +132,9 @@ func (m *KubernetesMonitor) Drain(ctx context.Context) error {
 
 // QueueLifecycle compares the new spec's lifecycle intent against the stored intent on
 // the tracked application and queues ActionStop, ActionStart, or ActionRestart as needed.
-// It also updates the stored desiredState and restartGeneration so the next sync compares
-// correctly. No-op if the app is not tracked or if intent is unchanged.
+// The stored desiredState/restartGeneration are only advanced by StopApp/StartApp/RestartApp
+// once the corresponding action succeeds, so a failed action is retried on the next sync.
+// No-op if the app is not tracked or if intent is unchanged.
 func (m *KubernetesMonitor) QueueLifecycle(appID string, desiredState v1beta1.ApplicationDesiredState, restartGeneration int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -156,21 +157,17 @@ func (m *KubernetesMonitor) QueueLifecycle(appID string, desiredState v1beta1.Ap
 		} else {
 			actionType = lifecycle.ActionStart
 		}
-	}
-
-	app.SetDesiredState(desiredState)
-	app.SetRestartGeneration(restartGeneration)
-
-	if actionType == "" {
+	default:
 		return
 	}
 
 	m.actions = append(m.actions, lifecycle.Action{
-		ID:      appID,
-		Name:    app.Name(),
-		AppType: app.AppType(),
-		Path:    app.Path(),
-		Type:    actionType,
+		ID:                appID,
+		Name:              app.Name(),
+		AppType:           app.AppType(),
+		Path:              app.Path(),
+		Type:              actionType,
+		RestartGeneration: restartGeneration,
 	})
 }
 
@@ -205,12 +202,18 @@ func (m *KubernetesMonitor) StartApp(ctx context.Context, appID string) error {
 }
 
 // RestartApp scales workloads to 0 then re-applies the chart for the application identified by appID.
-func (m *KubernetesMonitor) RestartApp(ctx context.Context, appID string) error {
-	handler, action, _, err := m.lifecycleDispatch(appID)
+func (m *KubernetesMonitor) RestartApp(ctx context.Context, appID string, restartGeneration int) error {
+	handler, action, app, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
-	return handler.Restart(ctx, action)
+	if err := handler.Restart(ctx, action); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	app.SetRestartGeneration(restartGeneration)
+	m.mu.Unlock()
+	return nil
 }
 
 // lifecycleDispatch looks up the application and resolves its LifecycleHandler.
@@ -298,7 +301,7 @@ func (m *KubernetesMonitor) executeActions(ctx context.Context) error {
 			}
 		case lifecycle.ActionRestart:
 			m.log.Infof("Restarting application %s", a.Name)
-			if err := m.RestartApp(ctx, a.ID); err != nil {
+			if err := m.RestartApp(ctx, a.ID, a.RestartGeneration); err != nil {
 				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
 			}
 		}

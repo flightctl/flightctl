@@ -192,6 +192,8 @@ func (h *HelmHandler) update(ctx context.Context, action *Action, versionConfig 
 
 // Stop scales all Deployments and StatefulSets belonging to the Helm release to 0 replicas.
 // Uses the "agent.flightctl.io/app=<action.ID>" label to identify the release's workloads.
+// DaemonSets, Jobs, CronJobs, and standalone Pods are not scaled and remain running; releases
+// composed only of Deployments/StatefulSets are fully supported.
 func (h *HelmHandler) Stop(ctx context.Context, action Action) error {
 	kubeconfigPath, err := h.clients.Kube().ResolveKubeconfig()
 	if err != nil {
@@ -201,7 +203,7 @@ func (h *HelmHandler) Stop(ctx context.Context, action Action) error {
 	helmSpec := h.getHelmSpec(&action)
 	labelSelector := fmt.Sprintf("%s=%s", helm.AppLabelKey, action.ID)
 
-	if err := h.clients.Kube().ScaleWorkloadsByLabel(ctx, helmSpec.Namespace, labelSelector, kubeconfigPath, 0); err != nil {
+	if err := h.clients.Kube().ScaleWorkloadsByLabel(ctx, helmSpec.Namespace, labelSelector, 0, client.WithKubeKubeconfig(kubeconfigPath)); err != nil {
 		return fmt.Errorf("stopping %s: %w", action.Name, err)
 	}
 

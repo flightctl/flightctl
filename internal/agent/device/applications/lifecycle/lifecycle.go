@@ -70,6 +70,9 @@ type Action struct {
 	Volumes []Volume
 	// Spec holds type-specific configuration, discriminated by AppType.
 	Spec ActionSpec
+	// RestartGeneration is the target restart generation for ActionRestart, applied
+	// to the tracked application only after the restart succeeds.
+	RestartGeneration int
 }
 
 // HelmSpec contains Helm-specific action configuration.

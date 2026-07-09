@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -318,10 +319,15 @@ func (k *Kube) ResolveKubeconfig() (string, error) {
 
 // ScaleWorkloadsByLabel scales all Deployments and StatefulSets in namespace
 // that match labelSelector to the given replica count.
-func (k *Kube) ScaleWorkloadsByLabel(ctx context.Context, namespace, labelSelector, kubeconfigPath string, replicas int) error {
+func (k *Kube) ScaleWorkloadsByLabel(ctx context.Context, namespace, labelSelector string, replicas int, opts ...KubeOption) error {
 	binary := k.Binary()
 	if binary == "" {
 		return fmt.Errorf("kubernetes CLI binary not available")
+	}
+
+	options := &kubeOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
 
 	args := []string{
@@ -330,14 +336,14 @@ func (k *Kube) ScaleWorkloadsByLabel(ctx context.Context, namespace, labelSelect
 		fmt.Sprintf("--replicas=%d", replicas),
 		"-n", namespace,
 	}
-	if kubeconfigPath != "" {
-		args = append(args, "--kubeconfig", kubeconfigPath)
+	if options.kubeconfigPath != "" {
+		args = append(args, "--kubeconfig", options.kubeconfigPath)
 	}
 
 	// #nosec G204 - binary is either hardcoded ("kubectl"/"oc") or explicitly configured, args are internally constructed
 	_, stderr, exitCode := k.exec.ExecuteWithContext(ctx, binary, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("scale workloads: %s", stderr)
+		return fmt.Errorf("scale workloads: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }

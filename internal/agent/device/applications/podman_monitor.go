@@ -187,8 +187,9 @@ func (m *PodmanMonitor) Has(id string) bool {
 
 // QueueLifecycle compares the new spec's lifecycle intent against the stored intent on
 // the tracked application and queues ActionStop, ActionStart, or ActionRestart as needed.
-// It also updates the stored desiredState and restartGeneration so the next sync compares
-// correctly. No-op if the app is not tracked or if intent is unchanged.
+// The stored desiredState/restartGeneration are only advanced by StopApp/StartApp/RestartApp
+// once the corresponding action succeeds, so a failed action is retried on the next sync.
+// No-op if the app is not tracked or if intent is unchanged.
 func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.ApplicationDesiredState, restartGeneration int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -211,22 +212,18 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 		} else {
 			actionType = lifecycle.ActionStart
 		}
-	}
-
-	app.SetDesiredState(desiredState)
-	app.SetRestartGeneration(restartGeneration)
-
-	if actionType == "" {
+	default:
 		return
 	}
 
 	m.actions = append(m.actions, lifecycle.Action{
-		ID:      appID,
-		Name:    app.Name(),
-		User:    app.User(),
-		AppType: app.AppType(),
-		Path:    app.Path(),
-		Type:    actionType,
+		ID:                appID,
+		Name:              app.Name(),
+		User:              app.User(),
+		AppType:           app.AppType(),
+		Path:              app.Path(),
+		Type:              actionType,
+		RestartGeneration: restartGeneration,
 	})
 }
 
@@ -364,12 +361,18 @@ func (m *PodmanMonitor) StartApp(ctx context.Context, appID string) error {
 
 // RestartApp restarts the application identified by appID.
 // For VM workloads this triggers an ACPI shutdown before the unit restarts.
-func (m *PodmanMonitor) RestartApp(ctx context.Context, appID string) error {
-	handler, action, _, err := m.lifecycleDispatch(appID)
+func (m *PodmanMonitor) RestartApp(ctx context.Context, appID string, restartGeneration int) error {
+	handler, action, app, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
-	return handler.Restart(ctx, action)
+	if err := handler.Restart(ctx, action); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	app.SetRestartGeneration(restartGeneration)
+	m.mu.Unlock()
+	return nil
 }
 
 // lifecycleDispatch looks up the application and resolves its LifecycleHandler.
@@ -504,7 +507,7 @@ func (m *PodmanMonitor) dispatchLifecycleActions(ctx context.Context, actions []
 			}
 		case lifecycle.ActionRestart:
 			m.log.Infof("Restarting application %s", a.Name)
-			if err := m.RestartApp(ctx, a.ID); err != nil {
+			if err := m.RestartApp(ctx, a.ID, a.RestartGeneration); err != nil {
 				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
 			}
 		}

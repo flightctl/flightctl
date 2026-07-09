@@ -252,15 +252,24 @@ func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman
 	return nil
 }
 
-// Stop stops the application's systemd target without removing files or Podman resources.
-func (q *Quadlet) Stop(ctx context.Context, action Action) error {
+// resolveTarget resolves the systemd client and target name for the action's user/app.
+func (q *Quadlet) resolveTarget(action Action) (systemd.Manager, string, error) {
 	systemctl, err := q.systemdFactory(action.User)
 	if err != nil {
-		return fmt.Errorf("creating systemd client: %w", err)
+		return nil, "", fmt.Errorf("creating systemd client: %w", err)
 	}
 	target, err := targetName(action.ID)
 	if err != nil {
-		return fmt.Errorf("target name: %w", err)
+		return nil, "", fmt.Errorf("target name: %w", err)
+	}
+	return systemctl, target, nil
+}
+
+// Stop stops the application's systemd target without removing files or Podman resources.
+func (q *Quadlet) Stop(ctx context.Context, action Action) error {
+	systemctl, target, err := q.resolveTarget(action)
+	if err != nil {
+		return err
 	}
 	return systemctl.Stop(ctx, target)
 }
@@ -268,13 +277,9 @@ func (q *Quadlet) Stop(ctx context.Context, action Action) error {
 // Start starts a previously stopped application's systemd target.
 // The unit files are already on disk — no DaemonReload is required.
 func (q *Quadlet) Start(ctx context.Context, action Action) error {
-	systemctl, err := q.systemdFactory(action.User)
+	systemctl, target, err := q.resolveTarget(action)
 	if err != nil {
-		return fmt.Errorf("creating systemd client: %w", err)
-	}
-	target, err := targetName(action.ID)
-	if err != nil {
-		return fmt.Errorf("target name: %w", err)
+		return err
 	}
 	return systemctl.Start(ctx, target)
 }
@@ -283,13 +288,9 @@ func (q *Quadlet) Start(ctx context.Context, action Action) error {
 // rendered as native quadlet units like any other application, so no special
 // handling is required.
 func (q *Quadlet) Restart(ctx context.Context, action Action) error {
-	systemctl, err := q.systemdFactory(action.User)
+	systemctl, target, err := q.resolveTarget(action)
 	if err != nil {
-		return fmt.Errorf("creating systemd client: %w", err)
-	}
-	target, err := targetName(action.ID)
-	if err != nil {
-		return fmt.Errorf("target name: %w", err)
+		return err
 	}
 	return systemctl.Restart(ctx, target)
 }
