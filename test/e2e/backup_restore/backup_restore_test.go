@@ -18,6 +18,7 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -49,29 +50,63 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has VM from BeforeEach (workerID). Create two more harnesses with VMs 1001, 1002.
+			// Main harness already has VM from BeforeEach (workerID). Create two more harnesses with
+			// VMs 1001, 1002. Each involves a full cold VM boot + pristine snapshot creation (~110-150s)
+			// keyed on its own worker ID, with no shared state beyond the VM pool's map (see
+			// VMPool.GetVMForWorker in vm_pool.go, which only holds its mutex for the map access, not
+			// for the boot itself) - so run the two setups concurrently instead of paying both costs
+			// sequentially.
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
-			Expect(err).ToNot(HaveOccurred())
-			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
-			DeferCleanup(func() {
-				harness2.PrintAgentLogsIfFailed()
-				harness2.CaptureDeploymentLogsIfFailed()
-				err := harness2.CleanUpAllTestResources()
-				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
-			})
 			workerID3 := GinkgoParallelProcess()*100 + 2
-			harness3, err := e2e.NewTestHarnessWithVMPool(ctx, workerID3)
-			Expect(err).ToNot(HaveOccurred())
-			harness3.SetTestContext(harness.GetTestContext())
-			Expect(harness3.SetupVMFromPoolAndStartAgent(workerID3)).To(Succeed())
-			DeferCleanup(func() {
-				harness3.PrintAgentLogsIfFailed()
-				harness3.CaptureDeploymentLogsIfFailed()
-				err := harness3.CleanUpAllTestResources()
-				Expect(err).ToNot(HaveOccurred(), "harness3 cleanup")
+			var harness2, harness3 *e2e.Harness
+			var harness2Ready, harness3Ready bool
+			g, _ := errgroup.WithContext(ctx)
+			g.Go(func() error {
+				var err error
+				harness2, err = e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+				if err != nil {
+					return err
+				}
+				harness2.SetTestContext(harness.GetTestContext())
+				if err := harness2.SetupVMFromPoolAndStartAgent(workerID2); err != nil {
+					return err
+				}
+				harness2Ready = true
+				return nil
 			})
+			g.Go(func() error {
+				var err error
+				harness3, err = e2e.NewTestHarnessWithVMPool(ctx, workerID3)
+				if err != nil {
+					return err
+				}
+				harness3.SetTestContext(harness.GetTestContext())
+				if err := harness3.SetupVMFromPoolAndStartAgent(workerID3); err != nil {
+					return err
+				}
+				harness3Ready = true
+				return nil
+			})
+			setupErr := g.Wait()
+			// Register cleanup for whichever harnesses came up, regardless of the other's outcome,
+			// mirroring the sequential code's "only clean up what was actually set up" behavior.
+			if harness2Ready {
+				DeferCleanup(func() {
+					harness2.PrintAgentLogsIfFailed()
+					harness2.CaptureDeploymentLogsIfFailed()
+					err := harness2.CleanUpAllTestResources()
+					Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
+				})
+			}
+			if harness3Ready {
+				DeferCleanup(func() {
+					harness3.PrintAgentLogsIfFailed()
+					harness3.CaptureDeploymentLogsIfFailed()
+					err := harness3.CleanUpAllTestResources()
+					Expect(err).ToNot(HaveOccurred(), "harness3 cleanup")
+				})
+			}
+			Expect(setupErr).ToNot(HaveOccurred())
 			// Device 1: approved with dev=yes (will be in fleet)
 			device1ID, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{devYesLabel: devYesValue})
 			Expect(device1ID).NotTo(BeEmpty())
