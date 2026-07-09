@@ -657,7 +657,7 @@ reference ready to use in a Fleet template.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Stuck in `Pending` | Worker pod cannot pull podman or bootc-image-builder | Set `serviceImages` overrides to internal registry |
-| `unauthorized` or `authentication required` pulling serviceImages | No registry credentials for private serviceImages registry | Create a `pullSecretName` secret and set `serviceImages.pullSecretName` (Helm) or mount `auth.json` (Quadlet) |
+| `unauthorized` or `authentication required` pulling serviceImages | No registry credentials for private serviceImages registry | Create a secret and set `imageBuilderWorker.serviceImages.pullSecretName` (Helm) or mount `auth.json` (Quadlet) |
 | `FROM` pull fails | Base OS not in internal registry, or Repository URL wrong | Mirror base image; verify `spec.url` in source Repository |
 | `Package not found` | RPM repo URL unreachable from build pod | Set `rpmRepoUrl` to internal mirror |
 | Push fails with `no such host` | Destination registry unreachable | Verify destination Repository URL and network policy |
