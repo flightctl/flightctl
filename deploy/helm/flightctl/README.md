@@ -225,13 +225,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertExporter.image.image | string | `"quay.io/flightctl/flightctl-alert-exporter-el9"` | Alert exporter container image |
 | alertExporter.image.pullPolicy | string | `""` | Image pull policy for alert exporter container |
 | alertExporter.image.tag | string | `""` | Alert exporter image tag |
-| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"},"selector":{"matchLabels":{}},"volumeName":""}` | Alertmanager Configuration |
 | alertmanager.additionalPVCLabels | string | `nil` | Additional labels for Alert Manager PVCs. |
 | alertmanager.additionalRouteLabels | string | `nil` | Additional labels for Alert Manager routes. |
 | alertmanager.enabled | bool | `true` | Enable Alertmanager for alert handling |
 | alertmanager.image.image | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
 | alertmanager.image.tag | string | `"v0.28.1"` | Alertmanager image tag |
+| alertmanager.selector.matchLabels | object | `{}` | Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection. |
+| alertmanager.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. |
 | alertmanagerProxy | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alertmanager-proxy-el9","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
 | alertmanagerProxy.enabled | bool | `true` | Enable Alertmanager proxy service |
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy-el9"` | Alertmanager proxy container image |

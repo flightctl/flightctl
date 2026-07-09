@@ -92,6 +92,16 @@ spec:
         {{- with .Values.global.storageClassName }}
         storageClassName: {{ . }}
         {{- end }}
+        {{- with .Values.alertmanager.volumeName }}
+        volumeName: {{ . }}
+        {{- end }}
+        {{- with .Values.alertmanager.selector }}
+        {{- with .matchLabels }}
+        selector:
+          matchLabels:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- end }}
         accessModes:
           - ReadWriteOnce
         resources:

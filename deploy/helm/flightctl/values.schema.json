@@ -386,6 +386,18 @@
           "type": ["object", "null"],
           "description": "Additional labels for Alert Manager PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "volumeName": { "type": "string", "description": "Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding." },
+        "selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "matchLabels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection."
+            }
+          }
         }
       }
     },
