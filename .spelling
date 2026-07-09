@@ -451,6 +451,18 @@ PVs
 k8s
 v1.35
 flightcontrol
+pre-provisioned
+PersistentVolumes
+PersistentVolume
+PersistentVolumeClaim
+fsync
+Pre-create
+Pre-bind
+NFS-backed
+NFS
+claimRef
+matchLabels
+matchExpressions
  - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
