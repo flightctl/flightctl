@@ -93,13 +93,13 @@ type ServerInterface interface {
 	// (PUT /devices/{name})
 	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (POST /devices/{name}/applications/{appname}/restart)
+	// (POST /devices/{name}/applications/{appname}/actions/restart)
 	RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string)
 
-	// (POST /devices/{name}/applications/{appname}/start)
+	// (POST /devices/{name}/applications/{appname}/actions/start)
 	StartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string)
 
-	// (POST /devices/{name}/applications/{appname}/stop)
+	// (POST /devices/{name}/applications/{appname}/actions/stop)
 	StopDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string)
 
 	// (PUT /devices/{name}/decommission)
@@ -183,10 +183,10 @@ type ServerInterface interface {
 	// (PUT /fleets/{name})
 	ReplaceFleet(w http.ResponseWriter, r *http.Request, name string)
 
-	// (POST /fleets/{name}/applications/{appname}/start)
+	// (POST /fleets/{name}/applications/{appname}/actions/start)
 	StartFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string)
 
-	// (POST /fleets/{name}/applications/{appname}/stop)
+	// (POST /fleets/{name}/applications/{appname}/actions/stop)
 	StopFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string)
 
 	// (GET /fleets/{name}/status)
@@ -385,17 +385,17 @@ func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, nam
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /devices/{name}/applications/{appname}/restart)
+// (POST /devices/{name}/applications/{appname}/actions/restart)
 func (_ Unimplemented) RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /devices/{name}/applications/{appname}/start)
+// (POST /devices/{name}/applications/{appname}/actions/start)
 func (_ Unimplemented) StartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /devices/{name}/applications/{appname}/stop)
+// (POST /devices/{name}/applications/{appname}/actions/stop)
 func (_ Unimplemented) StopDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
@@ -535,12 +535,12 @@ func (_ Unimplemented) ReplaceFleet(w http.ResponseWriter, r *http.Request, name
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /fleets/{name}/applications/{appname}/start)
+// (POST /fleets/{name}/applications/{appname}/actions/start)
 func (_ Unimplemented) StartFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /fleets/{name}/applications/{appname}/stop)
+// (POST /fleets/{name}/applications/{appname}/actions/stop)
 func (_ Unimplemented) StopFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
@@ -3128,13 +3128,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/devices/{name}", wrapper.ReplaceDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/restart", wrapper.RestartDeviceApplication)
+		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/actions/restart", wrapper.RestartDeviceApplication)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/start", wrapper.StartDeviceApplication)
+		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/actions/start", wrapper.StartDeviceApplication)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/stop", wrapper.StopDeviceApplication)
+		r.Post(options.BaseURL+"/devices/{name}/applications/{appname}/actions/stop", wrapper.StopDeviceApplication)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/devices/{name}/decommission", wrapper.DecommissionDevice)
@@ -3218,10 +3218,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/fleets/{name}", wrapper.ReplaceFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/fleets/{name}/applications/{appname}/start", wrapper.StartFleetApplication)
+		r.Post(options.BaseURL+"/fleets/{name}/applications/{appname}/actions/start", wrapper.StartFleetApplication)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/fleets/{name}/applications/{appname}/stop", wrapper.StopFleetApplication)
+		r.Post(options.BaseURL+"/fleets/{name}/applications/{appname}/actions/stop", wrapper.StopFleetApplication)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/fleets/{name}/status", wrapper.GetFleetStatus)

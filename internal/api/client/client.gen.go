@@ -2989,7 +2989,7 @@ func NewRestartDeviceApplicationRequest(server string, name string, appname stri
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/devices/%s/applications/%s/restart", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/restart", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3030,7 +3030,7 @@ func NewStartDeviceApplicationRequest(server string, name string, appname string
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/devices/%s/applications/%s/start", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/start", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3071,7 +3071,7 @@ func NewStopDeviceApplicationRequest(server string, name string, appname string)
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/devices/%s/applications/%s/stop", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/stop", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4520,7 +4520,7 @@ func NewStartFleetApplicationRequest(server string, name string, appname string)
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/start", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/actions/start", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4561,7 +4561,7 @@ func NewStopFleetApplicationRequest(server string, name string, appname string) 
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/stop", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/actions/stop", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}

@@ -389,7 +389,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/devices/{name}/applications/{appname}/restart": {
+	"POST:/devices/{name}/applications/{appname}/actions/restart": {
 		OperationID: "restartDeviceApplication",
 		Resource:    "devices/applications/lifecycle",
 		Action:      "update",
@@ -397,7 +397,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/devices/{name}/applications/{appname}/start": {
+	"POST:/devices/{name}/applications/{appname}/actions/start": {
 		OperationID: "startDeviceApplication",
 		Resource:    "devices/applications/lifecycle",
 		Action:      "update",
@@ -405,7 +405,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/devices/{name}/applications/{appname}/stop": {
+	"POST:/devices/{name}/applications/{appname}/actions/stop": {
 		OperationID: "stopDeviceApplication",
 		Resource:    "devices/applications/lifecycle",
 		Action:      "update",
@@ -629,7 +629,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/fleets/{name}/applications/{appname}/start": {
+	"POST:/fleets/{name}/applications/{appname}/actions/start": {
 		OperationID: "startFleetApplication",
 		Resource:    "fleets/applications/lifecycle",
 		Action:      "update",
@@ -637,7 +637,7 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/fleets/{name}/applications/{appname}/stop": {
+	"POST:/fleets/{name}/applications/{appname}/actions/stop": {
 		OperationID: "stopFleetApplication",
 		Resource:    "fleets/applications/lifecycle",
 		Action:      "update",

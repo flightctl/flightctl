@@ -1851,7 +1851,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /devices/{name}/applications/{appname}/stop:
+  /devices/{name}/applications/{appname}/actions/stop:
     x-resource: devices/applications/lifecycle
     post:
       tags:
@@ -1928,7 +1928,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /devices/{name}/applications/{appname}/start:
+  /devices/{name}/applications/{appname}/actions/start:
     x-resource: devices/applications/lifecycle
     post:
       tags:
@@ -2006,7 +2006,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /devices/{name}/applications/{appname}/restart:
+  /devices/{name}/applications/{appname}/actions/restart:
     x-resource: devices/applications/lifecycle
     post:
       tags:
@@ -4123,7 +4123,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /fleets/{name}/applications/{appname}/stop:
+  /fleets/{name}/applications/{appname}/actions/stop:
     x-resource: fleets/applications/lifecycle
     post:
       tags:
@@ -4134,8 +4134,8 @@ paths:
         that is applied on top of the rendered application spec of each member device at
         render time, and is automatically inherited by devices that join the fleet later. If a
         specific device also has its own override for this application (see
-        /devices/{name}/applications/{appname}/stop or .../start), whichever of the two actions
-        was issued most recently takes effect for that device.
+        /devices/{name}/applications/{appname}/actions/stop or .../start), whichever of the two
+        actions was issued most recently takes effect for that device.
       operationId: stopFleetApplication
       x-rbac:
         resource: fleets/applications/lifecycle
@@ -4202,7 +4202,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /fleets/{name}/applications/{appname}/start:
+  /fleets/{name}/applications/{appname}/actions/start:
     x-resource: fleets/applications/lifecycle
     post:
       tags:
@@ -4213,8 +4213,8 @@ paths:
         that is applied on top of the rendered application spec of each member device at
         render time, and is automatically inherited by devices that join the fleet later. If a
         specific device also has its own override for this application (see
-        /devices/{name}/applications/{appname}/stop or .../start), whichever of the two actions
-        was issued most recently takes effect for that device.
+        /devices/{name}/applications/{appname}/actions/stop or .../start), whichever of the two
+        actions was issued most recently takes effect for that device.
       operationId: startFleetApplication
       x-rbac:
         resource: fleets/applications/lifecycle
