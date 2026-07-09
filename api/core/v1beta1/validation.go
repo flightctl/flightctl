@@ -1009,6 +1009,21 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
+// validateApplicationLifecycleFieldsReadOnly rejects client-supplied values for
+// desiredState/restartGeneration: they are readOnly fields, only ever set by the device
+// render task overlaying the device-controller/applicationLifecycle annotation (via the
+// dedicated stop/start/restart device APIs), never by apply.
+func validateApplicationLifecycleFieldsReadOnly(desiredState *ApplicationDesiredState, restartGeneration *int, pathPrefix string) []error {
+	allErrs := []error{}
+	if desiredState != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.desiredState is read-only and cannot be set directly; use the stop/start device APIs instead", pathPrefix))
+	}
+	if restartGeneration != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.restartGeneration is read-only and cannot be set directly; use the restart device API instead", pathPrefix))
+	}
+	return allErrs
+}
+
 func validateContainerApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
@@ -1018,6 +1033,7 @@ func validateContainerApplication(app ApplicationProviderSpec, appName string, f
 		return []error{fmt.Errorf("invalid container application: %w", err)}
 	}
 
+	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(container.DesiredState, container.RestartGeneration, pathPrefix)...)
 	allErrs = append(allErrs, validateOciImageReference(&container.Image, pathPrefix+".image", fleetTemplate)...)
 	allErrs = append(allErrs, validateContainerPorts(container.Ports, pathPrefix+".ports")...)
 
@@ -1041,6 +1057,7 @@ func ValidateHelmApplication(app ApplicationProviderSpec, appName string, fleetT
 		return []error{fmt.Errorf("invalid helm application: %w", err)}
 	}
 
+	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(helm.DesiredState, helm.RestartGeneration, pathPrefix)...)
 	allErrs = append(allErrs, validateOciImageReference(&helm.Image, pathPrefix+".image", fleetTemplate)...)
 
 	if helm.Namespace != nil && *helm.Namespace != "" {
@@ -1064,6 +1081,8 @@ func validateComposeApplication(app ApplicationProviderSpec, appName string, fle
 	if err != nil {
 		return []error{fmt.Errorf("invalid compose application: %w", err)}
 	}
+
+	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(compose.DesiredState, compose.RestartGeneration, pathPrefix)...)
 
 	providerType, err := compose.Type()
 	if err != nil {
@@ -1103,6 +1122,8 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 	if err != nil {
 		return []error{fmt.Errorf("invalid quadlet application: %w", err)}
 	}
+
+	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(quadlet.DesiredState, quadlet.RestartGeneration, pathPrefix)...)
 
 	providerType, err := quadlet.Type()
 	if err != nil {
@@ -1233,6 +1254,7 @@ func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTem
 		return []error{fmt.Errorf("invalid vm application: %w", err)}
 	}
 
+	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(vm.DesiredState, vm.RestartGeneration, pathPrefix)...)
 	allErrs = append(allErrs, validateContainerPorts(vm.PublishPorts, pathPrefix+".publishPorts")...)
 
 	providerType, err := vm.Type()

@@ -110,13 +110,15 @@ rules:
       - alerts
       - organizations
       - vulnerabilities
-  # Device lifecycle actions (granular subresource approach)
+  # Device/fleet lifecycle actions (granular subresource approach)
   - verbs:
-      - update  # Standard Kubernetes verb for resume action
+      - update  # Standard Kubernetes verb for resume/stop/start/restart actions
     apiGroups:
       - flightctl.io
     resources:
       - devices/resume
+      - devices/applications/lifecycle
+      - fleets/applications/lifecycle
 
 
 ---

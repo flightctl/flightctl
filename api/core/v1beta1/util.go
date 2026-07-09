@@ -155,6 +155,72 @@ func getApplicationProviderType(union json.RawMessage) (ApplicationProviderType,
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
 }
 
+// getLifecycleFields returns the desiredState/restartGeneration pointers declared on the
+// application's concrete underlying type (ContainerApplication, ComposeApplication, etc.).
+// These fields are readOnly in the API: never settable by apply, and only ever non-nil once
+// the device render task has overlaid the device-controller/applicationLifecycle annotation
+// onto the application (see domain.OverlayApplicationLifecycle).
+func (a ApplicationProviderSpec) getLifecycleFields() (*ApplicationDesiredState, *int) {
+	appType, err := a.GetAppType()
+	if err != nil {
+		return nil, nil
+	}
+	switch appType {
+	case AppTypeContainer:
+		app, err := a.AsContainerApplication()
+		if err != nil {
+			return nil, nil
+		}
+		return app.DesiredState, app.RestartGeneration
+	case AppTypeHelm:
+		app, err := a.AsHelmApplication()
+		if err != nil {
+			return nil, nil
+		}
+		return app.DesiredState, app.RestartGeneration
+	case AppTypeCompose:
+		app, err := a.AsComposeApplication()
+		if err != nil {
+			return nil, nil
+		}
+		return app.DesiredState, app.RestartGeneration
+	case AppTypeQuadlet:
+		app, err := a.AsQuadletApplication()
+		if err != nil {
+			return nil, nil
+		}
+		return app.DesiredState, app.RestartGeneration
+	case AppTypeVm:
+		app, err := a.AsVmApplication()
+		if err != nil {
+			return nil, nil
+		}
+		return app.DesiredState, app.RestartGeneration
+	default:
+		return nil, nil
+	}
+}
+
+// GetDesiredState returns the desired lifecycle state for the application.
+// Returns ApplicationDesiredStateRunning if the field is absent or nil.
+func (a ApplicationProviderSpec) GetDesiredState() ApplicationDesiredState {
+	desiredState, _ := a.getLifecycleFields()
+	if desiredState == nil {
+		return ApplicationDesiredStateRunning
+	}
+	return *desiredState
+}
+
+// GetRestartGeneration returns the restartGeneration counter for the application.
+// Returns 0 if the field is absent or nil.
+func (a ApplicationProviderSpec) GetRestartGeneration() int {
+	_, restartGeneration := a.getLifecycleFields()
+	if restartGeneration == nil {
+		return 0
+	}
+	return *restartGeneration
+}
+
 // GetAppType returns the application type from the discriminator.
 func (a ApplicationProviderSpec) GetAppType() (AppType, error) {
 	discriminator, err := a.Discriminator()

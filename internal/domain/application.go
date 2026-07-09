@@ -97,6 +97,15 @@ const (
 
 type VmApplication = v1beta1.VmApplication
 
+// ========== Application Lifecycle ==========
+
+type ApplicationDesiredState = v1beta1.ApplicationDesiredState
+
+const (
+	ApplicationDesiredStateRunning = v1beta1.ApplicationDesiredStateRunning
+	ApplicationDesiredStateStopped = v1beta1.ApplicationDesiredStateStopped
+)
+
 // ========== Image Pull Policy ==========
 
 type ImagePullPolicy = v1beta1.ImagePullPolicy

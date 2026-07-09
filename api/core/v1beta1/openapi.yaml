@@ -1851,6 +1851,240 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /devices/{name}/applications/{appname}/actions/stop:
+    x-resource: devices/applications/lifecycle
+    post:
+      tags:
+        - device
+      description: >
+        Stop an application on this device. Sets a device-level lifecycle override
+        (independent of the application's declarative spec, fleet template or standalone
+        device) that is applied on top of the rendered application spec at render time and
+        survives fleet template rollouts, since it is never stored as part of the device's
+        spec.
+      operationId: stopDeviceApplication
+      x-rbac:
+        resource: devices/applications/lifecycle
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /devices/{name}/applications/{appname}/actions/start:
+    x-resource: devices/applications/lifecycle
+    post:
+      tags:
+        - device
+      description: >
+        Start an application on this device. Sets a device-level lifecycle override
+        (independent of the application's declarative spec, fleet template or standalone
+        device) that is applied on top of the rendered application spec at render time and
+        survives fleet template rollouts, since it is never stored as part of the device's
+        spec. If the application is also owned by a fleet with its own stop/start default for
+        this application, whichever of the two actions was issued most recently takes effect.
+      operationId: startDeviceApplication
+      x-rbac:
+        resource: devices/applications/lifecycle
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /devices/{name}/applications/{appname}/actions/restart:
+    x-resource: devices/applications/lifecycle
+    post:
+      tags:
+        - device
+      description: >
+        Restart an application on this device. Sets a device-level restartGeneration override
+        (independent of the application's declarative spec, fleet template or standalone
+        device); the control plane computes the next generation, and the agent restarts the
+        application using the type-appropriate restart operation when it observes the change.
+        The override is applied on top of the rendered application spec at render time and
+        survives fleet template rollouts, since it is never stored as part of the device's
+        spec. Only meaningful while the application's desired state is "running".
+      operationId: restartDeviceApplication
+      x-rbac:
+        resource: devices/applications/lifecycle
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application, as defined in the device's rendered application spec.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices/{name}/rendered:
     x-resource: devices/rendered
     get:
@@ -3889,6 +4123,164 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /fleets/{name}/applications/{appname}/actions/stop:
+    x-resource: fleets/applications/lifecycle
+    post:
+      tags:
+        - fleet
+      description: >
+        Stop an application across every device currently owned by this fleet. Sets a
+        fleet-level lifecycle default (independent of the application's declarative spec)
+        that is applied on top of the rendered application spec of each member device at
+        render time, and is automatically inherited by devices that join the fleet later. If a
+        specific device also has its own override for this application (see
+        /devices/{name}/applications/{appname}/actions/stop or .../start), whichever of the two
+        actions was issued most recently takes effect for that device.
+      operationId: stopFleetApplication
+      x-rbac:
+        resource: fleets/applications/lifecycle
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application, as defined in the fleet's device template.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /fleets/{name}/applications/{appname}/actions/start:
+    x-resource: fleets/applications/lifecycle
+    post:
+      tags:
+        - fleet
+      description: >
+        Start an application across every device currently owned by this fleet. Sets a
+        fleet-level lifecycle default (independent of the application's declarative spec)
+        that is applied on top of the rendered application spec of each member device at
+        render time, and is automatically inherited by devices that join the fleet later. If a
+        specific device also has its own override for this application (see
+        /devices/{name}/applications/{appname}/actions/stop or .../start), whichever of the two
+        actions was issued most recently takes effect for that device.
+      operationId: startFleetApplication
+      x-rbac:
+        resource: fleets/applications/lifecycle
+        action: update
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Fleet resource.
+          required: true
+          schema:
+            type: string
+        - name: appname
+          in: path
+          description: The name of the application, as defined in the fleet's device template.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /fleets/{fleet}/templateversions:
     x-resource: fleets/templateversions
     get:
@@ -5295,6 +5687,16 @@ components:
           helm: '#/components/schemas/HelmApplication'
           vm: '#/components/schemas/VmApplication'
 
+    ApplicationDesiredState:
+      type: string
+      description: Desired lifecycle state for an application.
+      enum:
+        - "running"
+        - "stopped"
+      x-enum-varnames:
+        - "ApplicationDesiredStateRunning"
+        - "ApplicationDesiredStateStopped"
+
     ApplicationProviderBase:
       type: object
       description: Common properties for all application types.
@@ -5310,6 +5712,15 @@ components:
             type: string
           readOnly: true
           description: "Arbitrary metadata annotations. Used internally by the control plane (e.g., flightctl.io/workload-type) when transforming application types at render time."
+        desiredState:
+          allOf:
+            - $ref: '#/components/schemas/ApplicationDesiredState'
+          readOnly: true
+          description: "Desired lifecycle state for this application, as most recently set by the stop/start device APIs. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent."
+        restartGeneration:
+          type: integer
+          readOnly: true
+          description: "Counter incremented by the restart device API each time the application is restarted. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent."
       required:
         - appType
 
@@ -7498,6 +7909,7 @@ components:
             - DependencyChangeDetected
             - DependencySyncProbeFailed
             - SystemRestored
+            - ApplicationLifecycleChanged
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -7582,6 +7994,7 @@ components:
           DeviceVulnerabilityCVE: "#/components/schemas/DeviceVulnerabilityCveDetails"
           DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
           DependencySyncProbeFailed: "#/components/schemas/DependencySyncProbeFailedDetails"
+          ApplicationLifecycleChanged: "#/components/schemas/ApplicationLifecycleChangedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -7600,6 +8013,7 @@ components:
         - $ref: "#/components/schemas/DeviceVulnerabilityCveDetails"
         - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
         - $ref: "#/components/schemas/DependencySyncProbeFailedDetails"
+        - $ref: "#/components/schemas/ApplicationLifecycleChangedDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -7797,6 +8211,33 @@ components:
         templateVersion:
           type: string
           description: The name of the TemplateVersion that the device is being selected to render.
+    ApplicationLifecycleChangedDetails:
+      type: object
+      required:
+        - detailType
+        - appName
+        - action
+      properties:
+        detailType:
+          type: string
+          enum: [ApplicationLifecycleChanged]
+          x-enum-varnames:
+            - ApplicationLifecycleChangedDetailType
+          description: The type of detail for discriminator purposes.
+        appName:
+          type: string
+          description: The name of the application whose device-level lifecycle override changed.
+        action:
+          type: string
+          description: The lifecycle action that was requested.
+          enum:
+            - stop
+            - start
+            - restart
+          x-enum-varnames:
+            - ApplicationLifecycleActionStop
+            - ApplicationLifecycleActionStart
+            - ApplicationLifecycleActionRestart
     FleetRolloutFailedDetails:
       type: object
       required:

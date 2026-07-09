@@ -35,6 +35,7 @@ type Fleet interface {
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback EventCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
+	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 
@@ -497,6 +498,35 @@ func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 	}}
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldFleet, newFleet, false, err)
 	return err
+}
+
+// mutateAnnotation freshly reads the fleet's current annotations on every attempt and calls
+// mutate with the current value of key (the empty string if unset), storing the returned value
+// back under that same key. Mirrors DeviceStore.mutateAnnotation: re-invoking mutate against the
+// freshly-read value on every retry makes it safe for atomic read-modify-write updates under
+// concurrent writers, unlike UpdateAnnotations above which computes its value once outside the
+// retry loop.
+func (s *FleetStore) mutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) (bool, error) {
+	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.getDB(ctx).Take(&existingRecord)
+	if result.Error != nil {
+		return false, ErrorFromGormError(result.Error)
+	}
+	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
+
+	newValue, err := mutate(existingAnnotations[key])
+	if err != nil {
+		return false, err
+	}
+	existingAnnotations[key] = newValue
+
+	return s.updateAnnotations(ctx, existingRecord, existingAnnotations)
+}
+
+func (s *FleetStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	return retryUpdate(func() (bool, error) {
+		return s.mutateAnnotation(ctx, orgId, name, key, mutate)
+	})
 }
 
 func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

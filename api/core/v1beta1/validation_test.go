@@ -1211,6 +1211,89 @@ func TestValidateApplications(t *testing.T) {
 			},
 			wantErrs: []string{"must be in format 'number[unit]' where unit is b, k, m, or g"},
 		},
+		{
+			name: "container app with client-supplied desiredState is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only"},
+		},
+		{
+			name: "container app with client-supplied restartGeneration is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestContainerAppWithLifecycle(require, "app1", nil, lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].restartGeneration is read-only"},
+		},
+		{
+			name: "container app with both client-supplied lifecycle fields is rejected for both",
+			apps: []ApplicationProviderSpec{
+				newTestContainerAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only", "spec.applications[app1].restartGeneration is read-only"},
+		},
+		{
+			name: "container app without lifecycle fields is valid",
+			apps: []ApplicationProviderSpec{
+				newTestContainerAppWithLifecycle(require, "app1", nil, nil),
+			},
+		},
+		{
+			name: "helm app with client-supplied desiredState is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestHelmAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only"},
+		},
+		{
+			name: "helm app with client-supplied restartGeneration is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestHelmAppWithLifecycle(require, "app1", nil, lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].restartGeneration is read-only"},
+		},
+		{
+			name: "compose app with client-supplied desiredState is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestComposeAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only"},
+		},
+		{
+			name: "compose app with client-supplied restartGeneration is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestComposeAppWithLifecycle(require, "app1", nil, lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].restartGeneration is read-only"},
+		},
+		{
+			name: "quadlet app with client-supplied desiredState is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only"},
+		},
+		{
+			name: "quadlet app with client-supplied restartGeneration is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletAppWithLifecycle(require, "app1", nil, lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].restartGeneration is read-only"},
+		},
+		{
+			name: "vm app with client-supplied desiredState is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestVmAppWithLifecycle(require, "app1", lo.ToPtr(ApplicationDesiredStateStopped), nil),
+			},
+			wantErrs: []string{"spec.applications[app1].desiredState is read-only"},
+		},
+		{
+			name: "vm app with client-supplied restartGeneration is rejected",
+			apps: []ApplicationProviderSpec{
+				newTestVmAppWithLifecycle(require, "app1", nil, lo.ToPtr(1)),
+			},
+			wantErrs: []string{"spec.applications[app1].restartGeneration is read-only"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2927,4 +3010,9 @@ func TestDisruptionBudgetValidateGroupBy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplicationStatusTypeConstants(t *testing.T) {
+	require.Equal(t, ApplicationStatusType("Stopped"), ApplicationStatusStopped)
+	require.Equal(t, ApplicationStatusType("Stopping"), ApplicationStatusStopping)
 }

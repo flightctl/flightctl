@@ -194,6 +194,15 @@ type ClientInterface interface {
 
 	ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RestartDeviceApplication request
+	RestartDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartDeviceApplication request
+	StartDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopDeviceApplication request
+	StopDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DecommissionDeviceWithBody request with any body
 	DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -298,6 +307,12 @@ type ClientInterface interface {
 	ReplaceFleetWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartFleetApplication request
+	StartFleetApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopFleetApplication request
+	StopFleetApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetFleetStatus request
 	GetFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -842,6 +857,42 @@ func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDev
 	return c.Client.Do(req)
 }
 
+func (c *Client) RestartDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestartDeviceApplicationRequest(c.Server, name, appname)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartDeviceApplicationRequest(c.Server, name, appname)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StopDeviceApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopDeviceApplicationRequest(c.Server, name, appname)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
@@ -1300,6 +1351,30 @@ func (c *Client) ReplaceFleetWithBody(ctx context.Context, name string, contentT
 
 func (c *Client) ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceFleetRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartFleetApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartFleetApplicationRequest(c.Server, name, appname)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StopFleetApplication(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopFleetApplicationRequest(c.Server, name, appname)
 	if err != nil {
 		return nil, err
 	}
@@ -2891,6 +2966,129 @@ func NewReplaceDeviceRequestWithBody(server string, name string, contentType str
 	return req, nil
 }
 
+// NewRestartDeviceApplicationRequest generates requests for RestartDeviceApplication
+func NewRestartDeviceApplicationRequest(server string, name string, appname string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/restart", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStartDeviceApplicationRequest generates requests for StartDeviceApplication
+func NewStartDeviceApplicationRequest(server string, name string, appname string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/start", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStopDeviceApplicationRequest generates requests for StopDeviceApplication
+func NewStopDeviceApplicationRequest(server string, name string, appname string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/applications/%s/actions/stop", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDecommissionDeviceRequest calls the generic DecommissionDevice builder with application/json body
 func NewDecommissionDeviceRequest(server string, name string, body DecommissionDeviceJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -4299,6 +4497,88 @@ func NewReplaceFleetRequestWithBody(server string, name string, contentType stri
 	return req, nil
 }
 
+// NewStartFleetApplicationRequest generates requests for StartFleetApplication
+func NewStartFleetApplicationRequest(server string, name string, appname string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/actions/start", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStopFleetApplicationRequest generates requests for StopFleetApplication
+func NewStopFleetApplicationRequest(server string, name string, appname string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "appname", runtime.ParamLocationPath, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/fleets/%s/applications/%s/actions/stop", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetFleetStatusRequest generates requests for GetFleetStatus
 func NewGetFleetStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
@@ -5525,6 +5805,15 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
 
+	// RestartDeviceApplicationWithResponse request
+	RestartDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*RestartDeviceApplicationResponse, error)
+
+	// StartDeviceApplicationWithResponse request
+	StartDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StartDeviceApplicationResponse, error)
+
+	// StopDeviceApplicationWithResponse request
+	StopDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StopDeviceApplicationResponse, error)
+
 	// DecommissionDeviceWithBodyWithResponse request with any body
 	DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
@@ -5629,6 +5918,12 @@ type ClientWithResponsesInterface interface {
 	ReplaceFleetWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
 
 	ReplaceFleetWithResponse(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
+
+	// StartFleetApplicationWithResponse request
+	StartFleetApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StartFleetApplicationResponse, error)
+
+	// StopFleetApplicationWithResponse request
+	StopFleetApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StopFleetApplicationResponse, error)
 
 	// GetFleetStatusWithResponse request
 	GetFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetFleetStatusResponse, error)
@@ -6409,6 +6704,93 @@ func (r ReplaceDeviceResponse) StatusCode() int {
 	return 0
 }
 
+type RestartDeviceApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r RestartDeviceApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestartDeviceApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type StartDeviceApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r StartDeviceApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartDeviceApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type StopDeviceApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r StopDeviceApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StopDeviceApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DecommissionDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7166,6 +7548,64 @@ func (r ReplaceFleetResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceFleetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type StartFleetApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Fleet
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r StartFleetApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartFleetApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type StopFleetApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Fleet
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r StopFleetApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StopFleetApplicationResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -8103,6 +8543,33 @@ func (c *ClientWithResponses) ReplaceDeviceWithResponse(ctx context.Context, nam
 	return ParseReplaceDeviceResponse(rsp)
 }
 
+// RestartDeviceApplicationWithResponse request returning *RestartDeviceApplicationResponse
+func (c *ClientWithResponses) RestartDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*RestartDeviceApplicationResponse, error) {
+	rsp, err := c.RestartDeviceApplication(ctx, name, appname, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestartDeviceApplicationResponse(rsp)
+}
+
+// StartDeviceApplicationWithResponse request returning *StartDeviceApplicationResponse
+func (c *ClientWithResponses) StartDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StartDeviceApplicationResponse, error) {
+	rsp, err := c.StartDeviceApplication(ctx, name, appname, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartDeviceApplicationResponse(rsp)
+}
+
+// StopDeviceApplicationWithResponse request returning *StopDeviceApplicationResponse
+func (c *ClientWithResponses) StopDeviceApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StopDeviceApplicationResponse, error) {
+	rsp, err := c.StopDeviceApplication(ctx, name, appname, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopDeviceApplicationResponse(rsp)
+}
+
 // DecommissionDeviceWithBodyWithResponse request with arbitrary body returning *DecommissionDeviceResponse
 func (c *ClientWithResponses) DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error) {
 	rsp, err := c.DecommissionDeviceWithBody(ctx, name, contentType, body, reqEditors...)
@@ -8440,6 +8907,24 @@ func (c *ClientWithResponses) ReplaceFleetWithResponse(ctx context.Context, name
 		return nil, err
 	}
 	return ParseReplaceFleetResponse(rsp)
+}
+
+// StartFleetApplicationWithResponse request returning *StartFleetApplicationResponse
+func (c *ClientWithResponses) StartFleetApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StartFleetApplicationResponse, error) {
+	rsp, err := c.StartFleetApplication(ctx, name, appname, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartFleetApplicationResponse(rsp)
+}
+
+// StopFleetApplicationWithResponse request returning *StopFleetApplicationResponse
+func (c *ClientWithResponses) StopFleetApplicationWithResponse(ctx context.Context, name string, appname string, reqEditors ...RequestEditorFn) (*StopFleetApplicationResponse, error) {
+	rsp, err := c.StopFleetApplication(ctx, name, appname, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopFleetApplicationResponse(rsp)
 }
 
 // GetFleetStatusWithResponse request returning *GetFleetStatusResponse
@@ -10364,6 +10849,231 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 	return response, nil
 }
 
+// ParseRestartDeviceApplicationResponse parses an HTTP response from a RestartDeviceApplicationWithResponse call
+func ParseRestartDeviceApplicationResponse(rsp *http.Response) (*RestartDeviceApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestartDeviceApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartDeviceApplicationResponse parses an HTTP response from a StartDeviceApplicationWithResponse call
+func ParseStartDeviceApplicationResponse(rsp *http.Response) (*StartDeviceApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartDeviceApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStopDeviceApplicationResponse parses an HTTP response from a StopDeviceApplicationWithResponse call
+func ParseStopDeviceApplicationResponse(rsp *http.Response) (*StopDeviceApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StopDeviceApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDecommissionDeviceResponse parses an HTTP response from a DecommissionDeviceWithResponse call
 func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -12194,6 +12904,156 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartFleetApplicationResponse parses an HTTP response from a StartFleetApplicationWithResponse call
+func ParseStartFleetApplicationResponse(rsp *http.Response) (*StartFleetApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartFleetApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Fleet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStopFleetApplicationResponse parses an HTTP response from a StopFleetApplicationWithResponse call
+func ParseStopFleetApplicationResponse(rsp *http.Response) (*StopFleetApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StopFleetApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Fleet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest Status

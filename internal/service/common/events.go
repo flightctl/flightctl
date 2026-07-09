@@ -490,6 +490,50 @@ func GetFleetRolloutDeviceSelectedEvent(ctx context.Context, deviceName string, 
 	})
 }
 
+// GetApplicationLifecycleChangedEvent creates an event for a device-level application
+// lifecycle change (stop/start/restart).
+func GetApplicationLifecycleChangedEvent(ctx context.Context, deviceName string, appName string, action domain.ApplicationLifecycleChangedDetailsAction) *domain.Event {
+	details := domain.ApplicationLifecycleChangedDetails{
+		DetailType: domain.ApplicationLifecycleChangedDT,
+		AppName:    appName,
+		Action:     action,
+	}
+	eventDetails := domain.EventDetails{}
+	if err := eventDetails.FromApplicationLifecycleChangedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonApplicationLifecycleChanged,
+		message:      fmt.Sprintf("Requested %s of application %s on device %s.", action, appName, deviceName),
+		details:      &eventDetails,
+	})
+}
+
+// GetFleetApplicationLifecycleChangedEvent creates an event for a fleet-level application
+// lifecycle change (fleet-scoped stop/start APIs).
+func GetFleetApplicationLifecycleChangedEvent(ctx context.Context, fleetName string, appName string, action domain.ApplicationLifecycleChangedDetailsAction) *domain.Event {
+	details := domain.ApplicationLifecycleChangedDetails{
+		DetailType: domain.ApplicationLifecycleChangedDT,
+		AppName:    appName,
+		Action:     action,
+	}
+	eventDetails := domain.EventDetails{}
+	if err := eventDetails.FromApplicationLifecycleChangedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.FleetKind,
+		resourceName: fleetName,
+		reason:       domain.EventReasonApplicationLifecycleChanged,
+		message:      fmt.Sprintf("Requested %s of application %s on fleet %s.", action, appName, fleetName),
+		details:      &eventDetails,
+	})
+}
+
 // GetFleetRolloutBatchDispatchedEvent creates an event for fleet rollout batch dispatch
 func GetFleetRolloutBatchDispatchedEvent(ctx context.Context, fleetName string, templateVersion string, batch string) *domain.Event {
 	details := domain.FleetRolloutBatchDispatchedDetails{

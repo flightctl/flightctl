@@ -106,10 +106,24 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// Calculate hash including device spec to detect changes
 	specHash := hashRenderedWithSpec(device.Spec)
 
+	// bypassHashCheck is true for event reasons that must always produce a fresh render even
+	// though specHash (computed from device.Spec alone) hasn't changed: dependency changes and
+	// application lifecycle changes affect the rendered output without changing device.Spec.
+	bypassHashCheck := lo.Contains([]domain.EventReason{
+		domain.EventReasonDependencyChangeDetected,
+		domain.EventReasonFleetRolloutDeviceSelected,
+		domain.EventReasonApplicationLifecycleChanged,
+	}, t.event.Reason)
+
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
 	if device.Spec != nil {
 		t.deviceConfig = device.Spec.Config
-		t.applications = device.Spec.Applications
+		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
+		// elements in place, and must not mutate the device object read above.
+		if device.Spec.Applications != nil {
+			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
+			t.applications = &appsCopy
+		}
 	}
 
 	if device.Metadata.Annotations != nil {
@@ -129,14 +143,9 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			}
 		}
 
-		// Don't render if the device spec hash hasn't changed since the last render.
-		// Bypass for DependencyChangeDetected (standalone devices) and
-		// FleetRolloutDeviceSelected (fleet-owned devices): both need to re-render
-		// when external dependencies change even though the device spec is unchanged.
-		// fleet-owned devices receive FleetRolloutDeviceSelected (not
-		// DependencyChangeDetected) after dependency sync triggers a new template version.
-		if t.event.Reason != domain.EventReasonDependencyChangeDetected &&
-			t.event.Reason != domain.EventReasonFleetRolloutDeviceSelected {
+		// Don't render if the device spec hash hasn't changed since the last render, unless
+		// bypassHashCheck says this event must always produce a fresh render.
+		if !bypassHashCheck {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
 					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
@@ -159,6 +168,22 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
 		t.templateVersion = &tvString
+	}
+
+	// Overlay the fleet-level application lifecycle default and the device-level override on
+	// top of the declarative application specs, baking the result into RenderedApplications
+	// only; neither is ever persisted back into the device's Spec. A malformed annotation is
+	// logged and skipped rather than failing the render, since it's only an optional overlay.
+	annotations := lo.FromPtr(device.Metadata.Annotations)
+	deviceLifecycleRaw := annotations[domain.DeviceAnnotationApplicationLifecycle]
+	fleetLifecycleRaw := ""
+	if t.ownerFleet != nil {
+		fleetLifecycleRaw = annotations[domain.DeviceAnnotationFleetApplicationLifecycle]
+	}
+	if deviceLifecycleRaw != "" || fleetLifecycleRaw != "" {
+		if err := domain.OverlayApplicationLifecycle(t.applications, deviceLifecycleRaw, fleetLifecycleRaw); err != nil {
+			t.log.Errorf("failed to overlay application lifecycle for device %s/%s, skipping override: %v", t.orgId, t.event.InvolvedObject.Name, err)
+		}
 	}
 
 	// TODO: remove ignition
@@ -197,7 +222,9 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs)
+	// forceUpdate tells the store layer to persist this render and bump the rendered version
+	// even though specHash is unchanged (see bypassHashCheck above).
+	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
 	return t.setStatus(ctx, service.ApiStatusToErr(status))
 }
 

@@ -754,5 +754,67 @@ var _ = Describe("FleetStore create", func() {
 			Expect(unchangedFleet.Metadata.Labels).To(Equal(&map[string]string{"original": "label"}))
 		})
 
+		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {
+			err := storeInst.Fleet().UpdateAnnotations(ctx, orgId, "myfleet-1", map[string]string{"unrelated": "kept"}, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = storeInst.Fleet().MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
+				Expect(current).To(Equal(""), "mutate should observe the empty string when the key is unset")
+				return "1", nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*fleet.Metadata.Annotations)["counter"]).To(Equal("1"))
+			Expect((*fleet.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "MutateAnnotation must not clobber unrelated annotation keys")
+		})
+
+		It("MutateAnnotation re-invokes mutate with the freshly-read value on every call", func() {
+			for i := 1; i <= 3; i++ {
+				expected := i
+				err := storeInst.Fleet().MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
+					n := 0
+					if current != "" {
+						_, err := fmt.Sscanf(current, "%d", &n)
+						Expect(err).ToNot(HaveOccurred())
+					}
+					return fmt.Sprintf("%d", n+1), nil
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+				Expect(err).ToNot(HaveOccurred())
+				Expect((*fleet.Metadata.Annotations)["counter"]).To(Equal(fmt.Sprintf("%d", expected)))
+			}
+		})
+
+		It("MutateAnnotation is safe against concurrent read-modify-write races (no lost updates)", func() {
+			const numWriters = 8
+			errCh := make(chan error, numWriters)
+			for i := 0; i < numWriters; i++ {
+				go func() {
+					errCh <- storeInst.Fleet().MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
+						n := 0
+						if current != "" {
+							_, err := fmt.Sscanf(current, "%d", &n)
+							if err != nil {
+								return "", err
+							}
+						}
+						return fmt.Sprintf("%d", n+1), nil
+					})
+				}()
+			}
+			for i := 0; i < numWriters; i++ {
+				Expect(<-errCh).ToNot(HaveOccurred())
+			}
+
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*fleet.Metadata.Annotations)["counter"]).To(Equal(fmt.Sprintf("%d", numWriters)),
+				"every concurrent increment must be observed; a lost update would leave the counter below numWriters")
+		})
+
 	})
 })

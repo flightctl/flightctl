@@ -656,6 +656,41 @@ func makeHTTPConfigItem(configName, repoName, suffix, filePath string) domain.Co
 	return item
 }
 
+// ─── renderApplication ─────────────────────────────────────────────────────
+
+// makeContainerApp builds a ContainerApplication with the given desiredState/restartGeneration
+// values set directly. These fields are readOnly in the API: only ever set by the device render
+// task overlaying the device-controller/applicationLifecycle annotation onto the application
+// (see domain.OverlayApplicationLifecycle), which is simulated here.
+func makeContainerApp(t *testing.T, name string, desiredState *domain.ApplicationDesiredState, restartGeneration *int) domain.ApplicationProviderSpec {
+	t.Helper()
+	containerApp := domain.ContainerApplication{
+		AppType:           domain.AppTypeContainer,
+		Name:              lo.ToPtr(name),
+		Image:             "quay.io/test/app:v1",
+		DesiredState:      desiredState,
+		RestartGeneration: restartGeneration,
+	}
+	var app domain.ApplicationProviderSpec
+	require.NoError(t, app.FromContainerApplication(containerApp))
+	return app
+}
+
+func TestRenderApplication_PreservesLifecycleFields(t *testing.T) {
+	t.Run("When rendering a container application it should preserve lifecycle fields", func(t *testing.T) {
+		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateStopped), lo.ToPtr(2))
+
+		name, rendered, err := renderApplication(context.Background(), &app, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		assert.Equal(t, "my-app", *name)
+		require.NotNil(t, rendered)
+
+		assert.Equal(t, domain.ApplicationDesiredStateStopped, rendered.GetDesiredState())
+		assert.Equal(t, 2, rendered.GetRestartGeneration())
+	})
+}
+
 func makeK8sSecretConfigItem(configName, namespace, name, mountPath string) domain.ConfigProviderSpec {
 	item := domain.ConfigProviderSpec{}
 	_ = item.FromKubernetesSecretProviderSpec(api.KubernetesSecretProviderSpec{

@@ -25,6 +25,10 @@ const (
 	DeviceAnnotationConsole         = "device-controller/console"
 	DeviceAnnotationRemoteSession   = "device-controller/remote-session"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// Per-application device-level lifecycle overrides (desiredState/restartGeneration), as a JSON-encoded map keyed by application name
+	DeviceAnnotationApplicationLifecycle = "device-controller/applicationLifecycle"
+	// Device-local cache of the owning fleet's FleetAnnotationApplicationLifecycle value, ignored for standalone devices
+	DeviceAnnotationFleetApplicationLifecycle = "device-controller/fleetApplicationLifecycle"
 	// Used After database restore , all devices will be marked with this annotation
 	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"
 	// After restore when device has a new spec version than what we know,
@@ -67,6 +71,8 @@ const (
 	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
 	// A frozen digest of device selection definition during rollout
 	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
+	// Per-application fleet-level lifecycle default (desiredState only), as a JSON-encoded map keyed by application name
+	FleetAnnotationApplicationLifecycle = "fleet-controller/applicationLifecycle"
 	// The requestID related to an event
 	EventAnnotationRequestID = "event-controller/requestID"
 

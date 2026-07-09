@@ -191,7 +191,7 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	if vmApp.PublishPorts != nil {
 		publishPorts = *vmApp.PublishPorts
 	}
-	if err := injectPublishPorts(quadletFiles, name, publishPorts); err != nil {
+	if err := injectPublishPorts(quadletFiles, publishPorts); err != nil {
 		return nil, err
 	}
 
@@ -204,9 +204,11 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 
 	annotations := map[string]string{vmWorkloadTypeAnnotationKey: vmWorkloadTypeAnnotationValue}
 	quadlet := domain.QuadletApplication{
-		AppType:     domain.AppTypeQuadlet,
-		Name:        vmApp.Name,
-		Annotations: &annotations,
+		AppType:           domain.AppTypeQuadlet,
+		Name:              vmApp.Name,
+		Annotations:       &annotations,
+		DesiredState:      vmApp.DesiredState,
+		RestartGeneration: vmApp.RestartGeneration,
 	}
 	if err := quadlet.FromInlineApplicationProviderSpec(domain.InlineApplicationProviderSpec{Inline: inline}); err != nil {
 		return nil, fmt.Errorf("building QuadletApplication: %w", err)
@@ -221,17 +223,19 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 }
 
 // injectPublishPorts adds PublishPort= entries to the [Pod] section of the
-// {vmName}.pod unit file using the quadlet unit parser.
-func injectPublishPorts(files map[string]string, vmName string, publishPorts []string) error {
+// generated .pod unit file using the quadlet unit parser. The pod unit is
+// located by its .pod suffix rather than by an assumed {vmName}.pod name:
+// vm-to-quadlet names the pod unit after KubeVirt's virt-launcher pod (e.g.
+// "virt-launcher-{vmName}.pod"), not the raw VmApplication name.
+func injectPublishPorts(files map[string]string, publishPorts []string) error {
 	if len(publishPorts) == 0 {
 		return nil
 	}
-	podFileName := vmName + ".pod"
-	content, ok := files[podFileName]
-	if !ok {
-		return fmt.Errorf("injectPublishPorts: %q not found in vm-to-quadlet output", podFileName)
+	podFileName, err := findPodFile(files)
+	if err != nil {
+		return fmt.Errorf("injectPublishPorts: %w", err)
 	}
-	u, err := quadlet.NewUnit([]byte(content))
+	u, err := quadlet.NewUnit([]byte(files[podFileName]))
 	if err != nil {
 		return fmt.Errorf("injectPublishPorts: parsing %q: %w", podFileName, err)
 	}
@@ -244,6 +248,27 @@ func injectPublishPorts(files map[string]string, vmName string, publishPorts []s
 	}
 	files[podFileName] = string(updated)
 	return nil
+}
+
+// findPodFile returns the name of the single .pod Quadlet unit file among
+// files. vm-to-quadlet always emits exactly one .pod file per VM, but its
+// naming scheme is an implementation detail we should not hardcode.
+func findPodFile(files map[string]string) (string, error) {
+	var podFiles []string
+	for name := range files {
+		if strings.HasSuffix(name, ".pod") {
+			podFiles = append(podFiles, name)
+		}
+	}
+	switch len(podFiles) {
+	case 0:
+		return "", fmt.Errorf("no .pod file found in vm-to-quadlet output")
+	case 1:
+		return podFiles[0], nil
+	default:
+		sort.Strings(podFiles)
+		return "", fmt.Errorf("expected exactly one .pod file in vm-to-quadlet output, found %d: %v", len(podFiles), podFiles)
+	}
 }
 
 // convertVmYAML converts vm.yaml to a set of Quadlet unit files using the KV

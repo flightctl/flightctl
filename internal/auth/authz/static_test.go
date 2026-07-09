@@ -399,8 +399,16 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 				{
+					Resource:   "devices/applications/lifecycle",
+					Operations: []string{"update"},
+				},
+				{
 					Resource:   "fleets",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "fleets/applications/lifecycle",
+					Operations: []string{"update"},
 				},
 				{
 					Resource:   "imagebuilds",

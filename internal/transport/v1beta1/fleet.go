@@ -98,3 +98,17 @@ func (h *TransportHandler) PatchFleetStatus(w http.ResponseWriter, r *http.Reque
 	status := apiv1beta1.StatusNotImplemented("not yet implemented")
 	h.SetResponse(w, nil, status)
 }
+
+// (POST /api/v1/fleets/{name}/applications/{appname}/actions/stop)
+func (h *TransportHandler) StopFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
+	body, status := h.serviceHandler.StopFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
+	apiResult := h.converter.Fleet().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
+// (POST /api/v1/fleets/{name}/applications/{appname}/actions/start)
+func (h *TransportHandler) StartFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
+	body, status := h.serviceHandler.StartFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
+	apiResult := h.converter.Fleet().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
