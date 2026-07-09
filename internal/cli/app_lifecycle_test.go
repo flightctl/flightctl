@@ -189,7 +189,7 @@ func TestRunStop(t *testing.T) {
 			name:         "successful stop",
 			httpStatus:   http.StatusOK,
 			responseBody: `{"kind":"Device","apiVersion":"v1beta1","metadata":{"name":"dev-1"}}`,
-			expectOutput: `Application "app-1" on device "dev-1" stopped`,
+			expectOutput: `Requested stop of application "app-1" on device "dev-1"`,
 		},
 		{
 			name:           "device not found",
@@ -257,7 +257,7 @@ func TestRunStart(t *testing.T) {
 		}
 	})
 
-	if !containsString(output, `Application "app-1" on device "dev-1" started`) {
+	if !containsString(output, `Requested start of application "app-1" on device "dev-1"`) {
 		t.Errorf("unexpected output: %q", output)
 	}
 }
@@ -276,7 +276,7 @@ func TestRunRestart(t *testing.T) {
 		}
 	})
 
-	if !containsString(output, `Application "app-1" on device "dev-1" restarted`) {
+	if !containsString(output, `Requested restart of application "app-1" on device "dev-1"`) {
 		t.Errorf("unexpected output: %q", output)
 	}
 }
@@ -295,7 +295,7 @@ func TestRunStopFleet(t *testing.T) {
 			name:         "successful stop",
 			httpStatus:   http.StatusOK,
 			responseBody: `{"kind":"Fleet","apiVersion":"v1beta1","metadata":{"name":"fleet-1"}}`,
-			expectOutput: `Application "app-1" stopped on every device in fleet "fleet-1"`,
+			expectOutput: `Requested stop of application "app-1" on every device in fleet "fleet-1"`,
 		},
 		{
 			name:           "fleet not found",
@@ -363,7 +363,7 @@ func TestRunStartFleet(t *testing.T) {
 			name:         "successful start",
 			httpStatus:   http.StatusOK,
 			responseBody: `{"kind":"Fleet","apiVersion":"v1beta1","metadata":{"name":"fleet-1"}}`,
-			expectOutput: `Application "app-1" started on every device in fleet "fleet-1"`,
+			expectOutput: `Requested start of application "app-1" on every device in fleet "fleet-1"`,
 		},
 		{
 			name:           "fleet not found",

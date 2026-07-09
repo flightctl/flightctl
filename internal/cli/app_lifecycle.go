@@ -215,7 +215,7 @@ func stopStartConfirmPrompt(verb, appName string, kind ResourceKind, name string
 	return fmt.Sprintf("%s application %q on device %q?", verb, appName, name)
 }
 
-func NewCmdRestartApplication() *cobra.Command {
+func NewCmdRestart() *cobra.Command {
 	o := DefaultAppLifecycleOptions()
 	cmd := &cobra.Command{
 		Use:   "restart device/NAME --app APP",
@@ -262,7 +262,7 @@ func runStop(ctx context.Context, c *apiclient.ClientWithResponses, deviceName, 
 	if err := checkLifecycleResponse(response.HTTPResponse, response.Body, "stopping", appName, "device", deviceName); err != nil {
 		return err
 	}
-	fmt.Printf("Application %q on device %q stopped\n", appName, deviceName)
+	fmt.Printf("Requested stop of application %q on device %q\n", appName, deviceName)
 	return nil
 }
 
@@ -274,7 +274,7 @@ func runStart(ctx context.Context, c *apiclient.ClientWithResponses, deviceName,
 	if err := checkLifecycleResponse(response.HTTPResponse, response.Body, "starting", appName, "device", deviceName); err != nil {
 		return err
 	}
-	fmt.Printf("Application %q on device %q started\n", appName, deviceName)
+	fmt.Printf("Requested start of application %q on device %q\n", appName, deviceName)
 	return nil
 }
 
@@ -286,7 +286,7 @@ func runRestart(ctx context.Context, c *apiclient.ClientWithResponses, deviceNam
 	if err := checkLifecycleResponse(response.HTTPResponse, response.Body, "restarting", appName, "device", deviceName); err != nil {
 		return err
 	}
-	fmt.Printf("Application %q on device %q restarted\n", appName, deviceName)
+	fmt.Printf("Requested restart of application %q on device %q\n", appName, deviceName)
 	return nil
 }
 
@@ -298,7 +298,7 @@ func runStopFleet(ctx context.Context, c *apiclient.ClientWithResponses, fleetNa
 	if err := checkLifecycleResponse(response.HTTPResponse, response.Body, "stopping", appName, "fleet", fleetName); err != nil {
 		return err
 	}
-	fmt.Printf("Application %q stopped on every device in fleet %q\n", appName, fleetName)
+	fmt.Printf("Requested stop of application %q on every device in fleet %q\n", appName, fleetName)
 	return nil
 }
 
@@ -310,7 +310,7 @@ func runStartFleet(ctx context.Context, c *apiclient.ClientWithResponses, fleetN
 	if err := checkLifecycleResponse(response.HTTPResponse, response.Body, "starting", appName, "fleet", fleetName); err != nil {
 		return err
 	}
-	fmt.Printf("Application %q started on every device in fleet %q\n", appName, fleetName)
+	fmt.Printf("Requested start of application %q on every device in fleet %q\n", appName, fleetName)
 	return nil
 }
 
