@@ -201,6 +201,128 @@ func TestKube_WatchPodsCmd(t *testing.T) {
 	}
 }
 
+func TestKube_ScaleWorkloadsByLabel(t *testing.T) {
+	testCases := []struct {
+		name             string
+		binary           string
+		labelSelector    string
+		namespace        string
+		kubeconfigPath   string
+		replicas         int
+		commandAvailable func(string) bool
+		mockStdout       string
+		mockStderr       string
+		mockExitCode     int
+		wantErr          bool
+		errContains      string
+		expectedArgs     []string
+	}{
+		{
+			name:           "When scaling succeeds it should issue the correct kubectl command",
+			binary:         "kubectl",
+			labelSelector:  "agent.flightctl.io/app=my-app",
+			namespace:      "my-namespace",
+			kubeconfigPath: "/tmp/kubeconfig",
+			replicas:       0,
+			mockExitCode:   0,
+			expectedArgs:   []string{"scale", "deployment,statefulset", "-l", "agent.flightctl.io/app=my-app", "--replicas=0", "-n", "my-namespace", "--kubeconfig", "/tmp/kubeconfig"},
+		},
+		{
+			name:           "When no matching resources exist kubectl exits 0 and no error is returned",
+			binary:         "kubectl",
+			labelSelector:  "agent.flightctl.io/app=empty-app",
+			namespace:      "my-namespace",
+			kubeconfigPath: "/tmp/kubeconfig",
+			replicas:       0,
+			mockStdout:     "",
+			mockExitCode:   0,
+			expectedArgs:   []string{"scale", "deployment,statefulset", "-l", "agent.flightctl.io/app=empty-app", "--replicas=0", "-n", "my-namespace", "--kubeconfig", "/tmp/kubeconfig"},
+		},
+		{
+			name:           "When kubectl exits non-zero the stderr message is returned as error",
+			binary:         "kubectl",
+			labelSelector:  "agent.flightctl.io/app=my-app",
+			namespace:      "my-namespace",
+			kubeconfigPath: "/tmp/kubeconfig",
+			replicas:       0,
+			mockStderr:     "error: unable to scale",
+			mockExitCode:   1,
+			wantErr:        true,
+			errContains:    "error: unable to scale",
+			expectedArgs:   []string{"scale", "deployment,statefulset", "-l", "agent.flightctl.io/app=my-app", "--replicas=0", "-n", "my-namespace", "--kubeconfig", "/tmp/kubeconfig"},
+		},
+		{
+			name:             "When no binary is available an error is returned",
+			binary:           "",
+			labelSelector:    "agent.flightctl.io/app=my-app",
+			namespace:        "my-namespace",
+			kubeconfigPath:   "/tmp/kubeconfig",
+			replicas:         0,
+			commandAvailable: func(string) bool { return false },
+			wantErr:          true,
+			errContains:      "kubernetes CLI binary not available",
+		},
+		{
+			name:           "When kubeconfigPath is empty it is omitted from the command",
+			binary:         "kubectl",
+			labelSelector:  "agent.flightctl.io/app=my-app",
+			namespace:      "my-namespace",
+			kubeconfigPath: "",
+			replicas:       0,
+			mockExitCode:   0,
+			expectedArgs:   []string{"scale", "deployment,statefulset", "-l", "agent.flightctl.io/app=my-app", "--replicas=0", "-n", "my-namespace"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			logger := log.NewPrefixLogger("test")
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			opts := []KubernetesOption{WithKubeconfigPath("/default/kubeconfig")}
+			if tc.binary != "" {
+				opts = append(opts, WithBinary(tc.binary))
+			}
+
+			k8s := NewKube(logger, mockExec, mockReadWriter, opts...)
+			if tc.commandAvailable != nil {
+				k8s.commandAvailable = tc.commandAvailable
+			}
+
+			if tc.expectedArgs != nil {
+				varArgs := make([]any, len(tc.expectedArgs))
+				for i, a := range tc.expectedArgs {
+					varArgs[i] = a
+				}
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), tc.binary, varArgs...).
+					Return(tc.mockStdout, tc.mockStderr, tc.mockExitCode)
+			}
+
+			var scaleOpts []KubeOption
+			if tc.kubeconfigPath != "" {
+				scaleOpts = append(scaleOpts, WithKubeKubeconfig(tc.kubeconfigPath))
+			}
+			err := k8s.ScaleWorkloadsByLabel(context.Background(), tc.namespace, tc.labelSelector, tc.replicas, scaleOpts...)
+
+			if tc.wantErr {
+				require.Error(err)
+				if tc.errContains != "" {
+					require.Contains(err.Error(), tc.errContains)
+				}
+				return
+			}
+
+			require.NoError(err)
+		})
+	}
+}
+
 func TestKube_ResolveKubeconfig(t *testing.T) {
 	testCases := []struct {
 		name        string

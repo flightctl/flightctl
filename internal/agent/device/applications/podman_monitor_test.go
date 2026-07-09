@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -1406,5 +1407,133 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		_, err = m.resolveConsole("my-vm", "serial")
 		require.Error(err)
 		require.Contains(err.Error(), "no active compute container found")
+	})
+}
+
+func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
+	const appName = "my-app"
+
+	appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
+	targetName := appID + "-flightctl-quadlet-app.target"
+
+	testCases := []struct {
+		name       string
+		appType    v1beta1.AppType
+		operation  func(m *PodmanMonitor, appID string) error
+		setupMocks func(*systemd.MockManager)
+		wantErr    bool
+	}{
+		{
+			name:    "When StopApp is called for a quadlet app it should stop the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StopApp is called for a container app it should stop the target via quadlet handler",
+			appType: v1beta1.AppTypeContainer,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StartApp is called for a quadlet app it should start the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StartApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Start(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When RestartApp is called for a quadlet app it should restart the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.RestartApp(context.Background(), appID, 1)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Restart(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StopApp is called for a VM app it should stop the target via quadlet handler",
+			appType: v1beta1.AppTypeVm,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			testLog := log.NewPrefixLogger("test")
+			testLog.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			systemdMgr := systemd.NewMockManager(ctrl)
+			tc.setupMocks(systemdMgr)
+
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			podman := client.NewPodman(testLog, mockExec, rw, util.NewPollConfig())
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+
+			monitor := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
+
+			// Wire up a test app in the monitor's apps map
+			volumeManager, err := provider.NewVolumeManager(testLog, appName, tc.appType, v1beta1.CurrentProcessUsername, nil)
+			require.NoError(err)
+			app := &application{
+				id: appID,
+				status: &v1beta1.DeviceApplicationStatus{
+					Name:    appName,
+					AppType: tc.appType,
+				},
+				volume: volumeManager,
+			}
+			monitor.apps[app.ID()] = app
+
+			err = tc.operation(monitor, appID)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+
+	t.Run("When StopApp is called for an unknown appID it should return ErrAppNotFound", func(t *testing.T) {
+		require := require.New(t)
+		testLog := log.NewPrefixLogger("test")
+		monitor := NewPodmanMonitor(testLog, nil, nil, "", nil)
+		err := monitor.StopApp(context.Background(), "nonexistent-id")
+		require.ErrorIs(err, errors.ErrAppNotFound)
 	})
 }

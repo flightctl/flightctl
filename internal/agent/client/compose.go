@@ -129,6 +129,20 @@ func (p *Compose) Up(ctx context.Context, path string) error {
 	return nil
 }
 
+// Stop runs `podman compose -p projectName stop` from workDir to stop compose containers
+// without removing them or their associated resources.
+func (p *Compose) Stop(ctx context.Context, workDir, projectName string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"compose", "-p", projectName, "stop"}
+	_, stderr, exitCode := p.exec.ExecuteWithContextFromDir(ctx, workDir, podmanCmd, args)
+	if exitCode != 0 {
+		return fmt.Errorf("podman compose stop: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 func (p *Compose) Down(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()

@@ -309,6 +309,20 @@ func (mr *MockApplicationMockRecorder) CopyWorkloadsFrom(other any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyWorkloadsFrom", reflect.TypeOf((*MockApplication)(nil).CopyWorkloadsFrom), other)
 }
 
+// DesiredState mocks base method.
+func (m *MockApplication) DesiredState() v1beta1.ApplicationDesiredState {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DesiredState")
+	ret0, _ := ret[0].(v1beta1.ApplicationDesiredState)
+	return ret0
+}
+
+// DesiredState indicates an expected call of DesiredState.
+func (mr *MockApplicationMockRecorder) DesiredState() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DesiredState", reflect.TypeOf((*MockApplication)(nil).DesiredState))
+}
+
 // ID mocks base method.
 func (m *MockApplication) ID() string {
 	m.ctrl.T.Helper()
@@ -377,6 +391,44 @@ func (m *MockApplication) RemoveWorkload(name string) bool {
 func (mr *MockApplicationMockRecorder) RemoveWorkload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveWorkload", reflect.TypeOf((*MockApplication)(nil).RemoveWorkload), name)
+}
+
+// RestartGeneration mocks base method.
+func (m *MockApplication) RestartGeneration() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestartGeneration")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// RestartGeneration indicates an expected call of RestartGeneration.
+func (mr *MockApplicationMockRecorder) RestartGeneration() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartGeneration", reflect.TypeOf((*MockApplication)(nil).RestartGeneration))
+}
+
+// SetDesiredState mocks base method.
+func (m *MockApplication) SetDesiredState(state v1beta1.ApplicationDesiredState) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetDesiredState", state)
+}
+
+// SetDesiredState indicates an expected call of SetDesiredState.
+func (mr *MockApplicationMockRecorder) SetDesiredState(state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDesiredState", reflect.TypeOf((*MockApplication)(nil).SetDesiredState), state)
+}
+
+// SetRestartGeneration mocks base method.
+func (m *MockApplication) SetRestartGeneration(gen int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRestartGeneration", gen)
+}
+
+// SetRestartGeneration indicates an expected call of SetRestartGeneration.
+func (mr *MockApplicationMockRecorder) SetRestartGeneration(gen any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRestartGeneration", reflect.TypeOf((*MockApplication)(nil).SetRestartGeneration), gen)
 }
 
 // Status mocks base method.

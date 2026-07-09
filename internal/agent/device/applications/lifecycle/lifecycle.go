@@ -16,9 +16,12 @@ import (
 type ActionType string
 
 const (
-	ActionAdd    ActionType = "add"
-	ActionRemove ActionType = "remove"
-	ActionUpdate ActionType = "update"
+	ActionAdd     ActionType = "add"
+	ActionRemove  ActionType = "remove"
+	ActionUpdate  ActionType = "update"
+	ActionStop    ActionType = "stop"
+	ActionStart   ActionType = "start"
+	ActionRestart ActionType = "restart"
 )
 
 type ActionHandlerType string
@@ -29,6 +32,15 @@ const (
 
 type ActionHandler interface {
 	Execute(ctx context.Context, actions Actions) error
+}
+
+// LifecycleHandler is implemented by action handlers that support declarative
+// stop/start/restart without uninstalling the application. Each implementation
+// constructs its own runtime client from injected factories keyed on action.User.
+type LifecycleHandler interface {
+	Stop(ctx context.Context, action Action) error
+	Start(ctx context.Context, action Action) error
+	Restart(ctx context.Context, action Action) error
 }
 
 // ActionSpec is a marker interface for type-specific action configuration.
@@ -58,6 +70,9 @@ type Action struct {
 	Volumes []Volume
 	// Spec holds type-specific configuration, discriminated by AppType.
 	Spec ActionSpec
+	// RestartGeneration is the target restart generation for ActionRestart, applied
+	// to the tracked application only after the restart succeeds.
+	RestartGeneration int
 }
 
 // HelmSpec contains Helm-specific action configuration.

@@ -27,6 +27,7 @@ const (
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
+var _ LifecycleHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
 	systemdFactory systemd.ManagerFactory
@@ -249,6 +250,49 @@ func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman
 		}
 	}
 	return nil
+}
+
+// resolveTarget resolves the systemd client and target name for the action's user/app.
+func (q *Quadlet) resolveTarget(action Action) (systemd.Manager, string, error) {
+	systemctl, err := q.systemdFactory(action.User)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating systemd client: %w", err)
+	}
+	target, err := targetName(action.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("target name: %w", err)
+	}
+	return systemctl, target, nil
+}
+
+// Stop stops the application's systemd target without removing files or Podman resources.
+func (q *Quadlet) Stop(ctx context.Context, action Action) error {
+	systemctl, target, err := q.resolveTarget(action)
+	if err != nil {
+		return err
+	}
+	return systemctl.Stop(ctx, target)
+}
+
+// Start starts a previously stopped application's systemd target.
+// The unit files are already on disk — no DaemonReload is required.
+func (q *Quadlet) Start(ctx context.Context, action Action) error {
+	systemctl, target, err := q.resolveTarget(action)
+	if err != nil {
+		return err
+	}
+	return systemctl.Start(ctx, target)
+}
+
+// Restart restarts the application's systemd target directly. VM workloads are
+// rendered as native quadlet units like any other application, so no special
+// handling is required.
+func (q *Quadlet) Restart(ctx context.Context, action Action) error {
+	systemctl, target, err := q.resolveTarget(action)
+	if err != nil {
+		return err
+	}
+	return systemctl.Restart(ctx, target)
 }
 
 func (q *Quadlet) Execute(ctx context.Context, actions Actions) error {

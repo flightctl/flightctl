@@ -33,6 +33,8 @@ type Manager interface {
 	Start(ctx context.Context, units ...string) error
 	// Stop stops one or more systemd units.
 	Stop(ctx context.Context, units ...string) error
+	// Restart restarts one or more systemd units.
+	Restart(ctx context.Context, units ...string) error
 	// ResetFailed resets failed state for one or more systemd units.
 	ResetFailed(ctx context.Context, units ...string) error
 	// ListUnitsByMatchPattern lists systemd units matching the provided patterns.
@@ -108,6 +110,15 @@ func (m *manager) Start(ctx context.Context, units ...string) error {
 
 func (m *manager) Stop(ctx context.Context, units ...string) error {
 	return m.client.Stop(ctx, units...)
+}
+
+func (m *manager) Restart(ctx context.Context, units ...string) error {
+	for _, unit := range units {
+		if err := m.client.Restart(ctx, unit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *manager) ResetFailed(ctx context.Context, units ...string) error {
