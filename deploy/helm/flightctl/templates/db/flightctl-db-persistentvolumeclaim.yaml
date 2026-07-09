@@ -19,6 +19,16 @@ spec:
   {{- with .Values.global.storageClassName }}
   storageClassName: {{ . }}
   {{- end }}
+  {{- with .Values.db.builtin.volumeName }}
+  volumeName: {{ . }}
+  {{- end }}
+  {{- with .Values.db.builtin.selector }}
+  {{- with .matchLabels }}
+  selector:
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  {{- end }}
   accessModes:
     - ReadWriteOnce
   resources:
