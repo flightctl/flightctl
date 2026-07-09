@@ -458,7 +458,6 @@ PersistentVolumeClaim
 fsync
 Pre-create
 Pre-bind
-NFS-backed
 NFS
 claimRef
 matchLabels
