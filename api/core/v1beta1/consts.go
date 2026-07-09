@@ -25,17 +25,9 @@ const (
 	DeviceAnnotationConsole         = "device-controller/console"
 	DeviceAnnotationRemoteSession   = "device-controller/remote-session"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
-	// This annotation stores the per-application, device-level lifecycle control overrides
-	// (desiredState/restartGeneration), keyed by application name, as a JSON-encoded map.
-	// It is independent of the device's spec and survives fleet template rollouts.
+	// Per-application device-level lifecycle overrides (desiredState/restartGeneration), as a JSON-encoded map keyed by application name
 	DeviceAnnotationApplicationLifecycle = "device-controller/applicationLifecycle"
-	// This annotation is a device-local cache of the owning fleet's
-	// FleetAnnotationApplicationLifecycle value (desiredState only), kept in sync by the
-	// fleet-rollout task (when the device is (re)rolled out) and the fleet-scoped stop/start
-	// APIs (fanned out to every member device when the fleet-level default changes). It exists
-	// purely so the device-render task can read the fleet-level default straight off the
-	// device it already fetched, without an extra Fleet lookup on every render. It is
-	// meaningless (ignored) for standalone devices.
+	// Device-local cache of the owning fleet's FleetAnnotationApplicationLifecycle value, ignored for standalone devices
 	DeviceAnnotationFleetApplicationLifecycle = "device-controller/fleetApplicationLifecycle"
 	// Used After database restore , all devices will be marked with this annotation
 	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"
@@ -79,11 +71,7 @@ const (
 	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
 	// A frozen digest of device selection definition during rollout
 	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
-	// This annotation stores the per-application, fleet-level lifecycle control default
-	// (desiredState only; restart is device-only), keyed by application name, as a
-	// JSON-encoded map, in the same format as DeviceAnnotationApplicationLifecycle. It is
-	// overlaid under each member device's own DeviceAnnotationApplicationLifecycle at render
-	// time, so a device-level override still takes precedence for that device/application.
+	// Per-application fleet-level lifecycle default (desiredState only), as a JSON-encoded map keyed by application name
 	FleetAnnotationApplicationLifecycle = "fleet-controller/applicationLifecycle"
 	// The requestID related to an event
 	EventAnnotationRequestID = "event-controller/requestID"

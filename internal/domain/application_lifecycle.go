@@ -8,54 +8,32 @@ import (
 
 // ApplicationLifecycleOverride is the per-application value type for the
 // DeviceAnnotationApplicationLifecycle, DeviceAnnotationFleetApplicationLifecycle, and
-// FleetAnnotationApplicationLifecycle annotations: a device- or fleet-level override of an
-// application's desiredState/restartGeneration, set by the dedicated stop/start/restart
-// device/fleet APIs and re-applied on top of the rendered application spec at render time (see
-// OverlayApplicationLifecycle). DesiredStateVersion orders DesiredState changes across the
-// fleet-level and device-level layers so that whichever was set most recently wins regardless
-// of which layer it came from (see applyOverridesOnTop); RestartGeneration needs no such
-// ordering since restart is device-only and never appears in a fleet-level annotation.
+// FleetAnnotationApplicationLifecycle annotations. DesiredStateVersion orders desiredState
+// changes across the fleet-level and device-level layers so that whichever was set most
+// recently wins, regardless of which layer it came from.
 type ApplicationLifecycleOverride struct {
 	DesiredState        *ApplicationDesiredState `json:"desiredState,omitempty"`
 	DesiredStateVersion *int64                   `json:"desiredStateVersion,omitempty"`
 	RestartGeneration   *int                     `json:"restartGeneration,omitempty"`
 }
 
-// NewLifecycleVersion returns a fresh ordering stamp for a desiredState change, used to
-// arbitrate between a fleet-level default and a device-level override for the same
-// application (see applyOverridesOnTop): whichever side's entry has the higher version was
-// written more recently and wins, regardless of which layer it came from. Backed by a
-// wall-clock timestamp since lifecycle actions are human/API-paced and NTP-synchronized
-// clusters keep clocks within milliseconds of each other.
 func NewLifecycleVersion() int64 {
 	return time.Now().UnixNano()
 }
 
-// NewDesiredStateOverride builds an ApplicationLifecycleOverride that only sets desiredState,
-// stamped with version so it can be arbitrated against the other layer's entry for the same
-// application (see applyOverridesOnTop). Used by the stop/start device/fleet APIs.
 func NewDesiredStateOverride(state ApplicationDesiredState, version int64) ApplicationLifecycleOverride {
 	return ApplicationLifecycleOverride{DesiredState: &state, DesiredStateVersion: &version}
 }
 
-// NewRestartGenerationOverride builds an ApplicationLifecycleOverride that only sets
-// restartGeneration, used by the restart device API.
 func NewRestartGenerationOverride(generation int) ApplicationLifecycleOverride {
 	return ApplicationLifecycleOverride{RestartGeneration: &generation}
 }
 
-// OverlayApplicationLifecycle applies the fleet-level lifecycle defaults (see
-// FleetAnnotationApplicationLifecycle) and the device-level lifecycle overrides (see
-// DeviceAnnotationApplicationLifecycle) onto the given application specs, in place. Applied by
-// the device render task right before rendering, so the result is baked into
-// RenderedApplications only and never persisted back into the device's Spec.
-// The two layers are merged per-application, per-field: restartGeneration always comes from
-// the device layer (restart is device-only). desiredState is arbitrated by recency: whichever
-// layer's entry carries the higher DesiredStateVersion wins, so a fleet-wide stop/start and a
-// later per-device stop/start can each override the other depending on which happened last
-// (see applyOverridesOnTop). A device-level entry left unset for a given field falls back to
-// the fleet-level default for that field. fleetRaw is empty for standalone devices (no owning
-// fleet).
+// OverlayApplicationLifecycle applies the fleet-level lifecycle defaults and the device-level
+// lifecycle overrides onto the given application specs, in place. The two layers are merged
+// per-application, per-field: restartGeneration always comes from the device layer;
+// desiredState is arbitrated by recency (higher DesiredStateVersion wins). fleetRaw is empty
+// for standalone devices.
 func OverlayApplicationLifecycle(apps *[]ApplicationProviderSpec, deviceRaw string, fleetRaw string) error {
 	if apps == nil || len(*apps) == 0 {
 		return nil
@@ -85,8 +63,6 @@ func OverlayApplicationLifecycle(apps *[]ApplicationProviderSpec, deviceRaw stri
 	return nil
 }
 
-// mergeApplicationLifecycleLayers decodes the fleet-level default and device-level override
-// annotation values and merges them per application/per-field (see applyOverridesOnTop).
 func mergeApplicationLifecycleLayers(fleetRaw, deviceRaw string) (map[string]ApplicationLifecycleOverride, error) {
 	merged, err := decodeApplicationLifecycleOverrides(fleetRaw)
 	if err != nil {
@@ -100,14 +76,9 @@ func mergeApplicationLifecycleLayers(fleetRaw, deviceRaw string) (map[string]App
 	return merged, nil
 }
 
-// applyOverridesOnTop merges src's overrides into dst in place, per-field. restartGeneration
-// from src always replaces dst's when set (restart is device-only, so src is always the
-// device layer whenever this field is present). desiredState from src only replaces dst's
-// when src's entry is not older than dst's (see desiredStateIsAtLeastAsRecent): this makes the
-// function usable both to fold a freshly-minted action onto an existing same-layer annotation
-// (MergeApplicationLifecycleOverrides, where src's fresh version is always the newest) and to
-// merge the fleet and device layers at render time (mergeApplicationLifecycleLayers), where
-// either layer may hold the more recent change.
+// applyOverridesOnTop merges src's overrides into dst in place, per field: restartGeneration
+// from src always replaces dst's when set; desiredState from src only replaces dst's when
+// src's entry is not older than dst's.
 func applyOverridesOnTop(dst map[string]ApplicationLifecycleOverride, src map[string]ApplicationLifecycleOverride) {
 	for name, override := range src {
 		merged := dst[name]
@@ -122,11 +93,9 @@ func applyOverridesOnTop(dst map[string]ApplicationLifecycleOverride, src map[st
 	}
 }
 
-// desiredStateIsAtLeastAsRecent reports whether src's desiredState should replace dst's: true
-// if dst has no desiredState yet, or if src's version is greater than or equal to dst's. An
-// entry with no recorded version is treated as older than any versioned entry; if neither side
-// has a version (data predating this field), src wins, preserving the original device-always-
-// wins behavior for that legacy case.
+// desiredStateIsAtLeastAsRecent reports whether src's desiredState should replace dst's.
+// An entry with no recorded version is treated as older than any versioned entry; if neither
+// side has a version, src wins.
 func desiredStateIsAtLeastAsRecent(src, dst ApplicationLifecycleOverride) bool {
 	if dst.DesiredState == nil {
 		return true
@@ -140,14 +109,9 @@ func desiredStateIsAtLeastAsRecent(src, dst ApplicationLifecycleOverride) bool {
 	return *src.DesiredStateVersion >= *dst.DesiredStateVersion
 }
 
-// MergeApplicationLifecycleOverrides decodes the existing DeviceAnnotationApplicationLifecycle
-// or FleetAnnotationApplicationLifecycle annotation value, merges the given per-application
-// overrides on top, and re-encodes the result. The merge is per-field: an incoming override
-// only replaces the fields it sets (non-nil), preserving any existing field left unset by the
-// incoming override, so that e.g. a stop call (which only sets desiredState) never drops a
-// previously-stored restartGeneration for the same application, and vice versa. A freshly
-// stamped desiredState (see NewLifecycleVersion) always replaces whatever was previously
-// stored for that field, since it is by construction the most recent change.
+// MergeApplicationLifecycleOverrides decodes the existing lifecycle annotation value, merges
+// the given per-application overrides on top (per field, so a stop call never drops a
+// previously-stored restartGeneration and vice versa), and re-encodes the result.
 func MergeApplicationLifecycleOverrides(raw string, overrides map[string]ApplicationLifecycleOverride) (string, error) {
 	existing, err := decodeApplicationLifecycleOverrides(raw)
 	if err != nil {
@@ -161,9 +125,6 @@ func MergeApplicationLifecycleOverrides(raw string, overrides map[string]Applica
 	return string(encoded), nil
 }
 
-// ApplicationsContainName reports whether apps contains an application named appName. Used by
-// the device- and fleet-scoped lifecycle APIs to validate appName against the caller's
-// declarative application list (device spec or fleet template) before recording an override.
 func ApplicationsContainName(apps *[]ApplicationProviderSpec, appName string) bool {
 	if apps == nil {
 		return false
@@ -177,8 +138,7 @@ func ApplicationsContainName(apps *[]ApplicationProviderSpec, appName string) bo
 }
 
 // GetApplicationRestartGeneration returns the current restartGeneration override for the
-// named application out of the raw DeviceAnnotationApplicationLifecycle annotation value,
-// defaulting to 0 if unset. Used by the restart device API to compute the next generation.
+// named application, defaulting to 0 if unset.
 func GetApplicationRestartGeneration(raw string, appName string) (int, error) {
 	overrides, err := decodeApplicationLifecycleOverrides(raw)
 	if err != nil {
@@ -202,8 +162,6 @@ func decodeApplicationLifecycleOverrides(raw string) (map[string]ApplicationLife
 	return overrides, nil
 }
 
-// applyApplicationLifecycleOverride sets the desiredState/restartGeneration fields on the
-// application's concrete underlying type (ContainerApplication, ComposeApplication, etc.).
 func applyApplicationLifecycleOverride(app ApplicationProviderSpec, override ApplicationLifecycleOverride) (ApplicationProviderSpec, error) {
 	appType, err := app.GetAppType()
 	if err != nil {
@@ -255,8 +213,6 @@ func applyApplicationLifecycleOverride(app ApplicationProviderSpec, override App
 	}
 }
 
-// setLifecycleFields copies the non-nil fields of override onto the given desiredState/
-// restartGeneration pointers.
 func setLifecycleFields(override ApplicationLifecycleOverride, desiredState **ApplicationDesiredState, restartGeneration **int) {
 	if override.DesiredState != nil {
 		*desiredState = override.DesiredState

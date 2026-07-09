@@ -24,11 +24,8 @@ func fleetApplicationLifecycle(ctx context.Context, orgId uuid.UUID, event domai
 }
 
 // FleetApplicationLifecycleLogic propagates a change to a fleet's application lifecycle
-// default (see domain.FleetAnnotationApplicationLifecycle, set by the fleet-scoped stop/start
-// APIs) to every device currently owned by the fleet: it refreshes each device's local cache of
-// that default (domain.DeviceAnnotationFleetApplicationLifecycle) and emits a per-device
-// ApplicationLifecycleChanged event to trigger a re-render, exactly as if the device's own
-// stop/start API had been called for that application.
+// default to every device currently owned by the fleet: it refreshes each device's local
+// cache of that default and triggers a re-render for each one.
 type FleetApplicationLifecycleLogic struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
@@ -102,9 +99,8 @@ func (f FleetApplicationLifecycleLogic) SyncFleet(ctx context.Context) error {
 }
 
 // syncDevice refreshes deviceName's cached copy of the fleet's application lifecycle default
-// and emits a per-device ApplicationLifecycleChanged event to trigger a re-render. Devices
-// without an application named details.AppName are unaffected: the render-time overlay is a
-// per-application, best-effort match (see domain.OverlayApplicationLifecycle).
+// and triggers a re-render. Devices without an application named details.AppName are
+// unaffected.
 func (f FleetApplicationLifecycleLogic) syncDevice(ctx context.Context, device *domain.Device, fleetRaw string, details domain.ApplicationLifecycleChangedDetails) error {
 	deviceName := lo.FromPtr(device.Metadata.Name)
 

@@ -106,15 +106,9 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// Calculate hash including device spec to detect changes
 	specHash := hashRenderedWithSpec(device.Spec)
 
-	// bypassHashCheck is true for event reasons that must always produce and persist a fresh
-	// render even though specHash (computed from device.Spec alone) hasn't changed:
-	//   - DependencyChangeDetected (standalone devices) and FleetRolloutDeviceSelected
-	//     (fleet-owned devices): external dependencies changed without a device spec change.
-	//   - ApplicationLifecycleChanged: the stop/start/restart device APIs only ever change the
-	//     DeviceAnnotationApplicationLifecycle annotation, never the device's Spec, so specHash
-	//     never reflects these actions.
-	// It's also passed through as forceUpdate to the store layer below, which runs its own
-	// independent specHash-equality check and would otherwise silently discard this render.
+	// bypassHashCheck is true for event reasons that must always produce a fresh render even
+	// though specHash (computed from device.Spec alone) hasn't changed: dependency changes and
+	// application lifecycle changes affect the rendered output without changing device.Spec.
 	bypassHashCheck := lo.Contains([]domain.EventReason{
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonFleetRolloutDeviceSelected,
@@ -124,10 +118,8 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
 	if device.Spec != nil {
 		t.deviceConfig = device.Spec.Config
-		// Copy the application slice rather than aliasing device.Spec.Applications directly: the
-		// lifecycle overlay below replaces individual elements in place, and since it's only meant
-		// to affect the rendered output (never the declarative spec), it must not mutate the
-		// device object read above out from under it.
+		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
+		// elements in place, and must not mutate the device object read above.
 		if device.Spec.Applications != nil {
 			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
 			t.applications = &appsCopy
@@ -152,7 +144,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render, unless
-		// bypassHashCheck says this event must always produce a fresh render (see above).
+		// bypassHashCheck says this event must always produce a fresh render.
 		if !bypassHashCheck {
 			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 				if val == specHash {
@@ -178,16 +170,10 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		t.templateVersion = &tvString
 	}
 
-	// Overlay the fleet-level application lifecycle default (if this device belongs to a
-	// fleet, cached locally on the device by the fleet-rollout task and the fleet-scoped
-	// stop/start APIs, see DeviceAnnotationFleetApplicationLifecycle) and then the
-	// device-level override (set by the dedicated stop/start/restart device APIs) on top of
-	// the declarative application specs, baking the result into RenderedApplications only.
-	// Neither is ever persisted back into the device's Spec, so they survive fleet template
-	// rollouts without any special-casing there. A malformed annotation (corruption, manual
-	// edit) is logged and skipped rather than failing the render: it's only an optional
-	// overlay, so a decode failure shouldn't be able to permanently block the device from
-	// receiving spec/config updates until an operator clears the annotation.
+	// Overlay the fleet-level application lifecycle default and the device-level override on
+	// top of the declarative application specs, baking the result into RenderedApplications
+	// only; neither is ever persisted back into the device's Spec. A malformed annotation is
+	// logged and skipped rather than failing the render, since it's only an optional overlay.
 	annotations := lo.FromPtr(device.Metadata.Annotations)
 	deviceLifecycleRaw := annotations[domain.DeviceAnnotationApplicationLifecycle]
 	fleetLifecycleRaw := ""
@@ -236,10 +222,8 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	// forceUpdate tells the store layer to persist this render and bump the rendered version even
-	// though specHash is unchanged: the store runs its own independent specHash-equality check
-	// (DeviceStore.updateRendered) that has no visibility into the event reason, so bypassHashCheck
-	// must be threaded through explicitly or that check would silently discard this render.
+	// forceUpdate tells the store layer to persist this render and bump the rendered version
+	// even though specHash is unchanged (see bypassHashCheck above).
 	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
 	return t.setStatus(ctx, service.ApiStatusToErr(status))
 }

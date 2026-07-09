@@ -268,12 +268,10 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 }
 
 // syncFleetApplicationLifecycleDefault bootstraps the device's local cache of the owning
-// fleet's application lifecycle default (see DeviceAnnotationFleetApplicationLifecycle) so
-// device-render can read it without a Fleet lookup of its own. This only ever runs once per
-// device, the first time it is rolled out with no cache annotation yet (e.g. newly created or
-// newly (re)assigned to the fleet): once a device has a cache value, only the fleet-scoped
-// stop/start APIs update it again (see fleetApplicationLifecycle task), so a routine rollout
-// can never silently overwrite a lifecycle action taken after the device joined the fleet.
+// fleet's application lifecycle default so device-render can read it without a Fleet lookup
+// of its own. This only ever runs once per device, the first time it is rolled out with no
+// cache annotation yet, so a routine rollout can never overwrite a lifecycle action taken
+// after the device joined the fleet.
 func (f FleetRolloutsLogic) syncFleetApplicationLifecycleDefault(ctx context.Context, device *domain.Device, fleet *domain.Fleet) error {
 	if _, alreadySynced := lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationFleetApplicationLifecycle]; alreadySynced {
 		return nil

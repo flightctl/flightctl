@@ -12,11 +12,9 @@ import (
 )
 
 // StopDeviceApplication sets a device-level override so that the named application's
-// desiredState is "stopped", independent of the application's declarative spec. Stamped with a
-// fresh version (see domain.NewLifecycleVersion) so it can be arbitrated by recency against a
-// fleet-level default for the same application at render time (see
-// domain.OverlayApplicationLifecycle): a device-level stop wins over a fleet-level start only
-// as long as no more recent fleet-level action has been taken since.
+// desiredState is "stopped", independent of the application's declarative spec. The override
+// is stamped with a fresh version so it wins over an earlier fleet-level default for the same
+// application, as long as no more recent fleet-level action has been taken since.
 func (h *ServiceHandler) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
 	if _, status := h.getDeviceForLifecycleAction(ctx, orgId, name, appName); status.Code != http.StatusOK {
 		return nil, status
@@ -36,10 +34,8 @@ func (h *ServiceHandler) StopDeviceApplication(ctx context.Context, orgId uuid.U
 }
 
 // StartDeviceApplication sets a device-level override so that the named application's
-// desiredState is "running", independent of the application's declarative spec. Stamped with a
-// fresh version (see domain.NewLifecycleVersion), just like StopDeviceApplication, so a device-
-// level start wins over an active fleet-level stop as long as no more recent fleet-level action
-// has been taken since (see domain.OverlayApplicationLifecycle).
+// desiredState is "running", independent of the application's declarative spec. Same
+// recency-based arbitration against the fleet-level default as StopDeviceApplication.
 func (h *ServiceHandler) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
 	if _, status := h.getDeviceForLifecycleAction(ctx, orgId, name, appName); status.Code != http.StatusOK {
 		return nil, status
@@ -59,9 +55,9 @@ func (h *ServiceHandler) StartDeviceApplication(ctx context.Context, orgId uuid.
 }
 
 // RestartDeviceApplication increments the device-level restartGeneration override for the
-// named application, atomically against concurrent restarts (see store.MutateAnnotation).
-// restartGeneration is device-only (it never appears in a fleet-level annotation) and is left
-// untouched by stop/start, so it's safe to simply increment whatever is currently stored.
+// named application, atomically against concurrent restarts. restartGeneration is
+// device-only and left untouched by stop/start, so it's safe to simply increment whatever is
+// currently stored.
 func (h *ServiceHandler) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Device, domain.Status) {
 	if _, status := h.getDeviceForLifecycleAction(ctx, orgId, name, appName); status.Code != http.StatusOK {
 		return nil, status

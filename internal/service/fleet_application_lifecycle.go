@@ -11,10 +11,8 @@ import (
 
 // StopFleetApplication sets a fleet-level default so that the named application's desiredState
 // is "stopped" on every device currently owned by this fleet, independent of the application's
-// declarative spec. Stamped with a fresh version (see domain.NewLifecycleVersion) so it can be
-// arbitrated by recency against each device's own override for the same application at render
-// time (see domain.OverlayApplicationLifecycle): this fleet-wide stop wins over an earlier
-// device-level start, but a device-level start issued afterwards would in turn win over it.
+// declarative spec. The default is stamped with a fresh version so it wins over an earlier
+// device-level override, but a device-level action issued afterwards would in turn win over it.
 func (h *ServiceHandler) StopFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status) {
 	if status := h.validateFleetForLifecycleAction(ctx, orgId, name, appName); status.Code != http.StatusOK {
 		return nil, status
@@ -35,10 +33,8 @@ func (h *ServiceHandler) StopFleetApplication(ctx context.Context, orgId uuid.UU
 
 // StartFleetApplication sets a fleet-level default so that the named application's desiredState
 // is "running" on every device currently owned by this fleet, independent of the application's
-// declarative spec. Stamped with a fresh version (see domain.NewLifecycleVersion), just like
-// StopFleetApplication, so this fleet-wide start wins over an earlier device-level stop, but a
-// device-level stop issued afterwards would in turn win over it (see
-// domain.OverlayApplicationLifecycle).
+// declarative spec. Same recency-based arbitration against device-level overrides as
+// StopFleetApplication.
 func (h *ServiceHandler) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status) {
 	if status := h.validateFleetForLifecycleAction(ctx, orgId, name, appName); status.Code != http.StatusOK {
 		return nil, status
