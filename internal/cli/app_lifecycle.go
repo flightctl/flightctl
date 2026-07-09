@@ -56,9 +56,7 @@ func (o *AppLifecycleOptions) resolveDeviceName(args []string) (string, error) {
 }
 
 // resolveTarget validates the positional args and required flags shared by the stop/start
-// application commands, returning the target's kind (Device or Fleet) and name. Stopping or
-// starting on a fleet sets a fleet-wide default applied to every device owned by the fleet,
-// still overridable per device (see StopFleetApplication/StartFleetApplication).
+// application commands, returning the target's kind (Device or Fleet) and name.
 func (o *AppLifecycleOptions) resolveTarget(args []string) (ResourceKind, string, error) {
 	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
