@@ -233,7 +233,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
 | alertmanager.image.tag | string | `"v0.28.1"` | Alertmanager image tag |
 | alertmanager.selector.matchLabels | object | `{}` | Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection. |
-| alertmanager.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. |
+| alertmanager.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: this PVC requests a fixed 2Gi, so the target PV's capacity must be >= 2Gi, or binding will fail. |
 | alertmanagerProxy | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alertmanager-proxy-el9","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
 | alertmanagerProxy.enabled | bool | `true` | Enable Alertmanager proxy service |
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy-el9"` | Alertmanager proxy container image |
@@ -276,7 +276,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.builtin.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
 | db.builtin.selector.matchLabels | object | `{}` | Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection. |
 | db.builtin.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
-| db.builtin.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. |
+| db.builtin.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: `storage.size` above must be <= the target PV's capacity, or binding will fail. |
 | db.external.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. |
 | db.external.hostname | string | `""` | External database hostname |
 | db.external.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. |

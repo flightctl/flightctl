@@ -187,7 +187,7 @@ db:
     fsGroup: ""
     # -- Additional labels for DB PVCs.
     additionalPVCLabels: null
-    # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding.
+    # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: `storage.size` above must be <= the target PV's capacity, or binding will fail.
     volumeName: ""
     selector:
       # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.
@@ -244,7 +244,7 @@ alertmanager:
   additionalRouteLabels: null
   # -- Additional labels for Alert Manager PVCs.
   additionalPVCLabels: null
-  # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding.
+  # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: this PVC requests a fixed 2Gi, so the target PV's capacity must be >= 2Gi, or binding will fail.
   volumeName: ""
   selector:
     # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.

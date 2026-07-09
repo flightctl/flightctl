@@ -35,6 +35,7 @@ Prerequisites:
 
 - The pre-provisioned `PersistentVolume` for the database is group-writable by the group ID configured in `db.builtin.fsGroup`. PostgreSQL mounts its data directory at `/var/lib/pgsql/data` and requires matching filesystem group ownership.
 - The database `PersistentVolumeClaim` is not backed by NFS storage. PostgreSQL relies on file-locking and `fsync` guarantees that many NFS implementations do not provide reliably, which can lead to data corruption.
+- Each pre-provisioned `PersistentVolume`'s capacity is at least as large as the corresponding `PersistentVolumeClaim`'s requested size (`db.builtin.storage.size`, default `60Gi`; a fixed `2Gi` for Alertmanager) — Kubernetes cannot bind a claim to a volume smaller than what it requests.
 
 The Helm chart exposes a `volumeName` and a `selector.matchLabels` value for both the database and Alertmanager `PersistentVolumeClaim` resources. Set one of these values to bind that `PersistentVolumeClaim` to a matching pre-provisioned `PersistentVolume`:
 
