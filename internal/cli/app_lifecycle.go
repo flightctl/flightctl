@@ -32,6 +32,12 @@ func (o *AppLifecycleOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Yes, "yes", "y", o.Yes, "Skip the confirmation prompt")
 }
 
+// markAppFlagRequired declares --app required on cmd so cobra rejects a missing
+// value immediately and documents the requirement in --help.
+func markAppFlagRequired(cmd *cobra.Command) {
+	_ = cmd.MarkFlagRequired("app")
+}
+
 func (o *AppLifecycleOptions) Complete(cmd *cobra.Command, args []string) error {
 	return o.GlobalOptions.Complete(cmd, args)
 }
@@ -84,7 +90,7 @@ func confirm(prompt string, skip bool) error {
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read user input: %w", err)
+		return fmt.Errorf("failed to read confirmation from stdin: %w; use --yes to skip the prompt", err)
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "y" && response != "yes" {
@@ -141,6 +147,7 @@ func NewCmdStop() *cobra.Command {
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
+	markAppFlagRequired(cmd)
 	return cmd
 }
 
@@ -192,6 +199,7 @@ func NewCmdStart() *cobra.Command {
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
+	markAppFlagRequired(cmd)
 	return cmd
 }
 
@@ -239,6 +247,7 @@ func NewCmdRestartApplication() *cobra.Command {
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
+	markAppFlagRequired(cmd)
 	return cmd
 }
 

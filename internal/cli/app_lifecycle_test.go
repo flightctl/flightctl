@@ -350,20 +350,69 @@ func TestRunStopFleet(t *testing.T) {
 }
 
 func TestRunStartFleet(t *testing.T) {
-	response := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(bytes.NewReader([]byte(`{"kind":"Fleet","apiVersion":"v1beta1","metadata":{"name":"fleet-1"}}`))),
+	tests := []struct {
+		name           string
+		httpStatus     int
+		responseBody   string
+		expectError    bool
+		errorContains  string
+		expectOutput   string
+		expectAPIError bool
+	}{
+		{
+			name:         "successful start",
+			httpStatus:   http.StatusOK,
+			responseBody: `{"kind":"Fleet","apiVersion":"v1beta1","metadata":{"name":"fleet-1"}}`,
+			expectOutput: `Application "app-1" started on every device in fleet "fleet-1"`,
+		},
+		{
+			name:           "fleet not found",
+			httpStatus:     http.StatusNotFound,
+			responseBody:   `{"message":"fleet not found"}`,
+			expectError:    true,
+			errorContains:  "starting application app-1 on fleet fleet-1: failed",
+			expectAPIError: true,
+		},
 	}
-	client, _ := newTestClient(t, response)
 
-	output := captureStdout(t, func() {
-		if err := runStartFleet(context.Background(), client, "fleet-1", "app-1"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := &http.Response{
+				StatusCode: tt.httpStatus,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader([]byte(tt.responseBody))),
+			}
+			client, _ := newTestClient(t, response)
 
-	if !containsString(output, `Application "app-1" started on every device in fleet "fleet-1"`) {
-		t.Errorf("unexpected output: %q", output)
+			output := captureStdout(t, func() {
+				err := runStartFleet(context.Background(), client, "fleet-1", "app-1")
+				if tt.expectError {
+					if err == nil {
+						t.Fatalf("expected error but got none")
+					}
+					if tt.errorContains != "" && !containsString(err.Error(), tt.errorContains) {
+						t.Errorf("expected error to contain %q, got %q", tt.errorContains, err.Error())
+					}
+					if tt.expectAPIError {
+						var cliErr *CLIError
+						if !errors.As(err, &cliErr) {
+							t.Errorf("expected error to unwrap to *CLIError, got %T", err)
+						}
+						var apiErr *APIError
+						if !errors.As(err, &apiErr) {
+							t.Errorf("expected error to unwrap to *APIError, got %T", err)
+						}
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+
+			if !tt.expectError && !containsString(output, tt.expectOutput) {
+				t.Errorf("expected output to contain %q, got %q", tt.expectOutput, output)
+			}
+		})
 	}
 }
