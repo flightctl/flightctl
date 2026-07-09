@@ -337,11 +337,18 @@ sudo cp /path/to/auth.json /etc/flightctl/service-images-auth.json
 sudo chmod 600 /etc/flightctl/service-images-auth.json
 ```
 
-Edit `/usr/share/containers/systemd/flightctl-imagebuilder-worker.container` and uncomment (or add) the Volume line:
+Create a Quadlet drop-in to add the volume mount. Do **not** edit the packaged
+unit at `/usr/share/containers/systemd/flightctl-imagebuilder-worker.container`
+directly — that file is vendor-owned and edits will be lost on package upgrade.
+
+```bash
+sudo mkdir -p /etc/containers/systemd/flightctl-imagebuilder-worker.container.d
+```
+
+Create `/etc/containers/systemd/flightctl-imagebuilder-worker.container.d/auth.conf`:
 
 ```ini
 [Container]
-# ... other settings ...
 Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
 ```
 
