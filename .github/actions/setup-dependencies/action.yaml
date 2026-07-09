@@ -27,6 +27,7 @@ runs:
       # itself still runs via sudo so it can write there regardless of
       # ownership, but actions/cache can too.
       - name: Restore apt cache
+        id: restore-apt-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
@@ -88,7 +89,7 @@ runs:
           echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
 
       - name: Save apt cache
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/main' && steps.restore-apt-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
