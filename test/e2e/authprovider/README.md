@@ -17,15 +17,15 @@ This suite tests the `EDM-2117` browser-login slice for authentication providers
 
 ## Cypress setup
 
-The Keycloak OIDC and Keycloak-backed OAuth2 browser-login specs remain `chromedp`-based.
+The Keycloak OIDC, Keycloak-backed OAuth2, and bundled PAM browser-login specs use the Go test helper to submit the provider login form over HTTP. This avoids Chrome/Chromium availability issues in headless OCP and Quadlet CI while still exercising the CLI `--web --no-browser` authorization-code flow, provider redirects, cookies, and callback handling.
 
-The OpenShift, PAM, and AAP browser-login specs are driven by a suite-local Cypress harness under [`test/e2e/authprovider/cypress`](./cypress).
+The OpenShift and AAP browser-login specs are driven by a suite-local Cypress harness under [`test/e2e/authprovider/cypress`](./cypress).
 
-The Go suite invokes [`run-provider-login-cypress.sh`](./cypress/run-provider-login-cypress.sh) for the OpenShift, PAM, and AAP browser-login specs.
+The Go suite invokes [`run-provider-login-cypress.sh`](./cypress/run-provider-login-cypress.sh) for the OpenShift and AAP browser-login specs.
 If Cypress is missing, that wrapper installs it automatically with `npm install` before running the test.
 The wrapper prefers credentials from `USERNAME` and `PASSWORD` environment variables and only falls back to positional arguments if they are provided. The callback port defaults to the CLI default `8080` unless `FLIGHTCTL_CALLBACK_PORT` overrides it.
 
-Requires Chrome/Chromium for the existing `chromedp` Keycloak flow. The suite uses `e2e.SetupWorkerHarnessWithoutVM()` (no device VM).
+The suite uses `e2e.SetupWorkerHarnessWithoutVM()` (no device VM).
 
 ## Credential sources
 
