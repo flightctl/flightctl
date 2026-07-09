@@ -90,7 +90,10 @@ func confirm(prompt string, skip bool) error {
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read confirmation from stdin: %w; use --yes to skip the prompt", err)
+		if response == "" {
+			return fmt.Errorf("failed to read confirmation from stdin: %w; use --yes to skip the prompt", err)
+		}
+		// Partial read (e.g. "y" without trailing newline); proceed to check the response.
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "y" && response != "yes" {
