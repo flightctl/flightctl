@@ -95,6 +95,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bootc-cache-smoke-
 
+      - name: Set buildah cache path
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: echo "BUILDAH_CACHE_PATH=${TMPDIR:-/var/tmp}/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Restore buildah cache
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.BUILDAH_CACHE_PATH }}
+          key: ${{ runner.os }}-buildah-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-buildah-
+
       - name: Create cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
@@ -102,6 +115,13 @@ jobs:
       - name: Deploy
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: DISABLE_FIPS="true" make deploy
+
+      - name: Save buildah cache
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.BUILDAH_CACHE_PATH }}
+          key: ${{ runner.os }}-buildah-${{ github.run_id }}
 
       - name: Check
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
