@@ -15,12 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type expandedPerms struct {
-	grants   map[string][]string
-	denied   map[string]struct{}
-	wildcard []string
-}
-
 // TestExpandedPermissionsMatchCheckPermission verifies that expanding the
 // wildcard-based resourcePermissions map produces results identical to what
 // StaticAuthZ.CheckPermission returns at runtime. This is the correctness
@@ -47,12 +41,12 @@ func TestExpandedPermissionsMatchCheckPermission(t *testing.T) {
 		perms := permissions[role]
 		require.NotNil(t, perms, "role %q not found in resourcePermissions", role)
 
-		expanded := expandForTest(perms)
+		expanded := ExpandPermissions(perms, allResources)
 
 		t.Run(role, func(t *testing.T) {
 			for _, resource := range allResources {
 				for _, verb := range allVerbs {
-					expandedAllows := verbAllowed(expanded, resource, verb)
+					expandedAllows := verbInList(expanded[resource], verb)
 					runtimeAllows := checkPermissionForRole(t, authZ, role, resource, verb)
 
 					assert.Equal(t, runtimeAllows, expandedAllows,
@@ -64,45 +58,8 @@ func TestExpandedPermissionsMatchCheckPermission(t *testing.T) {
 	}
 }
 
-// expandForTest replicates the wildcard expansion logic from genroles:
-// specific entries override the wildcard, and an empty verb list is an
-// explicit denial that prevents wildcard fallthrough.
-func expandForTest(perms map[string][]string) expandedPerms {
-	ep := expandedPerms{
-		grants:   make(map[string][]string),
-		denied:   make(map[string]struct{}),
-		wildcard: perms["*"],
-	}
-
-	for resource, ops := range perms {
-		if resource == "*" {
-			continue
-		}
-		if len(ops) == 0 {
-			ep.denied[resource] = struct{}{}
-			continue
-		}
-		ep.grants[resource] = ops
-	}
-
-	return ep
-}
-
-func verbAllowed(ep expandedPerms, resource, verb string) bool {
-	if _, denied := ep.denied[resource]; denied {
-		return false
-	}
-
-	if ops, exists := ep.grants[resource]; exists {
-		for _, op := range ops {
-			if op == "*" || op == verb {
-				return true
-			}
-		}
-		return false
-	}
-
-	for _, op := range ep.wildcard {
+func verbInList(ops []string, verb string) bool {
+	for _, op := range ops {
 		if op == "*" || op == verb {
 			return true
 		}
