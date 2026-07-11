@@ -96,6 +96,14 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 			meta.Interval = time.Duration(periodicTasks.ResourceSync.Schedule.Interval)
 			merged[PeriodicTaskTypeResourceSync] = meta
 		}
+		if periodicTasks.DependencySync.Schedule.Interval > 0 {
+			interval := time.Duration(periodicTasks.DependencySync.Schedule.Interval)
+			for _, taskType := range []PeriodicTaskType{PeriodicTaskTypeDependencySyncGit, PeriodicTaskTypeDependencySyncHttp} {
+				meta := merged[taskType]
+				meta.Interval = interval
+				merged[taskType] = meta
+			}
+		}
 	}
 
 	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {

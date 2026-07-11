@@ -622,6 +622,9 @@ type periodicTaskConfig struct {
 
 type periodicTasksConfig struct {
 	ResourceSync periodicTaskConfig `json:"resourceSync,omitempty"`
+	// DependencySync overrides the interval for both the dependency-sync-git and
+	// dependency-sync-http periodic tasks (see DefaultDependencySyncTaskInterval).
+	DependencySync periodicTaskConfig `json:"dependencySync,omitempty"`
 }
 
 type periodicConfig struct {
