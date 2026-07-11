@@ -1,0 +1,45 @@
+name: "Prune duplicate CI caches"
+
+# Some CI caches are saved under a fresh, ever-changing key on every run on main
+# (e.g. buildah's ${{ runner.os }}-buildah-${{ github.run_id }}), and Actions cache
+# keys are immutable, so nothing ever cleans up the previous run's entry. Left alone
+# these duplicates accumulate indefinitely (three ~2.17GB buildah copies were alive
+# at once as of 2026-07-11) and become the main driver of the repo exceeding its
+# 10GB Actions cache budget. Once over budget, GitHub evicts the least-recently-used
+# cache to make room - including small, unrelated caches that never should have been
+# at risk (e2e-test-timings, ~10KB, was evicted this way: 2 of 5 sampled
+# discover-e2e-tests runs on 2026-07-10 found it missing and fell back to unweighted
+# scheduling).
+#
+# Runs on its own daily schedule rather than pruning inline right after each build so
+# it doesn't need actions:write threaded through build-images-and-charts.yaml's
+# callers (pr-e2e-testing.yaml, pr-helm-upgrade-testing.yaml) - this is a standalone
+# workflow with its own permissions, not a reusable-workflow job.
+
+on:
+  schedule:
+    - cron: '30 4 * * *'  # daily, 04:30 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Add a prefix here for any other cache that accumulates run-scoped
+        # duplicates on a long-lived ref like main.
+        prefix:
+          - "Linux-buildah-"
+    steps:
+      - name: Prune old caches for ${{ matrix.prefix }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ matrix.prefix }}
+        run: |
+          # Keep only the most recently created entry for this prefix; delete the rest.
+          gh cache list --key "${PREFIX}" --limit 100 --sort created_at --order desc --json id,key \
+            | jq -r '.[1:] | .[].id' \
+            | xargs -r -n1 gh cache delete
