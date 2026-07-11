@@ -11,18 +11,35 @@ name: "Prune duplicate CI caches"
 # discover-e2e-tests runs on 2026-07-10 found it missing and fell back to unweighted
 # scheduling).
 #
-# Runs on its own daily schedule rather than pruning inline right after each build so
-# it doesn't need actions:write threaded through build-images-and-charts.yaml's
-# callers (pr-e2e-testing.yaml, pr-helm-upgrade-testing.yaml) - this is a standalone
-# workflow with its own permissions, not a reusable-workflow job.
+# Pushes to main land as often as every few minutes during busy merge-queue bursts
+# (observed gaps as tight as ~1 minute apart, and routinely a handful of pushes per
+# hour on active days), so a low-frequency cron alone would still let several
+# duplicates pile up between runs. Primarily event-driven instead: triggers right
+# after each workflow that can produce a new buildah cache entry on main finishes,
+# so a duplicate is pruned within moments of being created rather than surviving
+# until the next scheduled sweep. The cron is only a safety net for missed events.
+#
+# Runs as its own standalone workflow (rather than pruning inline right after the
+# buildah save) so it doesn't need actions:write threaded through
+# build-images-and-charts.yaml's callers (pr-e2e-testing.yaml,
+# pr-helm-upgrade-testing.yaml) - like update-test-timings.yaml, a workflow_run
+# target declares its own permissions independent of the workflow that triggered it.
 
 on:
+  workflow_run:
+    workflows: ["E2E testing (Parallel Build)", "Helm upgrade test"]
+    types: [completed]
+    branches: [main]
   schedule:
-    - cron: '30 4 * * *'  # daily, 04:30 UTC
+    - cron: '0 */2 * * *'  # safety net, every 2 hours, in case a workflow_run event is missed
   workflow_dispatch:
 
 permissions:
   actions: write
+
+concurrency:
+  group: prune-ci-caches
+  cancel-in-progress: true
 
 jobs:
   prune:
