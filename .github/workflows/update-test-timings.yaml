@@ -29,7 +29,7 @@ on:
     branches: [main]
 
 permissions:
-  # contents:read required for checkout; actions:write required for cache save and artifact reads.
+  # contents:read required for checkout; actions:write required for cache save/delete and artifact reads.
   contents: read
   actions: write
 
@@ -64,3 +64,18 @@ jobs:
         with:
           path: test/scripts/test-timings.json
           key: e2e-test-timings-${{ github.run_id }}
+
+      - name: Prune old timings caches
+        # Cache keys are immutable, so every run leaves its e2e-test-timings-<run_id>
+        # entry behind permanently unless something deletes it. Those duplicates are
+        # pure eviction pressure - only the newest one is ever read - and a ~10KB
+        # duplicate is exactly the kind of cheap, rarely-accessed entry GitHub evicts
+        # first once the repo is over its cache size budget. Keep only the entry just
+        # saved above so this cache stops competing with itself for eviction slots.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_KEY: e2e-test-timings-${{ github.run_id }}
+        run: |
+          gh cache list --key "e2e-test-timings-" --limit 100 --json id,key \
+            | jq -r --arg keep "${KEEP_KEY}" '.[] | select(.key != $keep) | .id' \
+            | xargs -r -n1 gh cache delete
