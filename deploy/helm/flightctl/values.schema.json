@@ -547,6 +547,19 @@
                   }
                 }
               }
+            },
+            "dependencySync": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the dependency-sync-git and dependency-sync-http tasks" }
+                  }
+                }
+              }
             }
           }
         }
