@@ -24,6 +24,14 @@ func (m *Manager) SetMetricsRecorder(metrics MetricsRecorder) {
 	m.metrics = metrics
 }
 
+// getMetricsRecorder returns the current metrics recorder.
+// Thread-safe: safe for concurrent access.
+func (m *Manager) getMetricsRecorder() MetricsRecorder {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.metrics
+}
+
 // GetActiveStrategy returns the active strategy version and the strategy itself.
 // Returns ("", nil) if no active strategy is set.
 func (m *Manager) GetActiveStrategy() (version string, strategy Strategy) {
@@ -106,10 +114,19 @@ func (m *Manager) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	m.mu.RUnlock()
 
 	if activeStrategy == "" {
+		if metrics := m.getMetricsRecorder(); metrics != nil {
+			metrics.RecordOperation(OpEncrypt, "", "", "error", 0)
+			metrics.RecordError(OpEncrypt, "", "", CategorizeError(ErrNoActiveStrategy))
+		}
 		return nil, ErrNoActiveStrategy
 	}
 	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrStrategyNotFound, activeStrategy)
+		wrappedErr := fmt.Errorf("%w: %s", ErrStrategyNotFound, activeStrategy)
+		if metrics := m.getMetricsRecorder(); metrics != nil {
+			metrics.RecordOperation(OpEncrypt, activeStrategy, "", "error", 0)
+			metrics.RecordError(OpEncrypt, activeStrategy, "", CategorizeError(wrappedErr))
+		}
+		return nil, wrappedErr
 	}
 
 	activeKeyID := strategy.ActiveKeyID()
@@ -120,13 +137,13 @@ func (m *Manager) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	body, err := strategy.EncryptPlaintext(ctx, plaintext)
 	duration := time.Since(start)
 
+	metrics := m.getMetricsRecorder()
 	if err != nil {
 		wrappedErr := fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 		recordError(span, wrappedErr)
-		// Record error metrics
-		if m.metrics != nil {
-			m.metrics.RecordOperation("encrypt", activeStrategy, activeKeyID, "error", duration)
-			m.metrics.RecordError("encrypt", activeStrategy, activeKeyID, CategorizeError(wrappedErr))
+		if metrics != nil {
+			metrics.RecordOperation(OpEncrypt, activeStrategy, activeKeyID, "error", duration)
+			metrics.RecordError(OpEncrypt, activeStrategy, activeKeyID, CategorizeError(wrappedErr))
 		}
 		return nil, wrappedErr
 	}
@@ -134,9 +151,8 @@ func (m *Manager) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	// Prefix format: enc:<version>:<encrypted-payload>
 	prefixed := fmt.Sprintf("enc:%s:%s", strategy.Version(), string(body))
 	recordSuccess(span)
-	// Record success metrics
-	if m.metrics != nil {
-		m.metrics.RecordOperation("encrypt", activeStrategy, activeKeyID, "success", duration)
+	if metrics != nil {
+		metrics.RecordOperation(OpEncrypt, activeStrategy, activeKeyID, "success", duration)
 	}
 	return []byte(prefixed), nil
 }
@@ -247,7 +263,12 @@ func (m *Manager) Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	// Has "enc:" prefix - must be valid encrypted format
 	version, body, ok := parseEncryptedFormat(data)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected enc:<version>:<data>", ErrInvalidFormat)
+		wrappedErr := fmt.Errorf("%w: expected enc:<version>:<data>", ErrInvalidFormat)
+		if metrics := m.getMetricsRecorder(); metrics != nil {
+			metrics.RecordOperation(OpDecrypt, "", "", "error", 0)
+			metrics.RecordError(OpDecrypt, "", "", CategorizeError(wrappedErr))
+		}
+		return nil, wrappedErr
 	}
 
 	// Route to the correct strategy based on version
@@ -256,13 +277,23 @@ func (m *Manager) Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrStrategyNotFound, version)
+		wrappedErr := fmt.Errorf("%w: %s", ErrStrategyNotFound, version)
+		if metrics := m.getMetricsRecorder(); metrics != nil {
+			metrics.RecordOperation(OpDecrypt, version, "", "error", 0)
+			metrics.RecordError(OpDecrypt, version, "", CategorizeError(wrappedErr))
+		}
+		return nil, wrappedErr
 	}
 
 	// Parse and decrypt
 	parsed, err := strategy.ParseBody(body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrParseFailed, err)
+		wrappedErr := fmt.Errorf("%w: %v", ErrParseFailed, err)
+		if metrics := m.getMetricsRecorder(); metrics != nil {
+			metrics.RecordOperation(OpDecrypt, version, "", "error", 0)
+			metrics.RecordError(OpDecrypt, version, "", CategorizeError(wrappedErr))
+		}
+		return nil, wrappedErr
 	}
 
 	ctx, span := startDecryptSpan(ctx, version, parsed.KeyID)
@@ -272,21 +303,20 @@ func (m *Manager) Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	plaintext, err := strategy.DecryptParsed(ctx, parsed)
 	duration := time.Since(start)
 
+	metrics := m.getMetricsRecorder()
 	if err != nil {
 		wrappedErr := fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
 		recordError(span, wrappedErr)
-		// Record error metrics
-		if m.metrics != nil {
-			m.metrics.RecordOperation("decrypt", version, parsed.KeyID, "error", duration)
-			m.metrics.RecordError("decrypt", version, parsed.KeyID, CategorizeError(wrappedErr))
+		if metrics != nil {
+			metrics.RecordOperation(OpDecrypt, version, parsed.KeyID, "error", duration)
+			metrics.RecordError(OpDecrypt, version, parsed.KeyID, CategorizeError(wrappedErr))
 		}
 		return nil, wrappedErr
 	}
 
 	recordSuccess(span)
-	// Record success metrics
-	if m.metrics != nil {
-		m.metrics.RecordOperation("decrypt", version, parsed.KeyID, "success", duration)
+	if metrics != nil {
+		metrics.RecordOperation(OpDecrypt, version, parsed.KeyID, "success", duration)
 	}
 	return plaintext, nil
 }

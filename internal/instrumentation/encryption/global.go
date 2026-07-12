@@ -75,7 +75,7 @@ func InitGlobalEncryptionFull(log logrus.FieldLogger, canaryStore CanaryStore, m
 
 		// Set metrics recorder if provided
 		if metrics != nil {
-			manager.metrics = metrics
+			manager.SetMetricsRecorder(metrics)
 		}
 
 		// Determine active strategy info for logging

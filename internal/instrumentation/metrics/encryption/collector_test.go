@@ -89,13 +89,9 @@ func TestEncryptionCollector_ActiveKeyInfo_NoStrategy(t *testing.T) {
 	mgr := enc.NewManager() // No strategy registered
 	collector := NewEncryptionCollector(mgr)
 
-	// Collect metrics
-	ch := make(chan prometheus.Metric, 100)
-	collector.Collect(ch)
-	close(ch)
-
-	// Should not panic, gauge should be reset
-	// We can't directly check if it's zero because the gauge doesn't exist without labels
+	// Collect should not panic and should emit no active_key_info series
+	assert.Equal(t, 0, testutil.CollectAndCount(collector.activeKeyInfo),
+		"Should emit no active_key_info metric when no strategy is registered")
 }
 
 func TestEncryptionCollector_Integration_WithManager(t *testing.T) {

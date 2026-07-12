@@ -137,15 +137,14 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 	ctx, span := startCanaryValidateSpan(ctx, canary.Strategy, canary.KeyID)
 	defer span.End()
 
+	metrics := cm.encMgr.getMetricsRecorder()
 	expected := fmt.Sprintf("flightctl-canary-%s-%s", canary.Strategy, canary.KeyID)
 
 	decrypted, err := cm.encMgr.Decrypt(ctx, canary.EncryptedValue)
 	if err != nil {
-		// err is already wrapped with sentinel error from Decrypt()
 		recordError(span, err)
-		// Record canary validation failure metrics
-		if cm.encMgr.metrics != nil {
-			cm.encMgr.metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "decrypt_failed")
+		if metrics != nil {
+			metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "decrypt_failed")
 		}
 		return ValidationResult{
 			Strategy: canary.Strategy,
@@ -156,11 +155,9 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 	}
 
 	if string(decrypted) != expected {
-		// Mismatch is an error condition
-		recordError(span, ErrDecryptionFailed)
-		// Record canary validation mismatch metrics
-		if cm.encMgr.metrics != nil {
-			cm.encMgr.metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "mismatch")
+		recordError(span, ErrCanaryMismatch)
+		if metrics != nil {
+			metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "mismatch")
 		}
 		return ValidationResult{
 			Strategy: canary.Strategy,
@@ -171,9 +168,8 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 	}
 
 	recordSuccess(span)
-	// Record successful canary validation metrics
-	if cm.encMgr.metrics != nil {
-		cm.encMgr.metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "success")
+	if metrics != nil {
+		metrics.RecordCanaryValidation(canary.Strategy, canary.KeyID, "success")
 	}
 	return ValidationResult{
 		Strategy: canary.Strategy,

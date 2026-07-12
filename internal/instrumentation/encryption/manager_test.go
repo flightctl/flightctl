@@ -3,6 +3,7 @@ package encryption
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"strings"
 	"testing"
 
@@ -593,4 +594,79 @@ func assertHasAttribute(t *testing.T, attrs []attribute.KeyValue, key, value str
 		}
 	}
 	t.Errorf("Expected attribute %s=%s not found in %v", key, value, attrs)
+}
+
+func TestManager_Encrypt_ErrorSpan(t *testing.T) {
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := NewManager()
+	mock := &mockStrategy{
+		version:     "v1",
+		activeKeyID: "default",
+		encryptFunc: func(ctx context.Context, data []byte) ([]byte, error) {
+			return nil, errors.New("encryption hardware failure")
+		},
+	}
+	mgr.RegisterStrategy(mock, true)
+
+	ctx := context.Background()
+	plaintext := []byte("test-data")
+
+	_, err := mgr.Encrypt(ctx, plaintext)
+	require.Error(t, err)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+
+	span := spans[0]
+	assert.Equal(t, "encrypt", span.Name())
+
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "encrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "error")
+}
+
+func TestManager_Decrypt_ErrorSpan(t *testing.T) {
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := NewManager()
+	mock := &mockStrategy{
+		version:     "v1",
+		activeKeyID: "default",
+		parseBodyFunc: func(body []byte) (*ParsedEncrypted, error) {
+			return &ParsedEncrypted{KeyID: "default"}, nil
+		},
+		decryptParsedFunc: func(ctx context.Context, parsed *ParsedEncrypted) ([]byte, error) {
+			return nil, errors.New("decryption failed")
+		},
+	}
+	mgr.RegisterStrategy(mock, true)
+
+	ctx := context.Background()
+	ciphertext := []byte("enc:v1:default:corrupted")
+
+	_, err := mgr.Decrypt(ctx, ciphertext)
+	require.Error(t, err)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+
+	span := spans[0]
+	assert.Equal(t, "decrypt", span.Name())
+
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "decrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "error")
 }

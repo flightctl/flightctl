@@ -10,6 +10,12 @@ import (
 	"github.com/stoewer/go-strcase"
 )
 
+// Operation names
+const (
+	OpEncrypt = "encrypt"
+	OpDecrypt = "decrypt"
+)
+
 // Sentinel errors for categorization
 var (
 	ErrNoActiveStrategy = errors.New("no active encryption strategy set")
@@ -20,6 +26,7 @@ var (
 	ErrParseFailed      = errors.New("parse failed")
 	ErrInvalidFormat    = errors.New("invalid format")
 	ErrInvalidKey       = errors.New("invalid key")
+	ErrCanaryMismatch   = errors.New("canary mismatch")
 )
 
 // MetricsRecorder is an interface for recording encryption metrics.
@@ -154,6 +161,8 @@ func CategorizeError(err error) string {
 		return "decrypt_failed"
 	case errors.Is(err, ErrEncryptionFailed):
 		return "encrypt_failed"
+	case errors.Is(err, ErrCanaryMismatch):
+		return "canary_mismatch"
 	case errors.Is(err, ErrNoActiveStrategy):
 		return "unsupported_strategy"
 	case errors.Is(err, ErrParseFailed):
