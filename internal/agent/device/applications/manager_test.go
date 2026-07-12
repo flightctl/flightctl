@@ -1185,7 +1185,7 @@ func TestManagerResolveConsole(t *testing.T) {
 }
 
 func mockExecPodmanComposeStop(mockExec *executer.MockExecuter, name string) *gomock.Call {
-	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
+	workDir := fmt.Sprintf("%s/%s", lifecycle.ComposeAppPath, name)
 	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	args := []string{"compose", "-p", id, "stop"}
 	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args).Return("", "", 0)
