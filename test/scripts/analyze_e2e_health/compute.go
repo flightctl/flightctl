@@ -24,6 +24,14 @@ type pipelineAgg struct {
 	phases      map[string][]float64
 	shardCounts map[string][]int
 	wallTimes   []float64
+	// noOpRuns holds runs that concluded "success" but never actually ran the
+	// e2e suite — e.g. a push that didn't touch any path matched by the
+	// workflow's changed-files filter, so every substantive job shows as
+	// GitHub-conclusion "skipped" while a trivial gate job still passes in
+	// seconds. These are excluded from wallTimes/phases (see aggregateRawJobs)
+	// and from JUnit-based accounting (see computeReport) since they carry no
+	// signal about real pipeline performance.
+	noOpRuns []runRef
 }
 
 // junitAgg is the in-memory result of aggregating raw JUnit run data.
@@ -45,8 +53,21 @@ type specResult struct {
 	GinkgoLabel     string `json:"ginkgo_label,omitempty"`
 }
 
+// hasPositiveDuration reports whether any key containing substr has a
+// positive duration in durByKey.
+func hasPositiveDuration(durByKey map[string]float64, substr string) bool {
+	for key, dur := range durByKey {
+		if dur > 0 && strings.Contains(key, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 // aggregateRawJobs converts raw per-run job data into pipeline timing observations.
 // Only successful runs contribute — failed runs abort early and skew averages.
+// Runs that concluded "success" without actually running the e2e suite (see
+// pipelineAgg.noOpRuns) are also excluded from timing observations.
 func aggregateRawJobs(rawRuns []rawRunEntry) pipelineAgg {
 	agg := pipelineAgg{
 		phases:      make(map[string][]float64),
@@ -103,6 +124,18 @@ func aggregateRawJobs(rawRuns []rawRunEntry) pipelineAgg {
 					stepMaxDur[stepKey] = step.DurationSec
 				}
 			}
+		}
+
+		// A run whose changed-files filter matched nothing has every
+		// substantive job show up as GitHub-conclusion "skipped" (start ==
+		// end, so jobDur <= 0 above filters them out of jobMaxDur), while a
+		// trivial gate job still lets the run conclude "success" in seconds.
+		// Such a run carries no signal about real pipeline duration — treat
+		// it as a no-op rather than let its near-zero wall time drag down
+		// the average.
+		if !hasPositiveDuration(jobMaxDur, "e2e-test") {
+			agg.noOpRuns = append(agg.noOpRuns, runRef{RunID: run.RunID, RunURL: run.RunURL, Date: run.Date})
+			continue
 		}
 
 		// Wall time = max(job.CompletedAt) - run.StartedAt, matching what
@@ -355,12 +388,15 @@ type reportData struct {
 	EstimatedWallTimeSecs float64
 	BaselineShardSecs     float64 // LPT slowest-shard estimate at current node count
 	PipelineOverviewReady bool    // true when overhead+shard breakdown is valid
+	PipelineSampleCount   int     // runs actually contributing to EstimatedWallTimeSecs (excludes no-op runs)
 
 	// Section 2: Flaky tests.
 	FlakeEntries             []flakeEntry
 	InfraInstabilityCount    int
 	PreTestFailureCount      int
 	PreTestFailureRefs       []runRef
+	NoOpRunCount             int // runs that concluded "success" without running the e2e suite at all
+	NoOpRunRefs              []runRef
 	TotalAnalyzedSpecs       int
 	FlakyCount               int
 	ConsistentlyFailingCount int
@@ -595,15 +631,26 @@ func computeShardDistrib(rawRuns []rawRunEntry, discoverySpecs []e2etestutils.Sp
 }
 
 func computeReport(jobsFile rawJobsFile, junitFiles []rawJUnitFile, discoverySpecs []e2etestutils.SpecInfo, topN int) *reportData {
+	pagg := aggregateRawJobs(jobsFile.Runs)
+
+	noOpRunIDs := make(map[int64]bool, len(pagg.noOpRuns))
+	for _, ref := range pagg.noOpRuns {
+		noOpRunIDs[ref.RunID] = true
+	}
+
 	// All run references come from jobsFile.Runs — every collected run has an
 	// entry there, including failed runs (with empty Jobs). This is the
-	// single source of truth for "what runs were analyzed".
+	// single source of truth for "what runs were analyzed", excluding no-op
+	// runs (pagg.noOpRuns) so they aren't miscounted as pre-test failures —
+	// they never ran, they didn't fail before running.
 	allRunRefs := make([]runRef, 0, len(jobsFile.Runs))
 	for _, jr := range jobsFile.Runs {
+		if noOpRunIDs[jr.RunID] {
+			continue
+		}
 		allRunRefs = append(allRunRefs, runRef{RunID: jr.RunID, RunURL: jr.RunURL, Date: jr.Date})
 	}
 
-	pagg := aggregateRawJobs(jobsFile.Runs)
 	jagg := aggregateJUnit(junitFiles, allRunRefs)
 	timings := computeTimings(junitFiles, allRunRefs)
 
@@ -614,10 +661,13 @@ func computeReport(jobsFile rawJobsFile, junitFiles []rawJUnitFile, discoverySpe
 		InfraInstabilityCount: len(jagg.infraRuns),
 		PreTestFailureCount:   len(jagg.noJUnit),
 		PreTestFailureRefs:    jagg.noJUnit,
+		NoOpRunCount:          len(pagg.noOpRuns),
+		NoOpRunRefs:           pagg.noOpRuns,
 	}
 
 	r.PipelinePhases = buildPipelinePhases(pagg)
 	r.EstimatedWallTimeSecs = estimateWallTime(pagg)
+	r.PipelineSampleCount = len(pagg.wallTimes)
 
 	r.FlakeEntries, r.TotalAnalyzedSpecs, r.FlakyCount, r.ConsistentlyFailingCount, r.CleanCount = computeFlakes(jagg)
 
@@ -808,7 +858,6 @@ func computeSlowest(timings map[string]specTiming, topN int) []specEntry {
 	}
 	return specs
 }
-
 
 // lptSimulate runs the LPT algorithm with the given timings and returns the
 // estimated total workflow time (pipeline overhead + max shard duration).
@@ -1077,4 +1126,3 @@ func inferShardCount(agg pipelineAgg) int {
 	}
 	return 10
 }
-
