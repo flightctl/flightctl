@@ -134,10 +134,15 @@ func (cm *CanaryManager) ValidateAll(ctx context.Context) ([]ValidationResult, e
 
 // validateOne validates a single canary.
 func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) ValidationResult {
+	ctx, span := startCanaryValidateSpan(ctx, canary.Strategy, canary.KeyID)
+	defer span.End()
+
 	expected := fmt.Sprintf("flightctl-canary-%s-%s", canary.Strategy, canary.KeyID)
 
 	decrypted, err := cm.encMgr.Decrypt(ctx, canary.EncryptedValue)
 	if err != nil {
+		// err is already wrapped with sentinel error from Decrypt()
+		recordError(span, err)
 		return ValidationResult{
 			Strategy: canary.Strategy,
 			KeyID:    canary.KeyID,
@@ -147,6 +152,8 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 	}
 
 	if string(decrypted) != expected {
+		// Mismatch is an error condition
+		recordError(span, ErrDecryptionFailed)
 		return ValidationResult{
 			Strategy: canary.Strategy,
 			KeyID:    canary.KeyID,
@@ -155,6 +162,7 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 		}
 	}
 
+	recordSuccess(span)
 	return ValidationResult{
 		Strategy: canary.Strategy,
 		KeyID:    canary.KeyID,

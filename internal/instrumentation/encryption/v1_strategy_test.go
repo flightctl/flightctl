@@ -108,7 +108,7 @@ func TestV1Strategy_SetActiveKey(t *testing.T) {
 	// Try to set non-existent key
 	err = strategy.SetActiveKey("2024-99")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not registered")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestV1Strategy_Version(t *testing.T) {

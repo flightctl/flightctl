@@ -117,7 +117,7 @@ func (s *V1Strategy) SetActiveKey(keyID string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.keys[keyID]; !exists {
-		return fmt.Errorf("key %s not registered in v1 strategy", keyID)
+		return fmt.Errorf("%w: key %s in v1 strategy", ErrKeyNotFound, keyID)
 	}
 	s.activeKey = keyID
 	return nil
