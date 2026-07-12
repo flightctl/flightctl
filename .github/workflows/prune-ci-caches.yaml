@@ -34,16 +34,25 @@ on:
     - cron: '0 */2 * * *'  # safety net, every 2 hours, in case a workflow_run event is missed
   workflow_dispatch:
 
-permissions:
-  actions: write
+# No top-level permissions: the only job below declares actions:write for
+# itself (needed for gh cache list/delete), scoped to that job rather than
+# every job in this workflow.
+permissions: {}
 
 concurrency:
   group: prune-ci-caches
-  cancel-in-progress: true
+  # Queue rather than cancel: a cancelled mid-loop run can leave some already-
+  # listed duplicates undeleted (harmless - the next run picks them up), but
+  # letting each trigger finish its own list+delete pass is simpler to reason
+  # about than partially-applied runs stacking up.
+  cancel-in-progress: false
 
 jobs:
   prune:
+    name: Prune duplicate caches
     runs-on: ubuntu-latest
+    permissions:
+      actions: write  # required for gh cache list/delete
     strategy:
       matrix:
         # Add a prefix here for any other cache that accumulates run-scoped

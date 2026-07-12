@@ -72,6 +72,9 @@ jobs:
         # duplicate is exactly the kind of cheap, rarely-accessed entry GitHub evicts
         # first once the repo is over its cache size budget. Keep only the entry just
         # saved above so this cache stops competing with itself for eviction slots.
+        # continue-on-error: this is housekeeping on top of an already-saved cache -
+        # a transient gh cache list/delete failure shouldn't fail the whole job.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_KEY: e2e-test-timings-${{ github.run_id }}
