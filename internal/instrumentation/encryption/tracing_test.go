@@ -16,32 +16,32 @@ func TestTracing_ErrorCategorization(t *testing.T) {
 		{
 			name:     "ErrNoActiveStrategy",
 			err:      ErrNoActiveStrategy,
-			expected: "no_active_strategy",
+			expected: "unsupported_strategy",
 		},
 		{
 			name:     "ErrStrategyNotFound",
 			err:      ErrStrategyNotFound,
-			expected: "strategy_not_found",
+			expected: "unsupported_strategy",
 		},
 		{
 			name:     "ErrKeyNotFound",
 			err:      ErrKeyNotFound,
-			expected: "key_not_found",
+			expected: "missing_key",
 		},
 		{
 			name:     "ErrEncryptionFailed",
 			err:      ErrEncryptionFailed,
-			expected: "encryption_failed",
+			expected: "encrypt_failed",
 		},
 		{
 			name:     "ErrDecryptionFailed",
 			err:      ErrDecryptionFailed,
-			expected: "decryption_failed",
+			expected: "decrypt_failed",
 		},
 		{
 			name:     "ErrParseFailed",
 			err:      ErrParseFailed,
-			expected: "parse_failed",
+			expected: "invalid_format",
 		},
 		{
 			name:     "ErrInvalidFormat",
@@ -51,7 +51,7 @@ func TestTracing_ErrorCategorization(t *testing.T) {
 		{
 			name:     "ErrInvalidKey",
 			err:      ErrInvalidKey,
-			expected: "invalid_key",
+			expected: "missing_key",
 		},
 		{
 			name:     "Unknown error",
@@ -67,7 +67,7 @@ func TestTracing_ErrorCategorization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := categorizeError(tt.err)
+			result := CategorizeError(tt.err)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

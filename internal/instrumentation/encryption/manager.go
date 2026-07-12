@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stoewer/go-strcase"
 )
@@ -13,6 +14,14 @@ func NewManager() *Manager {
 	return &Manager{
 		strategies: make(map[string]Strategy),
 	}
+}
+
+// SetMetricsRecorder sets the metrics recorder for this manager.
+// This is optional - if not set, no metrics will be recorded.
+func (m *Manager) SetMetricsRecorder(metrics MetricsRecorder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = metrics
 }
 
 // GetActiveStrategy returns the active strategy version and the strategy itself.
@@ -107,16 +116,28 @@ func (m *Manager) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	ctx, span := startEncryptSpan(ctx, activeStrategy, activeKeyID)
 	defer span.End()
 
+	start := time.Now()
 	body, err := strategy.EncryptPlaintext(ctx, plaintext)
+	duration := time.Since(start)
+
 	if err != nil {
 		wrappedErr := fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 		recordError(span, wrappedErr)
+		// Record error metrics
+		if m.metrics != nil {
+			m.metrics.RecordOperation("encrypt", activeStrategy, activeKeyID, "error", duration)
+			m.metrics.RecordError("encrypt", activeStrategy, activeKeyID, CategorizeError(wrappedErr))
+		}
 		return nil, wrappedErr
 	}
 
 	// Prefix format: enc:<version>:<encrypted-payload>
 	prefixed := fmt.Sprintf("enc:%s:%s", strategy.Version(), string(body))
 	recordSuccess(span)
+	// Record success metrics
+	if m.metrics != nil {
+		m.metrics.RecordOperation("encrypt", activeStrategy, activeKeyID, "success", duration)
+	}
 	return []byte(prefixed), nil
 }
 
@@ -247,13 +268,25 @@ func (m *Manager) Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	ctx, span := startDecryptSpan(ctx, version, parsed.KeyID)
 	defer span.End()
 
+	start := time.Now()
 	plaintext, err := strategy.DecryptParsed(ctx, parsed)
+	duration := time.Since(start)
+
 	if err != nil {
 		wrappedErr := fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
 		recordError(span, wrappedErr)
+		// Record error metrics
+		if m.metrics != nil {
+			m.metrics.RecordOperation("decrypt", version, parsed.KeyID, "error", duration)
+			m.metrics.RecordError("decrypt", version, parsed.KeyID, CategorizeError(wrappedErr))
+		}
 		return nil, wrappedErr
 	}
 
 	recordSuccess(span)
+	// Record success metrics
+	if m.metrics != nil {
+		m.metrics.RecordOperation("decrypt", version, parsed.KeyID, "success", duration)
+	}
 	return plaintext, nil
 }

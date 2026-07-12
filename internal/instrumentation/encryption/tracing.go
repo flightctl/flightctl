@@ -2,7 +2,6 @@ package encryption
 
 import (
 	"context"
-	"errors"
 
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -34,18 +33,6 @@ const (
 	actionEncryptPlaintext = "encrypt_plaintext"
 	actionReencrypt        = "reencrypt"
 	actionUnchanged        = "unchanged"
-)
-
-// Sentinel errors for categorization
-var (
-	ErrNoActiveStrategy = errors.New("no active encryption strategy set")
-	ErrStrategyNotFound = errors.New("strategy not found")
-	ErrKeyNotFound      = errors.New("key not found")
-	ErrEncryptionFailed = errors.New("encryption failed")
-	ErrDecryptionFailed = errors.New("decryption failed")
-	ErrParseFailed      = errors.New("parse failed")
-	ErrInvalidFormat    = errors.New("invalid format")
-	ErrInvalidKey       = errors.New("invalid key")
 )
 
 // startProcessSpan starts a span for ProcessEncryption operation.
@@ -102,39 +89,10 @@ func recordSuccess(span trace.Span) {
 // Does NOT include plaintext, ciphertext, keys, nonces, tags, or resource IDs.
 func recordError(span trace.Span, err error) {
 	span.SetAttributes(attribute.String(attrResult, resultError))
-	span.SetStatus(codes.Error, categorizeError(err))
+	span.SetStatus(codes.Error, CategorizeError(err))
 }
 
 // recordProcessAction records the action taken by ProcessEncryption.
 func recordProcessAction(span trace.Span, action string) {
 	span.SetAttributes(attribute.String(attrAction, action))
-}
-
-// categorizeError returns a safe error category without sensitive data.
-func categorizeError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	// Use errors.Is for proper error type checking
-	switch {
-	case errors.Is(err, ErrNoActiveStrategy):
-		return "no_active_strategy"
-	case errors.Is(err, ErrStrategyNotFound):
-		return "strategy_not_found"
-	case errors.Is(err, ErrKeyNotFound):
-		return "key_not_found"
-	case errors.Is(err, ErrDecryptionFailed):
-		return "decryption_failed"
-	case errors.Is(err, ErrEncryptionFailed):
-		return "encryption_failed"
-	case errors.Is(err, ErrParseFailed):
-		return "parse_failed"
-	case errors.Is(err, ErrInvalidFormat):
-		return "invalid_format"
-	case errors.Is(err, ErrInvalidKey):
-		return "invalid_key"
-	default:
-		return "operation_failed"
-	}
 }
