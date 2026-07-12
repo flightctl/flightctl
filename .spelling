@@ -456,7 +456,7 @@ PersistentVolumes
 PersistentVolume
 PersistentVolumeClaim
 fsync
-Pre-create
+pre-create
 Pre-bind
 NFS
 claimRef
