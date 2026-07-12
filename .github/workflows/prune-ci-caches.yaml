@@ -1,0 +1,71 @@
+name: "Prune duplicate CI caches"
+
+# Some CI caches are saved under a fresh, ever-changing key on every run on main
+# (e.g. buildah's ${{ runner.os }}-buildah-${{ github.run_id }}), and Actions cache
+# keys are immutable, so nothing ever cleans up the previous run's entry. Left alone
+# these duplicates accumulate indefinitely (three ~2.17GB buildah copies were alive
+# at once as of 2026-07-11) and become the main driver of the repo exceeding its
+# 10GB Actions cache budget. Once over budget, GitHub evicts the least-recently-used
+# cache to make room - including small, unrelated caches that never should have been
+# at risk (e2e-test-timings, ~10KB, was evicted this way: 2 of 5 sampled
+# discover-e2e-tests runs on 2026-07-10 found it missing and fell back to unweighted
+# scheduling).
+#
+# Pushes to main land as often as every few minutes during busy merge-queue bursts
+# (observed gaps as tight as ~1 minute apart, and routinely a handful of pushes per
+# hour on active days), so a low-frequency cron alone would still let several
+# duplicates pile up between runs. Primarily event-driven instead: triggers right
+# after each workflow that can produce a new buildah cache entry on main finishes,
+# so a duplicate is pruned within moments of being created rather than surviving
+# until the next scheduled sweep. The cron is only a safety net for missed events.
+#
+# Runs as its own standalone workflow (rather than pruning inline right after the
+# buildah save) so it doesn't need actions:write threaded through
+# build-images-and-charts.yaml's callers (pr-e2e-testing.yaml,
+# pr-helm-upgrade-testing.yaml) - like update-test-timings.yaml, a workflow_run
+# target declares its own permissions independent of the workflow that triggered it.
+
+on:
+  workflow_run:
+    workflows: ["E2E testing (Parallel Build)", "Helm upgrade test"]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '0 */2 * * *'  # safety net, every 2 hours, in case a workflow_run event is missed
+  workflow_dispatch:
+
+# No top-level permissions: the only job below declares actions:write for
+# itself (needed for gh cache list/delete), scoped to that job rather than
+# every job in this workflow.
+permissions: {}
+
+concurrency:
+  group: prune-ci-caches
+  # Queue rather than cancel: a cancelled mid-loop run can leave some already-
+  # listed duplicates undeleted (harmless - the next run picks them up), but
+  # letting each trigger finish its own list+delete pass is simpler to reason
+  # about than partially-applied runs stacking up.
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune duplicate caches
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # required for gh cache list/delete
+    strategy:
+      matrix:
+        # Add a prefix here for any other cache that accumulates run-scoped
+        # duplicates on a long-lived ref like main.
+        prefix:
+          - "Linux-buildah-"
+    steps:
+      - name: Prune old caches for ${{ matrix.prefix }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ matrix.prefix }}
+        run: |
+          # Keep only the most recently created entry for this prefix; delete the rest.
+          gh cache list --key "${PREFIX}" --limit 100 --sort created_at --order desc --json id,key \
+            | jq -r '.[1:] | .[].id' \
+            | xargs -r -n1 gh cache delete
