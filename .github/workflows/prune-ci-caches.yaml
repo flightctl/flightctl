@@ -63,6 +63,11 @@ jobs:
       - name: Prune old caches for ${{ matrix.prefix }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no actions/checkout step (nothing here needs repo files),
+          # so gh has no local .git to infer the target repo from - it errors with
+          # "failed to run git: fatal: not a git repository". GH_REPO tells gh
+          # which repo to target directly, without needing a git checkout.
+          GH_REPO: ${{ github.repository }}
           PREFIX: ${{ matrix.prefix }}
         run: |
           # Keep only the most recently created entry for this prefix; delete the rest.
