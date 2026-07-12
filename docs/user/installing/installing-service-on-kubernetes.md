@@ -57,6 +57,8 @@ alertmanager:
 
 Both values are optional and unset by default, which preserves the existing dynamic-provisioning behavior. Set only one of `volumeName` or `selector.matchLabels` per component to keep the binding unambiguous.
 
+Setting either value on a component also makes Flight Control render `storageClassName: ""` on that `PersistentVolumeClaim` when `global.storageClassName` is not explicitly set, instead of omitting the field. This keeps the binding working regardless of whether the cluster has a default `StorageClass` — without it, Kubernetes could inject a default class that does not match the pre-provisioned `PersistentVolume` and leave the claim unbound.
+
 > [!IMPORTANT]
 > `volumeName` and `selector` take effect only when Flight Control first creates the `PersistentVolumeClaim`. Kubernetes does not allow changing these fields on an existing `PersistentVolumeClaim`, so setting or changing them on an already-installed release causes `helm upgrade` to fail for that resource. Set the values before the first `helm install`.
 
