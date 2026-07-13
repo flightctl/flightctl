@@ -59,6 +59,7 @@ jobs:
         # duplicates on a long-lived ref like main.
         prefix:
           - "Linux-buildah-"
+          - "lint-cache-Linux-"
     steps:
       - name: Prune old caches for ${{ matrix.prefix }}
         env:
@@ -90,15 +91,15 @@ jobs:
         # now-unreachable merge-queue ref) used to end up holding its own ~1.1GB copy that
         # nothing ever cleaned up, since actions/cache never deletes on its own - the
         # corresponding save steps are now gated to github.ref == 'refs/heads/main' (see
-        # build-images-and-charts.yaml's "Save Go cache" and lint.yaml's "Save golangci-lint
-        # volumes cache"), so this job is now mainly a safety net for whatever's already
-        # accumulated plus any future cache added without that gate.
+        # build-images-and-charts.yaml's "Save Go cache"), so this job is now mainly a
+        # safety net for whatever's already accumulated plus any future cache added
+        # without that gate. (lint-cache-Linux- moved to the "prune" job above once it
+        # switched to a run_id-keyed save, same as buildah.)
         #
         # Add a prefix here for any other cache keyed by content hash (rather than run_id)
         # whose save is (or should be) gated to main.
         prefix:
           - "Linux-go-"
-          - "lint-cache-Linux-"
           - "Linux-dnf-"
           - "Linux-bootc-cache-smoke-"
     steps:

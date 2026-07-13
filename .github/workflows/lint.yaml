@@ -60,22 +60,26 @@ jobs:
           make tidy
           git diff --exit-code
 
-      # Restore-only (see the paired "Save ..." step below): this key is the same across
-      # every PR/branch, and Actions cache save is scoped per-ref, so a unified
-      # actions/cache@v4 here saves an unrestorable throwaway ~1GB copy on every single
-      # PR/branch run - see build-images-and-charts.yaml's "Save Go cache" for the full
-      # rationale. Restricting the save to main lets every other ref still benefit via
-      # restore-keys fallback to main's copy.
+      # Restore-only (see the paired "Save ..." step below). Unlike the standalone Go
+      # module/build cache elsewhere (keyed by hashFiles('**/go.sum') - see
+      # build-images-and-charts.yaml's "Save Go cache"), this volume set also holds
+      # golangci-lint's own analysis cache, which is invalidated by source file content
+      # and lint config, not go.sum - a go.sum-based key would leave it frozen at
+      # whatever it looked like right after the last go.sum change, however much source
+      # code changes in between. So instead this uses the same pattern as the buildah
+      # cache below: a fresh key every run (never an exact hit, cache-hit is always
+      # false) with restore-keys falling back to the newest entry, refreshing the
+      # snapshot on every main push regardless of go.sum. The "prune" job below keeps
+      # only the newest entry.
       - name: Restore golangci-lint volumes cache
-        id: cache-lint-restore
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: actions/cache/restore@v4
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         with:
           path: |
             ~/.local/share/containers/storage/volumes/golangci-lint-cache
             ~/.local/share/containers/storage/volumes/go-build-cache
             ~/.local/share/containers/storage/volumes/go-mod-cache
-          key: lint-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          key: lint-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             lint-cache-${{ runner.os }}-
 
@@ -84,11 +88,15 @@ jobs:
         run: make lint
 
       - name: Save golangci-lint volumes cache
-        if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-lint-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
+        # Main-only: this key is unique per run_id, so a save here always creates a new
+        # entry rather than updating an existing one - restricting to main (like the
+        # buildah cache) keeps PR/branch runs from leaving behind their own throwaway
+        # copy that nothing else can restore from and nothing else deletes.
+        if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' }}
         with:
           path: |
             ~/.local/share/containers/storage/volumes/golangci-lint-cache
             ~/.local/share/containers/storage/volumes/go-build-cache
             ~/.local/share/containers/storage/volumes/go-mod-cache
-          key: lint-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          key: lint-cache-${{ runner.os }}-${{ github.run_id }}
