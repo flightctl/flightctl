@@ -62,9 +62,16 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
-      - name: Cache Go modules
+      # Restore-only (see the paired "Save ..." steps below, run near the end of the job):
+      # these keys are the same across every PR/branch, and Actions cache save is scoped
+      # per-ref, so a unified actions/cache@v4 here would save an unrestorable throwaway
+      # copy on every single PR/branch run. Splitting restore/save lets the save be
+      # restricted to main (see build-images-and-charts.yaml's "Save Go cache" for the
+      # full rationale) while every ref still benefits from restoring main's copy.
+      - name: Restore Go modules cache
+        id: cache-go-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
@@ -73,9 +80,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Cache DNF packages
+      - name: Restore DNF cache
+        id: cache-dnf-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             /var/cache/dnf
@@ -84,9 +92,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dnf-
 
-      - name: Cache bootc-image-builder
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             bin/dnf-cache
@@ -122,6 +131,33 @@ jobs:
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
+
+      - name: Save Go modules cache
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Save DNF cache
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-smoke
+
+      - name: Save bootc-image-builder cache
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
 
       - name: Check
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}

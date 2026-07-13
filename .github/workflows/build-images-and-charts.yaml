@@ -223,6 +223,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
+        id: cache-go-restore
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -251,7 +252,14 @@ jobs:
 
       - name: Save Go cache
         uses: actions/cache/save@v4
-        if: always()
+        # Same key across every PR/branch (hashFiles('**/go.sum') rarely changes), but Actions
+        # cache save is scoped per-ref, so an unconditional save here leaves one throwaway
+        # ~1GB copy behind per PR/branch that nothing else can ever restore from and nothing
+        # ever deletes - pure eviction pressure on the repo's shared 10GB budget. Restrict
+        # saves to main, matching the buildah cache above; every other ref still benefits via
+        # restore-keys fallback to main's copy. cache-hit skip avoids racing this job's save
+        # against build-restore's identically-keyed save when both run on main concurrently.
+        if: always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cache/go-build
@@ -276,6 +284,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
+        id: cache-go-restore
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -304,7 +313,9 @@ jobs:
 
       - name: Save Go cache
         uses: actions/cache/save@v4
-        if: always()
+        # See the "Save Go cache" step in build-cli above for why this is main-only and
+        # skips on cache-hit.
+        if: always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cache/go-build
