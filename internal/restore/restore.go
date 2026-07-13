@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/sirupsen/logrus"
 )
 
@@ -66,6 +67,11 @@ func Restore(
 
 	log.Info("Validating deployment type compatibility")
 	if err := ValidateDeploymentType(metadata, deployer.Type()); err != nil {
+		return err
+	}
+
+	log.Info("Validating version compatibility")
+	if err := ValidateVersion(metadata, version.Get().String()); err != nil {
 		return err
 	}
 
