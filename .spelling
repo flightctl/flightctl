@@ -388,6 +388,8 @@ CRI-O
  air-gapped
  builder-worker.container
  imageBuilderWorker
+ serviceImages
+ pullSecretName
  bool
  imagebuilder
  repos
