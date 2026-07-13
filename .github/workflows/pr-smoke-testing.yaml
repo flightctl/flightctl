@@ -71,7 +71,7 @@ jobs:
       - name: Restore Go modules cache
         id: cache-go-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -83,7 +83,7 @@ jobs:
       - name: Restore DNF cache
         id: cache-dnf-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             /var/cache/dnf
@@ -95,7 +95,7 @@ jobs:
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             bin/dnf-cache
@@ -110,7 +110,7 @@ jobs:
 
       - name: Restore buildah cache
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
@@ -127,7 +127,7 @@ jobs:
 
       - name: Save buildah cache
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
@@ -136,7 +136,7 @@ jobs:
         # always(): populated by "Setup all dependencies"/build steps earlier in the job,
         # so still worth saving even if a later step (Create cluster/Deploy) fails on main.
         if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cache/go-build
@@ -145,7 +145,7 @@ jobs:
 
       - name: Save DNF cache
         if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             /var/cache/dnf
@@ -154,7 +154,7 @@ jobs:
 
       - name: Save bootc-image-builder cache
         if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             bin/dnf-cache
