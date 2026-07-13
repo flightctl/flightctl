@@ -50,6 +50,11 @@ data:
             schedule:
               interval: {{ default "3m" .Values.periodic.tasks.dependencySync.schedule.interval }}
           {{ end }}
+          {{ if .Values.periodic.tasks.repositoryTester }}
+          repositoryTester:
+            schedule:
+              interval: {{ default "2m" .Values.periodic.tasks.repositoryTester.schedule.interval }}
+          {{ end }}
         {{ end }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
