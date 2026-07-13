@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -318,14 +319,19 @@ func (cfg *Config) Complete() error {
 	return nil
 }
 
-// deriveRemoteAccessServer replaces the port in the enrollment service URL with the
-// remote-access gRPC port (7444). Returns an error if the enrollment URL cannot be parsed.
+// deriveRemoteAccessServer derives the flightctl-remote-access gRPC URL from the enrollment
+// service URL. It replaces the agent-api hostname prefix with agent-remote-access and uses
+// the remote-access gRPC port (7444).
 func deriveRemoteAccessServer(enrollmentServer string) (string, error) {
 	u, err := url.Parse(enrollmentServer)
 	if err != nil {
 		return "", fmt.Errorf("parsing enrollment server URL %q: %w", enrollmentServer, err)
 	}
-	u.Host = net.JoinHostPort(u.Hostname(), "7444")
+	hostname := u.Hostname()
+	if strings.HasPrefix(hostname, "agent-api.") {
+		hostname = strings.Replace(hostname, "agent-api.", "agent-remote-access.", 1)
+	}
+	u.Host = net.JoinHostPort(hostname, "7444")
 	u.Path = ""
 	return u.String(), nil
 }
