@@ -40,7 +40,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - name: Save Go modules cache
-        if: ${{ always() }}
+        # Main-only: this key is identical across every PR/branch (hashFiles('**/go.sum')
+        # rarely changes), and Actions cache save is scoped per-ref, so saving unconditionally
+        # leaves a throwaway ~1GB copy behind per PR that nothing else restores from and
+        # nothing ever deletes - see build-images-and-charts.yaml's "Save Go cache" for the
+        # full explanation. Other refs still benefit via restore-keys fallback to main's copy.
+        # cache-hit skip avoids racing against other jobs saving the same key concurrently
+        # on main (e.g. the multiple build-rpms matrix entries, each a separate job).
+        if: ${{ always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |

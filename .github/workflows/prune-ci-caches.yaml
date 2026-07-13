@@ -27,7 +27,7 @@ name: "Prune duplicate CI caches"
 
 on:
   workflow_run:
-    workflows: ["E2E testing (Parallel Build)", "Helm upgrade test"]
+    workflows: ["E2E testing (Parallel Build)", "Helm upgrade test", "Code Quality"]
     types: [completed]
     branches: [main]
   schedule:
@@ -59,6 +59,7 @@ jobs:
         # duplicates on a long-lived ref like main.
         prefix:
           - "Linux-buildah-"
+          - "lint-cache-Linux-"
     steps:
       - name: Prune old caches for ${{ matrix.prefix }}
         env:
@@ -73,4 +74,52 @@ jobs:
           # Keep only the most recently created entry for this prefix; delete the rest.
           gh cache list --key "${PREFIX}" --limit 100 --sort created_at --order desc --json id,key \
             | jq -r '.[1:] | .[].id' \
+            | xargs -r -n1 gh cache delete
+
+  prune-branch-scoped:
+    name: Prune branch-scoped duplicate caches
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # required for gh cache list/delete
+    strategy:
+      matrix:
+        # These caches use a content hash as their key (e.g. hashFiles('**/go.sum')), so
+        # unlike Linux-buildah- above the *same* key text is legitimately re-saved by every
+        # branch/PR that runs a workflow touching it - Actions cache save/restore is scoped
+        # per-ref, so an identical key on refs/pull/123/merge is a distinct cache entry from
+        # the one on refs/heads/main. Every currently-open PR (and every already-closed PR's
+        # now-unreachable merge-queue ref) used to end up holding its own ~1.1GB copy that
+        # nothing ever cleaned up, since actions/cache never deletes on its own - the
+        # corresponding save steps are now gated to github.ref == 'refs/heads/main' (see
+        # build-images-and-charts.yaml's "Save Go cache"), so this job is now mainly a
+        # safety net for whatever's already accumulated plus any future cache added
+        # without that gate. (lint-cache-Linux- moved to the "prune" job above once it
+        # switched to a run_id-keyed save, same as buildah.)
+        #
+        # Add a prefix here for any other cache keyed by content hash (rather than run_id)
+        # whose save is (or should be) gated to main.
+        prefix:
+          - "Linux-go-"
+          - "Linux-dnf-"
+          - "Linux-bootc-cache-smoke-"
+    steps:
+      - name: Prune superseded/branch-scoped caches for ${{ matrix.prefix }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PREFIX: ${{ matrix.prefix }}
+        run: |
+          # Keep only the single newest refs/heads/main-scoped entry (the fallback source for
+          # every other branch); delete everything else for this prefix - every PR/branch-
+          # scoped copy, plus any older main-ref entry left behind by a since-changed content
+          # hash (e.g. go.sum). If no main-ref entry exists yet, this deletes nothing for this
+          # prefix rather than guessing which copy to keep.
+          # --sort created_at: gh cache list defaults to last_accessed_at, which could
+          # push the true newest-by-createdAt entry past the --limit 100 cutoff if a
+          # prefix ever accumulates more than 100 entries.
+          gh cache list --key "${PREFIX}" --limit 100 --sort created_at --order desc --json id,key,ref,createdAt \
+            | jq -r '
+                (map(select(.ref == "refs/heads/main")) | sort_by(.createdAt) | last | .id) as $keep
+                | if $keep then .[] | select(.id != $keep) | .id else empty end
+              ' \
             | xargs -r -n1 gh cache delete
