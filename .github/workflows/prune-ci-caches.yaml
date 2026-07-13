@@ -114,7 +114,10 @@ jobs:
           # scoped copy, plus any older main-ref entry left behind by a since-changed content
           # hash (e.g. go.sum). If no main-ref entry exists yet, this deletes nothing for this
           # prefix rather than guessing which copy to keep.
-          gh cache list --key "${PREFIX}" --limit 100 --json id,key,ref,createdAt \
+          # --sort created_at: gh cache list defaults to last_accessed_at, which could
+          # push the true newest-by-createdAt entry past the --limit 100 cutoff if a
+          # prefix ever accumulates more than 100 entries.
+          gh cache list --key "${PREFIX}" --limit 100 --sort created_at --order desc --json id,key,ref,createdAt \
             | jq -r '
                 (map(select(.ref == "refs/heads/main")) | sort_by(.createdAt) | last | .id) as $keep
                 | if $keep then .[] | select(.id != $keep) | .id else empty end

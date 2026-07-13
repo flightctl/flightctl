@@ -133,7 +133,9 @@ jobs:
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
 
       - name: Save Go modules cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
+        # always(): populated by "Setup all dependencies"/build steps earlier in the job,
+        # so still worth saving even if a later step (Create cluster/Deploy) fails on main.
+        if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -142,7 +144,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Save DNF cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
+        if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -151,7 +153,7 @@ jobs:
           key: ${{ runner.os }}-dnf-smoke
 
       - name: Save bootc-image-builder cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true' }}
+        if: ${{ always() && steps.changed-files.outputs.any_changed == 'true' && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |

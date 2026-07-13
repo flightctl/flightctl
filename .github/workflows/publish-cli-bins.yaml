@@ -128,7 +128,9 @@ jobs:
           fi
 
       - name: Save Go modules cache
-        if: ${{ github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
+        # always(): populated during "Build" above regardless of whether the build itself
+        # succeeds, so still worth saving even if Build fails on main.
+        if: ${{ always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -137,7 +139,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Save DNF cache
-        if: ${{ github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
+        if: ${{ always() && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
