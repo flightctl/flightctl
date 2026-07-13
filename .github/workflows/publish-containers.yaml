@@ -15,6 +15,9 @@ env:
   # Enable BuildKit for cache mounts
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
+  SUPPORTED_OS: "el9 el10"
+  SUPPORTED_IMAGES: "api pam-issuer periodic worker cli-artifacts alert-exporter alertmanager-proxy userinfo-proxy db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access"
+  SUPPORTED_ARCHES: "amd64 arm64"
 
 jobs:
   generate-tags:
@@ -23,6 +26,8 @@ jobs:
       image_tags: ${{ steps.get-tags.outputs.image_tags }}
       helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
       helm_ui_image_tag: ${{ steps.get-tags.outputs.helm_ui_image_tag }}
+      os_matrix: ${{ steps.build-matrix.outputs.os }}
+      image_matrix: ${{ steps.build-matrix.outputs.images }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,9 +81,17 @@ jobs:
             echo "helm_ui_image_tag=${helm_ui_image_tag}"
           fi
 
+      - name: Build matrix arrays
+        id: build-matrix
+        run: |
+          os_json=$(echo "${SUPPORTED_OS}" | jq -R -c 'split(" ")')
+          images_json=$(echo "${SUPPORTED_IMAGES}" | jq -R -c 'split(" ")')
+          echo "os=${os_json}" >> "$GITHUB_OUTPUT"
+          echo "images=${images_json}" >> "$GITHUB_OUTPUT"
+
   publish-helm-charts-containers:
     runs-on: "ubuntu-24.04"
-    needs: [publish-flightctl-containers, generate-tags]
+    needs: [create-manifest-lists, generate-tags]
     steps:
       - uses: actions/checkout@v4
 
@@ -112,10 +125,16 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
-        os: ['el9', 'el10']
-        image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway', 'imagebuilder-api', 'imagebuilder-worker', 'remote-access']
+        os: ${{ fromJson(needs.generate-tags.outputs.os_matrix) }}
+        image: ${{ fromJson(needs.generate-tags.outputs.image_matrix) }}
+        arch: ['amd64', 'arm64']
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     needs: [generate-tags]
-    runs-on: "ubuntu-24.04"
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,9 +178,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-${{ matrix.arch }}-go-
 
       - name: Cache DNF packages
         uses: actions/cache@v4
@@ -169,17 +188,27 @@ jobs:
           path: |
             /var/cache/dnf
             /var/lib/dnf
-          key: ${{ runner.os }}-dnf-${{ matrix.os }}-${{ matrix.image }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-dnf-${{ matrix.os }}-${{ matrix.image }}
           restore-keys: |
-            ${{ runner.os }}-dnf-${{ matrix.os }}-
-            ${{ runner.os }}-dnf-
+            ${{ runner.os }}-${{ matrix.arch }}-dnf-${{ matrix.os }}-
+            ${{ runner.os }}-${{ matrix.arch }}-dnf-
+
+      - name: Generate arch-suffixed tags
+        id: arch-tags
+        run: |
+          TAGS="${{ needs.generate-tags.outputs.image_tags }}"
+          ARCH_TAGS=""
+          for tag in $TAGS; do
+            ARCH_TAGS="${ARCH_TAGS} ${tag}-${{ matrix.arch }}"
+          done
+          echo "tags=${ARCH_TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
         with:
           image: flightctl-${{ matrix.image }}-${{ matrix.os }}
-          tags: ${{ needs.generate-tags.outputs.image_tags }}
+          tags: ${{ steps.arch-tags.outputs.tags }}
           labels: |
             io.flightctl.flightctl-${{ matrix.image }}-${{ matrix.os }}.github.repository=${{ github.repository }}
             io.flightctl.flightctl-${{ matrix.image }}-${{ matrix.os }}.github.actor=${{ github.actor }}
@@ -211,3 +240,30 @@ jobs:
           registry: ${{ env.QUAY_ORG }}
           username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
           password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+
+  create-manifest-lists:
+    needs: [publish-flightctl-containers, generate-tags]
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Login to Quay.io
+        run: |
+          buildah login -u ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }} \
+            -p ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }} quay.io
+
+      - name: Create and push manifest lists
+        run: |
+          for os in ${SUPPORTED_OS}; do
+            for image in ${SUPPORTED_IMAGES}; do
+              FULL_IMAGE="${QUAY_ORG}/flightctl-${image}-${os}"
+              for tag in ${{ needs.generate-tags.outputs.image_tags }}; do
+                echo "Creating manifest list for ${FULL_IMAGE}:${tag}"
+                SOURCES=""
+                for arch in ${SUPPORTED_ARCHES}; do
+                  SOURCES="${SOURCES} docker://${FULL_IMAGE}:${tag}-${arch}"
+                done
+                buildah manifest create "${FULL_IMAGE}:${tag}" ${SOURCES}
+                buildah manifest push --all "${FULL_IMAGE}:${tag}" "docker://${FULL_IMAGE}:${tag}"
+                buildah manifest rm "${FULL_IMAGE}:${tag}"
+              done
+            done
+          done

@@ -76,6 +76,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 # services sub-package
 %package services
 Summary: Flight Control services
+ExclusiveArch: x86_64 aarch64
 Requires: bash
 Requires: podman
 Requires: python3-pyyaml
@@ -89,6 +90,7 @@ The flightctl-services package provides installation and setup of files for runn
 
 %package observability
 Summary: Complete Flight Control observability stack
+ExclusiveArch: x86_64 aarch64
 Requires:       flightctl-services = %{version}-%{release}
 Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
