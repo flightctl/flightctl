@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -16,9 +17,12 @@ type StaticAuthZ struct {
 	log logrus.FieldLogger
 }
 
-// Resource permissions based on K8s RBAC roles
-// Note: When a specific resource entry exists, it takes precedence over the wildcard "*".
-// An empty permission list (e.g., "resource": {}) explicitly denies access to that resource.
+// resourcePermissions defines role-based access control for all API resources.
+//
+// Precedence rules (mirrored by ExpandPermissions and CheckPermission):
+//  1. A specific resource entry always overrides the wildcard "*".
+//  2. An empty verb list (e.g. "resource": {}) is an explicit denial.
+//  3. If no specific entry exists, the wildcard verbs apply.
 var resourcePermissions = map[string]map[string][]string{
 	v1beta1.RoleOrgAdmin: {
 		"*": {"*"}, // Org admin has access to all resources and all operations within their organization
@@ -58,10 +62,79 @@ var resourcePermissions = map[string]map[string][]string{
 		"enrollmentrequests/approval": {"update"},
 		"organizations":               {"get", "list"},
 		"certificatesigningrequests":  {"get", "list", "create", "update"},
-		"imagebuilds":                 {"get", "list"}, // Installer can view available builds
-		"imageexports":                {"get", "list"}, // Installer can view available exports
-		"imageexports/download":       {"get"},         // Installer can download images/artifacts for installation
+		"imagebuilds":                 {"get", "list"},
+		"imageexports":                {"get", "list"},
+		"imageexports/download":       {"get"},
 	},
+}
+
+// syntheticResources lists CheckPermission resource names that have no
+// corresponding OpenAPI x-resource annotation (e.g. resources gated by
+// internal proxies rather than API routes). The genroles generator unions
+// this list with OpenAPI-derived resources so wildcard ("*") role permissions
+// expand to include them in the generated K8s ClusterRoles.
+var syntheticResources = []string{
+	"alerts", // gated by cmd/flightctl-alertmanager-proxy
+}
+
+// GetSyntheticResources returns a copy of the synthetic resource list.
+func GetSyntheticResources() []string {
+	return slices.Clone(syntheticResources)
+}
+
+// GetResourcePermissions returns a deep copy of the role-based permission map.
+// This is used by the Helm ClusterRole generator to produce K8s RBAC rules
+// that match the static authorization logic.
+func GetResourcePermissions() map[string]map[string][]string {
+	result := make(map[string]map[string][]string, len(resourcePermissions))
+	for role, resources := range resourcePermissions {
+		resCopy := make(map[string][]string, len(resources))
+		for resource, ops := range resources {
+			resCopy[resource] = slices.Clone(ops)
+		}
+		result[role] = resCopy
+	}
+	return result
+}
+
+// ExpandPermissions resolves a wildcard-based permission map into an explicit
+// resource-to-verbs mapping. It replicates the precedence logic from
+// CheckPermission: specific entries override the wildcard, and an empty verb
+// list means explicit denial. This is used by both the genroles generator and
+// the round-trip correctness test to ensure a single expansion implementation.
+func ExpandPermissions(perms map[string][]string, allResources []string) map[string][]string {
+	wildcardOps := perms["*"]
+
+	isWildcardOps := len(wildcardOps) == 1 && wildcardOps[0] == "*"
+	if isWildcardOps && len(perms) == 1 {
+		return map[string][]string{"*": {"*"}}
+	}
+
+	result := make(map[string][]string)
+	for _, resource := range allResources {
+		if ops, exists := perms[resource]; exists {
+			if len(ops) == 0 {
+				continue
+			}
+			result[resource] = ops
+		} else if len(wildcardOps) > 0 {
+			result[resource] = wildcardOps
+		}
+	}
+
+	for resource, ops := range perms {
+		if resource == "*" {
+			continue
+		}
+		if len(ops) == 0 {
+			continue
+		}
+		if _, exists := result[resource]; !exists {
+			result[resource] = ops
+		}
+	}
+
+	return result
 }
 
 func NewStaticAuthZ(log logrus.FieldLogger) *StaticAuthZ {
