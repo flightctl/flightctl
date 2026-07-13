@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -39,24 +38,25 @@ type InternalSessionRegistration interface {
 type ConsoleSessionManager struct {
 	serviceHandler service.Service
 	log            logrus.FieldLogger
+	notifier       ConsoleEventNotifier
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
+func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration, notifier ConsoleEventNotifier) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
 		serviceHandler:      serviceHandler,
 		log:                 log,
+		notifier:            notifier,
 		sessionRegistration: sessionRegistration,
 	}
 }
 
 func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) domain.Status {
 	var (
-		err                 error
-		newValue            string
-		nextRenderedVersion string
+		err      error
+		newValue string
 	)
 	for i := 0; i != 10; i++ {
 		device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
@@ -83,19 +83,11 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 			return domain.StatusInternalServerError(err.Error())
 		}
 		(*device.Metadata.Annotations)[domain.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
-		if err != nil {
-			return domain.StatusInternalServerError(err.Error())
-		}
-		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
 		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}
-	}
-	if err == nil {
-		err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion)
 	}
 	if err != nil {
 		return domain.StatusInternalServerError(err.Error())
@@ -200,6 +192,11 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 		}
 		return nil, domain.StatusInternalServerError(err.Error())
 	}
+
+	if err := m.notifier.NotifyConsole(ctx, orgId, deviceName); err != nil {
+		m.log.Warnf("StartSession: failed to notify device %s: %v", deviceName, err)
+	}
+
 	return session, domain.StatusOK()
 }
 

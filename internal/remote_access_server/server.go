@@ -40,7 +40,7 @@ type Server struct {
 	caBundleCerts  []*x509.Certificate
 	serverCerts    *crypto.TLSCertificateConfig
 	dataStore      store.Store
-	publisher      console.RenderedVersionPublisher
+	notifier       console.ConsoleEventNotifier
 	pendingStreams *sync.Map
 }
 
@@ -66,7 +66,7 @@ func New(
 	caBundleCerts []*x509.Certificate,
 	serverCerts *crypto.TLSCertificateConfig,
 	dataStore store.Store,
-	publisher console.RenderedVersionPublisher,
+	notifier console.ConsoleEventNotifier,
 ) (*Server, error) {
 	if cfg.RemoteAccessService == nil {
 		return nil, fmt.Errorf("remoteAccessService config section is required")
@@ -77,7 +77,7 @@ func New(
 		caBundleCerts:  caBundleCerts,
 		serverCerts:    serverCerts,
 		dataStore:      dataStore,
-		publisher:      publisher,
+		notifier:       notifier,
 		pendingStreams: &sync.Map{},
 	}, nil
 }
@@ -157,7 +157,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// App console.
 	svc := &storeAppConsoleService{deviceStore: s.dataStore.Device()}
-	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.publisher)
+	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.notifier)
 	appConsoleHandler := NewAppConsoleHandler(s.log, appConsoleMgr)
 
 	// HTTP router — mirrors flightctl-api: AuthN → IdentityMapping → OrgExtraction → AuthZ.

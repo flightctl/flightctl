@@ -12,6 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // mockAppDeviceService is a hand-written testify mock for AppConsoleDeviceService.
@@ -46,17 +47,22 @@ func (m *mockAppSessionRegistration) CloseSession(session *AppConsoleSession) er
 	return args.Error(0)
 }
 
-// mockRenderedPublisher is a hand-written testify mock for RenderedVersionPublisher.
-type mockRenderedPublisher struct {
+// mockConsoleEventNotifier is a hand-written testify mock for ConsoleEventNotifier.
+type mockConsoleEventNotifier struct {
 	mock.Mock
 }
 
-func (m *mockRenderedPublisher) StoreAndNotify(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error {
-	args := m.Called(ctx, orgId, name, renderedVersion)
+func (m *mockConsoleEventNotifier) NotifyConsole(ctx context.Context, orgId uuid.UUID, name string) error {
+	args := m.Called(ctx, orgId, name)
 	return args.Error(0)
 }
 
-func newTestAppManager(svc *mockAppDeviceService, reg *mockAppSessionRegistration, pub *mockRenderedPublisher) *AppConsoleSessionManager {
+func (m *mockConsoleEventNotifier) ClearConsoleNotification(ctx context.Context, orgId uuid.UUID, name string) error {
+	args := m.Called(ctx, orgId, name)
+	return args.Error(0)
+}
+
+func newTestAppManager(svc *mockAppDeviceService, reg *mockAppSessionRegistration, pub *mockConsoleEventNotifier) *AppConsoleSessionManager {
 	return NewAppConsoleSessionManager(svc, logrus.NewEntry(logrus.New()), reg, pub)
 }
 
@@ -73,7 +79,7 @@ func makeTestDevice(name string) *domain.Device {
 func TestAppConsoleSessionManager_StartSession_EmptyAppName(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "", "serial")
@@ -87,7 +93,7 @@ func TestAppConsoleSessionManager_StartSession_EmptyAppName(t *testing.T) {
 func TestAppConsoleSessionManager_StartSession_InvalidConsoleType(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "app1", "invalid")
@@ -101,7 +107,7 @@ func TestAppConsoleSessionManager_StartSession_InvalidConsoleType(t *testing.T) 
 func TestAppConsoleSessionManager_StartSession_DeviceNotFound(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -121,7 +127,7 @@ func TestAppConsoleSessionManager_StartSession_DeviceNotFound(t *testing.T) {
 func TestAppConsoleSessionManager_StartSession_DecommissionedDevice(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -141,7 +147,7 @@ func TestAppConsoleSessionManager_StartSession_DecommissionedDevice(t *testing.T
 func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -162,7 +168,7 @@ func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
 func TestAppConsoleSessionManager_CloseSession_RemovesAnnotation(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -189,7 +195,6 @@ func TestAppConsoleSessionManager_CloseSession_RemovesAnnotation(t *testing.T) {
 			capturedDevice = args.Get(3).(domain.Device)
 		}).
 		Return(device, nil)
-	pub.On("StoreAndNotify", mock.Anything, orgId, "device1", mock.Anything).Return(nil)
 
 	status := mgr.CloseSession(ctx, session)
 
@@ -205,7 +210,7 @@ func TestAppConsoleSessionManager_CloseSession_RemovesAnnotation(t *testing.T) {
 func TestAppConsoleSessionManager_CloseSession_AnnotationFailure_DoesNotUnregister(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -236,7 +241,7 @@ func TestAppConsoleSessionManager_CloseSession_AnnotationFailure_DoesNotUnregist
 func TestAppConsoleSessionManager_StartSession_RollsBackOnRegistrationFailure(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -246,7 +251,7 @@ func TestAppConsoleSessionManager_StartSession_RollsBackOnRegistrationFailure(t 
 	// GetDevice called multiple times: fast-path check, addAppSession loop, removeAppSession rollback loop
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).Return(device, nil)
-	pub.On("StoreAndNotify", mock.Anything, orgId, "device1", mock.Anything).Return(nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(fmt.Errorf("registration failed"))
 
 	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
@@ -260,7 +265,7 @@ func TestAppConsoleSessionManager_StartSession_RollsBackOnRegistrationFailure(t 
 func TestAppConsoleSessionManager_StartSession_ProceedsWhenPublishFails(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
-	pub := &mockRenderedPublisher{}
+	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
 	ctx := context.Background()
@@ -269,8 +274,8 @@ func TestAppConsoleSessionManager_StartSession_ProceedsWhenPublishFails(t *testi
 
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).Return(device, nil)
-	// StoreAndNotify fails — publish failure is non-fatal after a successful UpdateDevice.
-	pub.On("StoreAndNotify", mock.Anything, orgId, "device1", mock.Anything).Return(fmt.Errorf("redis unavailable")).Once()
+	// NotifyConsole failure is non-fatal — the session still starts.
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(fmt.Errorf("redis unavailable")).Once()
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
 
 	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
@@ -303,4 +308,70 @@ func TestRemoveAppSession_LastSession_ReturnsEmpty(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+func TestAppConsoleSessionManager_StartSession_DoesNotBumpDeviceAnnotationRenderedVersion(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{}
+	mgr := newTestAppManager(svc, reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := makeTestDevice("device1")
+	// Seed an existing rendered version that must survive the console start.
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = "99"
+
+	var capturedDevice domain.Device
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
+
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+
+	assert.Equal(t, http.StatusOK, int(status.Code))
+	assert.NotNil(t, session)
+	pub.AssertExpectations(t)
+
+	// DeviceAnnotationRenderedVersion must remain exactly as before — console start must not bump it.
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	v, exists := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion]
+	assert.True(t, exists, "DeviceAnnotationRenderedVersion should still be present in the saved device")
+	assert.Equal(t, "99", v, "DeviceAnnotationRenderedVersion must not be changed by console start")
+}
+
+func TestAppConsoleSessionManager_CloseSession_DoesNotCallNotifier(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{} // no expectations — must not be called
+	mgr := newTestAppManager(svc, reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	sessionID := uuid.New().String()
+
+	session := &AppConsoleSession{
+		UUID:       sessionID,
+		OrgId:      orgId,
+		DeviceName: "device1",
+		AppName:    "app1",
+	}
+
+	device := makeTestDevice("device1")
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"` + sessionID + `","appName":"app1"}]`
+
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).Return(device, nil)
+	reg.On("CloseSession", session).Return(nil)
+
+	status := mgr.CloseSession(ctx, session)
+
+	assert.Equal(t, http.StatusOK, int(status.Code))
+	pub.AssertNotCalled(t, "NotifyConsole")
+	pub.AssertNotCalled(t, "ClearConsoleNotification")
 }
