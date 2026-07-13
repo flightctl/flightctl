@@ -38,6 +38,9 @@ periodic:
     dependencySync:
       schedule:
         interval: 5s
+    repositoryTester:
+      schedule:
+        interval: 5s
 alertExporter:
   image:
     image: localhost/flightctl-alert-exporter

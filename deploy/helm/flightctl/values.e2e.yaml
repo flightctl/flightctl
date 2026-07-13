@@ -28,6 +28,9 @@ periodic:
     dependencySync:
       schedule:
         interval: 5s
+    repositoryTester:
+      schedule:
+        interval: 5s
 alertExporter:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"

@@ -104,6 +104,11 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 				merged[taskType] = meta
 			}
 		}
+		if periodicTasks.RepositoryTester.Schedule.Interval > 0 {
+			meta := merged[PeriodicTaskTypeRepositoryTester]
+			meta.Interval = time.Duration(periodicTasks.RepositoryTester.Schedule.Interval)
+			merged[PeriodicTaskTypeRepositoryTester] = meta
+		}
 	}
 
 	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {

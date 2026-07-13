@@ -560,6 +560,19 @@
                   }
                 }
               }
+            },
+            "repositoryTester": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the repository-tester task, which probes Repository resources and sets their Accessible condition" }
+                  }
+                }
+              }
             }
           }
         }
