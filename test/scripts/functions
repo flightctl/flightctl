@@ -341,6 +341,15 @@ function try_login() {
     fi
 
     if [[ "$is_quadlet" == "true" ]]; then
+      # For Quadlet/standalone, try AAP token auth first, then PAM
+      if [[ -n "${E2E_AAP_TOKEN:-}" ]]; then
+        echo "Quadlet mode detected with E2E_AAP_TOKEN, trying AAP token login"
+        if bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${E2E_AAP_TOKEN}" 2>/dev/null; then
+          return 0
+        fi
+        echo "Warning: Quadlet AAP token login failed" >&2
+      fi
+
       # For Quadlet/standalone, try PAM authentication
       echo "Quadlet mode detected, trying PAM login"
 
