@@ -2,6 +2,7 @@
 package infra
 
 import (
+	"context"
 	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,33 +40,31 @@ func SkipIfRBACNotSupported(rbacProvider RBACProvider) {
 	}
 }
 
-// quadletObservabilityServices are systemd services from the flightctl-observability stack
-// required by observability e2e tests on Quadlet (Prometheus scrapes API and gateway metrics).
-var quadletObservabilityServices = []ServiceName{
-	ServicePrometheus,
+// SkipIfObservabilityNotConfigured skips the suite when infra cannot provide ServicePrometheus.
+// Kind uses the auxiliary testcontainer instead and is not checked here.
+func SkipIfObservabilityNotConfigured(ctx context.Context, providers *Providers) {
+	switch providers.Infra.GetEnvironmentType() {
+	case EnvironmentQuadlet, EnvironmentOCP:
+		exists, err := providers.Infra.ServiceExists(ctx, ServicePrometheus)
+		if err != nil {
+			Fail(fmt.Sprintf("unable to check observability prometheus: %v", err))
+		}
+		if !exists {
+			Skip(observabilityPrometheusSkipMessage(providers.Infra.GetEnvironmentType()))
+		}
+	}
 }
 
-// SkipIfQuadletObservabilityNotRunning skips when on Quadlet and the observability stack
-// is not active. Requires flightctl-observability RPM and flightctl-observability.target.
-func SkipIfQuadletObservabilityNotRunning(lifecycle ServiceLifecycleProvider) {
-	if !IsQuadletEnvironment() {
-		return
-	}
-	if lifecycle == nil {
-		Fail("Quadlet observability tests require a lifecycle provider")
-	}
-	for _, svc := range quadletObservabilityServices {
-		running, err := lifecycle.IsRunning(svc)
-		if err != nil {
-			Fail(fmt.Sprintf("unable to check %s status: %v", svc, err))
-		}
-		if !running {
-			Skip(fmt.Sprintf(
-				"flightctl-observability stack not running (%s is not active); "+
-					"install flightctl-observability and run: systemctl enable --now flightctl-observability.target",
-				svc,
-			))
-		}
+func observabilityPrometheusSkipMessage(envType string) string {
+	switch envType {
+	case EnvironmentQuadlet:
+		return "flightctl-observability stack not running (flightctl-prometheus is not active); " +
+			"install flightctl-observability and run: systemctl enable --now flightctl-observability.target"
+	case EnvironmentOCP:
+		return "COO MonitoringStack not found (flightctl-monitoring-stack-prometheus service missing); " +
+			"install flightctl-monitoring-stack"
+	default:
+		return fmt.Sprintf("observability prometheus not configured for %s deployment", envType)
 	}
 }
 

@@ -8,7 +8,10 @@
 // the provider (e.g. from setup.GetDefaultProviders() or the harness).
 package infra
 
-import "io"
+import (
+	"context"
+	"io"
+)
 
 // ServiceName is a type-safe identifier for flightctl services.
 type ServiceName string
@@ -104,6 +107,10 @@ type InfraProvider interface {
 	// has no such pod. Quadlet reads db.type from service-config.yaml (deploy/podman/service-config.yaml);
 	// db.type=external uses an external Postgres instance instead of the flightctl-db container.
 	BuiltinDatabaseWorkloadAvailable() bool
+
+	// ServiceExists reports whether the deployment-specific resource for a logical service is present.
+	// For K8s: checks the Service object exists. For Quadlet: checks the systemd unit is active.
+	ServiceExists(ctx context.Context, service ServiceName) (bool, error)
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

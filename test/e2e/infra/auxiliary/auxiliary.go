@@ -1,6 +1,5 @@
 // Package auxiliary provides shared testcontainer-based services for E2E tests.
-// Registry and git server run for all deployments; aux Prometheus runs on K8s/KIND only
-// (Quadlet uses flightctl-prometheus from the observability stack).
+// These run the same regardless of deployment (K8s or Quadlet): registry, git server, prometheus, jaeger.
 // For deployment-specific infrastructure (where Flight Control runs), see the parent infra package
 // and infra/k8s, infra/quadlet.
 package auxiliary
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -49,34 +47,16 @@ const (
 	ServiceFileServer Service = "file-server"
 )
 
-// AllServices is the full aux set including Prometheus (K8s/KIND).
+// AllServices is the default set of shared aux services (started by Get(ctx)).
 // Does not include ServiceTracing, ServiceFileServer, ServiceKeycloak, ServiceTrustify; start on-demand.
 var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
-
-// DefaultServices returns the aux services to start via Get() or "aux-service start all".
-// Skips aux Prometheus on Quadlet (uses flightctl-prometheus from the observability stack).
-func DefaultServices() []Service {
-	if isQuadletE2EEnvironment() {
-		logrus.Info("Skipping aux Prometheus on Quadlet (uses flightctl-prometheus)")
-		return []Service{ServiceRegistry, ServiceGitServer}
-	}
-	return AllServices
-}
-
-func isQuadletE2EEnvironment() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("E2E_ENVIRONMENT"))) {
-	case "quadlet":
-		return true
-	}
-	return os.Getenv("FLIGHTCTL_QUADLETS") != ""
-}
 
 // Get returns the aux services, starting all of them if needed (singleton).
 func Get(ctx context.Context) *Services {
 	once.Do(func() {
 		ConfigureDockerHost()
 		var err error
-		svcs, err = StartServices(ctx, DefaultServices())
+		svcs, err = StartServices(ctx, AllServices)
 		if err != nil {
 			logrus.Fatalf("failed to start aux services: %v", err)
 		}

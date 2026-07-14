@@ -20,33 +20,9 @@ const (
 	metricsEndpointPath         = "/metrics"
 	telemetryGatewayConfigPath  = "jsonpath={.data.config\\.yaml}"
 	fleetImage                  = "quay.io/redhat/rhde:9.2"
-
-	ocpMonitoringStackPrometheusService = "flightctl-monitoring-stack-prometheus"
-	ocpMonitoringStackPrometheusPort    = 9090
 )
 
-func ocpPrometheusBackends(infraProvider infra.InfraProvider) ([]e2e.ServiceAccessBackend, error) {
-	releaseNamespace := infraProvider.GetExternalNamespace()
-	if releaseNamespace == "" {
-		return nil, fmt.Errorf("flightctl release namespace is not configured")
-	}
-	return []e2e.ServiceAccessBackend{
-		{
-			ServiceName: ocpMonitoringStackPrometheusService,
-			Namespaces:  []string{releaseNamespace},
-			Port:        ocpMonitoringStackPrometheusPort,
-			UseTLS:      false,
-			RequireAuth: false,
-		},
-	}, nil
-}
-
 var _ = Describe("Device observability", func() {
-	BeforeEach(func() {
-		providers := setup.GetDefaultProviders()
-		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
-	})
-
 	Context("telemetry gateway metrics", func() {
 		It("should export device host metrics via the telemetry gateway", Label("85040"), func() {
 			harness := e2e.GetWorkerHarness()
@@ -243,11 +219,6 @@ var _ = Describe("Device observability", func() {
 })
 
 var _ = Describe("Service observability", func() {
-	BeforeEach(func() {
-		providers := setup.GetDefaultProviders()
-		infra.SkipIfQuadletObservabilityNotRunning(providers.Lifecycle)
-	})
-
 	Context("service level prometheus metrics", func() {
 		It("should expose service level metrics via the prometheus server", Label("88170"), func() {
 			harness := e2e.GetWorkerHarness()
@@ -422,37 +393,20 @@ func getPrometheusURL() (string, error) {
 	return auxSvcs.Prometheus.URL, nil
 }
 
-// getServiceObservabilityPrometheusURL returns the Prometheus URL for observability tests.
-// On Quadlet uses flightctl-prometheus; on OCP uses the COO MonitoringStack; on KIND uses the aux testcontainer.
+// getServiceObservabilityPrometheusURL returns Prometheus for observability tests via infra,
+// falling back to the auxiliary testcontainer when infra has no prometheus (Kind).
 func getServiceObservabilityPrometheusURL() (string, func(), error) {
 	noopCleanup := func() {}
-	if infra.IsQuadletEnvironment() {
-		providers := setup.GetDefaultProviders()
-		url, cleanup, err := providers.Infra.ExposeService(infra.ServicePrometheus, "http")
-		if err != nil {
-			return "", noopCleanup, err
-		}
-		if cleanup == nil {
-			cleanup = noopCleanup
-		}
-		return url, cleanup, nil
-	}
+
 	providers := setup.GetDefaultProviders()
-	if providers.Infra.GetEnvironmentType() == infra.EnvironmentOCP {
-		harness := e2e.GetWorkerHarness()
-		backends, err := ocpPrometheusBackends(providers.Infra)
-		if err != nil {
-			return "", noopCleanup, err
-		}
-		url, _, _, cleanup, _, err := harness.StartFirstAvailableBackendAccess(backends, TENMINTIMEOUT)
-		if err != nil {
-			return "", noopCleanup, err
-		}
+	url, cleanup, err := providers.Infra.ExposeService(infra.ServicePrometheus, "http")
+	if err == nil && url != "" {
 		if cleanup == nil {
 			cleanup = noopCleanup
 		}
 		return url, cleanup, nil
 	}
-	url, err := getPrometheusURL()
+
+	url, err = getPrometheusURL()
 	return url, noopCleanup, err
 }

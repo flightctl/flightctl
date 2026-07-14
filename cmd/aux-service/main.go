@@ -163,7 +163,7 @@ func parseServices(args []string) ([]auxiliary.Service, error) {
 	for _, arg := range args {
 		switch arg {
 		case "all":
-			return auxiliary.DefaultServices(), nil
+			return auxiliary.AllServices, nil
 		case "registry":
 			services = append(services, auxiliary.ServiceRegistry)
 		case "git-server":

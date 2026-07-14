@@ -637,6 +637,19 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
+// ServiceExists reports whether the backing Quadlet service is active.
+func (p *InfraProvider) ServiceExists(ctx context.Context, service infra.ServiceName) (bool, error) {
+	info := GetServiceInfo(service)
+	if info.SystemdUnit == "" {
+		return false, fmt.Errorf("unknown service %q", service)
+	}
+	out, err := p.runCommandWithOptionalStdinContext(ctx, nil, "systemctl", "is-active", info.SystemdUnit)
+	if err != nil {
+		return false, nil
+	}
+	return strings.TrimSpace(out) == "active", nil
+}
+
 // BuiltinDatabaseWorkloadAvailable reports whether service-config uses the built-in DB container.
 // When db.type is external (see deploy/podman/service-config.yaml), there is no local flightctl-db
 // workload to exec pg_dump into, matching Helm external DB behavior.
