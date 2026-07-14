@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -25,10 +27,16 @@ const (
 	// running several in parallel overlaps their I/O wait without oversubscribing the
 	// runner's CPU.
 	uploadConcurrency = 4
+
+	// perCopyTimeout bounds a single "skopeo copy" invocation. Without it, a hung
+	// copy would pin an uploadConcurrency semaphore slot indefinitely and block aux
+	// startup forever; the largest observed single-image copy in CI is well under
+	// this budget.
+	perCopyTimeout = 5 * time.Minute
 )
 
 // UploadImages uploads all image bundles to the registry.
-func (s *Services) UploadImages() error {
+func (s *Services) UploadImages(ctx context.Context) error {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
@@ -44,7 +52,7 @@ func (s *Services) UploadImages() error {
 		len(bundles), s.Registry.URL)
 	for _, bundle := range bundles {
 		logrus.Infof("Uploading bundle: %s", filepath.Base(bundle))
-		if err := s.uploadBundle(bundle); err != nil {
+		if err := s.uploadBundle(ctx, bundle); err != nil {
 			return fmt.Errorf("failed to upload bundle %s: %w", bundle, err)
 		}
 	}
@@ -75,7 +83,7 @@ func (s *Services) findImageBundles(projectRoot string) []string {
 // storage just to immediately read it back out for push. skopeo streams the already
 // packaged layer blobs directly from the tar to the registry without ever touching
 // local storage.
-func (s *Services) uploadBundle(bundlePath string) error {
+func (s *Services) uploadBundle(ctx context.Context, bundlePath string) error {
 	refs, err := extractImageRefs(bundlePath)
 	if err != nil {
 		return err
@@ -93,7 +101,7 @@ func (s *Services) uploadBundle(bundlePath string) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			errCh <- s.copyImageFromBundle(bundlePath, ref)
+			errCh <- s.copyImageFromBundle(ctx, bundlePath, ref)
 		}(ref)
 	}
 	wg.Wait()
@@ -108,16 +116,24 @@ func (s *Services) uploadBundle(bundlePath string) error {
 }
 
 // copyImageFromBundle copies a single image reference out of a multi-image
-// docker-archive bundle directly to the registry.
-func (s *Services) copyImageFromBundle(bundlePath, ref string) error {
+// docker-archive bundle directly to the registry. Bounded by perCopyTimeout so a
+// hung skopeo process can't block the uploadConcurrency semaphore indefinitely.
+func (s *Services) copyImageFromBundle(ctx context.Context, bundlePath, ref string) error {
 	path := ref
 	if idx := strings.Index(ref, "/"); idx != -1 {
 		path = ref[idx+1:]
 	}
 	src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, ref)
 	dst := fmt.Sprintf("docker://%s/%s", s.Registry.URL, path)
-	copyCmd := exec.Command("skopeo", "copy", "--dest-tls-verify=false", src, dst)
-	if output, err := copyCmd.CombinedOutput(); err != nil {
+
+	copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
+	defer cancel()
+	copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
+	output, err := copyCmd.CombinedOutput()
+	if copyCtx.Err() != nil {
+		return fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+	}
+	if err != nil {
 		return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
 	}
 	return nil

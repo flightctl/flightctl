@@ -93,6 +93,66 @@ func TestMergeTasksWithConfig(t *testing.T) {
 	}
 }
 
+func TestMergeTasksWithConfig_DependencySync(t *testing.T) {
+	defaultDependencySyncInterval := periodicTasks[PeriodicTaskTypeDependencySyncGit].Interval
+
+	tests := []struct {
+		name             string
+		configJSON       string
+		expectedInterval time.Duration
+	}{
+		{
+			name:             "When no override is configured it should retain the default interval",
+			configJSON:       `{}`,
+			expectedInterval: defaultDependencySyncInterval,
+		},
+		{
+			name: "When interval is zero it should retain the default interval",
+			configJSON: `{
+				"periodic": {
+					"tasks": {
+						"dependencySync": {
+							"schedule": {
+								"interval": "0s"
+							}
+						}
+					}
+				}
+			}`,
+			expectedInterval: defaultDependencySyncInterval,
+		},
+		{
+			name: "When a custom interval is configured it should apply to both dependency-sync-git and dependency-sync-http",
+			configJSON: `{
+				"periodic": {
+					"tasks": {
+						"dependencySync": {
+							"schedule": {
+								"interval": "5s"
+							}
+						}
+					}
+				}
+			}`,
+			expectedInterval: 5 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			require.NoError(t, json.Unmarshal([]byte(tt.configJSON), cfg))
+
+			result := MergeTasksWithConfig(cfg)
+
+			require.Contains(t, result, PeriodicTaskTypeDependencySyncGit)
+			require.Contains(t, result, PeriodicTaskTypeDependencySyncHttp)
+			require.Equal(t, tt.expectedInterval, result[PeriodicTaskTypeDependencySyncGit].Interval)
+			require.Equal(t, tt.expectedInterval, result[PeriodicTaskTypeDependencySyncHttp].Interval)
+		})
+	}
+}
+
 func TestMergeTasksWithConfig_VulnerabilitySync(t *testing.T) {
 	tests := []struct {
 		name       string

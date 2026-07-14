@@ -59,7 +59,6 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			workerID2 := GinkgoParallelProcess()*100 + 1
 			workerID3 := GinkgoParallelProcess()*100 + 2
 			var harness2, harness3 *e2e.Harness
-			var harness2Ready, harness3Ready bool
 			g, _ := errgroup.WithContext(ctx)
 			g.Go(func() error {
 				var err error
@@ -68,11 +67,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					return err
 				}
 				harness2.SetTestContext(harness.GetTestContext())
-				if err := harness2.SetupVMFromPoolAndStartAgent(workerID2); err != nil {
-					return err
-				}
-				harness2Ready = true
-				return nil
+				return harness2.SetupVMFromPoolAndStartAgent(workerID2)
 			})
 			g.Go(func() error {
 				var err error
@@ -81,16 +76,14 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					return err
 				}
 				harness3.SetTestContext(harness.GetTestContext())
-				if err := harness3.SetupVMFromPoolAndStartAgent(workerID3); err != nil {
-					return err
-				}
-				harness3Ready = true
-				return nil
+				return harness3.SetupVMFromPoolAndStartAgent(workerID3)
 			})
 			setupErr := g.Wait()
 			// Register cleanup for whichever harnesses came up, regardless of the other's outcome,
-			// mirroring the sequential code's "only clean up what was actually set up" behavior.
-			if harness2Ready {
+			// mirroring the sequential code's "only clean up what was actually set up" behavior. A
+			// harness can be non-nil but only partially set up (NewTestHarnessWithVMPool succeeded,
+			// SetupVMFromPoolAndStartAgent failed), so key cleanup on non-nil rather than full readiness.
+			if harness2 != nil {
 				DeferCleanup(func() {
 					harness2.PrintAgentLogsIfFailed()
 					harness2.CaptureDeploymentLogsIfFailed()
@@ -98,7 +91,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 				})
 			}
-			if harness3Ready {
+			if harness3 != nil {
 				DeferCleanup(func() {
 					harness3.PrintAgentLogsIfFailed()
 					harness3.CaptureDeploymentLogsIfFailed()
