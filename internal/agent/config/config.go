@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -303,8 +304,8 @@ func (cfg *Config) Complete() error {
 		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
 		cfg.ManagementService.Config.AuthInfo = baseclient.AuthInfo{}
 	}
-	// If the remote-access service hasn't been specified, derive it from the enrollment service
-	// by replacing the port with the remote-access gRPC port (7444), keeping the same TLS config.
+	// If the remote-access service hasn't been specified, derive it from the enrollment service,
+	// keeping the same TLS config.
 	emptyRemoteAccessService := config.RemoteAccessService{}
 	if cfg.RemoteAccessService.Equal(&emptyRemoteAccessService) {
 		remoteAccessServer, err := deriveRemoteAccessServer(cfg.EnrollmentService.Config.Service.Server)
@@ -318,15 +319,44 @@ func (cfg *Config) Complete() error {
 	return nil
 }
 
-// deriveRemoteAccessServer replaces the port in the enrollment service URL with the
-// remote-access gRPC port (7444). Returns an error if the enrollment URL cannot be parsed.
+// deriveRemoteAccessServer derives the flightctl-remote-access gRPC URL from the enrollment
+// service URL.
+//
+// When the hostname doesn't have the agent-api prefix (Podman/Quadlet, where agent-api and
+// remote-access share one hostname on distinct hardcoded ports), the port always becomes the
+// remote-access gRPC port (7444).
+//
+// When the hostname has the agent-api prefix (Kubernetes Route/Gateway deployments), it's
+// swapped for agent-remote-access and the port is left as-is, since both hostnames are routed
+// purely by hostname/SNI through the very same external listener/port — except in nodePort
+// mode, where the enrollment port is the well-known agent NodePort (7443) and
+// flightctl-remote-access-agent is a distinct NodePort service on 7444.
 func deriveRemoteAccessServer(enrollmentServer string) (string, error) {
+	const nodePortAgentPort = "7443"
+	const remoteAccessAgentPort = "7444"
+
 	u, err := url.Parse(enrollmentServer)
 	if err != nil {
 		return "", fmt.Errorf("parsing enrollment server URL %q: %w", enrollmentServer, err)
 	}
-	u.Host = net.JoinHostPort(u.Hostname(), "7444")
 	u.Path = ""
+
+	hostname := u.Hostname()
+	if !strings.HasPrefix(hostname, "agent-api.") {
+		u.Host = net.JoinHostPort(hostname, remoteAccessAgentPort)
+		return u.String(), nil
+	}
+
+	hostname = "agent-remote-access." + strings.TrimPrefix(hostname, "agent-api.")
+	port := u.Port()
+	if port == nodePortAgentPort {
+		port = remoteAccessAgentPort
+	}
+	if port == "" {
+		u.Host = hostname
+		return u.String(), nil
+	}
+	u.Host = net.JoinHostPort(hostname, port)
 	return u.String(), nil
 }
 

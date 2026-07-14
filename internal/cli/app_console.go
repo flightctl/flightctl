@@ -17,6 +17,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -67,6 +68,17 @@ func deliverVNCData(ctx context.Context, wsRecvCh chan<- []byte, clientAttached 
 		// WebSocket reader while idle.
 	}
 	return nil
+}
+
+// ConsoleSessionError indicates the server or agent reported a session-level failure
+// (e.g. the requested application does not exist) over an already-established
+// WebSocket connection, as opposed to a transport/handshake-level error.
+type ConsoleSessionError struct {
+	Message string
+}
+
+func (e *ConsoleSessionError) Error() string {
+	return e.Message
 }
 
 // AppConsoleOptions holds the options for the "app console" command, which connects to the
@@ -354,12 +366,27 @@ func (o *AppConsoleOptions) connectAppViaWS(ctx context.Context, config *client.
 	}()
 
 	// WebSocket → stdout
+	// sessionErr is written by the recv goroutine below and read after the select; since the
+	// select can also wake up via <-done (e.g. stdin closing at the same time) rather than
+	// <-ctx.Done(), there is no guaranteed happens-before edge on a plain variable. Use
+	// atomic.Value, matching the tunnelErr pattern in connectVNCViaWS.
+	var sessionErr atomic.Value
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
 		for {
 			msgType, msg, err := conn.ReadMessage()
 			if err != nil {
+				// The server closes with consts.AppConsoleErrorCloseCode (instead of a
+				// normal closure) when the session failed server- or agent-side (e.g. the
+				// requested application does not exist) — surface that as a real error
+				// rather than a silent, successful exit.
+				var closeErr *websocket.CloseError
+				if errors.As(err, &closeErr) && closeErr.Code == consts.AppConsoleErrorCloseCode {
+					sessionErr.Store(error(&ConsoleSessionError{Message: closeErr.Text}))
+					cancel()
+					return
+				}
 				// A normal close from the remote end is not an error; avoid
 				// cancelling the context so connectAppViaWS returns nil.
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
@@ -382,6 +409,9 @@ func (o *AppConsoleOptions) connectAppViaWS(ctx context.Context, config *client.
 	case <-ctx.Done():
 	}
 
+	if err, ok := sessionErr.Load().(error); ok {
+		return err
+	}
 	return ctx.Err()
 }
 
@@ -461,7 +491,16 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 			_, data, err := wsConn.ReadMessage()
 			if err != nil {
 				if ctx.Err() == nil {
-					tunnelErr.Store(err)
+					// The server closes with consts.AppConsoleErrorCloseCode (instead of a
+					// normal closure) when the session failed server- or agent-side (e.g. the
+					// requested application does not exist) — surface that as a clean,
+					// recognizable error rather than a generic "tunnel connection lost".
+					var closeErr *websocket.CloseError
+					if errors.As(err, &closeErr) && closeErr.Code == consts.AppConsoleErrorCloseCode {
+						tunnelErr.Store(error(&ConsoleSessionError{Message: closeErr.Text}))
+					} else {
+						tunnelErr.Store(err)
+					}
 				}
 				return
 			}
@@ -478,6 +517,10 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 		}
 		if tunnelCtx.Err() != nil {
 			if err, ok := tunnelErr.Load().(error); ok {
+				var sessionErr *ConsoleSessionError
+				if errors.As(err, &sessionErr) {
+					return sessionErr
+				}
 				return fmt.Errorf("VNC tunnel connection lost: %w", err)
 			}
 			return nil

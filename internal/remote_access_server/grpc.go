@@ -73,12 +73,18 @@ func (s *Server) forwardChannels(ctx context.Context, stream pb.RouterService_St
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go s.pipeStreamToChannel(ctx, stream, session.RecvCh)
+	go s.pipeStreamToChannel(ctx, stream, session.RecvCh, session.ErrCh)
 	return s.pipeChannelToStream(ctx, session.SendCh, stream)
 }
 
-func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte) {
-	defer close(ch)
+// pipeStreamToChannel forwards agent payloads from stream to ch until the stream ends,
+// closing ch on every return path except the error one. When the agent reports a
+// session-level error, ch is deliberately left open (never closed) instead of closed
+// right after the errCh send: the consumer's select over both channels could otherwise
+// race and observe the close before (or instead of) the error, silently losing it. Since
+// the consumer is expected to stop reading from ch as soon as it observes errCh, leaving
+// ch open here is harmless — it is simply never read from again.
+func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte, errCh chan string) {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -87,16 +93,27 @@ func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterServic
 			} else {
 				s.log.Debugf("app console stream recv error: %v", err)
 			}
+			close(ch)
+			return
+		}
+		if agentErr := msg.GetError(); agentErr != "" {
+			s.log.Debugf("app console stream reported session error: %s", agentErr)
+			select {
+			case errCh <- agentErr:
+			case <-ctx.Done():
+			}
 			return
 		}
 		select {
 		case ch <- msg.GetPayload():
 		case <-ctx.Done():
 			s.log.Debug("app console stream context closed while forwarding payload")
+			close(ch)
 			return
 		}
 		if msg.GetClosed() {
 			s.log.Debug("app console stream closed by agent")
+			close(ch)
 			return
 		}
 	}

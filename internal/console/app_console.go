@@ -28,6 +28,11 @@ type AppConsoleSession struct {
 	SendCh     chan []byte
 	RecvCh     chan []byte
 	ProtocolCh chan string
+	// ErrCh carries a session-level failure reported by the agent (e.g. the requested
+	// application does not exist). The WebSocket handler must close the client
+	// connection with a distinguishable close code/reason instead of relaying this as
+	// console payload data.
+	ErrCh chan string
 }
 
 // AppConsoleDeviceService is the narrow interface AppConsoleSessionManager needs,
@@ -249,6 +254,7 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		SendCh:     make(chan []byte, ChannelSize),
 		RecvCh:     make(chan []byte, ChannelSize),
 		ProtocolCh: make(chan string, 1),
+		ErrCh:      make(chan string, 1),
 	}
 
 	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, addAppSession(session.UUID, appName, consoleType)); status.Code != http.StatusOK {

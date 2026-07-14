@@ -12,6 +12,9 @@ nodes:
   - containerPort: 3443 # flightctl API
     hostPort: 3443
     protocol: TCP
+  - containerPort: 3444 # flightctl remote access (app console)
+    hostPort: 3444
+    protocol: TCP
   - containerPort: 4317 # telemetry-gateway OTLP
     hostPort: 4317
     protocol: TCP    
@@ -26,6 +29,9 @@ nodes:
     protocol: TCP
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
+    protocol: TCP
+  - containerPort: 7444 # flightctl remote access agent gRPC (app console)
+    hostPort: 7444
     protocol: TCP
   - containerPort: 8090 # flightctl CLI artifacts
     hostPort: 8090

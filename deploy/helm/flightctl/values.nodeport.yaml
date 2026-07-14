@@ -14,3 +14,5 @@ dev:
     gitserver: 3222
     registry: 5000
     imagebuilderApi: 8445
+    remoteAccess: 3444
+    remoteAccessAgent: 7444

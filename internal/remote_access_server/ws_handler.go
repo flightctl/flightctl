@@ -4,16 +4,32 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/console"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
+
+// maxWSCloseReasonBytes is the maximum length of a WebSocket close frame reason.
+// RFC 6455 limits control frame payloads to 125 bytes, 2 of which are the status code.
+const maxWSCloseReasonBytes = 123
+
+// truncateWSCloseReason bounds msg to fit within a WebSocket close frame's reason field.
+// A naive byte-slice can cut a multi-byte UTF-8 rune in half at the boundary; ToValidUTF8
+// drops that dangling partial rune so the result is always valid UTF-8.
+func truncateWSCloseReason(msg string) string {
+	if len(msg) <= maxWSCloseReasonBytes {
+		return msg
+	}
+	return strings.ToValidUTF8(msg[:maxWSCloseReasonBytes], "")
+}
 
 // AppConsoleHandler handles WebSocket connections for application-level console sessions.
 type AppConsoleHandler struct {
@@ -160,12 +176,14 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 	}()
 
 	go func() {
+		closeCode := websocket.CloseNormalClosure
+		closeReason := ""
 		defer func() {
 			close(writerDone)
 			h.log.Debugf("sending close message to app console websocket for device %s app %s", deviceName, appName)
 			if err := conn.WriteControl(
 				websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				websocket.FormatCloseMessage(closeCode, closeReason),
 				time.Now().Add(time.Second*5),
 			); err != nil {
 				h.log.Errorf("failed to write close message to app console websocket for session %s: %v", session.UUID, err)
@@ -177,6 +195,17 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 			select {
 			case <-stopWriter:
 				h.log.Debugf("app console device channel closed for session %s", session.UUID)
+				return
+			case agentErr, ok := <-session.ErrCh:
+				if !ok {
+					return
+				}
+				// agentErr is agent/session-supplied and not sanitized; keep it (and the
+				// session ID) out of the info-level log and only surface it at debug level.
+				h.log.Infof("app console session for device %s app %s failed with an agent-reported error", deviceName, appName)
+				h.log.Debugf("app console session %s failure detail: %s", session.UUID, agentErr)
+				closeCode = consts.AppConsoleErrorCloseCode
+				closeReason = truncateWSCloseReason(agentErr)
 				return
 			case message, ok := <-session.RecvCh:
 				if !ok {

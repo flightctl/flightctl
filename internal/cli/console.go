@@ -486,6 +486,9 @@ func analyzeResponseAndExit(ctx context.Context, o *GlobalOptions, name string, 
 		case *httpstream.UpgradeFailureError:
 			exitCode = 255
 			emitUpgradeFailureError(ctx, o, name, err)
+		case *ConsoleSessionError:
+			exitCode = 255
+			fmt.Fprintf(os.Stderr, "Error for device %s: %s\n", name, concreteErr.Message)
 		default:
 			exitCode = 255
 			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)

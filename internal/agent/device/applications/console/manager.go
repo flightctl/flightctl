@@ -118,11 +118,15 @@ func (m *Manager) closeStream(s *managedSession) {
 	m.inactivate(s)
 }
 
+// sendErrorOverStream makes a best-effort attempt to notify the server of a session-level
+// failure before tearing the stream down. Send/CloseSend errors are intentionally ignored:
+// the caller is already abandoning this stream because of an earlier failure, so there is
+// nothing actionable to do if the notification itself fails other than proceed with cleanup.
 func sendErrorOverStream(streamClient grpc_v1.RouterService_StreamClient, msg string) {
 	if streamClient == nil {
 		return
 	}
-	_ = streamClient.Send(&grpc_v1.StreamRequest{Payload: []byte(msg)})
+	_ = streamClient.Send(&grpc_v1.StreamRequest{Error: msg})
 	_ = streamClient.CloseSend()
 }
 

@@ -60,7 +60,7 @@ type testVars struct {
 	mockStreamClient *MockRouterService_StreamClient
 	resolver         *mockResolver
 	logger           *log.PrefixLogger
-	sentPayloads     [][]byte
+	sentRequests     []*grpc_v1.StreamRequest
 	mu               sync.Mutex
 	once             sync.Once
 	recvChan         chan lo.Tuple2[*grpc_v1.StreamResponse, error]
@@ -109,10 +109,21 @@ func (v *testVars) mockStreamError(err error) {
 func (v *testVars) mockSend() {
 	v.mockStreamClient.EXPECT().Send(gomock.Any()).DoAndReturn(func(req *grpc_v1.StreamRequest) error {
 		v.mu.Lock()
-		v.sentPayloads = append(v.sentPayloads, req.Payload)
+		v.sentRequests = append(v.sentRequests, req)
 		v.mu.Unlock()
 		return nil
 	}).AnyTimes()
+}
+
+// lastSentError returns the Error field of the most recently sent StreamRequest, or ""
+// if no request has been sent yet.
+func (v *testVars) lastSentError() string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.sentRequests) == 0 {
+		return ""
+	}
+	return v.sentRequests[len(v.sentRequests)-1].GetError()
 }
 
 func (v *testVars) mockRecv() {
@@ -141,25 +152,6 @@ func (v *testVars) sendEOF() {
 	v.once.Do(func() {
 		close(v.recvChan)
 	})
-}
-
-// waitSessions blocks until all of the manager's session goroutines have finished, or fails
-// the test after waitSessionsTimeout. Without a deadline, a regression in session teardown
-// would hang the whole test binary instead of failing the specific test.
-const waitSessionsTimeout = 5 * time.Second
-
-func (v *testVars) waitSessions(t *testing.T) {
-	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		v.manager.sessionWg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(waitSessionsTimeout):
-		t.Fatal("timed out waiting for console session goroutines to finish")
-	}
 }
 
 func makeDevice(sessions []v1beta1.DeviceRemoteSession) *v1beta1.Device {
@@ -207,10 +199,7 @@ func TestAppConsoleManager(t *testing.T) {
 			return v.closeSendCalled
 		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called")
 
-		v.mu.Lock()
-		payloads := v.sentPayloads
-		v.mu.Unlock()
-		require.NotEmpty(payloads, "expected an error message to be sent over gRPC")
+		require.Equal("app is not a VM workload", v.lastSentError(), "expected the resolver error to be sent via the Error field, not Payload")
 	})
 
 	t.Run("When the gRPC Stream call fails it should skip the session without panicking", func(t *testing.T) {
@@ -324,28 +313,7 @@ func TestAppConsoleManager(t *testing.T) {
 			return v.closeSendCalled
 		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called after dial failure")
 
-		v.mu.Lock()
-		payloads := v.sentPayloads
-		v.mu.Unlock()
-		require.NotEmpty(payloads, "expected error payload after dial failure")
-	})
-}
-
-func TestSyncMalformedAnnotation(t *testing.T) {
-	t.Run("When the remote session annotation is malformed JSON it should skip gracefully", func(t *testing.T) {
-		require := require.New(t)
-		v := setupTestVars(t, nil)
-
-		annotations := map[string]string{
-			v1beta1.DeviceAnnotationRemoteSession: "not-valid-json",
-		}
-		device := &v1beta1.Device{
-			Metadata: v1beta1.ObjectMeta{Annotations: &annotations},
-		}
-		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
-
-		require.Empty(v.manager.activeSessions)
+		require.Contains(v.lastSentError(), "podman exec: no such container", "expected the dial error to be sent via the Error field, not Payload")
 	})
 }
 
@@ -366,7 +334,7 @@ func TestVMVNCSession(t *testing.T) {
 			{SessionID: sessionID, AppName: "my-vm", ConsoleType: "vnc"},
 		})
 		v.manager.Sync(v.ctx, device)
-		v.waitSessions(t)
+		v.manager.sessionWg.Wait()
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -374,10 +342,7 @@ func TestVMVNCSession(t *testing.T) {
 			return v.closeSendCalled
 		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called after dial failure")
 
-		v.mu.Lock()
-		payloads := v.sentPayloads
-		v.mu.Unlock()
-		require.NotEmpty(payloads, "expected error payload after dial failure")
+		require.Contains(v.lastSentError(), "podman exec: no such container", "expected the dial error to be sent via the Error field, not Payload")
 	})
 
 	t.Run("When a VNC session runs end-to-end it should bridge and terminate on gRPC EOF", func(t *testing.T) {
@@ -400,7 +365,7 @@ func TestVMVNCSession(t *testing.T) {
 		v.manager.Sync(v.ctx, device)
 
 		v.sendEOF()
-		v.waitSessions(t)
+		v.manager.sessionWg.Wait()
 	})
 
 	t.Run("When a VNC session starts it should not send an initial CR", func(t *testing.T) {
@@ -450,6 +415,24 @@ func TestVMVNCSession(t *testing.T) {
 		// n > 0 indicates the bug (an unsolicited byte was written).
 		require.Equal(0, result.n, "vm vnc session must not write an initial byte before the gRPC stream sends data")
 		require.Error(result.err, "expected the read to fail (deadline exceeded or connection closed) since no data should have been written")
+	})
+}
+
+func TestSyncMalformedAnnotation(t *testing.T) {
+	t.Run("When the remote session annotation is malformed JSON it should skip gracefully", func(t *testing.T) {
+		require := require.New(t)
+		v := setupTestVars(t, nil)
+
+		annotations := map[string]string{
+			v1beta1.DeviceAnnotationRemoteSession: "not-valid-json",
+		}
+		device := &v1beta1.Device{
+			Metadata: v1beta1.ObjectMeta{Annotations: &annotations},
+		}
+		v.manager.Sync(v.ctx, device)
+		v.manager.sessionWg.Wait()
+
+		require.Empty(v.manager.activeSessions)
 	})
 }
 
