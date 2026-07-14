@@ -2287,6 +2287,13 @@ paths:
             x-enum-varnames:
               - ConsoleTypeSerial
               - ConsoleTypeVnc
+        - name: force
+          in: query
+          required: false
+          description: If true, take over an already-active console session for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
+          schema:
+            type: boolean
+            default: false
       responses:
         "101":
           description: Switching Protocols
