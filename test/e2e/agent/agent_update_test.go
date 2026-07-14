@@ -311,10 +311,17 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			// offline), the periodic healthcheck may briefly flip the device to
 			// Unknown before the first heartbeat lands. The key invariant is that
 			// the device stays on the original image and doesn't reboot (retry v11).
+			//
+			// 45s (not the original 2m): a spurious retry would show up as a BootID
+			// change the moment a re-deploy reboot starts, which doesn't need the full
+			// deploy+reboot cycle to observe - it only needs the reboot to begin. That's
+			// the same order of magnitude as other "prove nothing happens" stability
+			// windows in this package (see agent_prefetch_manager_test.go), not tied to
+			// any hardware/OS timing constant the way the deploy/reboot cycles above are.
 			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.SystemInfo.BootID == stableBootID
-			}, "2m")
+			}, "45s")
 			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
 
 			By("Recovering with a new good OS image after rollback (operator pushes a fix)")
