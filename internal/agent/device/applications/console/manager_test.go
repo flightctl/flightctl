@@ -397,6 +397,13 @@ type mockSessionStream struct {
 	closeSendCalled chan struct{}
 	closeOnce       sync.Once
 	streamCtx       context.Context
+	// ready is closed the first time setStreamCtx runs, i.e. once this mock's Stream() call
+	// has actually happened. Tests that need to trigger a takeover only after a specific
+	// session's Start() has reached Stream() must wait on this instead of on Manager's
+	// activeSessions, which is populated earlier (before ResolveConsole/Stream) and so cannot
+	// distinguish "session tracked" from "session's stream call has happened".
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 func newMockSessionStream(ctrl *gomock.Controller) *mockSessionStream {
@@ -404,6 +411,7 @@ func newMockSessionStream(ctrl *gomock.Controller) *mockSessionStream {
 		stream:          NewMockRouterService_StreamClient(ctrl),
 		recvChan:        make(chan lo.Tuple2[*grpc_v1.StreamResponse, error]),
 		closeSendCalled: make(chan struct{}),
+		ready:           make(chan struct{}),
 	}
 	s.stream.EXPECT().Send(gomock.Any()).DoAndReturn(func(req *grpc_v1.StreamRequest) error {
 		s.mu.Lock()
@@ -438,11 +446,13 @@ func (s *mockSessionStream) sendEOF() {
 }
 
 // setStreamCtx records the outgoing context Stream() was called with, so later Send() calls
-// can be rejected once it is done -- exactly as a real gRPC client stream would behave.
+// can be rejected once it is done -- exactly as a real gRPC client stream would behave. It
+// also signals ready, since this is only ever called from the Stream() mock itself.
 func (s *mockSessionStream) setStreamCtx(ctx context.Context) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.streamCtx = ctx
+	s.mu.Unlock()
+	s.readyOnce.Do(func() { close(s.ready) })
 }
 
 func (s *mockSessionStream) errors() []string {
@@ -495,11 +505,14 @@ func TestSyncReplacesSessionID(t *testing.T) {
 		device1 := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(oldSessionID, "my-vm")})
 		manager.Sync(context.Background(), device1)
 
-		require.Eventually(func() bool {
-			manager.mu.Lock()
-			defer manager.mu.Unlock()
-			return len(manager.activeSessions) == 1
-		}, 2*time.Second, 10*time.Millisecond, "expected the old session to become active")
+		// Wait for the old session's own Stream() call to have happened (not just for it to be
+		// tracked in activeSessions, which happens earlier and races against a new session's
+		// Start() also reaching Stream() first, which would bind the mocks to the wrong session).
+		select {
+		case <-oldStream.ready:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected the old session's Stream() call to happen before triggering the takeover")
+		}
 
 		device2 := makeDevice([]v1beta1.DeviceRemoteSession{
 			{SessionID: newSessionID, AppName: "my-vm", ConsoleType: "serial", ReplacesSessionID: oldSessionID},

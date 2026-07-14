@@ -64,9 +64,13 @@ func bridgeConn(ctx context.Context, label string, conn io.ReadWriteCloser, stre
 		// this goroutine is the only one that ever calls Send(), so no locking is needed.
 		defer func() {
 			if reason := evictionReasonFromContext(ctx); reason != "" {
-				_ = streamClient.Send(&grpc_v1.StreamRequest{Error: reason})
+				if sendErr := streamClient.Send(&grpc_v1.StreamRequest{Error: reason}); sendErr != nil {
+					logger.Debugf("%s: failed to send takeover notice over gRPC stream: %v", label, sendErr)
+				}
 			}
-			_ = streamClient.CloseSend()
+			if closeErr := streamClient.CloseSend(); closeErr != nil {
+				logger.Debugf("%s: failed to close send side of gRPC stream: %v", label, closeErr)
+			}
 		}()
 		buf := make([]byte, 4096)
 		for {
