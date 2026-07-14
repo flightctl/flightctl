@@ -60,6 +60,7 @@ jobs:
         prefix:
           - "Linux-buildah-"
           - "lint-cache-Linux-"
+          - "cache-lychee-"
     steps:
       - name: Prune old caches for ${{ matrix.prefix }}
         env:
