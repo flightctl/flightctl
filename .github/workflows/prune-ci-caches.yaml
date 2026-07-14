@@ -102,6 +102,7 @@ jobs:
           - "Linux-go-"
           - "Linux-dnf-"
           - "Linux-bootc-cache-smoke-"
+          - "Linux-bootc-cache-e2e-unified-"
     steps:
       - name: Prune superseded/branch-scoped caches for ${{ matrix.prefix }}
         env:
