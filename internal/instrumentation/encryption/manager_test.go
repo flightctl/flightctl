@@ -3,11 +3,16 @@ package encryption
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestManager_RegisterStrategy(t *testing.T) {
@@ -114,7 +119,7 @@ func TestManager_SetActiveStrategy(t *testing.T) {
 	// Unknown version should error
 	err = mgr.SetActiveStrategy("v3")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not registered")
+	assert.ErrorIs(t, err, ErrStrategyNotFound)
 }
 
 func TestManager_EncryptDecrypt(t *testing.T) {
@@ -154,7 +159,7 @@ func TestManager_EncryptWithoutActiveStrategy(t *testing.T) {
 
 	_, err := mgr.Encrypt(ctx, []byte("data"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no active encryption strategy")
+	assert.ErrorIs(t, err, ErrNoActiveStrategy)
 }
 
 func TestManager_DecryptPlaintextPassthrough(t *testing.T) {
@@ -228,7 +233,7 @@ func TestManager_DecryptInvalidFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := mgr.Decrypt(ctx, []byte(tt.data))
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid encrypted format")
+			assert.ErrorIs(t, err, ErrInvalidFormat)
 		})
 	}
 }
@@ -242,7 +247,7 @@ func TestManager_DecryptUnknownVersion(t *testing.T) {
 
 	_, err := mgr.Decrypt(ctx, []byte("enc:v99:ciphertext"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no decryption strategy registered for version")
+	assert.ErrorIs(t, err, ErrStrategyNotFound)
 }
 
 // mockStrategy is a test helper that implements the Strategy interface
@@ -474,4 +479,194 @@ func TestProcessEncryption_Idempotent_MultipleRoundTrips(t *testing.T) {
 	// All results after first should be identical (idempotent)
 	assert.Equal(t, result1, result2, "Second call should preserve")
 	assert.Equal(t, result2, result3, "Third call should preserve")
+}
+
+func TestManager_Encrypt_CreatesSpan(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	ctx := context.Background()
+	plaintext := []byte("test-data")
+
+	_, err := mgr.Encrypt(ctx, plaintext)
+	require.NoError(t, err)
+
+	// Verify span was created
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1, "Should create exactly one span")
+
+	span := spans[0]
+	assert.Equal(t, "encrypt", span.Name())
+
+	// Verify attributes
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "encrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "success")
+}
+
+func TestManager_Decrypt_CreatesSpan(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	ctx := context.Background()
+	plaintext := []byte("test-data")
+
+	encrypted, err := mgr.Encrypt(ctx, plaintext)
+	require.NoError(t, err)
+
+	// Clear previous spans
+	spanRecorder.Reset()
+
+	_, err = mgr.Decrypt(ctx, encrypted)
+	require.NoError(t, err)
+
+	// Verify span was created
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1, "Should create exactly one span")
+
+	span := spans[0]
+	assert.Equal(t, "decrypt", span.Name())
+
+	// Verify attributes
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "decrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "success")
+}
+
+func TestManager_ProcessEncryption_CreatesSpan(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	ctx := context.Background()
+	plaintext := []byte("test-data")
+
+	_, err := mgr.ProcessEncryption(ctx, plaintext)
+	require.NoError(t, err)
+
+	// Verify spans were created (process + encrypt)
+	spans := spanRecorder.Ended()
+	require.GreaterOrEqual(t, len(spans), 1, "Should create at least one span")
+
+	// Find the process span
+	var processSpan sdktrace.ReadOnlySpan
+	found := false
+	for _, span := range spans {
+		if span.Name() == "process" {
+			processSpan = span
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "Should have process span")
+
+	// Verify attributes
+	attrs := processSpan.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "process")
+	assertHasAttribute(t, attrs, "encryption.action", "encrypt_plaintext")
+	assertHasAttribute(t, attrs, "encryption.result", "success")
+}
+
+// assertHasAttribute checks if attributes contain the expected key-value pair
+func assertHasAttribute(t *testing.T, attrs []attribute.KeyValue, key, value string) {
+	t.Helper()
+	for _, attr := range attrs {
+		if string(attr.Key) == key && attr.Value.AsString() == value {
+			return
+		}
+	}
+	t.Errorf("Expected attribute %s=%s not found in %v", key, value, attrs)
+}
+
+func TestManager_Encrypt_ErrorSpan(t *testing.T) {
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := NewManager()
+	mock := &mockStrategy{
+		version:     "v1",
+		activeKeyID: "default",
+		encryptFunc: func(ctx context.Context, data []byte) ([]byte, error) {
+			return nil, errors.New("encryption hardware failure")
+		},
+	}
+	mgr.RegisterStrategy(mock, true)
+
+	ctx := context.Background()
+	plaintext := []byte("test-data")
+
+	_, err := mgr.Encrypt(ctx, plaintext)
+	require.Error(t, err)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+
+	span := spans[0]
+	assert.Equal(t, "encrypt", span.Name())
+
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "encrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "error")
+}
+
+func TestManager_Decrypt_ErrorSpan(t *testing.T) {
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := NewManager()
+	mock := &mockStrategy{
+		version:     "v1",
+		activeKeyID: "default",
+		parseBodyFunc: func(body []byte) (*ParsedEncrypted, error) {
+			return &ParsedEncrypted{KeyID: "default"}, nil
+		},
+		decryptParsedFunc: func(ctx context.Context, parsed *ParsedEncrypted) ([]byte, error) {
+			return nil, errors.New("decryption failed")
+		},
+	}
+	mgr.RegisterStrategy(mock, true)
+
+	ctx := context.Background()
+	ciphertext := []byte("enc:v1:default:corrupted")
+
+	_, err := mgr.Decrypt(ctx, ciphertext)
+	require.Error(t, err)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+
+	span := spans[0]
+	assert.Equal(t, "decrypt", span.Name())
+
+	attrs := span.Attributes()
+	assertHasAttribute(t, attrs, "encryption.operation", "decrypt")
+	assertHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertHasAttribute(t, attrs, "encryption.result", "error")
 }

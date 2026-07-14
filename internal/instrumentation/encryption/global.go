@@ -50,12 +50,19 @@ func (p Plaintext) Bytes() []byte {
 // Thread safety: This function uses sync.Once to ensure single initialization.
 // After initialization completes, concurrent Encrypt/Decrypt calls are safe.
 func InitGlobalEncryption(log logrus.FieldLogger) error {
-	return InitGlobalEncryptionWithCanary(log, nil)
+	return InitGlobalEncryptionFull(log, nil, nil)
 }
 
 // InitGlobalEncryptionWithCanary initializes encryption with optional canary store.
 // If canaryStore is nil, canary functionality is disabled.
 func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanaryStore) error {
+	return InitGlobalEncryptionFull(log, canaryStore, nil)
+}
+
+// InitGlobalEncryptionFull initializes encryption with optional canary store and metrics.
+// If canaryStore is nil, canary functionality is disabled.
+// If metrics is nil, metrics recording is disabled.
+func InitGlobalEncryptionFull(log logrus.FieldLogger, canaryStore CanaryStore, metrics MetricsRecorder) error {
 	globalManagerOnce.Do(func() {
 		v1Strategy, err := NewV1Strategy()
 		if err != nil {
@@ -65,6 +72,11 @@ func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanarySt
 
 		manager := NewManager()
 		manager.RegisterStrategy(v1Strategy, true)
+
+		// Set metrics recorder if provided
+		if metrics != nil {
+			manager.SetMetricsRecorder(metrics)
+		}
 
 		// Determine active strategy info for logging
 		activeVersion, activeStrategy := manager.GetActiveStrategy()

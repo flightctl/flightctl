@@ -117,7 +117,7 @@ func (s *V1Strategy) SetActiveKey(keyID string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.keys[keyID]; !exists {
-		return fmt.Errorf("key %s not registered in v1 strategy", keyID)
+		return fmt.Errorf("%w: key %s in v1 strategy", ErrKeyNotFound, keyID)
 	}
 	s.activeKey = keyID
 	return nil
@@ -202,7 +202,7 @@ func (s *V1Strategy) ParseBody(body []byte) (*ParsedEncrypted, error) {
 	// Parse keyID:payload format
 	parts := strings.SplitN(str, ":", 2)
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid v1 format: expected keyID:base64data, got %q", str)
+		return nil, fmt.Errorf("invalid v1 format: expected keyID:base64data")
 	}
 
 	keyID := parts[0]
