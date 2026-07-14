@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -32,26 +34,28 @@ func TestFleetApplicationLifecycleLogic_SyncFleet(t *testing.T) {
 			},
 		}
 
-		mockService := service.NewMockService(ctrl)
-		mockService.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+		mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
 			Items: []domain.Device{
 				*createTestDevice("device-1", "Fleet/"+fleetName),
 				*createTestDevice("device-2", "Fleet/"+fleetName),
 			},
 		}, domain.Status{Code: http.StatusOK})
 
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1",
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1",
 			map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":{"desiredState":"stopped"}}`}, []string(nil)).
 			Return(domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2",
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2",
 			map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":{"desiredState":"stopped"}}`}, []string(nil)).
 			Return(domain.Status{Code: http.StatusOK})
 
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
 
-		logic := NewFleetApplicationLifecycleLogic(log, mockService, orgId, event)
+		logic := NewFleetApplicationLifecycleLogic(log, mockFleetSvc, mockDeviceSvc, mockEventSvc, orgId, event)
 		require.NoError(t, logic.SyncFleet(context.Background()))
 	})
 
@@ -68,18 +72,20 @@ func TestFleetApplicationLifecycleLogic_SyncFleet(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr(fleetName)},
 		}
 
-		mockService := service.NewMockService(ctrl)
-		mockService.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+		mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
 			Items: []domain.Device{*createTestDevice("device-1", "Fleet/"+fleetName)},
 		}, domain.Status{Code: http.StatusOK})
 
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1",
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1",
 			map[string]string{}, []string{domain.DeviceAnnotationFleetApplicationLifecycle}).
 			Return(domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
 
-		logic := NewFleetApplicationLifecycleLogic(log, mockService, orgId, event)
+		logic := NewFleetApplicationLifecycleLogic(log, mockFleetSvc, mockDeviceSvc, mockEventSvc, orgId, event)
 		require.NoError(t, logic.SyncFleet(context.Background()))
 	})
 
@@ -99,22 +105,24 @@ func TestFleetApplicationLifecycleLogic_SyncFleet(t *testing.T) {
 			},
 		}
 
-		mockService := service.NewMockService(ctrl)
-		mockService.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+		mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
 			Items: []domain.Device{
 				*createTestDevice("device-1", "Fleet/"+fleetName),
 				*createTestDevice("device-2", "Fleet/"+fleetName),
 			},
 		}, domain.Status{Code: http.StatusOK})
 
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).
 			Return(domain.Status{Code: http.StatusInternalServerError, Message: "boom"})
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2", gomock.Any(), gomock.Any()).
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2", gomock.Any(), gomock.Any()).
 			Return(domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
 
-		logic := NewFleetApplicationLifecycleLogic(log, mockService, orgId, event)
+		logic := NewFleetApplicationLifecycleLogic(log, mockFleetSvc, mockDeviceSvc, mockEventSvc, orgId, event)
 		err := logic.SyncFleet(context.Background())
 		require.Error(t, err, "device-1's failure should surface as an error even though device-2 was processed")
 	})
@@ -135,26 +143,28 @@ func TestFleetApplicationLifecycleLogic_SyncFleet(t *testing.T) {
 			},
 		}
 
-		mockService := service.NewMockService(ctrl)
-		mockService.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
 
 		firstPageContinue := "page-2"
 		gomock.InOrder(
-			mockService.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
 				Metadata: domain.ListMeta{Continue: &firstPageContinue},
 				Items:    []domain.Device{*createTestDevice("device-1", "Fleet/"+fleetName)},
 			}, domain.Status{Code: http.StatusOK}),
-			mockService.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
 				Items: []domain.Device{*createTestDevice("device-2", "Fleet/"+fleetName)},
 			}, domain.Status{Code: http.StatusOK}),
 		)
 
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
-		mockService.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-2", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-1", "app-1")).Times(1)
+		mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgId, matchesDeviceApplicationLifecycleEvent("device-2", "app-1")).Times(1)
 
-		logic := NewFleetApplicationLifecycleLogic(log, mockService, orgId, event)
+		logic := NewFleetApplicationLifecycleLogic(log, mockFleetSvc, mockDeviceSvc, mockEventSvc, orgId, event)
 		require.NoError(t, logic.SyncFleet(context.Background()))
 	})
 
@@ -171,10 +181,12 @@ func TestFleetApplicationLifecycleLogic_SyncFleet(t *testing.T) {
 		}
 
 		fleet := &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr(fleetName)}}
-		mockService := service.NewMockService(ctrl)
-		mockService.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
 
-		logic := NewFleetApplicationLifecycleLogic(log, mockService, orgId, event)
+		logic := NewFleetApplicationLifecycleLogic(log, mockFleetSvc, mockDeviceSvc, mockEventSvc, orgId, event)
 		require.Error(t, logic.SyncFleet(context.Background()))
 	})
 }

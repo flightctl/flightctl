@@ -1,4 +1,4 @@
-package service
+package device
 
 import (
 	"context"
@@ -7,16 +7,15 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-// decodeLifecycleOverrides unmarshals a raw DeviceAnnotationApplicationLifecycle or
-// FleetAnnotationApplicationLifecycle annotation value for assertions that need to check
-// individual fields (e.g. ignoring the exact, non-deterministic desiredStateVersion stamp).
+// decodeLifecycleOverrides unmarshals a raw DeviceAnnotationApplicationLifecycle annotation
+// value for assertions that need to check individual fields (e.g. ignoring the exact,
+// non-deterministic desiredStateVersion stamp).
 func decodeLifecycleOverrides(t *testing.T, raw string) map[string]domain.ApplicationLifecycleOverride {
 	t.Helper()
 	overrides := map[string]domain.ApplicationLifecycleOverride{}
@@ -25,9 +24,9 @@ func decodeLifecycleOverrides(t *testing.T, raw string) map[string]domain.Applic
 }
 
 // newLifecycleTestDevice creates a device with a single container application named appName,
-// registers it in a fresh ServiceHandler backed by TestStore, and returns the handler along with
-// the org and device name to use in calls.
-func newLifecycleTestDevice(t *testing.T, appName string) (h *ServiceHandler, orgId uuid.UUID, deviceName string) {
+// registers it in a fresh DeviceServiceHandler backed by the fake stores, and returns the
+// handler along with the org and device name to use in calls.
+func newLifecycleTestDevice(t *testing.T, appName string) (h Service, st *fakeStore, ev *fakeEvents, orgId uuid.UUID, deviceName string) {
 	t.Helper()
 	require := require.New(t)
 
@@ -49,18 +48,14 @@ func newLifecycleTestDevice(t *testing.T, appName string) (h *ServiceHandler, or
 		},
 	}
 
-	ts := &TestStore{}
-	wc := &DummyWorkerClient{}
-	h = &ServiceHandler{
-		eventHandler: NewEventHandler(ts, wc, log.InitLogs()),
-		store:        ts,
-		workerClient: wc,
-	}
+	st = newFakeStore()
+	ev = &fakeEvents{}
+	h = NewDeviceServiceHandler(st.device, st.fleet, ev, nil, "agent.example.com", logrus.New())
 	orgId = uuid.New()
-	_, err := h.store.Device().Create(context.Background(), orgId, &device, nil)
+	_, err := st.device.Create(context.Background(), orgId, &device, nil)
 	require.NoError(err)
 
-	return h, orgId, deviceName
+	return h, st, ev, orgId, deviceName
 }
 
 func TestStopStartRestartDeviceApplication(t *testing.T) {
@@ -68,7 +63,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("StopDeviceApplication sets desiredState=stopped without touching the declarative spec", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		dev, status := h.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -84,7 +79,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("StartDeviceApplication sets desiredState=running", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -99,7 +94,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("RestartDeviceApplication increments restartGeneration starting from 0", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		dev, status := h.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -112,7 +107,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Stop then restart preserves both fields in the annotation", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -128,7 +123,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Restart then start preserves restartGeneration and sets desiredState=running", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -144,7 +139,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Restart after start continues incrementing restartGeneration rather than resetting it", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		dev, status := h.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -162,7 +157,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Lifecycle calls for an unknown application return not found", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.StopDeviceApplication(ctx, orgId, deviceName, "does-not-exist")
 		require.Equal(int32(http.StatusNotFound), status.Code)
@@ -173,7 +168,7 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Lifecycle calls for an unknown device return not found", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, _ := newLifecycleTestDevice(t, "app-1")
+		h, _, _, orgId, _ := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.StopDeviceApplication(ctx, orgId, "does-not-exist", "app-1")
 		require.Equal(int32(http.StatusNotFound), status.Code)
@@ -181,14 +176,12 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 
 	t.Run("Each lifecycle action emits an ApplicationLifecycleChanged event", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+		h, _, ev, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
 
 		_, status := h.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
 
-		list, err := h.store.Event().List(ctx, orgId, store.ListParams{})
-		require.NoError(err)
-		require.Len(list.Items, 1)
-		require.Equal(domain.EventReasonApplicationLifecycleChanged, list.Items[0].Reason)
+		require.Len(ev.created, 1)
+		require.Equal(domain.EventReasonApplicationLifecycleChanged, ev.created[0].Reason)
 	})
 }

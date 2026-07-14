@@ -227,6 +227,26 @@ func (s *fakeDeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID
 	return nil
 }
 
+func (s *fakeDeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	d, ok := s.devices[name]
+	if !ok {
+		return flterrors.ErrResourceNotFound
+	}
+	current := map[string]string{}
+	if d.Metadata.Annotations != nil {
+		for k, v := range *d.Metadata.Annotations {
+			current[k] = v
+		}
+	}
+	newValue, err := mutate(current[key])
+	if err != nil {
+		return err
+	}
+	current[key] = newValue
+	d.Metadata.Annotations = &current
+	return nil
+}
+
 func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
 	if _, ok := s.devices[name]; !ok {
 		return "", flterrors.ErrResourceNotFound

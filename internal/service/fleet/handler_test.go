@@ -218,6 +218,26 @@ func (f *fakeFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
+func (f *fakeFleetStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
+	fleet, ok := f.fleets[name]
+	if !ok {
+		return flterrors.ErrResourceNotFound
+	}
+	existing := map[string]string{}
+	if fleet.Metadata.Annotations != nil {
+		for k, v := range *fleet.Metadata.Annotations {
+			existing[k] = v
+		}
+	}
+	newValue, err := mutate(existing[key])
+	if err != nil {
+		return err
+	}
+	existing[key] = newValue
+	fleet.Metadata.Annotations = &existing
+	return nil
+}
+
 func (f *fakeFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	if f.overwriteRepositoryRefsErr != nil {
 		return f.overwriteRepositoryRefsErr

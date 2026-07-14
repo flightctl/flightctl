@@ -1192,7 +1192,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
-			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev-force-update", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil, nil)
 
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())

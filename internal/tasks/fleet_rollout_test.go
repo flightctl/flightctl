@@ -461,8 +461,8 @@ func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing
 			event := domain.Event{
 				InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
 			}
-			mockService := service.NewMockService(ctrl)
-			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			logic := NewFleetRolloutsLogic(log, nil, nil, mockDeviceSvc, nil, orgId, event)
 			logic.owner = lo.FromPtr(util.SetResourceOwner(domain.FleetKind, fleetName))
 
 			annotations := map[string]string{
@@ -487,8 +487,8 @@ func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing
 			tv.Status.Os = &domain.DeviceOsSpec{Image: image}
 
 			if tt.expectReplaceDevice {
-				mockService.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, domain.Status{Code: http.StatusOK})
-				mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+				mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, domain.Status{Code: http.StatusOK})
+				mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 			}
 
 			_, err := logic.updateDeviceToFleetTemplate(context.Background(), device, tv, false)
@@ -1743,30 +1743,36 @@ func TestFleetRolloutsLogic_RolloutDevice_ApplicationLifecycleSync(t *testing.T)
 	t.Run("When the fleet has a lifecycle default it should sync it onto the device before continuing the rollout", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
 		device := newDevice()
-		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
-		mockSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, fleetName).Return(createTestTemplateVersion("v1"), okStatus)
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(newFleetWithLifecycleDefault(), okStatus)
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
+		mockTemplateVersionSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, fleetName).Return(createTestTemplateVersion("v1"), okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(newFleetWithLifecycleDefault(), okStatus)
 
 		// The lifecycle-default sync (UpdateDeviceAnnotations #1) is distinct from the
 		// templateVersion-tracking annotation update (#2) that updateDeviceToFleetTemplate
 		// issues later in the same rollout for the (empty) config/app refs.
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`}, nil,
 		).Return(okStatus)
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			gomock.Not(gomock.Eq(map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`})), gomock.Any(),
 		).Return(okStatus)
-		mockSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
-		mockSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
 
 		logic := FleetRolloutsLogic{
-			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
+			log:                logrus.New(),
+			fleetSvc:           mockFleetSvc,
+			templateversionSvc: mockTemplateVersionSvc,
+			deviceSvc:          mockDeviceSvc,
+			dependencyrefSvc:   mockDependencyRefSvc,
+			orgId:              orgId,
 			event: domain.Event{
 				InvolvedObject: domain.ObjectReference{Name: deviceName, Kind: domain.DeviceKind},
 			},
@@ -1777,27 +1783,33 @@ func TestFleetRolloutsLogic_RolloutDevice_ApplicationLifecycleSync(t *testing.T)
 	t.Run("When syncing the lifecycle default fails it should log and continue the rollout instead of aborting it", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+		mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockDependencyRefSvc := dependencyrefservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
 		device := newDevice()
-		mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
-		mockSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, fleetName).Return(createTestTemplateVersion("v1"), okStatus)
-		mockSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(newFleetWithLifecycleDefault(), okStatus)
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, okStatus)
+		mockTemplateVersionSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, fleetName).Return(createTestTemplateVersion("v1"), okStatus)
+		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(newFleetWithLifecycleDefault(), okStatus)
 
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`}, nil,
 		).Return(domain.Status{Code: http.StatusInternalServerError, Message: "boom"})
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			gomock.Not(gomock.Eq(map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`})), gomock.Any(),
 		).Return(okStatus)
-		mockSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
-		mockSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
 
 		logic := FleetRolloutsLogic{
-			log:            logrus.New(),
-			serviceHandler: mockSvc,
-			orgId:          orgId,
+			log:                logrus.New(),
+			fleetSvc:           mockFleetSvc,
+			templateversionSvc: mockTemplateVersionSvc,
+			deviceSvc:          mockDeviceSvc,
+			dependencyrefSvc:   mockDependencyRefSvc,
+			orgId:              orgId,
 			event: domain.Event{
 				InvolvedObject: domain.ObjectReference{Name: deviceName, Kind: domain.DeviceKind},
 			},
@@ -1840,9 +1852,9 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When the device already has a cache annotation it should not call UpdateDeviceAnnotations even if the fleet's default has since changed", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: uuid.New()}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: uuid.New()}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(true, `{"app-1":{"desiredState":"stopped"}}`), newFleet(`{"app-1":{"desiredState":"running"}}`))
 		require.NoError(t, err, "a routine rollout must never clobber a device's already-synced lifecycle cache")
 	})
@@ -1850,9 +1862,9 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When the device already has an empty cache annotation it should still be treated as synced", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: uuid.New()}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: uuid.New()}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(true, "{}"), newFleet(`{"app-1":{"desiredState":"stopped"}}`))
 		require.NoError(t, err, "presence of the key, not its value, is what determines bootstrap eligibility")
 	})
@@ -1860,9 +1872,9 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When neither the device cache nor the fleet default exist it should not call UpdateDeviceAnnotations", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: uuid.New()}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: uuid.New()}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(false, ""), newFleet(""))
 		require.NoError(t, err)
 	})
@@ -1870,14 +1882,14 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When the device has no cache annotation yet and the fleet has a default it should bootstrap the device's cache", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":{"desiredState":"stopped"}}`}, nil,
 		).Return(domain.Status{Code: http.StatusOK})
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: orgId}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: orgId}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(false, ""), newFleet(`{"app-1":{"desiredState":"stopped"}}`))
 		require.NoError(t, err)
 	})
@@ -1885,9 +1897,9 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When the device has no cache annotation and the fleet has no default either it should not call UpdateDeviceAnnotations", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: uuid.New()}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: uuid.New()}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(false, ""), newFleet(""))
 		require.NoError(t, err)
 	})
@@ -1895,13 +1907,13 @@ func TestFleetRolloutsLogic_SyncFleetApplicationLifecycleDefault(t *testing.T) {
 	t.Run("When UpdateDeviceAnnotations fails it should propagate the error", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
-		mockSvc := service.NewMockService(ctrl)
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
 		orgId := uuid.New()
 
-		mockSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).
 			Return(domain.Status{Code: http.StatusInternalServerError, Message: "boom"})
 
-		logic := FleetRolloutsLogic{log: logrus.New(), serviceHandler: mockSvc, orgId: orgId}
+		logic := FleetRolloutsLogic{log: logrus.New(), deviceSvc: mockDeviceSvc, orgId: orgId}
 		err := logic.syncFleetApplicationLifecycleDefault(context.Background(), newDevice(false, ""), newFleet(`{"app-1":{"desiredState":"stopped"}}`))
 		require.Error(t, err)
 	})

@@ -1,22 +1,31 @@
-package service
+package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
+// decodeLifecycleOverrides unmarshals a raw FleetAnnotationApplicationLifecycle annotation
+// value for assertions that need to check individual fields (e.g. ignoring the exact,
+// non-deterministic desiredStateVersion stamp).
+func decodeLifecycleOverrides(t *testing.T, raw string) map[string]domain.ApplicationLifecycleOverride {
+	t.Helper()
+	overrides := map[string]domain.ApplicationLifecycleOverride{}
+	require.NoError(t, json.Unmarshal([]byte(raw), &overrides))
+	return overrides
+}
+
 // newLifecycleTestFleet creates a fleet whose device template declares a single container
-// application named appName, registers it in a fresh ServiceHandler backed by TestStore, and
-// returns the handler along with the org and fleet name to use in calls.
-func newLifecycleTestFleet(t *testing.T, appName string) (h *ServiceHandler, orgId uuid.UUID, fleetName string) {
+// application named appName, registers it in a fresh ServiceHandler backed by the fake fleet
+// store, and returns the handler along with the org and fleet name to use in calls.
+func newLifecycleTestFleet(t *testing.T, appName string) (h *ServiceHandler, st *fakeFleetStore, ev *fakeEventsService, orgId uuid.UUID, fleetName string) {
 	t.Helper()
 	require := require.New(t)
 
@@ -36,18 +45,14 @@ func newLifecycleTestFleet(t *testing.T, appName string) (h *ServiceHandler, org
 	}
 	fleet.Spec.Template.Spec.Applications = &[]domain.ApplicationProviderSpec{app}
 
-	ts := &TestStore{}
-	wc := &DummyWorkerClient{}
-	h = &ServiceHandler{
-		eventHandler: NewEventHandler(ts, wc, log.InitLogs()),
-		store:        ts,
-		workerClient: wc,
-	}
+	st = newFakeFleetStore()
+	ev = &fakeEventsService{}
+	h = NewServiceHandler(st, ev, nil)
 	orgId = uuid.New()
-	_, err := h.store.Fleet().Create(context.Background(), orgId, &fleet, nil)
+	_, err := st.Create(context.Background(), orgId, &fleet, nil)
 	require.NoError(err)
 
-	return h, orgId, fleetName
+	return h, st, ev, orgId, fleetName
 }
 
 func TestStopStartFleetApplication(t *testing.T) {
@@ -55,7 +60,7 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("StopFleetApplication sets desiredState=stopped without touching the declarative template", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
+		h, _, _, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
 
 		fleet, status := h.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -71,7 +76,7 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("StartFleetApplication sets desiredState=running", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
+		h, _, _, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
 
 		_, status := h.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
@@ -86,11 +91,11 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("StartFleetApplication issued after StopFleetApplication has a strictly newer version", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
+		h, st, _, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
 
 		_, status := h.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
-		stoppedFleet, err := h.store.Fleet().Get(ctx, orgId, fleetName)
+		stoppedFleet, err := st.Get(ctx, orgId, fleetName)
 		require.NoError(err)
 		stopOverrides := decodeLifecycleOverrides(t, (*stoppedFleet.Metadata.Annotations)[domain.FleetAnnotationApplicationLifecycle])
 
@@ -103,7 +108,7 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("Lifecycle calls for an unknown application return not found", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
+		h, _, _, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
 
 		_, status := h.StopFleetApplication(ctx, orgId, fleetName, "does-not-exist")
 		require.Equal(int32(http.StatusNotFound), status.Code)
@@ -111,7 +116,7 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("Lifecycle calls for an unknown fleet return not found", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, _ := newLifecycleTestFleet(t, "app-1")
+		h, _, _, orgId, _ := newLifecycleTestFleet(t, "app-1")
 
 		_, status := h.StopFleetApplication(ctx, orgId, "does-not-exist", "app-1")
 		require.Equal(int32(http.StatusNotFound), status.Code)
@@ -119,16 +124,14 @@ func TestStopStartFleetApplication(t *testing.T) {
 
 	t.Run("Each lifecycle action emits a FleetKind ApplicationLifecycleChanged event", func(t *testing.T) {
 		require := require.New(t)
-		h, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
+		h, _, ev, orgId, fleetName := newLifecycleTestFleet(t, "app-1")
 
 		_, status := h.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		require.Equal(int32(http.StatusOK), status.Code)
 
-		list, err := h.store.Event().List(ctx, orgId, store.ListParams{})
-		require.NoError(err)
-		require.Len(list.Items, 1)
-		require.Equal(domain.EventReasonApplicationLifecycleChanged, list.Items[0].Reason)
-		require.Equal(domain.FleetKind, list.Items[0].InvolvedObject.Kind)
-		require.Equal(fleetName, list.Items[0].InvolvedObject.Name)
+		require.Len(ev.created, 1)
+		require.Equal(domain.EventReasonApplicationLifecycleChanged, ev.created[0].Reason)
+		require.Equal(domain.FleetKind, ev.created[0].InvolvedObject.Kind)
+		require.Equal(fleetName, ev.created[0].InvolvedObject.Name)
 	})
 }
