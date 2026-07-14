@@ -88,8 +88,9 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 			return
 		}
 		// Create the timeout here so the 30 s window starts at cleanup time, not session-start time.
-		// Use a background context so annotation removal is not cancelled by a client disconnect.
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from r.Context() via WithoutCancel (not context.Background()) so annotation removal
+		// keeps the request's tracing span and other values but isn't cancelled by a client disconnect.
+		closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 		defer closeCancel()
 		if closeStatus := h.appConsoleSessionManager.CloseSession(closeCtx, session); closeStatus.Code != http.StatusOK {
 			h.log.Errorf("error closing app console session %s for device %s app %s: %v", session.UUID, deviceName, appName, closeStatus.Message)

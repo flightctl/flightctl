@@ -260,8 +260,9 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, addAppSession(session.UUID, appName, consoleType)); status.Code != http.StatusOK {
 		// Attempt rollback in case the DB write succeeded but the Redis publish failed,
 		// which would leave a stale annotation entry that permanently blocks future sessions.
-		// Use a background context so a client disconnect does not cancel the rollback.
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from ctx via WithoutCancel (not context.Background()) so the rollback keeps the
+		// request's tracing span and other values but isn't cancelled by a client disconnect.
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer rollbackCancel()
 		if annStatus := m.modifyAnnotations(rollbackCtx, orgId, deviceName, false, removeAppSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to roll back annotation for device %s after failed session start: %v", deviceName, annStatus)
@@ -271,7 +272,9 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 
 	if err := m.sessionRegistration.StartSession(session); err != nil {
 		m.log.Errorf("Failed to start app console session %s for device %s app %s: %v, rolling back annotation", session.UUID, deviceName, appName, err)
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from ctx via WithoutCancel (not context.Background()) so the rollback keeps the
+		// request's tracing span and other values but isn't cancelled by a client disconnect.
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer rollbackCancel()
 		if annStatus := m.modifyAnnotations(rollbackCtx, orgId, deviceName, false, removeAppSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annStatus)
