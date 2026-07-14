@@ -2,6 +2,8 @@ package remote_access_server
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -156,4 +158,71 @@ func TestHandleApplicationConsole_AgentError_ClosesWithCustomCode(t *testing.T) 
 	require.True(t, ok, "expected a *websocket.CloseError, got %T: %v", err, err)
 	require.Equal(t, consts.AppConsoleErrorCloseCode, closeErr.Code)
 	require.Equal(t, agentErr, closeErr.Text)
+}
+
+// TestHandleApplicationConsole_AgentError_BeforeProtocolSelection_ReturnsNotFound covers the
+// other agent-error path: one reported before a protocol was ever selected, which must fail
+// the handshake itself (plain HTTP 404) rather than upgrade and close with a custom code, so
+// the client never observes a false "connected" state.
+func TestHandleApplicationConsole_AgentError_BeforeProtocolSelection_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	startedCh := make(chan *console.AppConsoleSession, 1)
+	mgr := console.NewAppConsoleSessionManager(
+		&fakeAppDeviceService{},
+		logrus.NewEntry(logrus.New()),
+		&fakeAppSessionRegistration{startedCh: startedCh},
+		&fakeConsoleEventNotifier{},
+	)
+	handler := NewAppConsoleHandler(logrus.New(), mgr)
+
+	router := chi.NewRouter()
+	handler.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/v1/devices/device1/applications/app1/console?consoleType=serial"
+
+	type dialResult struct {
+		conn *websocket.Conn
+		resp *http.Response
+		err  error
+	}
+	dialDone := make(chan dialResult, 1)
+	dialer := websocket.Dialer{Subprotocols: []string{"serial"}}
+	go func() {
+		conn, resp, err := dialer.Dial(wsURL, nil)
+		dialDone <- dialResult{conn: conn, resp: resp, err: err}
+	}()
+
+	var session *console.AppConsoleSession
+	select {
+	case session = <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected StartSession to be called")
+	}
+
+	// The agent fails to resolve the app before ever negotiating a protocol, e.g. the
+	// requested app does not exist.
+	const agentErr = "app is not a VM workload"
+	select {
+	case session.ErrCh <- agentErr:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out sending agent error")
+	}
+
+	var res dialResult
+	select {
+	case res = <-dialDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the dial to fail")
+	}
+	require.Error(t, res.err, "expected the WebSocket handshake to fail rather than upgrade")
+	require.Nil(t, res.conn)
+	require.NotNil(t, res.resp)
+	require.Equal(t, http.StatusNotFound, res.resp.StatusCode)
+
+	body, readErr := io.ReadAll(res.resp.Body)
+	require.NoError(t, readErr)
+	require.Equal(t, agentErr+"\n", string(body))
 }
