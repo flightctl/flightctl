@@ -472,10 +472,14 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				}
 				return true
 			}, TIMEOUT)
-			// A reasonable amount of time spent polling to ensure the spec doesn't change
+			// 45s: wontUpdatePolicy's cron ("0 0 <yesterday's day> <yesterday's month> *")
+			// won't match again for the rest of this test run, so this isn't waiting out a
+			// timer - it's a "the reconciler doesn't misapply despite the policy" stability
+			// check, same category as the 45s windows used for equivalent checks elsewhere
+			// (e.g. agent_prefetch_manager_test.go).
 			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1beta1.Device) bool {
 				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
-			}, "1m30s")
+			}, "45s")
 
 			By("Reducing the policies, the spec should be applied")
 			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
