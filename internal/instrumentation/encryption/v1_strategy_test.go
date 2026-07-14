@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,8 +20,7 @@ func TestNewV1Strategy_EmptyConstructor(t *testing.T) {
 	strategy := newV1Strategy()
 
 	assert.NotNil(t, strategy)
-	assert.Empty(t, strategy.keys)
-	assert.Empty(t, strategy.gcms)
+	assert.Empty(t, strategy.ConfiguredKeys())
 	assert.Empty(t, strategy.ActiveKeyID())
 }
 
@@ -33,8 +34,7 @@ func TestV1Strategy_AddKey(t *testing.T) {
 
 	require.NoError(t, strategy.AddKey("my-key", key, true))
 
-	assert.Contains(t, strategy.keys, "my-key")
-	assert.Contains(t, strategy.gcms, "my-key")
+	assert.Contains(t, strategy.ConfiguredKeys(), "my-key")
 	assert.Equal(t, "my-key", strategy.ActiveKeyID(), "newly added key should be active")
 }
 
@@ -81,7 +81,7 @@ func TestV1Strategy_AddMultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2024-06", strategy.ActiveKeyID(), "last added key should be active")
 
-	assert.Len(t, strategy.keys, 2, "both keys should be registered")
+	assert.Len(t, strategy.ConfiguredKeys(), 2, "both keys should be registered")
 }
 
 func TestV1Strategy_SetActiveKey(t *testing.T) {
@@ -353,46 +353,162 @@ func TestV1Strategy_UniqueNonces(t *testing.T) {
 	assert.Equal(t, plaintext, decrypted2)
 }
 
-func TestNewV1Strategy_EnvVar(t *testing.T) {
+func TestNewV1Strategy_FromConfig(t *testing.T) {
 	encodedKey, err := crypto.GenerateAES256Key()
 	require.NoError(t, err)
 
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", encodedKey)
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(encodedKey), 0600))
 
-	strategy, err := NewV1Strategy()
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "default",
+		},
+	}
+
+	strategy, err := NewV1Strategy(cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, strategy)
 	assert.Equal(t, "default", strategy.ActiveKeyID())
-	assert.Contains(t, strategy.keys, "default")
+}
+
+func TestNewV1Strategy_FromConfig_MultipleKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	key1, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	key1Path := filepath.Join(dir, "key1")
+	require.NoError(t, os.WriteFile(key1Path, []byte(key1), 0600))
+
+	key2, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	key2Path := filepath.Join(dir, "key2")
+	require.NoError(t, os.WriteFile(key2Path, []byte(key2), 0600))
+
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys: []config.EncryptionKeyConfig{
+				{ID: "2024-01", Path: key1Path},
+				{ID: "2025-07", Path: key2Path},
+			},
+			ActiveKeyID: "2025-07",
+		},
+	}
+
+	strategy, err := NewV1Strategy(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2025-07", strategy.ActiveKeyID(), "ActiveKeyID from config should be selected")
+	assert.ElementsMatch(t, []string{"2024-01", "2025-07"}, strategy.ConfiguredKeys())
+
+	ctx := context.Background()
+
+	// Encrypt with the active key
+	encrypted, err := strategy.EncryptPlaintext(ctx, []byte("secret"))
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(encrypted), "2025-07:"))
+
+	// Switch active to old key and encrypt again
+	require.NoError(t, strategy.SetActiveKey("2024-01"))
+	encrypted2, err := strategy.EncryptPlaintext(ctx, []byte("secret2"))
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(encrypted2), "2024-01:"))
+
+	// Both decrypt correctly regardless of which key is active
+	decrypted, err := testDecrypt(t, strategy, ctx, encrypted)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("secret"), decrypted)
+
+	decrypted2, err := testDecrypt(t, strategy, ctx, encrypted2)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("secret2"), decrypted2)
+}
+
+func TestNewV1Strategy_FromConfig_InvalidActiveKeyID(t *testing.T) {
+	dir := t.TempDir()
+	key, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(key), 0600))
+
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "nonexistent",
+		},
+	}
+
+	_, err = NewV1Strategy(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "activeKeyID")
+	assert.Contains(t, err.Error(), "nonexistent")
+}
+
+func TestNewV1Strategy_FromConfig_DuplicateKeyID(t *testing.T) {
+	dir := t.TempDir()
+	key, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(key), 0600))
+
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys: []config.EncryptionKeyConfig{
+				{ID: "default", Path: keyPath},
+				{ID: "default", Path: keyPath},
+			},
+			ActiveKeyID: "default",
+		},
+	}
+
+	_, err = NewV1Strategy(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate encryption key ID")
 }
 
 func TestNewV1Strategy_NoKeyProvided(t *testing.T) {
-	os.Unsetenv("FLIGHTCTL_ENCRYPTION_KEY")
-
-	_, err := NewV1Strategy()
+	_, err := NewV1Strategy(nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "read key file")
+	assert.Contains(t, err.Error(), "no encryption keys configured")
 }
 
 func TestNewV1Strategy_InvalidBase64(t *testing.T) {
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", "not-valid-base64!!!")
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte("not-valid-base64!!!"), 0600))
 
-	_, err := NewV1Strategy()
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "default",
+		},
+	}
+
+	_, err := NewV1Strategy(cfg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "decode")
 }
 
 func TestNewV1Strategy_KeyTooShort(t *testing.T) {
-	var err error
-
 	shortKey := make([]byte, 16) // Only 16 bytes, need 32
-	_, err = rand.Read(shortKey)
+	_, err := rand.Read(shortKey)
 	require.NoError(t, err)
 	encodedKey := base64.StdEncoding.EncodeToString(shortKey)
 
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", encodedKey)
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(encodedKey), 0600))
 
-	_, err = NewV1Strategy()
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "default",
+		},
+	}
+
+	_, err = NewV1Strategy(cfg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "32 bytes")
 }

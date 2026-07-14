@@ -77,6 +77,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 %package services
 Summary: Flight Control services
 Requires: bash
+Requires: openssl
 Requires: podman
 Requires: python3-pyyaml
 BuildRequires: systemd-rpm-macros
@@ -392,9 +393,10 @@ fi
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
-    # Copy generate-certificates.sh script
+    # Copy certificate and encryption key generation scripts
     mkdir -p %{buildroot}%{_datadir}/flightctl
     install -m 0755 deploy/helm/flightctl/scripts/generate-certificates.sh %{buildroot}%{_datadir}/flightctl/generate-certificates.sh
+    install -m 0755 deploy/helm/flightctl/scripts/generate-encryption-key.sh %{buildroot}%{_datadir}/flightctl/generate-encryption-key.sh
 
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
@@ -559,6 +561,7 @@ fi
     %defattr(0644,root,root,-)
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
+    %dir %{_sysconfdir}/flightctl/encryption
     %dir %{_sysconfdir}/flightctl/pki
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
@@ -667,6 +670,7 @@ fi
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
     %attr(0755,root,root) %{_datadir}/flightctl/generate-certificates.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/generate-encryption-key.sh
 
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl

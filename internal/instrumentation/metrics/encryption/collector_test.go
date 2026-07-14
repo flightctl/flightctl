@@ -2,9 +2,12 @@ package encryption
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	enc "github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/prometheus/client_golang/prometheus"
@@ -116,17 +119,24 @@ func TestEncryptionCollector_Integration_WithManager(t *testing.T) {
 	assert.Equal(t, 1.0, testutil.ToFloat64(collector.operationsTotal.WithLabelValues("decrypt", "v1", "default", "success")))
 }
 
-// Helper function to create a test manager
 func createTestManager(t *testing.T) *enc.Manager {
 	t.Helper()
 
-	// Generate and set test key via environment variable
 	key, err := crypto.GenerateAES256Key()
 	require.NoError(t, err)
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", key)
 
-	// Create strategy
-	strategy, err := enc.NewV1Strategy()
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(key), 0600))
+
+	cfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "default",
+		},
+	}
+
+	strategy, err := enc.NewV1Strategy(cfg)
 	require.NoError(t, err)
 
 	mgr := enc.NewManager()

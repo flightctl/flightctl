@@ -23,6 +23,7 @@ Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 # TPM CA PEMs for enrollment (paths in service.tpmCAPaths must exist inside the container)
 Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z
+Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=flightctl-listeners:/var/run/flightctl-listeners/:z
 

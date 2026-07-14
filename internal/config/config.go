@@ -41,6 +41,7 @@ type Config struct {
 	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
 	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -723,6 +724,20 @@ type telemetryGatewayForwardTLS struct {
 	KeyFile               string `json:"keyFile,omitempty"`
 }
 
+// EncryptionKeyConfig defines a single encryption key with its identifier and file path.
+type EncryptionKeyConfig struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// EncryptionConfig holds encryption-at-rest key configuration.
+// Keys lists all available keys (for rotation support); ActiveKeyID selects which
+// key is used for new encryptions. Old keys remain available for decryption.
+type EncryptionConfig struct {
+	Keys        []EncryptionKeyConfig `json:"keys"`
+	ActiveKeyID string                `json:"activeKeyID"`
+}
+
 type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
@@ -816,6 +831,10 @@ func ClientConfigFile() string {
 
 func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
+}
+
+func EncryptionDir() string {
+	return filepath.Join(ConfigDir(), "encryption")
 }
 
 func NewDefault(opts ...ConfigOption) *Config {
@@ -933,6 +952,15 @@ func NewDefault(opts ...ConfigOption) *Config {
 		},
 		Auth: &authConfig{
 			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+		},
+		Encryption: &EncryptionConfig{
+			Keys: []EncryptionKeyConfig{
+				{
+					ID:   "default",
+					Path: filepath.Join(EncryptionDir(), "key"),
+				},
+			},
+			ActiveKeyID: "default",
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())

@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	remoteaccessserver "github.com/flightctl/flightctl/internal/remote_access_server"
@@ -56,6 +57,10 @@ func main() {
 			log.Errorf("failed to shut down tracer: %v", err)
 		}
 	}()
+
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	imagebuilderworker "github.com/flightctl/flightctl/internal/imagebuilder_worker"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
@@ -40,6 +41,10 @@ func main() {
 			log.Errorf("failed to shut down tracer: %v", err)
 		}
 	}()
+
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
