@@ -99,11 +99,20 @@ jobs:
         #
         # Add a prefix here for any other cache keyed by content hash (rather than run_id)
         # whose save is (or should be) gated to main.
+        #
+        # setup-go- is the exception: it's actions/setup-go's own built-in cache
+        # (used via .github/actions/setup-dependencies), and third-party actions
+        # can't be given our github.ref == 'refs/heads/main' gate, so unlike the
+        # others above it saves unconditionally on every branch/PR. It also never
+        # passes restore-keys, so branch-scoped copies can't help other branches
+        # even if kept around - this entry is purely a safety net bounding growth,
+        # not a step toward cross-branch cache reuse for it.
         prefix:
           - "Linux-go-"
           - "Linux-dnf-"
           - "Linux-bootc-cache-smoke-"
           - "Linux-bootc-cache-e2e-unified-"
+          - "setup-go-"
     steps:
       - name: Prune superseded/branch-scoped caches for ${{ matrix.prefix }}
         env:
