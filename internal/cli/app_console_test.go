@@ -25,6 +25,7 @@ func TestAppConsoleOptions_Validate(t *testing.T) {
 		args        []string
 		appName     string
 		consoleType string
+		force       bool
 		tty         bool
 		noTTY       bool
 		exposedPort int
@@ -36,6 +37,14 @@ func TestAppConsoleOptions_Validate(t *testing.T) {
 			args:        []string{"device/mydevice"},
 			appName:     "myvm",
 			consoleType: "serial",
+			wantErr:     false,
+		},
+		{
+			name:        "When --force is set it should succeed",
+			args:        []string{"device/mydevice"},
+			appName:     "myvm",
+			consoleType: "serial",
+			force:       true,
 			wantErr:     false,
 		},
 		{
@@ -96,6 +105,7 @@ func TestAppConsoleOptions_Validate(t *testing.T) {
 			o := DefaultAppConsoleOptions()
 			o.name = tt.appName
 			o.consoleType = tt.consoleType
+			o.force = tt.force
 			o.tty = tt.tty
 			o.noTTY = tt.noTTY
 			o.exposedPort = tt.exposedPort
@@ -120,6 +130,7 @@ func TestBuildAppConsoleURL(t *testing.T) {
 		deviceName    string
 		appName       string
 		consoleType   string
+		force         bool
 		wantScheme    string
 		wantPath      string
 	}{
@@ -141,18 +152,34 @@ func TestBuildAppConsoleURL(t *testing.T) {
 			wantScheme:    "ws",
 			wantPath:      "/ws/v1/devices/dev1/applications/myvm/console",
 		},
+		{
+			name:          "When --force is set it should include force=true in the query",
+			consoleServer: "https://console.example.com",
+			deviceName:    "dev1",
+			appName:       "myvm",
+			consoleType:   "serial",
+			force:         true,
+			wantScheme:    "wss",
+			wantPath:      "/ws/v1/devices/dev1/applications/myvm/console",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := DefaultAppConsoleOptions()
 			o.consoleType = tt.consoleType
+			o.force = tt.force
 
 			got, err := o.buildAppConsoleURL(tt.consoleServer, tt.deviceName, tt.appName)
 			require.NoError(t, err)
 			assert.True(t, strings.HasPrefix(got, tt.wantScheme+"://"), "expected scheme %s in %s", tt.wantScheme, got)
 			assert.Contains(t, got, tt.wantPath)
 			assert.Contains(t, got, "consoleType="+tt.consoleType)
+			if tt.force {
+				assert.Contains(t, got, "force=true")
+			} else {
+				assert.NotContains(t, got, "force=", "force must be omitted from the query when not set")
+			}
 		})
 	}
 }

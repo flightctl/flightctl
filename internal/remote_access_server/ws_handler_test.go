@@ -87,6 +87,107 @@ func (f *fakeAppSessionRegistration) CloseSession(_ *console.AppConsoleSession) 
 	return nil
 }
 
+// fakeAppDeviceServiceExistingSession always reports a device that already has an active
+// remote-session annotation entry for app1, so tests can exercise the duplicate-conflict
+// (and --force override) paths in AppConsoleSessionManager.StartSession without a real store.
+type fakeAppDeviceServiceExistingSession struct {
+	existingSessionID string
+}
+
+func (f *fakeAppDeviceServiceExistingSession) GetDevice(_ context.Context, _ uuid.UUID, name string) (*domain.Device, domain.Status) {
+	annotations := map[string]string{
+		domain.DeviceAnnotationRemoteSession: `[{"sessionID":"` + f.existingSessionID + `","appName":"app1","consoleType":"serial"}]`,
+	}
+	return &domain.Device{
+		Metadata: domain.ObjectMeta{Name: &name, Annotations: &annotations},
+		Spec:     &domain.DeviceSpec{},
+	}, domain.StatusOK()
+}
+
+func (f *fakeAppDeviceServiceExistingSession) UpdateDevice(_ context.Context, _ uuid.UUID, _ string, device domain.Device, _ []string) (*domain.Device, error) {
+	return &device, nil
+}
+
+func TestHandleApplicationConsole_Force(t *testing.T) {
+	newHandler := func(t *testing.T) (*httptest.Server, chan *console.AppConsoleSession) {
+		t.Helper()
+		startedCh := make(chan *console.AppConsoleSession, 1)
+		mgr := console.NewAppConsoleSessionManager(
+			&fakeAppDeviceServiceExistingSession{existingSessionID: uuid.New().String()},
+			logrus.NewEntry(logrus.New()),
+			&fakeAppSessionRegistration{startedCh: startedCh},
+			&fakeConsoleEventNotifier{},
+		)
+		handler := NewAppConsoleHandler(logrus.New(), mgr)
+		router := chi.NewRouter()
+		handler.RegisterRoutes(router)
+		server := httptest.NewServer(router)
+		t.Cleanup(server.Close)
+		return server, startedCh
+	}
+
+	t.Run("Without force it should reject a connection to an app with an active session", func(t *testing.T) {
+		t.Parallel()
+
+		server, startedCh := newHandler(t)
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/v1/devices/device1/applications/app1/console?consoleType=serial"
+
+		dialer := websocket.Dialer{Subprotocols: []string{"serial"}}
+		conn, resp, err := dialer.Dial(wsURL, nil)
+		require.Error(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, 409, resp.StatusCode, "expected a conflict when an app session is already active and force is not set")
+		if conn != nil {
+			conn.Close()
+		}
+		select {
+		case <-startedCh:
+			t.Fatal("StartSession's registration must not be reached on a rejected conflict")
+		default:
+		}
+	})
+
+	t.Run("With force=true it should bypass the conflict and start a new session", func(t *testing.T) {
+		t.Parallel()
+
+		server, startedCh := newHandler(t)
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/v1/devices/device1/applications/app1/console?consoleType=serial&force=true"
+
+		type dialResult struct {
+			conn *websocket.Conn
+			err  error
+		}
+		dialDone := make(chan dialResult, 1)
+		dialer := websocket.Dialer{Subprotocols: []string{"serial"}}
+		go func() {
+			conn, _, err := dialer.Dial(wsURL, nil)
+			dialDone <- dialResult{conn: conn, err: err}
+		}()
+
+		var session *console.AppConsoleSession
+		select {
+		case session = <-startedCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected StartSession to be reached despite the pre-existing session")
+		}
+
+		select {
+		case session.ProtocolCh <- "serial":
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out sending selected protocol")
+		}
+
+		var res dialResult
+		select {
+		case res = <-dialDone:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for websocket handshake")
+		}
+		require.NoError(t, res.err, "expected force=true to let the new session proceed to a successful handshake")
+		res.conn.Close()
+	})
+}
+
 func TestHandleApplicationConsole_AgentError_ClosesWithCustomCode(t *testing.T) {
 	t.Parallel()
 

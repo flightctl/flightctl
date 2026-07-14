@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -14,6 +15,29 @@ import (
 // *client.Podman satisfies this interface in production; tests may inject a fake.
 type ExecStreamer interface {
 	ExecStream(ctx context.Context, containerName string, cmd ...string) (io.ReadWriteCloser, error)
+}
+
+// evictionReasonKey is the context key under which Start stashes a flag that bridgeConn
+// checks, right before its own CloseSend, to decide whether to report a reason for tearing
+// the stream down.
+type evictionReasonKey struct{}
+
+// withEvictionReason attaches replaced to ctx so bridgeConn's send-side goroutine — the sole
+// owner of Send() calls on the stream — can fold a final "replaced" notice into its normal
+// teardown sequence. This avoids a separate goroutine calling Send() concurrently, which is
+// not safe on a gRPC client stream.
+func withEvictionReason(ctx context.Context, replaced *atomic.Bool) context.Context {
+	return context.WithValue(ctx, evictionReasonKey{}, replaced)
+}
+
+// evictionReasonFromContext returns the message to send before closing, or "" if this
+// teardown was not caused by a forced takeover.
+func evictionReasonFromContext(ctx context.Context) string {
+	replaced, ok := ctx.Value(evictionReasonKey{}).(*atomic.Bool)
+	if !ok || !replaced.Load() {
+		return ""
+	}
+	return "console session replaced by a new connection"
 }
 
 // bridgeConn copies data bidirectionally between conn and streamClient until
@@ -36,7 +60,14 @@ func bridgeConn(ctx context.Context, label string, conn io.ReadWriteCloser, stre
 		defer cancel()
 		// Signal the server that no more data will be sent. This causes the server
 		// to close its send side, which unblocks the Recv() call in the other goroutine.
-		defer func() { _ = streamClient.CloseSend() }()
+		// If this teardown was triggered by a forced takeover, report that reason first —
+		// this goroutine is the only one that ever calls Send(), so no locking is needed.
+		defer func() {
+			if reason := evictionReasonFromContext(ctx); reason != "" {
+				_ = streamClient.Send(&grpc_v1.StreamRequest{Error: reason})
+			}
+			_ = streamClient.CloseSend()
+		}()
 		buf := make([]byte, 4096)
 		for {
 			n, err := conn.Read(buf)
