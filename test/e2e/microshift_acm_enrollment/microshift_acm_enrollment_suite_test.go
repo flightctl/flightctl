@@ -24,9 +24,10 @@ func TestMicroshift(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+	auxSvcs = auxFuture.Wait()
 })
 
 var _ = AfterSuite(func() {

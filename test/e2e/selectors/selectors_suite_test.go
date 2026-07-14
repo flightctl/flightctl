@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
@@ -33,10 +32,11 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
-	auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	// Setup VM and harness for this worker
 	e2e.SetupWorkerHarnessOrAbort()
+	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {

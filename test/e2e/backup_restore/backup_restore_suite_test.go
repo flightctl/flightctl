@@ -37,10 +37,11 @@ func TestBackupRestore(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	// Most specs only exercise backup/restore binaries against the cluster; VM pool is started on demand for needvm specs.
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	auxSvcs = auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
 })
 

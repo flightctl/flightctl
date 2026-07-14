@@ -25,14 +25,15 @@ func TestParametrisableTemplates(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx := context.Background()
-	auxSvcs = auxiliary.Get(ctx)
-
-	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
-	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
-	auxSvcs.FileServer = fileServerSvcs.FileServer
+	auxFuture := e2e.StartAuxServicesAsync(ctx)
 
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+
+	auxSvcs = auxFuture.Wait()
+	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
+	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
+	auxSvcs.FileServer = fileServerSvcs.FileServer
 })
 
 var _ = AfterSuite(func() {

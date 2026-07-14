@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
@@ -18,9 +17,10 @@ func TestContainers(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
