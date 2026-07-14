@@ -59,6 +59,7 @@ type TestVMInterface interface {
 	SSHCommand(inputArgs []string) *exec.Cmd
 	SSHCommandWithUser(nputArgs []string, user string) *exec.Cmd
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
+	RunSSHContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
 	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
@@ -191,6 +192,11 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 
 	stdout, err := v.RunSSHWithUser(inputArgs, stdin, v.VMUser)
 	return stdout, err
+}
+
+// RunSSHContext runs a command over SSH using the VM's default user and the provided context.
+func (v *TestVM) RunSSHContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
+	return v.runSSHWithUserContext(ctx, inputArgs, stdin, v.VMUser)
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
