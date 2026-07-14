@@ -13,11 +13,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// AppLifecycleOptions holds the options shared by the stop/start/restart application commands.
+// AppLifecycleOptions holds the options shared by the "app start/stop/restart" commands.
 type AppLifecycleOptions struct {
 	GlobalOptions
-	AppName string
-	Yes     bool
+	Name string
+	Yes  bool
 }
 
 func DefaultAppLifecycleOptions() *AppLifecycleOptions {
@@ -28,14 +28,14 @@ func DefaultAppLifecycleOptions() *AppLifecycleOptions {
 
 func (o *AppLifecycleOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
-	fs.StringVar(&o.AppName, "app", o.AppName, "Application name to control (required)")
+	fs.StringVar(&o.Name, "name", o.Name, "Application name to control (required)")
 	fs.BoolVarP(&o.Yes, "yes", "y", o.Yes, "Skip the confirmation prompt")
 }
 
-// markAppFlagRequired declares --app required on cmd so cobra rejects a missing
+// markNameFlagRequired declares --name required on cmd so cobra rejects a missing
 // value immediately and documents the requirement in --help.
-func markAppFlagRequired(cmd *cobra.Command) {
-	_ = cmd.MarkFlagRequired("app")
+func markNameFlagRequired(cmd *cobra.Command) {
+	_ = cmd.MarkFlagRequired("name")
 }
 
 func (o *AppLifecycleOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -55,14 +55,14 @@ func (o *AppLifecycleOptions) resolveDeviceName(args []string) (string, error) {
 	if len(name) == 0 {
 		return "", fmt.Errorf("device name is required")
 	}
-	if o.AppName == "" {
-		return "", fmt.Errorf("--app is required")
+	if o.Name == "" {
+		return "", fmt.Errorf("--name is required")
 	}
 	return name, nil
 }
 
-// resolveTarget validates the positional args and required flags shared by the stop/start
-// application commands, returning the target's kind (Device or Fleet) and name.
+// resolveTarget validates the positional args and required flags shared by the app
+// stop/start commands, returning the target's kind (Device or Fleet) and name.
 func (o *AppLifecycleOptions) resolveTarget(args []string) (ResourceKind, string, error) {
 	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
@@ -74,8 +74,8 @@ func (o *AppLifecycleOptions) resolveTarget(args []string) (ResourceKind, string
 	if len(name) == 0 {
 		return "", "", fmt.Errorf("%s name is required", kind)
 	}
-	if o.AppName == "" {
-		return "", "", fmt.Errorf("--app is required")
+	if o.Name == "" {
+		return "", "", fmt.Errorf("--name is required")
 	}
 	return kind, name, nil
 }
@@ -102,10 +102,10 @@ func confirm(prompt string, skip bool) error {
 	return nil
 }
 
-func NewCmdStop() *cobra.Command {
+func NewCmdAppStop() *cobra.Command {
 	o := DefaultAppLifecycleOptions()
 	cmd := &cobra.Command{
-		Use:   "stop (device/NAME | fleet/NAME) --app APP",
+		Use:   "stop (device/NAME | fleet/NAME) --name APP",
 		Short: "Stop an application running on a device, or on every device owned by a fleet.",
 		Long: "Stop an application running on a device, or on every device owned by a fleet.\n\n" +
 			"Stopping on a fleet sets a fleet-wide default: it applies to every device currently " +
@@ -113,10 +113,10 @@ func NewCmdStop() *cobra.Command {
 			"own stop/start command still takes precedence over the fleet-wide default for that " +
 			"device.",
 		Example: `  # Stop an application on a single device
-  flightctl stop device/my-device --app my-app
+  flightctl app stop device/my-device --name my-app
 
   # Stop an application on every device in a fleet
-  flightctl stop fleet/my-fleet --app my-app`,
+  flightctl app stop fleet/my-fleet --name my-app`,
 		Args: cobra.MinimumNArgs(1),
 		ValidArgsFunction: KindNameAutocomplete{
 			Options:            o,
@@ -131,7 +131,7 @@ func NewCmdStop() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := confirm(stopStartConfirmPrompt("Stop", o.AppName, kind, name), o.Yes); err != nil {
+			if err := confirm(stopStartConfirmPrompt("Stop", o.Name, kind, name), o.Yes); err != nil {
 				return err
 			}
 			ctx, cancel := o.WithTimeout(cmd.Context())
@@ -143,21 +143,21 @@ func NewCmdStop() *cobra.Command {
 			c.Start(ctx)
 			defer c.Stop()
 			if kind == FleetKind {
-				return runStopFleet(ctx, c.ClientWithResponses, name, o.AppName)
+				return runStopFleet(ctx, c.ClientWithResponses, name, o.Name)
 			}
-			return runStop(ctx, c.ClientWithResponses, name, o.AppName)
+			return runStop(ctx, c.ClientWithResponses, name, o.Name)
 		},
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
-	markAppFlagRequired(cmd)
+	markNameFlagRequired(cmd)
 	return cmd
 }
 
-func NewCmdStart() *cobra.Command {
+func NewCmdAppStart() *cobra.Command {
 	o := DefaultAppLifecycleOptions()
 	cmd := &cobra.Command{
-		Use:   "start (device/NAME | fleet/NAME) --app APP",
+		Use:   "start (device/NAME | fleet/NAME) --name APP",
 		Short: "Start an application running on a device, or on every device owned by a fleet.",
 		Long: "Start an application running on a device, or on every device owned by a fleet.\n\n" +
 			"Starting on a fleet sets a fleet-wide default: it applies to every device currently " +
@@ -165,10 +165,10 @@ func NewCmdStart() *cobra.Command {
 			"own stop/start command still takes precedence over the fleet-wide default for that " +
 			"device.",
 		Example: `  # Start an application on a single device
-  flightctl start device/my-device --app my-app
+  flightctl app start device/my-device --name my-app
 
   # Start an application on every device in a fleet
-  flightctl start fleet/my-fleet --app my-app`,
+  flightctl app start fleet/my-fleet --name my-app`,
 		Args: cobra.MinimumNArgs(1),
 		ValidArgsFunction: KindNameAutocomplete{
 			Options:            o,
@@ -183,7 +183,7 @@ func NewCmdStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := confirm(stopStartConfirmPrompt("Start", o.AppName, kind, name), o.Yes); err != nil {
+			if err := confirm(stopStartConfirmPrompt("Start", o.Name, kind, name), o.Yes); err != nil {
 				return err
 			}
 			ctx, cancel := o.WithTimeout(cmd.Context())
@@ -195,18 +195,18 @@ func NewCmdStart() *cobra.Command {
 			c.Start(ctx)
 			defer c.Stop()
 			if kind == FleetKind {
-				return runStartFleet(ctx, c.ClientWithResponses, name, o.AppName)
+				return runStartFleet(ctx, c.ClientWithResponses, name, o.Name)
 			}
-			return runStart(ctx, c.ClientWithResponses, name, o.AppName)
+			return runStart(ctx, c.ClientWithResponses, name, o.Name)
 		},
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
-	markAppFlagRequired(cmd)
+	markNameFlagRequired(cmd)
 	return cmd
 }
 
-// stopStartConfirmPrompt builds the confirmation prompt for the stop/start commands, calling
+// stopStartConfirmPrompt builds the confirmation prompt for the app stop/start commands, calling
 // out the fleet-wide blast radius when the target is a fleet rather than a single device.
 func stopStartConfirmPrompt(verb, appName string, kind ResourceKind, name string) string {
 	if kind == FleetKind {
@@ -215,12 +215,14 @@ func stopStartConfirmPrompt(verb, appName string, kind ResourceKind, name string
 	return fmt.Sprintf("%s application %q on device %q?", verb, appName, name)
 }
 
-func NewCmdRestart() *cobra.Command {
+func NewCmdAppRestart() *cobra.Command {
 	o := DefaultAppLifecycleOptions()
 	cmd := &cobra.Command{
-		Use:   "restart device/NAME --app APP",
+		Use:   "restart device/NAME --name APP",
 		Short: "Restart an application running on a device.",
-		Args:  cobra.MinimumNArgs(1),
+		Example: `  # Restart an application on a device
+  flightctl app restart device/my-device --name my-app`,
+		Args: cobra.MinimumNArgs(1),
 		ValidArgsFunction: KindNameAutocomplete{
 			Options:            o,
 			AllowMultipleNames: false,
@@ -234,7 +236,7 @@ func NewCmdRestart() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := confirm(fmt.Sprintf("Restart application %q on device %q?", o.AppName, deviceName), o.Yes); err != nil {
+			if err := confirm(fmt.Sprintf("Restart application %q on device %q?", o.Name, deviceName), o.Yes); err != nil {
 				return err
 			}
 			ctx, cancel := o.WithTimeout(cmd.Context())
@@ -245,12 +247,12 @@ func NewCmdRestart() *cobra.Command {
 			}
 			c.Start(ctx)
 			defer c.Stop()
-			return runRestart(ctx, c.ClientWithResponses, deviceName, o.AppName)
+			return runRestart(ctx, c.ClientWithResponses, deviceName, o.Name)
 		},
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
-	markAppFlagRequired(cmd)
+	markNameFlagRequired(cmd)
 	return cmd
 }
 

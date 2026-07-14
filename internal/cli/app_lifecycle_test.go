@@ -29,7 +29,7 @@ func TestAppLifecycleOptions_resolveDeviceName(t *testing.T) {
 			args:          []string{"device/my-device"},
 			appName:       "",
 			expectError:   true,
-			errorContains: "--app is required",
+			errorContains: "--name is required",
 		},
 		{
 			name:          "wrong kind",
@@ -42,7 +42,7 @@ func TestAppLifecycleOptions_resolveDeviceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := &AppLifecycleOptions{AppName: tt.appName}
+			o := &AppLifecycleOptions{Name: tt.appName}
 			name, err := o.resolveDeviceName(tt.args)
 
 			if tt.expectError {
@@ -93,7 +93,7 @@ func TestAppLifecycleOptions_resolveTarget(t *testing.T) {
 			args:          []string{"device/my-device"},
 			appName:       "",
 			expectError:   true,
-			errorContains: "--app is required",
+			errorContains: "--name is required",
 		},
 		{
 			name:          "unsupported kind",
@@ -106,7 +106,7 @@ func TestAppLifecycleOptions_resolveTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := &AppLifecycleOptions{AppName: tt.appName}
+			o := &AppLifecycleOptions{Name: tt.appName}
 			kind, name, err := o.resolveTarget(tt.args)
 
 			if tt.expectError {
