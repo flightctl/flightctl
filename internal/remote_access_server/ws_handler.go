@@ -115,6 +115,15 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 				http.StatusInternalServerError)
 			return
 		}
+	case agentErr := <-session.ErrCh:
+		// The agent reported a session-level failure (e.g. the app does not exist) before
+		// selecting a protocol. Fail the request now, before upgrading to WebSocket, so the
+		// client never sees a false "connected" state for a session that never started.
+		close(session.SendCh)
+		h.log.Infof("app console session for device %s app %s failed before protocol selection with an agent-reported error", deviceName, appName)
+		h.log.Debugf("app console session %s failure detail: %s", session.UUID, agentErr)
+		http.Error(w, agentErr, http.StatusNotFound)
+		return
 	case <-timer.C:
 		close(session.SendCh)
 		h.log.Errorf("timed out waiting for protocol for device: %s app: %s", deviceName, appName)

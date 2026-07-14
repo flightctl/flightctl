@@ -415,12 +415,12 @@ func (o *AppConsoleOptions) connectAppViaWS(ctx context.Context, config *client.
 	return ctx.Err()
 }
 
-// connectVNCViaWS opens a single WebSocket session to flightctl-remote-access and listens on a
-// local TCP port for VNC viewer connections. The WebSocket session (and the agent-side VNC tunnel)
-// stays open for the lifetime of the command. VNC viewers can connect and disconnect freely; the
-// local listener accepts one client at a time and bridges it to the persistent WebSocket. The
-// session and listener are only closed when the context is canceled (Ctrl+C). The local port is
-// determined by --exposed-port (0 = random ephemeral).
+// connectVNCViaWS opens a WebSocket session to flightctl-remote-access and listens on a local
+// TCP port for a single VNC viewer connection, then bridges it to the WebSocket. The agent-side
+// VNC server completes its RFB handshake with that one viewer and cannot re-handshake on the
+// same tunnel, so the command ends as soon as the viewer disconnects (run it again to start a
+// new session); it can also end earlier if the context is canceled (Ctrl+C) or the tunnel fails.
+// The local port is determined by --exposed-port (0 = random ephemeral).
 func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.Config, deviceName, appName, token string) error {
 	consoleServer := config.GetRemoteAccessServer()
 	if consoleServer == "" {
@@ -465,7 +465,7 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 	defer listener.Close()
 
 	addr := listener.Addr().(*net.TCPAddr)
-	fmt.Fprintf(os.Stderr, "VNC is available at localhost:%d — connect your VNC viewer. Press Ctrl+C to exit.\r\n", addr.Port)
+	fmt.Fprintf(os.Stderr, "VNC is available at localhost:%d — connect your VNC viewer. The session ends when the viewer disconnects (or press Ctrl+C to exit early).\r\n", addr.Port)
 
 	// wsRecvCh buffers VNC data arriving from the server between client connections.
 	// A bounded buffer avoids unbounded memory growth while idle; data beyond the buffer
@@ -516,14 +516,7 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 			return nil
 		}
 		if tunnelCtx.Err() != nil {
-			if err, ok := tunnelErr.Load().(error); ok {
-				var sessionErr *ConsoleSessionError
-				if errors.As(err, &sessionErr) {
-					return sessionErr
-				}
-				return fmt.Errorf("VNC tunnel connection lost: %w", err)
-			}
-			return nil
+			return vncTunnelError(&tunnelErr)
 		}
 
 		// Use a short deadline so Accept() wakes up regularly to check ctx.
@@ -547,7 +540,27 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 		o.bridgeVNCClient(tunnelCtx, tcpConn, wsConn, wsRecvCh)
 		clientAttached.Store(false)
 		tcpConn.Close()
+
+		// The agent-side VNC server already completed its RFB handshake with this
+		// viewer and cannot re-handshake on the same tunnel, so a second viewer could
+		// never work here. End the command now instead of looping back to Accept().
+		return vncTunnelError(&tunnelErr)
 	}
+}
+
+// vncTunnelError returns the error to report for the persistent VNC tunnel having gone away, or
+// nil if it hasn't (e.g. the caller is returning because the viewer disconnected normally rather
+// than because the tunnel failed).
+func vncTunnelError(tunnelErr *atomic.Value) error {
+	err, ok := tunnelErr.Load().(error)
+	if !ok {
+		return nil
+	}
+	var sessionErr *ConsoleSessionError
+	if errors.As(err, &sessionErr) {
+		return sessionErr
+	}
+	return fmt.Errorf("VNC tunnel connection lost: %w", err)
 }
 
 // bridgeVNCClient bridges a single VNC client TCP connection to the persistent WebSocket session.

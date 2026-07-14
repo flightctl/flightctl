@@ -150,12 +150,20 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 
 	session, resolveErr := m.resolver.ResolveConsole(entry.AppName, entry.ConsoleType)
 
-	streamCtx := metadata.AppendToOutgoingContext(ctx,
+	metadataPairs := []string{
 		consts.GrpcSessionIDKey, entry.SessionID,
 		consts.GrpcClientNameKey, m.deviceName,
 		consts.GrpcAppNameKey, entry.AppName,
-		consts.GrpcSelectedProtocolKey, entry.ConsoleType,
-	)
+	}
+	// Report resolve failures via metadata (read by the server before any message
+	// exchange) rather than over the stream body, so the server can fail the session
+	// before the client's connection is upgraded instead of only after.
+	if resolveErr != nil {
+		metadataPairs = append(metadataPairs, consts.GrpcSessionErrorKey, resolveErr.Error())
+	} else {
+		metadataPairs = append(metadataPairs, consts.GrpcSelectedProtocolKey, entry.ConsoleType)
+	}
+	streamCtx := metadata.AppendToOutgoingContext(ctx, metadataPairs...)
 	streamClient, err := m.grpcClient.Stream(streamCtx)
 	if err != nil {
 		m.log.Errorf("error creating app console stream for session %s: %v", entry.SessionID, err)
@@ -165,7 +173,6 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 
 	if resolveErr != nil {
 		m.log.Errorf("cannot open console for app %s: %v", entry.AppName, resolveErr)
-		sendErrorOverStream(streamClient, resolveErr.Error())
 		return
 	}
 

@@ -55,6 +55,18 @@ func (s *Server) Stream(stream pb.RouterService_StreamServer) error {
 
 	selectedProtocols := md.Get(consts.GrpcSelectedProtocolKey)
 	if len(selectedProtocols) != 1 {
+		// The agent found a session-level failure (e.g. the app does not exist) before it
+		// could select a protocol. Report it via ErrCh instead of ProtocolCh so the caller
+		// can fail the client's connection before upgrading it, rather than only after.
+		if agentErrs := md.Get(consts.GrpcSessionErrorKey); len(agentErrs) == 1 && agentErrs[0] != "" {
+			s.log.Infof("agent reported session-level failure before protocol selection for session %s device %s app %s",
+				sessionID, session.DeviceName, session.AppName)
+			select {
+			case session.ErrCh <- agentErrs[0]:
+			default:
+			}
+			return status.Error(codes.FailedPrecondition, agentErrs[0])
+		}
 		close(session.ProtocolCh)
 		return status.Error(codes.InvalidArgument, "missing "+consts.GrpcSelectedProtocolKey)
 	}
