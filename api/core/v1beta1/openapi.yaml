@@ -6330,6 +6330,8 @@ components:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
         dependencySync:
           $ref: '#/components/schemas/DependencySyncStatus'
+        capabilities:
+          $ref: '#/components/schemas/DeviceCapabilities'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -6581,6 +6583,25 @@ components:
         - "ApplicationStatusCompleted"
         - "ApplicationStatusStopped"
         - "ApplicationStatusStopping"
+    OsModeType:
+      type: string
+      description: >-
+        OS management mode. "image" indicates the OS is managed via
+        bootc or rpm-ostree image updates. "package" indicates no
+        image-based OS management is available.
+      enum:
+        - image
+        - package
+      x-enum-varnames:
+        - OsModeImage
+        - OsModePackage
+    DeviceCapabilities:
+      type: object
+      description: Capabilities reported by the device agent.
+      properties:
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
+      additionalProperties: false
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -6926,6 +6947,8 @@ components:
         knownRenderedVersion:
           type: string
           description: 'The rendered version of the device from desired.json (optional).'
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
