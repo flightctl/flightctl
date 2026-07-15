@@ -29,6 +29,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -191,6 +192,10 @@ func main() {
 			logger.Fatalf("Failed to shut down tracer: %v", err)
 		}
 	}()
+
+	if err := encryption.InitGlobalEncryption(logger, cfg); err != nil {
+		logger.Fatalf("initializing encryption: %v", err)
+	}
 
 	// Initialize data store
 	db, err := store.InitDB(cfg, logger)

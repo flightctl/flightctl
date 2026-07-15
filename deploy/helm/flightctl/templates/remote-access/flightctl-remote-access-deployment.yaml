@@ -97,6 +97,9 @@ spec:
               name: flightctl-ca-bundle
               subPath: ca-bundle.crt
               readOnly: true
+            - mountPath: /root/.flightctl/encryption
+              name: flightctl-encryption-key
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
@@ -109,5 +112,9 @@ spec:
         - name: flightctl-ca-bundle
           secret:
             secretName: flightctl-ca-bundle
+        - name: flightctl-encryption-key
+          secret:
+            secretName: flightctl-encryption-key
+            defaultMode: 0400
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

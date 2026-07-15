@@ -12,6 +12,7 @@ Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env
 Volume=/etc/flightctl/flightctl-alertmanager-proxy/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Environment=DB_USER=flightctl_app

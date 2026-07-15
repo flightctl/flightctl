@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
@@ -124,6 +125,15 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		sqlDB.Close()
 		log.Errorf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, fmt.Errorf("failed to register OpenTelemetry GORM plugin: %w", err)
+	}
+
+	// Register encryption plugin if encryption is initialized
+	if encryption.GlobalManager() != nil {
+		if err = newDB.Use(encryption.NewPlugin(encryption.GlobalManager(), map[string]encryption.ModelEncryptHandler{})); err != nil {
+			sqlDB.Close()
+			log.Errorf("failed to register encryption plugin: %v", err)
+			return nil, fmt.Errorf("failed to register encryption plugin: %w", err)
+		}
 	}
 
 	return newDB, nil

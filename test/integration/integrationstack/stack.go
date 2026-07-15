@@ -14,18 +14,23 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+var ensureTestEncryptionOnce sync.Once
 
 // Container names for integration stack services.
 // Note: Redis is NOT part of the shared stack - each test suite creates its own ephemeral Redis.
@@ -237,10 +242,44 @@ func integrationStackCredentialMismatch(ctx context.Context, postgresMaster stri
 // If credentials differ from running containers, removes them so init SQL applies.
 // Note: Redis is NOT started here - each test suite creates its own ephemeral Redis via testdb.CreateTestRedis().
 func EnsureRunning(ctx context.Context) error {
+	EnsureTestEncryption(logrus.StandardLogger())
 	if err := ensureContainersRunning(ctx); err != nil {
 		return err
 	}
 	return RunMigrationsWithLock(ctx)
+}
+
+// EnsureTestEncryption generates a random AES-256 key in a process-local temp
+// directory and initializes the global encryption manager. Each process gets its
+// own key, avoiding cross-process races on a shared file path.
+// Safe to call multiple times (runs once per process).
+func EnsureTestEncryption(log *logrus.Logger) {
+	ensureTestEncryptionOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "flightctl-test-encryption-*")
+		if err != nil {
+			log.Fatalf("creating temp encryption dir: %v", err)
+		}
+
+		keyPath := filepath.Join(dir, "key")
+		key, err := crypto.GenerateAES256Key()
+		if err != nil {
+			log.Fatalf("generating test encryption key: %v", err)
+		}
+
+		if err := os.WriteFile(keyPath, []byte(key), 0600); err != nil {
+			log.Fatalf("writing test encryption key to %s: %v", keyPath, err)
+		}
+		log.Infof("Test encryption key written to %s", keyPath)
+
+		cfg := config.NewDefault()
+		cfg.Encryption = &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+			ActiveKeyID: "default",
+		}
+		if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+			log.Fatalf("initializing test encryption: %v", err)
+		}
+	})
 }
 
 // EnsureContainersOnly starts containers without running migrations.

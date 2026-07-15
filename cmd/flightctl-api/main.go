@@ -15,8 +15,10 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -60,6 +62,10 @@ func main() {
 			log.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
+
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
@@ -177,6 +183,12 @@ func main() {
 					}
 				}()
 			}
+		}
+
+		if encMgr := encryption.GlobalManager(); encMgr != nil {
+			encCollector := encmetrics.NewEncryptionCollector(encMgr)
+			encMgr.SetMetricsRecorder(encCollector)
+			collectors = append(collectors, encCollector)
 		}
 
 		go func() {

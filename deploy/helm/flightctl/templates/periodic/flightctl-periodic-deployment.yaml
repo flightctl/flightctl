@@ -82,6 +82,9 @@ spec:
             - mountPath: /etc/flightctl/ssh
               name: flightctl-ssh-known-hosts
               readOnly: true
+            - mountPath: /root/.flightctl/encryption
+              name: flightctl-encryption-key
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
@@ -95,4 +98,8 @@ spec:
             items:
               - key: known_hosts
                 path: known_hosts
+        - name: flightctl-encryption-key
+          secret:
+            secretName: flightctl-encryption-key
+            defaultMode: 0400
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}

@@ -10,6 +10,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -43,6 +45,10 @@ func main() {
 			log.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
+
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
@@ -86,6 +92,12 @@ func main() {
 			if systemMetricsCollector := system.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
 			}
+		}
+
+		if encMgr := encryption.GlobalManager(); encMgr != nil {
+			encCollector := encmetrics.NewEncryptionCollector(encMgr)
+			encMgr.SetMetricsRecorder(encCollector)
+			collectors = append(collectors, encCollector)
 		}
 
 		if len(collectors) > 0 {
