@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,22 @@ import (
 	"github.com/samber/lo"
 	"google.golang.org/grpc/metadata"
 )
+
+// sanitizeGrpcMetadataValue replaces every byte outside the printable ASCII range
+// (0x20-0x7E) with '?'. gRPC-Go rejects outgoing metadata values containing such bytes
+// for any key that doesn't end in "-bin" (see
+// google.golang.org/grpc/internal/metadata.ValidatePair), which would otherwise make
+// Stream() itself fail for any resolveErr whose text contains e.g. a newline or a
+// non-ASCII app name, silently losing the specific error and degrading to a generic
+// timeout on the server side instead.
+func sanitizeGrpcMetadataValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7E {
+			return '?'
+		}
+		return r
+	}, s)
+}
 
 // Session is the per-console-type I/O interface. Each app type (VM, container, …)
 // provides its own implementation.
@@ -159,7 +176,7 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 	// exchange) rather than over the stream body, so the server can fail the session
 	// before the client's connection is upgraded instead of only after.
 	if resolveErr != nil {
-		metadataPairs = append(metadataPairs, consts.GrpcSessionErrorKey, resolveErr.Error())
+		metadataPairs = append(metadataPairs, consts.GrpcSessionErrorKey, sanitizeGrpcMetadataValue(resolveErr.Error()))
 	} else {
 		metadataPairs = append(metadataPairs, consts.GrpcSelectedProtocolKey, entry.ConsoleType)
 	}
