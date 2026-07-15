@@ -26,17 +26,15 @@ const (
 	DeploymentTypeUnknown    DeploymentType = "unknown"
 )
 
-// PKI backup permission modes
+// Backup permission modes for sensitive material (PKI, encryption keys, config).
 const (
-	// pkiDirMode is the permission mode for PKI backup output directories.
-	// 0700 (owner-only access) ensures PKI materials are only accessible
-	// to the backup process owner.
-	pkiDirMode os.FileMode = 0700
+	// sensitiveDataDirMode is the permission mode for backup output directories
+	// containing sensitive data. 0700 (owner-only access).
+	sensitiveDataDirMode os.FileMode = 0700
 
-	// pkiFileMode is the permission mode for sensitive PKI files in backups.
-	// 0600 (owner-only read/write) protects private keys and certificates
-	// from unauthorized access.
-	pkiFileMode os.FileMode = 0600
+	// sensitiveDataFileMode is the permission mode for sensitive files in backups
+	// (private keys, encryption keys, credentials). 0600 (owner-only read/write).
+	sensitiveDataFileMode os.FileMode = 0600
 )
 
 // Deployer interface for backup operations across deployment types
@@ -44,6 +42,7 @@ type Deployer interface {
 	Type() DeploymentType
 	BackupDatabase(ctx context.Context, outputDir string) error
 	BackupPKI(ctx context.Context, outputDir string) error
+	BackupEncryptionKeys(ctx context.Context, outputDir string) error
 	BackupConfig(ctx context.Context, outputDir string) error
 }
 
@@ -82,8 +81,8 @@ func (d *Detector) Detect() (DeploymentType, error) {
 
 	if podmanActive && kubeconfigPresent {
 		return DeploymentTypeUnknown, fmt.Errorf(
-			"conflicting deployment indicators detected: "+
-				"Podman (flightctl-api.service is active) and Kubernetes (kubeconfig present); "+
+			"conflicting deployment indicators detected: " +
+				"Podman (flightctl-api.service is active) and Kubernetes (kubeconfig present); " +
 				"use --deployment-type to specify explicitly",
 		)
 	}
@@ -138,7 +137,6 @@ func ValidateDeploymentType(s string) error {
 	}
 }
 
-
 // serviceConfigDB holds the db section parsed from a raw service-config.yaml.
 // The service-config.yaml uses the top-level key "db" (not "database"), which
 // does not map to config.Config.Database (JSON tag "database").
@@ -160,7 +158,6 @@ func parseServiceConfigDB(data []byte, log logrus.FieldLogger) serviceConfigDB {
 	log.Debugf("Parsed db section from service-config.yaml: type=%q name=%q", root.DB.Type, root.DB.Name)
 	return root.DB
 }
-
 
 // podmanServiceIsActive returns true if the FlightCtl Podman service is running.
 // Tries systemctl directly, then falls back to sudo systemctl — matching the

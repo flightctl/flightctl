@@ -259,9 +259,10 @@ func CreateArchive(ctx context.Context, stagingDir string, outputDir string, met
 //  2. Create staging directory
 //  3. Backup database (if internal)
 //  4. Backup PKI materials
-//  5. Backup config (stub)
-//  6. Create timestamped archive with checksum
-//  7. Clean up staging directory
+//  5. Backup encryption keys (if present)
+//  6. Backup config (stub)
+//  7. Create timestamped archive with checksum
+//  8. Clean up staging directory
 //
 // Returns path to created archive on success.
 func PerformBackup(ctx context.Context, deployer Deployer, outputDir string, log logrus.FieldLogger) (archivePath string, err error) {
@@ -311,6 +312,18 @@ func PerformBackup(ctx context.Context, deployer Deployer, outputDir string, log
 		return "", fmt.Errorf("PKI backup failed: %w", err)
 	}
 	log.Infof("PKI backup completed")
+
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return "", fmt.Errorf("backup cancelled: %w", ctx.Err())
+	default:
+	}
+
+	// Backup encryption keys (optional — may not exist in pre-encryption deployments)
+	if err := deployer.BackupEncryptionKeys(ctx, stagingDir); err != nil {
+		return "", fmt.Errorf("encryption keys backup failed: %w", err)
+	}
 
 	// Check for context cancellation
 	select {
