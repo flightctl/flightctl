@@ -27,7 +27,10 @@ on:
 
 jobs:
   build-backend-containers:
-    runs-on: ubuntu-24.04
+    # Larger self-hosted runners: parallel container builds (make -j4) exhaust
+    # disk on GitHub-hosted ubuntu-24.04 (ENOSPC pulling kubevirt / writing CLI bins).
+    # Match e2e (run-e2e-tests.yaml) which already uses flightctl-ci-runner.
+    runs-on: flightctl-ci-runner
     outputs:
       git_tag: ${{ steps.compute-tag.outputs.git_tag }}
     steps:
