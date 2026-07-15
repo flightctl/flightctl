@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -74,6 +75,12 @@ type managedSession struct {
 	id                string
 	streamClient      grpc_v1.RouterService_StreamClient
 	inactiveTimestamp time.Time
+	// cancel ends this session's context, letting evict() force an early, clean shutdown
+	// of a still-running session from Sync's goroutine.
+	cancel context.CancelFunc
+	// replaced is set by evict() before cancel() is called, so bridgeConn's teardown can
+	// tell an explicit takeover apart from a normal disconnect and report it to the client.
+	replaced atomic.Bool
 }
 
 func NewManager(
@@ -135,6 +142,21 @@ func (m *Manager) closeStream(s *managedSession) {
 	m.inactivate(s)
 }
 
+// evict looks up the active session with the given ID and, if found, marks it as replaced
+// and cancels its context so its own goroutine winds down and reports the reason to its
+// client (see withEvictionReason/bridgeConn). Returns whether a matching session was found.
+func (m *Manager) evict(sessionID string) bool {
+	m.mu.Lock()
+	ms, found := lo.Find(m.activeSessions, func(s *managedSession) bool { return s.id == sessionID })
+	m.mu.Unlock()
+	if !found {
+		return false
+	}
+	ms.replaced.Store(true)
+	ms.cancel()
+	return true
+}
+
 // sendErrorOverStream makes a best-effort attempt to notify the server of a session-level
 // failure before tearing the stream down. Send/CloseSend errors are intentionally ignored:
 // the caller is already abandoning this stream because of an earlier failure, so there is
@@ -150,7 +172,17 @@ func sendErrorOverStream(streamClient grpc_v1.RouterService_StreamClient, msg st
 // Start is the entry point called by syncConsole for each annotation entry.
 // It resolves the app console, opens the gRPC stream, and runs the session.
 func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) {
-	ms := &managedSession{id: entry.SessionID}
+	// sessionCtx/sessionCancel let evict() signal "wind down" without tearing down the gRPC
+	// stream's own transport. The stream is deliberately created from ctx (this function's
+	// parameter, canceled only on agent shutdown), not from sessionCtx: canceling the same
+	// context that backs the stream would race the server's rejection of further Send()
+	// calls against bridgeConn's attempt to deliver one last "replaced" notice, and lose it
+	// most of the time. Keeping them separate lets bridgeConn close the local conn first
+	// (via sessionCtx), send the reason over the still-live stream, and only then CloseSend.
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
+	defer sessionCancel()
+
+	ms := &managedSession{id: entry.SessionID, cancel: sessionCancel}
 	if !m.add(ms) {
 		return
 	}
@@ -193,7 +225,7 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 		return
 	}
 
-	session.Run(ctx, streamClient)
+	session.Run(withEvictionReason(sessionCtx, &ms.replaced), streamClient)
 }
 
 // Sync reads the DeviceAnnotationRemoteSession annotation and starts a goroutine
@@ -219,6 +251,13 @@ func (m *Manager) Sync(ctx context.Context, device *v1beta1.Device) {
 	for _, entry := range sessions {
 		if entry.AppName == "" || entry.SessionID == "" {
 			continue
+		}
+		// A --force takeover names the session it is replacing explicitly, so this is the
+		// only condition that ever tears down a still-active session here. A session ID
+		// simply vanishing from the annotation (e.g. a normal close followed by a fast
+		// reopen) must never be treated as a replacement.
+		if entry.ReplacesSessionID != "" {
+			m.evict(entry.ReplacesSessionID)
 		}
 		e := entry
 		m.sessionWg.Add(1)

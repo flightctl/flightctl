@@ -32,9 +32,13 @@ func (m *mockExecStreamer) ExecStream(_ context.Context, _ string, _ ...string) 
 	return m.conn, m.err
 }
 
-// mockResolver is a minimal AppConsoleResolver for tests.
+// mockResolver is a minimal AppConsoleResolver for tests. When seq[appName] is non-empty,
+// each call pops and returns the next entry (letting a test hand out a different Session per
+// resolution, e.g. for a --force takeover scenario); once exhausted it falls back to sessions.
 type mockResolver struct {
+	mu       sync.Mutex
 	sessions map[string]Session
+	seq      map[string][]Session
 	err      map[string]error
 }
 
@@ -42,6 +46,13 @@ func (m *mockResolver) ResolveConsole(appName, _ string) (Session, error) {
 	if err, ok := m.err[appName]; ok {
 		return nil, err
 	}
+	m.mu.Lock()
+	if q, ok := m.seq[appName]; ok && len(q) > 0 {
+		m.seq[appName] = q[1:]
+		m.mu.Unlock()
+		return q[0], nil
+	}
+	m.mu.Unlock()
 	if s, ok := m.sessions[appName]; ok {
 		return s, nil
 	}
@@ -181,6 +192,32 @@ func (v *testVars) sendEOF() {
 	})
 }
 
+// waitSessionsTimeout bounds how long tests wait for a manager's session goroutines to
+// finish. Without a deadline, a regression in session teardown would hang the test (and CI)
+// indefinitely instead of failing with a clear message.
+const waitSessionsTimeout = 5 * time.Second
+
+// waitForSessions blocks until m's session goroutines have all finished, or fails t after
+// waitSessionsTimeout.
+func waitForSessions(t *testing.T, m *Manager) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		m.sessionWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(waitSessionsTimeout):
+		t.Fatal("timed out waiting for console session goroutines to finish")
+	}
+}
+
+func (v *testVars) waitSessions(t *testing.T) {
+	t.Helper()
+	waitForSessions(t, v.manager)
+}
+
 func makeDevice(sessions []v1beta1.DeviceRemoteSession) *v1beta1.Device {
 	annotations := make(map[string]string)
 	if len(sessions) > 0 {
@@ -217,7 +254,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-app")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -242,7 +279,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Empty(v.manager.activeSessions)
 	})
@@ -261,11 +298,11 @@ func TestAppConsoleManager(t *testing.T) {
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		// The second sync finds the session already in inactive list and skips it.
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		v.manager.mu.Lock()
 		inactiveCount := len(v.manager.inactiveSessions)
@@ -279,7 +316,7 @@ func TestAppConsoleManager(t *testing.T) {
 
 		device := &v1beta1.Device{Metadata: v1beta1.ObjectMeta{}}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 		require.Empty(v.manager.activeSessions)
 	})
 
@@ -295,7 +332,7 @@ func TestAppConsoleManager(t *testing.T) {
 		annotations[v1beta1.DeviceAnnotationRemoteSession] = string(b)
 		device := &v1beta1.Device{Metadata: v1beta1.ObjectMeta{Annotations: &annotations}}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 		require.Empty(v.manager.activeSessions)
 	})
 
@@ -317,7 +354,7 @@ func TestAppConsoleManager(t *testing.T) {
 		v.manager.Sync(v.ctx, device)
 
 		v.sendEOF()
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 	})
 
 	t.Run("When the dialFn fails it should send an error over the gRPC stream", func(t *testing.T) {
@@ -334,7 +371,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -343,6 +380,220 @@ func TestAppConsoleManager(t *testing.T) {
 		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called after dial failure")
 
 		require.Contains(v.lastSentError(), "podman exec: no such container", "expected the dial error to be sent via the Error field, not Payload")
+	})
+}
+
+func TestManagerEvict(t *testing.T) {
+	t.Run("When no active session matches it should return false", func(t *testing.T) {
+		require := require.New(t)
+		v := setupTestVars(t, nil)
+
+		require.False(v.manager.evict("nonexistent"))
+	})
+
+	t.Run("When an active session matches it should mark it replaced and cancel its context", func(t *testing.T) {
+		require := require.New(t)
+		v := setupTestVars(t, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		ms := &managedSession{id: "session-1", cancel: cancel}
+		require.True(v.manager.add(ms))
+
+		require.True(v.manager.evict("session-1"))
+		require.True(ms.replaced.Load())
+		select {
+		case <-ctx.Done():
+		default:
+			t.Fatal("expected evict to cancel the session's context")
+		}
+	})
+}
+
+// mockSessionStream bundles a MockRouterService_StreamClient with the plumbing needed to
+// drive it independently of any other stream, so tests can run two concurrent sessions (an
+// evicted one and its replacement) each with their own Send/Recv/CloseSend behavior. Send()
+// rejects once streamCtx is done, mirroring real gRPC client streams: this is what makes the
+// test able to catch a session's own cancellation racing its "replaced" notice off the wire.
+type mockSessionStream struct {
+	stream          *MockRouterService_StreamClient
+	recvChan        chan lo.Tuple2[*grpc_v1.StreamResponse, error]
+	eofOnce         sync.Once
+	mu              sync.Mutex
+	sentErrors      []string
+	closeSendCalled chan struct{}
+	closeOnce       sync.Once
+	streamCtx       context.Context
+	// ready is closed the first time setStreamCtx runs, i.e. once this mock's Stream() call
+	// has actually happened. Tests that need to trigger a takeover only after a specific
+	// session's Start() has reached Stream() must wait on this instead of on Manager's
+	// activeSessions, which is populated earlier (before ResolveConsole/Stream) and so cannot
+	// distinguish "session tracked" from "session's stream call has happened".
+	ready     chan struct{}
+	readyOnce sync.Once
+}
+
+func newMockSessionStream(ctrl *gomock.Controller) *mockSessionStream {
+	s := &mockSessionStream{
+		stream:          NewMockRouterService_StreamClient(ctrl),
+		recvChan:        make(chan lo.Tuple2[*grpc_v1.StreamResponse, error]),
+		closeSendCalled: make(chan struct{}),
+		ready:           make(chan struct{}),
+	}
+	s.stream.EXPECT().Send(gomock.Any()).DoAndReturn(func(req *grpc_v1.StreamRequest) error {
+		s.mu.Lock()
+		ctx := s.streamCtx
+		s.mu.Unlock()
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if req.GetError() != "" {
+			s.mu.Lock()
+			s.sentErrors = append(s.sentErrors, req.GetError())
+			s.mu.Unlock()
+		}
+		return nil
+	}).AnyTimes()
+	s.stream.EXPECT().Recv().DoAndReturn(func() (*grpc_v1.StreamResponse, error) {
+		val, ok := <-s.recvChan
+		if !ok {
+			return nil, io.EOF
+		}
+		return val.A, val.B
+	}).AnyTimes()
+	s.stream.EXPECT().CloseSend().DoAndReturn(func() error {
+		s.closeOnce.Do(func() { close(s.closeSendCalled) })
+		return nil
+	}).AnyTimes()
+	return s
+}
+
+func (s *mockSessionStream) sendEOF() {
+	s.eofOnce.Do(func() { close(s.recvChan) })
+}
+
+// setStreamCtx records the outgoing context Stream() was called with, so later Send() calls
+// can be rejected once it is done -- exactly as a real gRPC client stream would behave. It
+// also signals ready, since this is only ever called from the Stream() mock itself.
+func (s *mockSessionStream) setStreamCtx(ctx context.Context) {
+	s.mu.Lock()
+	s.streamCtx = ctx
+	s.mu.Unlock()
+	s.readyOnce.Do(func() { close(s.ready) })
+}
+
+func (s *mockSessionStream) errors() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.sentErrors...)
+}
+
+func TestSyncReplacesSessionID(t *testing.T) {
+	t.Run("When a new entry names an active session via ReplacesSessionID it should evict it and report why", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		logger := log.NewPrefixLogger("test")
+		mockGrpcClient := NewMockRouterServiceClient(ctrl)
+
+		oldServerConn, oldClientConn := net.Pipe()
+		defer oldServerConn.Close()
+		newServerConn, newClientConn := net.Pipe()
+		defer newServerConn.Close()
+
+		oldSess := NewVMSerialSession("virt-launcher-my-vm-compute", &mockExecStreamer{conn: oldClientConn}, logger)
+		newSess := NewVMSerialSession("virt-launcher-my-vm-compute", &mockExecStreamer{conn: newClientConn}, logger)
+
+		oldSessionID := uuid.New().String()
+		newSessionID := uuid.New().String()
+
+		resolver := &mockResolver{seq: map[string][]Session{"my-vm": {oldSess, newSess}}}
+
+		oldStream := newMockSessionStream(ctrl)
+		newStream := newMockSessionStream(ctrl)
+
+		var callCount int
+		var callMu sync.Mutex
+		mockGrpcClient.EXPECT().Stream(gomock.Any()).DoAndReturn(func(ctx context.Context, _ ...grpc.CallOption) (grpc_v1.RouterService_StreamClient, error) {
+			callMu.Lock()
+			callCount++
+			n := callCount
+			callMu.Unlock()
+			if n == 1 {
+				oldStream.setStreamCtx(ctx)
+				return oldStream.stream, nil
+			}
+			newStream.setStreamCtx(ctx)
+			return newStream.stream, nil
+		}).Times(2)
+
+		manager := NewManager(mockGrpcClient, "test-device", resolver, logger)
+
+		device1 := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(oldSessionID, "my-vm")})
+		manager.Sync(context.Background(), device1)
+
+		// Wait for the old session's own Stream() call to have happened (not just for it to be
+		// tracked in activeSessions, which happens earlier and races against a new session's
+		// Start() also reaching Stream() first, which would bind the mocks to the wrong session).
+		select {
+		case <-oldStream.ready:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected the old session's Stream() call to happen before triggering the takeover")
+		}
+
+		device2 := makeDevice([]v1beta1.DeviceRemoteSession{
+			{SessionID: newSessionID, AppName: "my-vm", ConsoleType: "serial", ReplacesSessionID: oldSessionID},
+		})
+		manager.Sync(context.Background(), device2)
+
+		select {
+		case <-oldStream.closeSendCalled:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected the old session's stream to be closed after eviction")
+		}
+		require.Contains(oldStream.errors(), "console session replaced by a new connection",
+			"the evicted session must report why it was torn down")
+
+		newStream.sendEOF()
+		oldStream.sendEOF()
+		waitForSessions(t, manager)
+	})
+
+	t.Run("When a session's entry simply disappears without ReplacesSessionID it should keep running", func(t *testing.T) {
+		require := require.New(t)
+
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+		vmSess := NewVMSerialSession("virt-launcher-my-vm-compute", &mockExecStreamer{conn: clientConn}, log.NewPrefixLogger("test"))
+		resolver := &mockResolver{sessions: map[string]Session{"my-vm": vmSess}}
+		v := setupTestVars(t, resolver)
+
+		v.mockStream()
+		v.mockSend()
+		v.mockRecv()
+		v.mockCloseSend()
+
+		sessionID := uuid.New().String()
+		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
+		v.manager.Sync(v.ctx, device)
+
+		require.Eventually(func() bool {
+			v.manager.mu.Lock()
+			defer v.manager.mu.Unlock()
+			return len(v.manager.activeSessions) == 1
+		}, 2*time.Second, 10*time.Millisecond, "expected the session to become active")
+
+		// The entry vanishes entirely (e.g. an unrelated close-then-reopen elsewhere in the
+		// annotation) rather than being explicitly replaced. This must never tear the session
+		// down: only an explicit ReplacesSessionID is a valid eviction signal.
+		v.manager.Sync(v.ctx, makeDevice(nil))
+
+		v.mu.Lock()
+		closed := v.closeSendCalled
+		v.mu.Unlock()
+		require.False(closed, "a session must not be evicted just because its entry vanished from the annotation")
+
+		v.sendEOF()
+		v.waitSessions(t)
 	})
 }
 
@@ -363,7 +614,7 @@ func TestVMVNCSession(t *testing.T) {
 			{SessionID: sessionID, AppName: "my-vm", ConsoleType: "vnc"},
 		})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -394,7 +645,7 @@ func TestVMVNCSession(t *testing.T) {
 		v.manager.Sync(v.ctx, device)
 
 		v.sendEOF()
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 	})
 
 	t.Run("When a VNC session starts it should not send an initial CR", func(t *testing.T) {
@@ -459,7 +710,7 @@ func TestSyncMalformedAnnotation(t *testing.T) {
 			Metadata: v1beta1.ObjectMeta{Annotations: &annotations},
 		}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Empty(v.manager.activeSessions)
 	})

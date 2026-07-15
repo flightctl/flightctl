@@ -2,14 +2,17 @@ package console
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -82,7 +85,7 @@ func TestAppConsoleSessionManager_StartSession_EmptyAppName(t *testing.T) {
 	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
-	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "", "serial")
+	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "", "serial", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusBadRequest, int(status.Code))
@@ -96,7 +99,7 @@ func TestAppConsoleSessionManager_StartSession_InvalidConsoleType(t *testing.T) 
 	pub := &mockConsoleEventNotifier{}
 	mgr := newTestAppManager(svc, reg, pub)
 
-	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "app1", "invalid")
+	session, status := mgr.StartSession(context.Background(), uuid.New(), "device1", "app1", "invalid", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusBadRequest, int(status.Code))
@@ -117,7 +120,7 @@ func TestAppConsoleSessionManager_StartSession_DeviceNotFound(t *testing.T) {
 		domain.StatusResourceNotFound("Device", "device1"),
 	)
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusNotFound, int(status.Code))
@@ -136,7 +139,7 @@ func TestAppConsoleSessionManager_StartSession_DecommissionedDevice(t *testing.T
 	device.Spec.Decommissioning = &domain.DeviceDecommission{}
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusConflict, int(status.Code))
@@ -157,7 +160,7 @@ func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
 	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1"}]`
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusConflict, int(status.Code))
@@ -254,7 +257,7 @@ func TestAppConsoleSessionManager_StartSession_RollsBackOnRegistrationFailure(t 
 	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(fmt.Errorf("registration failed"))
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.Nil(t, session)
 	assert.Equal(t, http.StatusInternalServerError, int(status.Code))
@@ -278,7 +281,7 @@ func TestAppConsoleSessionManager_StartSession_ProceedsWhenPublishFails(t *testi
 	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(fmt.Errorf("redis unavailable")).Once()
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.NotNil(t, session)
 	assert.Equal(t, http.StatusOK, int(status.Code))
@@ -298,6 +301,142 @@ func TestAddAppSession_DuplicateAppName_ReturnsConflict(t *testing.T) {
 	var dupErr *duplicateAppSessionError
 	assert.ErrorAs(t, err, &dupErr)
 	assert.Contains(t, dupErr.Error(), "app1")
+}
+
+func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {
+	existing := `[{"sessionID":"old-id","appName":"app1","consoleType":"serial"}]`
+	var replacedSessionID string
+	updater := replaceAppSession("new-id", "app1", "vnc", &replacedSessionID)
+
+	result, err := updater(existing)
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "new-id", sessions[0].SessionID)
+	assert.Equal(t, "app1", sessions[0].AppName)
+	assert.Equal(t, "vnc", sessions[0].ConsoleType)
+	assert.Equal(t, "old-id", sessions[0].ReplacesSessionID,
+		"the new entry must name the session it replaced")
+	assert.Equal(t, "old-id", replacedSessionID,
+		"the out-param must report the evicted session so callers can audit-log it")
+}
+
+func TestReplaceAppSession_NoExistingEntry_BehavesLikeAdd(t *testing.T) {
+	var replacedSessionID string
+	updater := replaceAppSession("new-id", "app1", "serial", &replacedSessionID)
+
+	result, err := updater("")
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "new-id", sessions[0].SessionID)
+	assert.Empty(t, sessions[0].ReplacesSessionID,
+		"there was nothing to replace, so ReplacesSessionID must stay empty")
+	assert.Empty(t, replacedSessionID, "there was nothing to replace, so the out-param must stay empty")
+}
+
+func TestReplaceAppSession_PreservesOtherAppSessions(t *testing.T) {
+	existing := `[{"sessionID":"other-id","appName":"other-app","consoleType":"serial"},` +
+		`{"sessionID":"old-id","appName":"app1","consoleType":"serial"}]`
+	updater := replaceAppSession("new-id", "app1", "serial", nil)
+
+	result, err := updater(existing)
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 2)
+	byApp := make(map[string]domain.DeviceRemoteSession)
+	for _, s := range sessions {
+		byApp[s.AppName] = s
+	}
+	assert.Equal(t, "other-id", byApp["other-app"].SessionID, "unrelated app sessions must be untouched")
+	assert.Equal(t, "new-id", byApp["app1"].SessionID)
+	assert.Equal(t, "old-id", byApp["app1"].ReplacesSessionID)
+}
+
+func TestAppConsoleSessionManager_StartSession_Force_ReplacesExistingSession(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{}
+	logger, hook := test.NewNullLogger()
+	mgr := NewAppConsoleSessionManager(svc, logrus.NewEntry(logger), reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := makeTestDevice("device1")
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1","consoleType":"serial"}]`
+
+	var capturedDevice domain.Device
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
+
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", true)
+
+	assert.Equal(t, http.StatusOK, int(status.Code), "force must bypass the 409 conflict")
+	require.NotNil(t, session)
+
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	val := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession]
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(val), &sessions))
+	require.Len(t, sessions, 1, "the old entry for app1 must be replaced, not appended alongside")
+	assert.Equal(t, session.UUID, sessions[0].SessionID)
+	assert.Equal(t, "existing-id", sessions[0].ReplacesSessionID)
+
+	var auditEntry *logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "forcibly replaced active session") {
+			auditEntry = entry
+			break
+		}
+	}
+	require.NotNil(t, auditEntry, "a forced takeover must emit an audit log line naming the evicted session")
+	assert.Contains(t, auditEntry.Message, "existing-id")
+	assert.Contains(t, auditEntry.Message, session.UUID)
+}
+
+func TestAppConsoleSessionManager_StartSession_Force_NoExistingSession_AddsNormally(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{}
+	mgr := newTestAppManager(svc, reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := makeTestDevice("device1")
+
+	var capturedDevice domain.Device
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
+
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", true)
+
+	assert.Equal(t, http.StatusOK, int(status.Code))
+	require.NotNil(t, session)
+
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	val := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession]
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(val), &sessions))
+	require.Len(t, sessions, 1)
+	assert.Empty(t, sessions[0].ReplacesSessionID, "there was nothing to replace")
 }
 
 func TestRemoveAppSession_LastSession_ReturnsEmpty(t *testing.T) {
@@ -332,7 +471,7 @@ func TestAppConsoleSessionManager_StartSession_DoesNotBumpDeviceAnnotationRender
 	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
 
-	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial")
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
 
 	assert.Equal(t, http.StatusOK, int(status.Code))
 	assert.NotNil(t, session)

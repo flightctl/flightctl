@@ -75,8 +75,9 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 	}
 
 	orgId := transport.OrgIDFromContext(r.Context())
+	force := r.URL.Query().Get("force") == "true"
 
-	session, status := h.appConsoleSessionManager.StartSession(r.Context(), orgId, deviceName, appName, consoleType)
+	session, status := h.appConsoleSessionManager.StartSession(r.Context(), orgId, deviceName, appName, consoleType, force)
 	if status.Code != http.StatusOK {
 		http.Error(w, status.Message, int(status.Code))
 		return

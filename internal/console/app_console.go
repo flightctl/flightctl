@@ -165,6 +165,51 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 	}
 }
 
+// replaceAppSession returns an updater closure that atomically removes any existing session
+// entry for appName and adds a new one in its place, recording the removed entry's SessionID
+// (if any) via ReplacesSessionID. That field is what lets the agent distinguish an explicit
+// takeover from an unrelated close-then-reopen of the same app: it only cancels a running
+// session when a new entry explicitly names it as replaced, never just because it vanished.
+// If no existing entry is found, this behaves exactly like addAppSession.
+//
+// The updater may run more than once (modifyAnnotations retries on conflict), so
+// replacedSessionID is overwritten on every call; only the value from the call that actually
+// commits reflects the session that was really evicted. If non-nil, it is set to the removed
+// entry's SessionID, or "" if there was none.
+func replaceAppSession(sessionID, appName, consoleType string, replacedSessionID *string) func(string) (string, error) {
+	return func(existing string) (string, error) {
+		var sessions []domain.DeviceRemoteSession
+		if existing != "" {
+			if err := json.Unmarshal([]byte(existing), &sessions); err != nil {
+				return "", err
+			}
+		}
+		var replacesSessionID string
+		filtered := sessions[:0]
+		for _, s := range sessions {
+			if s.AppName == appName {
+				replacesSessionID = s.SessionID
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		if replacedSessionID != nil {
+			*replacedSessionID = replacesSessionID
+		}
+		filtered = append(filtered, domain.DeviceRemoteSession{
+			SessionID:         sessionID,
+			AppName:           appName,
+			ConsoleType:       consoleType,
+			ReplacesSessionID: replacesSessionID,
+		})
+		b, err := json.Marshal(&filtered)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+}
+
 // removeAppSession returns an updater closure that removes the session entry for the given sessionID.
 func removeAppSession(sessionID string) func(string) (string, error) {
 	return func(existing string) (string, error) {
@@ -208,7 +253,10 @@ func (e *duplicateAppSessionError) Error() string {
 }
 
 // StartSession validates inputs, guards against duplicates via annotation, and registers the session.
-func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, appName, consoleType string) (*AppConsoleSession, domain.Status) {
+// When force is true and a session already exists for appName, that session's annotation entry
+// is atomically replaced (see replaceAppSession) instead of returning a 409 conflict; the agent
+// is responsible for noticing the takeover and tearing down the replaced session itself.
+func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, appName, consoleType string, force bool) (*AppConsoleSession, domain.Status) {
 	if appName == "" {
 		return nil, domain.StatusBadRequest("appName is required")
 	}
@@ -235,12 +283,15 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	}
 
 	// Check for duplicate session for this appName in the current annotation value (fast path).
-	if val, ok := annotations[domain.DeviceAnnotationRemoteSession]; ok && val != "" {
-		var sessions []domain.DeviceRemoteSession
-		if err := json.Unmarshal([]byte(val), &sessions); err == nil {
-			for _, s := range sessions {
-				if s.AppName == appName {
-					return nil, domain.StatusConflict("console session already active for application " + appName)
+	// Skipped when force is set: the atomic updater below replaces any existing entry instead.
+	if !force {
+		if val, ok := annotations[domain.DeviceAnnotationRemoteSession]; ok && val != "" {
+			var sessions []domain.DeviceRemoteSession
+			if err := json.Unmarshal([]byte(val), &sessions); err == nil {
+				for _, s := range sessions {
+					if s.AppName == appName {
+						return nil, domain.StatusConflict("console session already active for application " + appName)
+					}
 				}
 			}
 		}
@@ -257,7 +308,12 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		ErrCh:      make(chan string, 1),
 	}
 
-	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, addAppSession(session.UUID, appName, consoleType)); status.Code != http.StatusOK {
+	var replacedSessionID string
+	updater := addAppSession(session.UUID, appName, consoleType)
+	if force {
+		updater = replaceAppSession(session.UUID, appName, consoleType, &replacedSessionID)
+	}
+	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, updater); status.Code != http.StatusOK {
 		// Attempt rollback in case the DB write succeeded but the Redis publish failed,
 		// which would leave a stale annotation entry that permanently blocks future sessions.
 		// Derive from ctx via WithoutCancel (not context.Background()) so the rollback keeps the
@@ -268,6 +324,9 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 			m.log.Errorf("Failed to roll back annotation for device %s after failed session start: %v", deviceName, annStatus)
 		}
 		return nil, status
+	}
+	if force && replacedSessionID != "" {
+		m.log.Infof("app console session %s for device %s app %s forcibly replaced active session %s", session.UUID, deviceName, appName, replacedSessionID)
 	}
 
 	if err := m.sessionRegistration.StartSession(session); err != nil {
