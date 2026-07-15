@@ -171,7 +171,12 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 // takeover from an unrelated close-then-reopen of the same app: it only cancels a running
 // session when a new entry explicitly names it as replaced, never just because it vanished.
 // If no existing entry is found, this behaves exactly like addAppSession.
-func replaceAppSession(sessionID, appName, consoleType string) func(string) (string, error) {
+//
+// The updater may run more than once (modifyAnnotations retries on conflict), so
+// replacedSessionID is overwritten on every call; only the value from the call that actually
+// commits reflects the session that was really evicted. If non-nil, it is set to the removed
+// entry's SessionID, or "" if there was none.
+func replaceAppSession(sessionID, appName, consoleType string, replacedSessionID *string) func(string) (string, error) {
 	return func(existing string) (string, error) {
 		var sessions []domain.DeviceRemoteSession
 		if existing != "" {
@@ -187,6 +192,9 @@ func replaceAppSession(sessionID, appName, consoleType string) func(string) (str
 				continue
 			}
 			filtered = append(filtered, s)
+		}
+		if replacedSessionID != nil {
+			*replacedSessionID = replacesSessionID
 		}
 		filtered = append(filtered, domain.DeviceRemoteSession{
 			SessionID:         sessionID,
@@ -300,9 +308,10 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		ErrCh:      make(chan string, 1),
 	}
 
+	var replacedSessionID string
 	updater := addAppSession(session.UUID, appName, consoleType)
 	if force {
-		updater = replaceAppSession(session.UUID, appName, consoleType)
+		updater = replaceAppSession(session.UUID, appName, consoleType, &replacedSessionID)
 	}
 	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, updater); status.Code != http.StatusOK {
 		// Attempt rollback in case the DB write succeeded but the Redis publish failed,
@@ -315,6 +324,9 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 			m.log.Errorf("Failed to roll back annotation for device %s after failed session start: %v", deviceName, annStatus)
 		}
 		return nil, status
+	}
+	if force && replacedSessionID != "" {
+		m.log.Infof("app console session %s for device %s app %s forcibly replaced active session %s", session.UUID, deviceName, appName, replacedSessionID)
 	}
 
 	if err := m.sessionRegistration.StartSession(session); err != nil {

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -303,7 +305,8 @@ func TestAddAppSession_DuplicateAppName_ReturnsConflict(t *testing.T) {
 
 func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {
 	existing := `[{"sessionID":"old-id","appName":"app1","consoleType":"serial"}]`
-	updater := replaceAppSession("new-id", "app1", "vnc")
+	var replacedSessionID string
+	updater := replaceAppSession("new-id", "app1", "vnc", &replacedSessionID)
 
 	result, err := updater(existing)
 
@@ -316,10 +319,13 @@ func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {
 	assert.Equal(t, "vnc", sessions[0].ConsoleType)
 	assert.Equal(t, "old-id", sessions[0].ReplacesSessionID,
 		"the new entry must name the session it replaced")
+	assert.Equal(t, "old-id", replacedSessionID,
+		"the out-param must report the evicted session so callers can audit-log it")
 }
 
 func TestReplaceAppSession_NoExistingEntry_BehavesLikeAdd(t *testing.T) {
-	updater := replaceAppSession("new-id", "app1", "serial")
+	var replacedSessionID string
+	updater := replaceAppSession("new-id", "app1", "serial", &replacedSessionID)
 
 	result, err := updater("")
 
@@ -330,12 +336,13 @@ func TestReplaceAppSession_NoExistingEntry_BehavesLikeAdd(t *testing.T) {
 	assert.Equal(t, "new-id", sessions[0].SessionID)
 	assert.Empty(t, sessions[0].ReplacesSessionID,
 		"there was nothing to replace, so ReplacesSessionID must stay empty")
+	assert.Empty(t, replacedSessionID, "there was nothing to replace, so the out-param must stay empty")
 }
 
 func TestReplaceAppSession_PreservesOtherAppSessions(t *testing.T) {
 	existing := `[{"sessionID":"other-id","appName":"other-app","consoleType":"serial"},` +
 		`{"sessionID":"old-id","appName":"app1","consoleType":"serial"}]`
-	updater := replaceAppSession("new-id", "app1", "serial")
+	updater := replaceAppSession("new-id", "app1", "serial", nil)
 
 	result, err := updater(existing)
 
@@ -356,7 +363,8 @@ func TestAppConsoleSessionManager_StartSession_Force_ReplacesExistingSession(t *
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
 	pub := &mockConsoleEventNotifier{}
-	mgr := newTestAppManager(svc, reg, pub)
+	logger, hook := test.NewNullLogger()
+	mgr := NewAppConsoleSessionManager(svc, logrus.NewEntry(logger), reg, pub)
 
 	ctx := context.Background()
 	orgId := uuid.New()
@@ -385,6 +393,17 @@ func TestAppConsoleSessionManager_StartSession_Force_ReplacesExistingSession(t *
 	require.Len(t, sessions, 1, "the old entry for app1 must be replaced, not appended alongside")
 	assert.Equal(t, session.UUID, sessions[0].SessionID)
 	assert.Equal(t, "existing-id", sessions[0].ReplacesSessionID)
+
+	var auditEntry *logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "forcibly replaced active session") {
+			auditEntry = entry
+			break
+		}
+	}
+	require.NotNil(t, auditEntry, "a forced takeover must emit an audit log line naming the evicted session")
+	assert.Contains(t, auditEntry.Message, "existing-id")
+	assert.Contains(t, auditEntry.Message, session.UUID)
 }
 
 func TestAppConsoleSessionManager_StartSession_Force_NoExistingSession_AddsNormally(t *testing.T) {
