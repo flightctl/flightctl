@@ -192,6 +192,32 @@ func (v *testVars) sendEOF() {
 	})
 }
 
+// waitSessionsTimeout bounds how long tests wait for a manager's session goroutines to
+// finish. Without a deadline, a regression in session teardown would hang the test (and CI)
+// indefinitely instead of failing with a clear message.
+const waitSessionsTimeout = 5 * time.Second
+
+// waitForSessions blocks until m's session goroutines have all finished, or fails t after
+// waitSessionsTimeout.
+func waitForSessions(t *testing.T, m *Manager) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		m.sessionWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(waitSessionsTimeout):
+		t.Fatal("timed out waiting for console session goroutines to finish")
+	}
+}
+
+func (v *testVars) waitSessions(t *testing.T) {
+	t.Helper()
+	waitForSessions(t, v.manager)
+}
+
 func makeDevice(sessions []v1beta1.DeviceRemoteSession) *v1beta1.Device {
 	annotations := make(map[string]string)
 	if len(sessions) > 0 {
@@ -228,7 +254,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-app")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -253,7 +279,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Empty(v.manager.activeSessions)
 	})
@@ -272,11 +298,11 @@ func TestAppConsoleManager(t *testing.T) {
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		// The second sync finds the session already in inactive list and skips it.
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		v.manager.mu.Lock()
 		inactiveCount := len(v.manager.inactiveSessions)
@@ -290,7 +316,7 @@ func TestAppConsoleManager(t *testing.T) {
 
 		device := &v1beta1.Device{Metadata: v1beta1.ObjectMeta{}}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 		require.Empty(v.manager.activeSessions)
 	})
 
@@ -306,7 +332,7 @@ func TestAppConsoleManager(t *testing.T) {
 		annotations[v1beta1.DeviceAnnotationRemoteSession] = string(b)
 		device := &v1beta1.Device{Metadata: v1beta1.ObjectMeta{Annotations: &annotations}}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 		require.Empty(v.manager.activeSessions)
 	})
 
@@ -328,7 +354,7 @@ func TestAppConsoleManager(t *testing.T) {
 		v.manager.Sync(v.ctx, device)
 
 		v.sendEOF()
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 	})
 
 	t.Run("When the dialFn fails it should send an error over the gRPC stream", func(t *testing.T) {
@@ -345,7 +371,7 @@ func TestAppConsoleManager(t *testing.T) {
 		sessionID := uuid.New().String()
 		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-vm")})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -529,7 +555,7 @@ func TestSyncReplacesSessionID(t *testing.T) {
 
 		newStream.sendEOF()
 		oldStream.sendEOF()
-		manager.sessionWg.Wait()
+		waitForSessions(t, manager)
 	})
 
 	t.Run("When a session's entry simply disappears without ReplacesSessionID it should keep running", func(t *testing.T) {
@@ -567,7 +593,7 @@ func TestSyncReplacesSessionID(t *testing.T) {
 		require.False(closed, "a session must not be evicted just because its entry vanished from the annotation")
 
 		v.sendEOF()
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 	})
 }
 
@@ -588,7 +614,7 @@ func TestVMVNCSession(t *testing.T) {
 			{SessionID: sessionID, AppName: "my-vm", ConsoleType: "vnc"},
 		})
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Eventually(func() bool {
 			v.mu.Lock()
@@ -619,7 +645,7 @@ func TestVMVNCSession(t *testing.T) {
 		v.manager.Sync(v.ctx, device)
 
 		v.sendEOF()
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 	})
 
 	t.Run("When a VNC session starts it should not send an initial CR", func(t *testing.T) {
@@ -684,7 +710,7 @@ func TestSyncMalformedAnnotation(t *testing.T) {
 			Metadata: v1beta1.ObjectMeta{Annotations: &annotations},
 		}
 		v.manager.Sync(v.ctx, device)
-		v.manager.sessionWg.Wait()
+		v.waitSessions(t)
 
 		require.Empty(v.manager.activeSessions)
 	})
