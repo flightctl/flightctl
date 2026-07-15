@@ -302,6 +302,55 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(len(devices.Items)).To(Equal(3))
 		})
 
+		It("List with status.capabilities.osMode field filter", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-package", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-image", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-absent", nil, nil, nil)
+
+			setOsMode := func(name string, mode *api.OsModeType) {
+				status := api.NewDeviceStatus()
+				if mode != nil {
+					status.Capabilities = &api.DeviceCapabilities{OsMode: mode}
+				}
+				device := api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Status:   &status,
+				}
+				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			setOsMode("osmode-package", lo.ToPtr(api.OsModePackage))
+			setOsMode("osmode-image", lo.ToPtr(api.OsModeImage))
+			setOsMode("osmode-absent", nil)
+
+			deviceNames := func(items []api.Device) []string {
+				names := make([]string, 0, len(items))
+				for _, d := range items {
+					names = append(names, *d.Metadata.Name)
+				}
+				return names
+			}
+
+			packageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=package", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(packageList.Items)).To(ConsistOf("osmode-package"))
+
+			imageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=image", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(imageList.Items)).To(ConsistOf("osmode-image"))
+		})
+
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)
