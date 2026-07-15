@@ -436,6 +436,12 @@ const (
 	Openshift OpenShiftProviderSpecProviderType = "openshift"
 )
 
+// Defines values for OsModeType.
+const (
+	OsModeImage   OsModeType = "image"
+	OsModePackage OsModeType = "package"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -1257,6 +1263,12 @@ type DeviceApplicationsSummaryStatus struct {
 	Status ApplicationsSummaryStatusType `json:"status"`
 }
 
+// DeviceCapabilities Capabilities reported by the device agent.
+type DeviceCapabilities struct {
+	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	OsMode *OsModeType `json:"osMode,omitempty"`
+}
+
 // DeviceConfigStatus Current status of the device config.
 type DeviceConfigStatus struct {
 	// RenderedVersion Rendered version of the device config.
@@ -1490,6 +1502,9 @@ type DeviceStatus struct {
 
 	// ApplicationsSummary A summary of the health of applications on the device.
 	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
+
+	// Capabilities Capabilities reported by the device agent.
+	Capabilities *DeviceCapabilities `json:"capabilities,omitempty"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
 	Conditions []Condition `json:"conditions"`
@@ -1740,6 +1755,9 @@ type EnrollmentRequestSpec struct {
 
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	OsMode *OsModeType `json:"osMode,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -2710,6 +2728,9 @@ type OrganizationSpec struct {
 	// ExternalId External ID of the organization.
 	ExternalId *string `json:"externalId,omitempty"`
 }
+
+// OsModeType OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+type OsModeType string
 
 // PatchRequest defines model for PatchRequest.
 type PatchRequest = []struct {
