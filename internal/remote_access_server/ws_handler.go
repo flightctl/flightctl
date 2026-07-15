@@ -122,7 +122,7 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		close(session.SendCh)
 		h.log.Infof("app console session for device %s app %s failed before protocol selection with an agent-reported error", deviceName, appName)
 		h.log.Debugf("app console session %s failure detail: %s", session.UUID, agentErr)
-		http.Error(w, agentErr, http.StatusNotFound)
+		http.Error(w, truncateWSCloseReason(agentErr), http.StatusNotFound)
 		return
 	case <-timer.C:
 		close(session.SendCh)
