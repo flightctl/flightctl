@@ -114,9 +114,10 @@ func createDevicesWithAddedUniqueLabelToLabels(harness *e2e.Harness, count int, 
 		deviceName := uuid.NewString()
 		labels[labelKey] = uuid.NewString()
 		device, err := resources.CreateDevice(harness, deviceName, &labels)
-		if err == nil {
-			*expectedDevices = append(*expectedDevices, device)
+		if err != nil {
+			return fmt.Errorf("failed to create device %q: %w", deviceName, err)
 		}
+		*expectedDevices = append(*expectedDevices, device)
 	}
 	return nil
 }
