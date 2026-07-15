@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,22 @@ import (
 	"github.com/samber/lo"
 	"google.golang.org/grpc/metadata"
 )
+
+// sanitizeGrpcMetadataValue replaces every byte outside the printable ASCII range
+// (0x20-0x7E) with '?'. gRPC-Go rejects outgoing metadata values containing such bytes
+// for any key that doesn't end in "-bin" (see
+// google.golang.org/grpc/internal/metadata.ValidatePair), which would otherwise make
+// Stream() itself fail for any resolveErr whose text contains e.g. a newline or a
+// non-ASCII app name, silently losing the specific error and degrading to a generic
+// timeout on the server side instead.
+func sanitizeGrpcMetadataValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7E {
+			return '?'
+		}
+		return r
+	}, s)
+}
 
 // Session is the per-console-type I/O interface. Each app type (VM, container, …)
 // provides its own implementation.
@@ -118,11 +135,15 @@ func (m *Manager) closeStream(s *managedSession) {
 	m.inactivate(s)
 }
 
+// sendErrorOverStream makes a best-effort attempt to notify the server of a session-level
+// failure before tearing the stream down. Send/CloseSend errors are intentionally ignored:
+// the caller is already abandoning this stream because of an earlier failure, so there is
+// nothing actionable to do if the notification itself fails other than proceed with cleanup.
 func sendErrorOverStream(streamClient grpc_v1.RouterService_StreamClient, msg string) {
 	if streamClient == nil {
 		return
 	}
-	_ = streamClient.Send(&grpc_v1.StreamRequest{Payload: []byte(msg)})
+	_ = streamClient.Send(&grpc_v1.StreamRequest{Error: msg})
 	_ = streamClient.CloseSend()
 }
 
@@ -146,12 +167,20 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 
 	session, resolveErr := m.resolver.ResolveConsole(entry.AppName, entry.ConsoleType)
 
-	streamCtx := metadata.AppendToOutgoingContext(ctx,
+	metadataPairs := []string{
 		consts.GrpcSessionIDKey, entry.SessionID,
 		consts.GrpcClientNameKey, m.deviceName,
 		consts.GrpcAppNameKey, entry.AppName,
-		consts.GrpcSelectedProtocolKey, entry.ConsoleType,
-	)
+	}
+	// Report resolve failures via metadata (read by the server before any message
+	// exchange) rather than over the stream body, so the server can fail the session
+	// before the client's connection is upgraded instead of only after.
+	if resolveErr != nil {
+		metadataPairs = append(metadataPairs, consts.GrpcSessionErrorKey, sanitizeGrpcMetadataValue(resolveErr.Error()))
+	} else {
+		metadataPairs = append(metadataPairs, consts.GrpcSelectedProtocolKey, entry.ConsoleType)
+	}
+	streamCtx := metadata.AppendToOutgoingContext(ctx, metadataPairs...)
 	streamClient, err := m.grpcClient.Stream(streamCtx)
 	if err != nil {
 		m.log.Errorf("error creating app console stream for session %s: %v", entry.SessionID, err)
@@ -161,7 +190,6 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 
 	if resolveErr != nil {
 		m.log.Errorf("cannot open console for app %s: %v", entry.AppName, resolveErr)
-		sendErrorOverStream(streamClient, resolveErr.Error())
 		return
 	}
 

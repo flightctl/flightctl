@@ -8,10 +8,16 @@ metadata:
   name: flightctl-remote-access-agent
   namespace: {{ .Release.Namespace }}
 spec:
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.remoteAccessAgent }}
+  type: NodePort
+  {{- end }}
   ports:
     - name: "agent-api"
       port: 7444
       targetPort: 7444
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.remoteAccessAgent }}
+      nodePort: {{ .Values.dev.nodePorts.remoteAccessAgent }}
+      {{- end }}
   selector:
     flightctl.service: flightctl-remote-access
 {{- end }}

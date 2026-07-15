@@ -242,6 +242,10 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- print "http://flightctl-cli-artifacts:8090"}}
 {{- end }}
 
+{{- define "flightctl.getInternalRemoteAccessUrl" }}
+  {{- print "https://flightctl-remote-access:3444"}}
+{{- end }}
+
 {{- define "flightctl.getCliArtifactsUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}

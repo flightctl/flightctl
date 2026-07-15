@@ -486,6 +486,12 @@ func analyzeResponseAndExit(ctx context.Context, o *GlobalOptions, name string, 
 		case *httpstream.UpgradeFailureError:
 			exitCode = 255
 			emitUpgradeFailureError(ctx, o, name, err)
+		case *ConsoleSessionError:
+			exitCode = 255
+			// %q escapes control characters (e.g. terminal escape sequences) so a
+			// misbehaving or compromised device cannot inject terminal actions via
+			// this agent-controlled error text.
+			fmt.Fprintf(os.Stderr, "Error for device %s: %q\n", name, concreteErr.Message)
 		default:
 			exitCode = 255
 			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)

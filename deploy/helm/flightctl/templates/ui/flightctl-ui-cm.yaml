@@ -10,6 +10,9 @@ metadata:
 data:
   FLIGHTCTL_SERVER: https://flightctl-api:3443/
   FLIGHTCTL_SERVER_EXTERNAL: {{ include "flightctl.getApiUrl" . }}
+  {{- if .Values.remoteAccess.enabled }}
+  FLIGHTCTL_REMOTE_ACCESS_SERVER: {{ include "flightctl.getInternalRemoteAccessUrl" . }}
+  {{- end }}
   {{- if .Values.cliArtifacts.enabled }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}

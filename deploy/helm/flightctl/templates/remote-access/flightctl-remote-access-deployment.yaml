@@ -20,7 +20,7 @@ spec:
         flightctl.service: flightctl-remote-access
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: flightctl-remote-access
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}

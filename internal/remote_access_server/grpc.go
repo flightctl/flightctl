@@ -55,6 +55,18 @@ func (s *Server) Stream(stream pb.RouterService_StreamServer) error {
 
 	selectedProtocols := md.Get(consts.GrpcSelectedProtocolKey)
 	if len(selectedProtocols) != 1 {
+		// The agent found a session-level failure (e.g. the app does not exist) before it
+		// could select a protocol. Report it via ErrCh instead of ProtocolCh so the caller
+		// can fail the client's connection before upgrading it, rather than only after.
+		if agentErrs := md.Get(consts.GrpcSessionErrorKey); len(agentErrs) == 1 && agentErrs[0] != "" {
+			s.log.Infof("agent reported session-level failure before protocol selection for session %s device %s app %s",
+				sessionID, session.DeviceName, session.AppName)
+			select {
+			case session.ErrCh <- agentErrs[0]:
+			default:
+			}
+			return status.Error(codes.FailedPrecondition, agentErrs[0])
+		}
 		close(session.ProtocolCh)
 		return status.Error(codes.InvalidArgument, "missing "+consts.GrpcSelectedProtocolKey)
 	}
@@ -73,12 +85,18 @@ func (s *Server) forwardChannels(ctx context.Context, stream pb.RouterService_St
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go s.pipeStreamToChannel(ctx, stream, session.RecvCh)
+	go s.pipeStreamToChannel(ctx, stream, session.RecvCh, session.ErrCh)
 	return s.pipeChannelToStream(ctx, session.SendCh, stream)
 }
 
-func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte) {
-	defer close(ch)
+// pipeStreamToChannel forwards agent payloads from stream to ch until the stream ends,
+// closing ch on every return path except the error one. When the agent reports a
+// session-level error, ch is deliberately left open (never closed) instead of closed
+// right after the errCh send: the consumer's select over both channels could otherwise
+// race and observe the close before (or instead of) the error, silently losing it. Since
+// the consumer is expected to stop reading from ch as soon as it observes errCh, leaving
+// ch open here is harmless — it is simply never read from again.
+func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte, errCh chan string) {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -87,16 +105,27 @@ func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterServic
 			} else {
 				s.log.Debugf("app console stream recv error: %v", err)
 			}
+			close(ch)
+			return
+		}
+		if agentErr := msg.GetError(); agentErr != "" {
+			s.log.Debugf("app console stream reported session error: %s", agentErr)
+			select {
+			case errCh <- agentErr:
+			case <-ctx.Done():
+			}
 			return
 		}
 		select {
 		case ch <- msg.GetPayload():
 		case <-ctx.Done():
 			s.log.Debug("app console stream context closed while forwarding payload")
+			close(ch)
 			return
 		}
 		if msg.GetClosed() {
 			s.log.Debug("app console stream closed by agent")
+			close(ch)
 			return
 		}
 	}
