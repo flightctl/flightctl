@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -734,6 +735,50 @@ func parseContainerHostPort(output string) (host string, port int, ok bool) {
 	return hostRaw, int(p64), true
 }
 
+// copyDirSecure recursively copies srcDir to dstDir, preserving file permissions.
+// It rejects symlinks and any non-regular, non-directory entries to prevent path
+// traversal attacks. Returns the number of regular files copied.
+func copyDirSecure(ctx context.Context, srcDir, dstDir string, log logrus.FieldLogger) (int, error) {
+	count := 0
+	err := filepath.Walk(srcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("error walking source directory: %w", walkErr)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		relPath, err := filepath.Rel(srcDir, srcPath)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
+		}
+		dstPath := filepath.Join(dstDir, relPath)
+
+		if info.IsDir() {
+			if relPath == "." {
+				return nil
+			}
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing non-regular entry %s (mode %s)", relPath, info.Mode())
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", relPath, err)
+		}
+		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", relPath, err)
+		}
+		log.Debugf("Restored file: %s", relPath)
+		count++
+		return nil
+	})
+	return count, err
+}
+
 // RestorePKI copies the pki/ directory from the extracted archive into the configured
 // PKI destination, preserving each file's mode. Returns an error if pki/ is absent.
 func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir string) error {
@@ -748,43 +793,7 @@ func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir strin
 		return fmt.Errorf("failed to create PKI destination directory %s: %w", p.pkiDestPath, err)
 	}
 
-	count := 0
-	err := filepath.Walk(pkiSrcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("error walking PKI source directory: %w", walkErr)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		relPath, err := filepath.Rel(pkiSrcDir, srcPath)
-		if err != nil {
-			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
-		}
-		dstPath := filepath.Join(p.pkiDestPath, relPath)
-
-		if info.IsDir() {
-			if relPath == "." {
-				return nil
-			}
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing non-regular PKI entry %s (mode %s)", relPath, info.Mode())
-		}
-
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read PKI file %s: %w", relPath, err)
-		}
-		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
-			return fmt.Errorf("failed to write PKI file %s: %w", relPath, err)
-		}
-		p.log.Debugf("Restored PKI file: %s", relPath)
-		count++
-		return nil
-	})
+	count, err := copyDirSecure(ctx, pkiSrcDir, p.pkiDestPath, p.log)
 	if err != nil {
 		return fmt.Errorf("PKI restore failed: %w", err)
 	}
@@ -797,7 +806,7 @@ func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir strin
 // Copies <extractDir>/encryption/ to <encryptionDestPath>, preserving file permissions.
 // Logs a warning and skips if the encryption directory is absent from the archive
 // (backwards compatible with pre-encryption backups).
-func (p *PodmanRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extractDir string) error {
+func (p *PodmanRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extractDir string) (retErr error) {
 	encSrcDir := filepath.Join(extractDir, "encryption")
 
 	if _, err := os.Stat(encSrcDir); os.IsNotExist(err) {
@@ -816,45 +825,13 @@ func (p *PodmanRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extra
 	if err != nil {
 		return fmt.Errorf("failed to create staging directory: %w", err)
 	}
-	defer os.RemoveAll(stagingDir) // clean up on any error path
+	defer func() {
+		if cleanupErr := os.RemoveAll(stagingDir); cleanupErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("failed to clean up staging directory %s: %w", stagingDir, cleanupErr))
+		}
+	}()
 
-	count := 0
-	err = filepath.Walk(encSrcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("error walking encryption source directory: %w", walkErr)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		relPath, err := filepath.Rel(encSrcDir, srcPath)
-		if err != nil {
-			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
-		}
-		dstPath := filepath.Join(stagingDir, relPath)
-
-		if info.IsDir() {
-			if relPath == "." {
-				return nil
-			}
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing non-regular encryption entry %s (mode %s)", relPath, info.Mode())
-		}
-
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read encryption file %s: %w", relPath, err)
-		}
-		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
-			return fmt.Errorf("failed to write encryption file %s: %w", relPath, err)
-		}
-		p.log.Debugf("Restored encryption file: %s", relPath)
-		count++
-		return nil
-	})
+	count, err := copyDirSecure(ctx, encSrcDir, stagingDir, p.log)
 	if err != nil {
 		return fmt.Errorf("encryption key restore failed: %w", err)
 	}
@@ -862,12 +839,32 @@ func (p *PodmanRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extra
 		return fmt.Errorf("encryption archive directory is empty — refusing to overwrite live key material")
 	}
 
-	// Atomic swap: remove existing destination and rename staging dir into place.
-	if err := os.RemoveAll(p.encryptionDestPath); err != nil {
-		return fmt.Errorf("failed to remove existing encryption directory: %w", err)
+	// Atomic swap: rename the existing destination aside, then rename staging
+	// into place. If the final rename fails, roll back by restoring the backup
+	// so live key material is never lost.
+	backupDir := p.encryptionDestPath + ".bak"
+	if _, statErr := os.Stat(p.encryptionDestPath); statErr == nil {
+		if err := os.RemoveAll(backupDir); err != nil {
+			p.log.Warnf("Failed to clean up stale encryption key backup at %s: %v", backupDir, err)
+		}
+		if err := os.Rename(p.encryptionDestPath, backupDir); err != nil {
+			return fmt.Errorf("failed to move existing encryption directory aside: %w", err)
+		}
+	} else if _, bakErr := os.Stat(backupDir); bakErr == nil {
+		p.log.Warnf("Destination %s is missing but backup %s exists — likely an interrupted prior restore; preserving it for recovery", p.encryptionDestPath, backupDir)
 	}
 	if err := os.Rename(stagingDir, p.encryptionDestPath); err != nil {
+		// Roll back: restore the original directory so keys are not lost.
+		if rbErr := os.Rename(backupDir, p.encryptionDestPath); rbErr != nil {
+			return errors.Join(
+				fmt.Errorf("failed to move staged encryption keys to destination: %w", err),
+				fmt.Errorf("rollback also failed: %w", rbErr),
+			)
+		}
 		return fmt.Errorf("failed to move staged encryption keys to destination: %w", err)
+	}
+	if err := os.RemoveAll(backupDir); err != nil {
+		p.log.Warnf("Failed to clean up old encryption key backup at %s: %v", backupDir, err)
 	}
 
 	p.log.Infof("Encryption key restore completed. Restored %d files to %s", count, p.encryptionDestPath)
@@ -1533,7 +1530,7 @@ func (k *KubernetesRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, e
 		return fmt.Errorf("unexpected Secret name %q in encryption key archive (expected %q)", secret.Name, expectedSecretName)
 	}
 	if len(secret.Data) == 0 {
-		return fmt.Errorf("encryption key Secret %q has no data — refusing to overwrite live key material with an empty Secret", expectedSecretName)
+		return fmt.Errorf("encryption key Secret %q has no data — refusing to overwrite live key material", expectedSecretName)
 	}
 
 	clientset, err := k.resolveClientset()

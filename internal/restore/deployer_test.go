@@ -273,6 +273,95 @@ func buildExtractDirWithPKI(t *testing.T, files map[string]os.FileMode) string {
 	return dir
 }
 
+func TestCopyDirSecure(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	t.Run("When source has regular files it should copy them to destination", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "a.txt"), []byte("aaa"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(src, "b.txt"), []byte("bbb"), 0600))
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 2, count)
+
+		data, err := os.ReadFile(filepath.Join(dst, "a.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "aaa", string(data))
+
+		data, err = os.ReadFile(filepath.Join(dst, "b.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "bbb", string(data))
+	})
+
+	t.Run("When source has files it should preserve their permissions", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "secret.key"), []byte("key"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(src, "public.crt"), []byte("cert"), 0644))
+
+		_, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+
+		info, err := os.Stat(filepath.Join(dst, "secret.key"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+
+		info, err = os.Stat(filepath.Join(dst, "public.crt"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0644), info.Mode().Perm())
+	})
+
+	t.Run("When source has subdirectories it should recreate them with contents", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		subDir := filepath.Join(src, "sub", "nested")
+		require.NoError(t, os.MkdirAll(subDir, 0750))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "deep.txt"), []byte("deep"), 0600))
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		data, err := os.ReadFile(filepath.Join(dst, "sub", "nested", "deep.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "deep", string(data))
+	})
+
+	t.Run("When source contains a symlink it should return an error", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "real.txt"), []byte("real"), 0600))
+		require.NoError(t, os.Symlink(filepath.Join(src, "real.txt"), filepath.Join(src, "link.txt")))
+
+		_, err := copyDirSecure(context.Background(), src, dst, log)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "non-regular")
+	})
+
+	t.Run("When context is cancelled it should return early", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "file.txt"), []byte("data"), 0600))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := copyDirSecure(ctx, src, dst, log)
+		require.Error(t, err)
+	})
+
+	t.Run("When source is empty it should return zero count", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 0, count)
+	})
+}
+
 // TestPodmanRestoreDeployer_RestorePKI validates the behavioral contracts
 // of PodmanRestoreDeployer.RestorePKI.
 func TestPodmanRestoreDeployer_RestorePKI(t *testing.T) {
@@ -1005,6 +1094,26 @@ func TestPodmanRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 			},
 		},
 		{
+			name: "When existing destination has files it should replace them and leave no backup behind",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithEncryption(t, map[string]string{
+					"new.key": "new-key-data",
+				})
+			},
+			setupDest: func(t *testing.T, destDir string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(destDir, "old.key"), []byte("old-key-data"), 0600))
+			},
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "new.key"))
+				require.NoError(t, err)
+				require.Equal(t, "new-key-data", string(data))
+				require.NoFileExists(t, filepath.Join(destDir, "old.key"), "old files should not survive the swap")
+				_, err = os.Stat(destDir + ".bak")
+				require.True(t, os.IsNotExist(err), ".bak directory should be cleaned up after successful swap")
+			},
+		},
+		{
 			name: "When encryption dir contains subdirectories it should create them and copy nested files",
 			setupDir: func(t *testing.T) string {
 				t.Helper()
@@ -1067,7 +1176,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("supersecret")},
+			Data:       map[string][]byte{"key": []byte("supersecret")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
 
@@ -1081,7 +1190,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("supersecret"), got.Data["encryption-key"])
+		require.Equal(t, []byte("supersecret"), got.Data["key"])
 	})
 
 	t.Run("When internal namespace differs it should duplicate the Secret", func(t *testing.T) {
@@ -1089,7 +1198,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("dualns")},
+			Data:       map[string][]byte{"key": []byte("dualns")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
 
@@ -1104,11 +1213,11 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		gotRelease, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("dualns"), gotRelease.Data["encryption-key"])
+		require.Equal(t, []byte("dualns"), gotRelease.Data["key"])
 
 		gotInternal, err := cs.CoreV1().Secrets(internalNS).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("dualns"), gotInternal.Data["encryption-key"])
+		require.Equal(t, []byte("dualns"), gotInternal.Data["key"])
 	})
 
 	t.Run("When internal namespace apply fails it should return an error after release namespace succeeds", func(t *testing.T) {
@@ -1116,7 +1225,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("partial-fail")},
+			Data:       map[string][]byte{"key": []byte("partial-fail")},
 		}
 
 		dir := t.TempDir()
@@ -1153,14 +1262,14 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		gotRelease, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err, "Release namespace Secret should have been created before the failure")
-		require.Equal(t, []byte("partial-fail"), gotRelease.Data["encryption-key"])
+		require.Equal(t, []byte("partial-fail"), gotRelease.Data["key"])
 	})
 
 	t.Run("When internal namespace equals release namespace it should not duplicate", func(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("singlelns")},
+			Data:       map[string][]byte{"key": []byte("singlelns")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
 
@@ -1175,14 +1284,14 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("singlelns"), got.Data["encryption-key"])
+		require.Equal(t, []byte("singlelns"), got.Data["key"])
 	})
 
 	t.Run("When encryption yaml has no namespace it should use the deployer namespace", func(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key"},
-			Data:       map[string][]byte{"encryption-key": []byte("no-ns-key")},
+			Data:       map[string][]byte{"key": []byte("no-ns-key")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
 
@@ -1220,7 +1329,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "wrong-secret-name", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("some-key")},
+			Data:       map[string][]byte{"key": []byte("some-key")},
 		}
 		dir := t.TempDir()
 		encDir := filepath.Join(dir, "encryption")
@@ -1240,7 +1349,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		require.ErrorContains(t, err, "unexpected Secret name")
 	})
 
-	t.Run("When encryption yaml has empty data it should return an error", func(t *testing.T) {
+	t.Run("When encryption yaml has no data it should return an error", func(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
@@ -1267,7 +1376,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		secret := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: "other-namespace"},
-			Data:       map[string][]byte{"encryption-key": []byte("forced-ns-key")},
+			Data:       map[string][]byte{"key": []byte("forced-ns-key")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
 
@@ -1281,7 +1390,7 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("forced-ns-key"), got.Data["encryption-key"])
+		require.Equal(t, []byte("forced-ns-key"), got.Data["key"])
 
 		_, err = cs.CoreV1().Secrets("other-namespace").Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.Error(t, err, "Secret should NOT be created in the archived namespace")
@@ -1291,12 +1400,12 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 		existing := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("old-key")},
+			Data:       map[string][]byte{"key": []byte("old-key")},
 		}
 		updated := &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
-			Data:       map[string][]byte{"encryption-key": []byte("new-key")},
+			Data:       map[string][]byte{"key": []byte("new-key")},
 		}
 		extractDir, cs := buildExtractDirWithEncryptionSecret(t, updated)
 		_, err := cs.CoreV1().Secrets(ns).Create(context.Background(), existing, metav1.CreateOptions{})
@@ -1312,6 +1421,6 @@ func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
 
 		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
 		require.NoError(t, err)
-		require.Equal(t, []byte("new-key"), got.Data["encryption-key"])
+		require.Equal(t, []byte("new-key"), got.Data["key"])
 	})
 }

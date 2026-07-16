@@ -448,7 +448,7 @@ func TestKubernetesDeployer_BackupEncryptionKeys_Success(t *testing.T) {
 			Namespace: "flightctl",
 		},
 		Data: map[string][]byte{
-			"encryption-key": []byte("supersecretkey"),
+			"key": []byte("supersecretkey"),
 		},
 	}
 
@@ -481,7 +481,7 @@ func TestKubernetesDeployer_BackupEncryptionKeys_DirectoryPermissions(t *testing
 			Namespace: "flightctl",
 		},
 		Data: map[string][]byte{
-			"encryption-key": []byte("key"),
+			"key": []byte("key"),
 		},
 	}
 
@@ -508,7 +508,7 @@ func TestKubernetesDeployer_BackupEncryptionKeys_CleanupOnError(t *testing.T) {
 			Namespace: "flightctl",
 		},
 		Data: map[string][]byte{
-			"encryption-key": []byte("key"),
+			"key": []byte("key"),
 		},
 	}
 

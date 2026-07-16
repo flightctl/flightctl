@@ -228,7 +228,7 @@ func copyDirPreservePerms(src, dst string, ctx context.Context, log logrus.Field
 
 		// Reject symlinks to prevent path traversal attacks and undefined behavior
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlinks not supported in PKI directory: %s", relPath)
+			return fmt.Errorf("symlinks not supported in backup directory: %s", relPath)
 		}
 
 		// Handle directories
