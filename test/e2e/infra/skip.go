@@ -2,6 +2,7 @@
 package infra
 
 import (
+	"context"
 	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -36,6 +37,34 @@ func SkipIfNotQuadlet(reason ...string) {
 func SkipIfRBACNotSupported(rbacProvider RBACProvider) {
 	if rbacProvider == nil {
 		Skip("RBAC provider not available")
+	}
+}
+
+// SkipIfObservabilityNotConfigured skips the suite when infra cannot provide ServicePrometheus.
+// Kind uses the auxiliary testcontainer instead and is not checked here.
+func SkipIfObservabilityNotConfigured(ctx context.Context, providers *Providers) {
+	switch providers.Infra.GetEnvironmentType() {
+	case EnvironmentQuadlet, EnvironmentOCP:
+		exists, err := providers.Infra.ServiceExists(ctx, ServicePrometheus)
+		if err != nil {
+			Fail(fmt.Sprintf("unable to check observability prometheus: %v", err))
+		}
+		if !exists {
+			Skip(observabilityPrometheusSkipMessage(providers.Infra.GetEnvironmentType()))
+		}
+	}
+}
+
+func observabilityPrometheusSkipMessage(envType string) string {
+	switch envType {
+	case EnvironmentQuadlet:
+		return "flightctl-observability stack not running (flightctl-prometheus is not active); " +
+			"install flightctl-observability and run: systemctl enable --now flightctl-observability.target"
+	case EnvironmentOCP:
+		return "COO MonitoringStack not found (flightctl-monitoring-stack-prometheus service missing); " +
+			"install flightctl-monitoring-stack"
+	default:
+		return fmt.Sprintf("observability prometheus not configured for %s deployment", envType)
 	}
 }
 

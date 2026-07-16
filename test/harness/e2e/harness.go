@@ -2666,7 +2666,7 @@ func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
 	agentFiles := map[string]string{
 		"current.json": "/var/lib/flightctl/current.json",
 		"desired.json": "/var/lib/flightctl/desired.json",
-		"agent secret": "/etc/flightctl/certs/agent.crt",
+		"agent cert":   "/var/lib/flightctl/certs/agent.crt",
 	}
 
 	for fileType, filePath := range agentFiles {
