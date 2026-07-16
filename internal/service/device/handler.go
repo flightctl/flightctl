@@ -28,21 +28,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// DeviceServiceHandler implements Service. deviceStore/fleetStore are narrow sub-package
-// stores, not the full store.Store aggregate - deviceStore backs every Device method below,
-// and fleetStore exists solely because common.UpdateServiceSideStatus (called 8x below) needs
-// to call fleetStore.Get(...) to compute managed-device status (a Fleet↔Device coupling
-// resolved by narrowing common.UpdateServiceSideStatus's own signature to fleetstore.Store,
-// rather than keeping the full store.Store aggregate here as an earlier version of this
-// package did).
-//
-// Fields confirmed used by every method below (exhaustive grep against the monolithic
-// internal/service/device.go this package is migrated from): deviceStore, fleetStore, events,
-// kvStore, agentGate, agentEndpoint, log. Fields confirmed UNUSED by any Device method and
-// therefore excluded: ca, workerClient, tpmCAPaths, uiUrl, vulnerabilityEnabled, and any
-// repositorystore.Store/vulnerabilityfindingstore.Store (GetDeviceRepositoryRefs/
-// OverwriteDeviceRepositoryRefs delegate entirely through deviceStore, whose GORM associations
-// resolve the repository cross-reference with no separate Go-level dependency).
+// DeviceServiceHandler implements Service.
 type DeviceServiceHandler struct {
 	deviceStore   devicestore.Store
 	fleetStore    fleetstore.Store

@@ -24,11 +24,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
-// ServiceHandler implements Service. No `deviceStore`/`fleetStore` are needed:
-// GetRepositoryFleetReferences/GetRepositoryDeviceReferences delegate entirely to
-// repositorystore.Store's own GORM association queries (GetFleetRefs/GetDeviceRefs), with no
-// Go-level dependency on device.Store or fleet.Store. events is needed by the update/delete
-// callbacks.
 type ServiceHandler struct {
 	store  repositorystore.Store
 	events events.Service

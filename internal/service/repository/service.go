@@ -7,11 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused Repository service interface, extracted from the monolithic
-// internal/service.Service. It covers the 11 Repository methods defined in the old
-// internal/service/repository.go, including the two cross-resource reference-listing methods
-// (GetRepositoryFleetReferences, GetRepositoryDeviceReferences) per the Feature design's §4.1
-// cross-resource placement table.
 type Service interface {
 	CreateRepository(ctx context.Context, orgId uuid.UUID, repo domain.Repository) (*domain.Repository, domain.Status)
 	ListRepositories(ctx context.Context, orgId uuid.UUID, params domain.ListRepositoriesParams) (*domain.RepositoryList, domain.Status)

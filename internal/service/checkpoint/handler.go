@@ -13,8 +13,6 @@ import (
 
 const CheckpointKind = "Checkpoint"
 
-// ServiceHandler implements Service. Holds only the store interface it actually uses — no
-// `log` field, since internal/service/checkpoint.go never references it.
 type ServiceHandler struct {
 	store checkpointstore.Store
 }

@@ -17,12 +17,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// ServiceHandler implements Service. No `workerClient` (not referenced in the original
-// resourcesync.go). catalogStore/fleetStore are the narrow, already-isolated STORE
-// sub-packages needed only by DeleteResourceSync's inline ownership-cleanup callback — not the
-// full Catalog/Fleet service handlers. The log field was added when ResourceSync's own
-// event-emission logic (previously centralized in internal/service/events) moved into this
-// package.
 type ServiceHandler struct {
 	store        resourcesyncstore.Store
 	catalogStore catalogstore.Store

@@ -11,10 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ServiceHandler implements Service. Holds only the store interface it actually uses — no
-// `log`, no `events`; all 5 methods are pure store pass-throughs. Extracted from the SyncState
-// half of internal/service/dependency_ref.go (the DependencyRef half is EDM-4666's; neither
-// story edits the shared origin file — both only read from it).
 type ServiceHandler struct {
 	store syncstatestore.Store
 }

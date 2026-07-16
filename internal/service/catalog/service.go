@@ -7,12 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused Catalog service interface, extracted from the monolithic
-// internal/service.Service (internal/service/catalog.go). Holds the 16 methods declared
-// under the "// Catalog" section of internal/service/service.go — method names are kept
-// identical to the monolith (CreateCatalog, not Create) to match every sibling sub-package
-// in this epic (authprovider, resourcesync, certificatesigningrequest, templateversion,
-// checkpoint, organization, syncstate, event all keep their full monolithic names).
 type Service interface {
 	CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status)
 	ListCatalogs(ctx context.Context, orgId uuid.UUID, params domain.ListCatalogsParams) (*domain.CatalogList, domain.Status)

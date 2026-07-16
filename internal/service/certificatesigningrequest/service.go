@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused CertificateSigningRequest service interface, extracted from the
-// monolithic internal/service.Service (internal/service/certificatesigningrequest.go).
 type Service interface {
 	ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status)
 	CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status)

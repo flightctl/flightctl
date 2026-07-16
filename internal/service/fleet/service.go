@@ -7,11 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused Fleet service interface, extracted from the monolithic
-// internal/service.Service. It covers the 14 Fleet methods defined in the old
-// internal/service/fleet.go, including the two cross-resource reference methods
-// (GetFleetRepositoryRefs, OverwriteFleetRepositoryRefs) per the Feature design's §4.1
-// cross-resource placement table (fleet is the subject for these two methods).
 type Service interface {
 	CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status)
 	ListFleets(ctx context.Context, orgId uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status)

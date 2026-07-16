@@ -659,8 +659,7 @@ func TestCreateCatalogItem(t *testing.T) {
 }
 
 func TestReplaceCatalogItem(t *testing.T) {
-	// Creating a new item via Replace should always succeed (no existing owner to check),
-	// mirroring TestReplaceCatalogItemCreatePath in the monolithic internal/service/catalog_test.go.
+	// Creating a new item via Replace should always succeed (no existing owner to check).
 	t.Run("When the item does not exist it should create it", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		catalogName := "test-catalog"

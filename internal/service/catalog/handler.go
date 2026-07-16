@@ -15,11 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// ServiceHandler implements Service. It holds only the dependencies Catalog's methods
-// actually use: the catalog store, events.Service, and a logger — no `workerClient`, which is
-// referenced nowhere in the original internal/service/catalog.go. The log field was added
-// when Catalog's own event-emission logic (previously centralized in
-// internal/service/events) moved into this package.
 type ServiceHandler struct {
 	store  catalogstore.Store
 	events events.Service

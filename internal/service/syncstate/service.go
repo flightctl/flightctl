@@ -9,9 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused SyncState service interface, extracted from the SyncState half of
-// the monolithic internal/service.Service (internal/service/dependency_ref.go). The
-// DependencyRef half of that file is extracted separately, by EDM-4666.
 type Service interface {
 	GetSyncState(ctx context.Context, orgId uuid.UUID, resourceKey string) (*model.SyncState, domain.Status)
 	SetSyncState(ctx context.Context, orgId uuid.UUID, state *model.SyncState) domain.Status

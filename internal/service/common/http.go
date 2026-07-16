@@ -27,13 +27,10 @@ import (
 )
 
 // MaxRecordsPerListRequest bounds the number of records a single list request may return.
-// Relocated verbatim from internal/service/utils.go.
 const MaxRecordsPerListRequest = 1000
 
 // MaxConcurrentAgents bounds the number of concurrent agent-originated requests a resource's
-// ServiceHandler will process at once via its own semaphore.Weighted gate. Relocated verbatim
-// from internal/service/utils.go so isolated sub-packages (e.g. internal/service/device) can
-// construct their own gate without importing the monolithic internal/service package.
+// ServiceHandler will process at once via its own semaphore.Weighted gate.
 const MaxConcurrentAgents = 15
 
 // IsInternalRequest reports whether ctx marks the current request as internal
@@ -214,12 +211,6 @@ func ApiStatusToErr(status domain.Status) error {
 }
 
 // HasConditionChanged checks if a condition actually changed between old and new.
-//
-// This is a verbatim logic copy of internal/service/device.go's private hasConditionChanged,
-// duplicated here (not moved) because internal/service/events (which needs it) cannot call an
-// unexported symbol from device.go, and device.go itself is out of this story's scope (it
-// belongs to EDM-4681, which already plans to consolidate device.go's private original to
-// forward to this export). See EDM-4676's 01-context.md for the full rationale.
 func HasConditionChanged(oldCondition, newCondition *domain.Condition) bool {
 	if oldCondition == nil && newCondition == nil {
 		return false

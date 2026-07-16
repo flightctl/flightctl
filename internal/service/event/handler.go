@@ -14,10 +14,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// ServiceHandler implements Service. Needs both the isolated event store (for
-// ListEvents/DeleteEventsOlderThan) and events.Service (for CreateEvent, which is a pure
-// one-line forward to events.Service.CreateEvent in the original code) — no `log`, since
-// internal/service/event.go never references it directly (it lives behind events.Service).
 type ServiceHandler struct {
 	store  eventstore.Store
 	events events.Service

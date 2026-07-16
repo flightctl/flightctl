@@ -18,12 +18,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service. It holds only the dependencies TemplateVersion's CRUD
-// methods actually use: the isolated TemplateVersion store, the KV store (DeleteTemplateVersion's
-// key cleanup), and events (fleet-rollout and resource-update event emission). No `ca` (TemplateVersion
-// never touches signing) and no Fleet store reference: despite the design doc's suggested-order
-// table listing "Fleet (for owner)" as a dependency, `fleet` is used here only as a string
-// (field-selector value / KV-store key component), never dereferenced through a Fleet store.
 type ServiceHandler struct {
 	store   templateversionstore.Store
 	kvStore kvstore.KVStore

@@ -309,12 +309,8 @@ func TestResumeDevices(t *testing.T) {
 	})
 }
 
-// TestUpdateServerSideDeviceStatus_ManagedDevice locks in this story's central architectural
-// finding: DeviceServiceHandler.store must be the full store.Store aggregate (not a narrow
-// devicestore.Store) because common.UpdateServiceSideStatus reaches through it to
-// store.Store.Fleet().Get(...) when computing status for a managed (fleet-owned) device. This
-// test fails to compile/wire at all if that dependency were ever narrowed away without also
-// updating this handler.
+// TestUpdateServerSideDeviceStatus_ManagedDevice verifies status computation for a managed
+// (fleet-owned) device, which requires looking up the owning fleet via fleetStore.
 func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()

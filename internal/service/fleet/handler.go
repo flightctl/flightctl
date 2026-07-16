@@ -15,15 +15,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service using the isolated fleet store. Only the fields
-// actually read by Fleet's methods are held: exhaustive inspection of every h.* reference
-// in the monolithic internal/service/fleet.go (all 14 interface methods + 2 private
-// callbacks) found zero calls to deviceStore, repositoryStore, templateVersionStore, or
-// workerClient. GetFleetRepositoryRefs/OverwriteFleetRepositoryRefs delegate directly to
-// fleetstore.Store, which resolves the repository association via GORM
-// (Association("Repositories")) with no Go-level dependency on repository.Store. The log
-// field was added when Fleet's own event-emission logic (previously centralized in
-// internal/service/events) moved into this package.
 type ServiceHandler struct {
 	store  fleetstore.Store
 	events events.Service

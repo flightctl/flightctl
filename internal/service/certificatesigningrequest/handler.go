@@ -25,13 +25,6 @@ import (
 // nowFunc allows overriding for unit tests
 var nowFunc = time.Now
 
-// ServiceHandler implements Service. It holds the isolated CertificateSigningRequest store,
-// the isolated EnrollmentRequest store (verifyTPMCSRRequest's narrow cross-resource dependency
-// for looking up the TPM-attested enrollment request behind a CSR's owning device — this is the
-// already-isolated internal/store/enrollmentrequest STORE package, not the new
-// internal/service/enrollmentrequest SERVICE package created in this same story), the CA client
-// (approval flow signs certificates), events, and log. No kvStore, no agentGate: neither is
-// referenced anywhere in the original certificatesigningrequest.go.
 type ServiceHandler struct {
 	store                  certificatesigningrequeststore.Store
 	enrollmentRequestStore enrollmentrequeststore.Store
@@ -122,11 +115,9 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUI
 		return fmt.Errorf("parsing TCG CSR")
 	}
 
-	// setTPMVerifiedFalse takes an already-formatted message rather than a format string +
-	// args (unlike the equivalent helper in the original internal/service/certificatesigningrequest.go)
+	// setTPMVerifiedFalse takes an already-formatted message rather than a format string + args
 	// so that `go vet`'s printf check does not flag call sites passing a non-constant message
-	// (e.g. notTPMBasedMessage below) as a "non-constant format string" error. Every call site's
-	// resulting message text is unchanged from the original.
+	// (e.g. notTPMBasedMessage below) as a "non-constant format string" error.
 	setTPMVerifiedFalse := func(message string) {
 		domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
 			Message: message,

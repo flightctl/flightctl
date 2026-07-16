@@ -12,9 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service. No `deviceStore`/`fleetStore`, no `events` dependency:
-// despite several methods taking fleetName/deviceName parameters, all 12 method bodies call
-// only h.store (dependencyrefstore.Store) — there is no cross-resource Go dependency to hold.
 type ServiceHandler struct {
 	store dependencyrefstore.Store
 	log   logrus.FieldLogger

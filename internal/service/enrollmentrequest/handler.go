@@ -33,19 +33,6 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// maxConcurrentAgents bounds the number of concurrent agent-originated enrollment requests
-// this handler will process at once. Duplicated from internal/service.MaxConcurrentAgents
-// (internal/service/utils.go) rather than imported, since importing the monolithic
-// internal/service package here would reintroduce the exact dependency breadth this epic
-// is decomposing away.
-const maxConcurrentAgents = 15
-
-// ServiceHandler implements Service. It holds the isolated EnrollmentRequest store, the
-// isolated Device store (for the three call sites that check/create devices during
-// enrollment and approval), the isolated CertificateSigningRequest store (GetEnrollmentConfig's
-// optional already-issued-certificate lookup), the CA client (approval flow signs
-// certificates, GetEnrollmentConfig returns the CA bundle), the KV store (awaiting-reconnect
-// bookkeeping), events, and its own agent-request semaphore.
 type ServiceHandler struct {
 	store       enrollmentrequeststore.Store
 	deviceStore devicestore.Store
@@ -72,7 +59,7 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 		events:        events,
 		log:           log,
 		tpmCAPaths:    tpmCAPaths,
-		agentGate:     semaphore.NewWeighted(maxConcurrentAgents),
+		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
 		agentEndpoint: agentEndpoint,
 		uiUrl:         uiUrl,
 	}
@@ -648,8 +635,6 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 	}
 }
 
-// GetEnrollmentConfig was never migrated into any focused sub-package during the
-// service-decomposition epic (internal/service/enrollmentconfig.go), moved here verbatim.
 func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
 	caCert, err := h.ca.GetCABundle()
 	if err != nil {

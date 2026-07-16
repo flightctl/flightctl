@@ -16,8 +16,6 @@ import (
 
 var organizationApiVersion = fmt.Sprintf("%s/%s", domain.APIGroup, domain.OrganizationAPIVersion)
 
-// ServiceHandler implements Service. Holds only the store interface it actually uses — no
-// `log` field, since internal/service/organization.go never references it.
 type ServiceHandler struct {
 	store organizationstore.Store
 }

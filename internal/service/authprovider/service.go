@@ -7,10 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused AuthProvider service interface, extracted from the monolithic
-// internal/service.Service. Holds 10 methods: the 9 from internal/service/authprovider.go
-// plus GetAuthConfig (physically defined in the separate internal/service/auth_config.go,
-// folded into this interface per the story requirements).
 type Service interface {
 	CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status)
 	ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status)

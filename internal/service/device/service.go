@@ -10,13 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused Device service interface, extracted from the monolithic
-// internal/service.Service. It covers the 30 Device methods defined in the old
-// internal/service/device.go (verified by direct inspection of internal/service/service.go's
-// "// Device" section - not the 31 the Feature design's table claims), including the two
-// cross-resource reference methods (GetDeviceRepositoryRefs, OverwriteDeviceRepositoryRefs)
-// per the Feature design's §4.1 cross-resource placement table (device is the subject for
-// these two methods).
 type Service interface {
 	CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status)
 	ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status)
@@ -51,8 +44,5 @@ type Service interface {
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
 	ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
-	// ListLabels was never migrated into any focused sub-package during the service-decomposition
-	// epic; it only ever supports domain.DeviceKind (see internal/service/labels.go), so it
-	// belongs here rather than in a new cross-resource home.
 	ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status)
 }

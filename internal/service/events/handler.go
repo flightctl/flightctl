@@ -11,10 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service. Narrowed from the monolithic EventHandler's
-// store.Store aggregate dependency to the isolated internal/store/event.Store — the ONLY
-// store accessor EventHandler ever called (h.store.Event().Create, in the original
-// CreateEvent method).
 type ServiceHandler struct {
 	store        eventstore.Store
 	workerClient worker_client.WorkerClient

@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused ResourceSync service interface, extracted from the monolithic
-// internal/service.Service (internal/service/resourcesync.go).
 type Service interface {
 	CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status)
 	ListResourceSyncs(ctx context.Context, orgId uuid.UUID, params domain.ListResourceSyncsParams) (*domain.ResourceSyncList, domain.Status)

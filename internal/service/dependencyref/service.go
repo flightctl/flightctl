@@ -9,13 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the focused DependencyRef service interface, extracted from the monolithic
-// internal/service.Service. It covers the 12 DependencyRef methods defined in the old
-// internal/service/dependency_ref.go (the SyncState half of that file belongs to the sibling
-// internal/service/syncstate sub-package and is not part of this interface). Several methods
-// take fleetName/deviceName parameters and are assigned here per the Feature design's §4.1
-// cross-resource placement table, but none of the 12 method bodies reach into device.Store or
-// fleet.Store — they call only their own dependencyrefstore.Store.
 type Service interface {
 	DeleteDependencyRefsByFleet(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status
 	DeleteDependencyRefsByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) domain.Status

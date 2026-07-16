@@ -18,11 +18,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceHandler implements Service. Holds the isolated authprovider store, events.Service,
-// and a logger — no `workerClient`; it is referenced nowhere in the original
-// authprovider.go/auth_config.go. The log field was added when AuthProvider's own
-// event-emission logic (previously centralized in internal/service/events) moved into this
-// package.
 type ServiceHandler struct {
 	store  authproviderstore.Store
 	events events.Service
