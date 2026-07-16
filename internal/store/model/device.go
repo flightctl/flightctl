@@ -41,6 +41,9 @@ type Device struct {
 	// Encrypted at rest as a whole blob (see RenderedConfig).
 	RenderedApplications *JSONField[json.RawMessage] `gorm:"type:jsonb"`
 
+	// The rendered OS image resolved from a catalog item ref.
+	RenderedOs *JSONField[domain.DeviceOsSpec] `gorm:"type:jsonb"`
+
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 
@@ -254,6 +257,10 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 				return nil, fmt.Errorf("unmarshal rendered applications: %w", err)
 			}
 			spec.Applications = &apps
+		}
+
+		if d.RenderedOs != nil && d.RenderedOs.Data.Image != "" {
+			spec.Os = &d.RenderedOs.Data
 		}
 	}
 

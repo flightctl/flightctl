@@ -1925,6 +1925,7 @@ components:
               example: "2.45.0"
             references:
               type: object
+              x-go-type: 'map[CatalogItemArtifactType]string'
               minProperties: 1
               additionalProperties:
                 type: string

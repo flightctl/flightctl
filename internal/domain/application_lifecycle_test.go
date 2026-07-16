@@ -10,12 +10,13 @@ import (
 
 func newTestApp(t *testing.T, name string) ApplicationProviderSpec {
 	t.Helper()
-	var app ApplicationProviderSpec
-	require.NoError(t, app.FromContainerApplication(ContainerApplication{
+	containerApp := ContainerApplication{
 		AppType: AppTypeContainer,
 		Name:    lo.ToPtr(name),
-		Image:   "quay.io/test/app:v1",
-	}))
+	}
+	require.NoError(t, containerApp.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
+	var app ApplicationProviderSpec
+	require.NoError(t, app.FromContainerApplication(containerApp))
 	return app
 }
 

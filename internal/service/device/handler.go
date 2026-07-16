@@ -461,7 +461,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	// Status.LastSeen and Status.SystemInfo.AdditionalProperties are not marshaled into newObj by ApplyJSONPatch
 	// and will always be set to nil as they have "-" json tags and will not be copied into newObj.  For now, set the fields manually
 	// so later validation passes
-	if currentObj.Status != nil {
+	if currentObj.Status != nil && newObj.Status != nil {
 		newObj.Status.LastSeen = currentObj.Status.LastSeen
 		newObj.Status.SystemInfo.AdditionalProperties = currentObj.Status.SystemInfo.AdditionalProperties
 	}
@@ -552,7 +552,7 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
 	specValid := domain.Condition{
 		Type:   domain.ConditionTypeDeviceSpecValid,
 		Status: domain.ConditionStatusTrue,
@@ -560,14 +560,13 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	}
 	var previous, updated *domain.Device
 	var oldConditions []domain.Condition
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate,
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate,
 		func(device *domain.Device) bool {
 			previous = snapshotDeviceForStatusUpdate(device)
 			oldConditions = nil
 			updated = nil
 			if device.Status != nil {
 				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
-				// Apply the SpecValid this render is about to commit before computing derived status.
 				domain.SetStatusCondition(&device.Status.Conditions, specValid)
 			}
 			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {

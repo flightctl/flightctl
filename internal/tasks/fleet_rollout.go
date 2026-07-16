@@ -452,9 +452,18 @@ func (f FleetRolloutsLogic) replaceContainerApplicationParameters(device *domain
 
 	var errs []error
 
-	containerApp.Image, err = ReplaceParametersInString(containerApp.Image, device)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	if containerApp.Type() == domain.ImageApplicationProviderType {
+		imageSpec, err := containerApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for container app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = ReplaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if err := containerApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for container app %s: %w", appName, err)}
+		}
 	}
 
 	newEnvVars, envErrs := replaceEnvVarsMap(device, containerApp.EnvVars)
@@ -490,9 +499,18 @@ func (f FleetRolloutsLogic) replaceHelmApplicationParameters(device *domain.Devi
 
 	var errs []error
 
-	helmApp.Image, err = ReplaceParametersInString(helmApp.Image, device)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	if helmApp.Type() == domain.ImageApplicationProviderType {
+		imageSpec, err := helmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for helm app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = ReplaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if err := helmApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for helm app %s: %w", appName, err)}
+		}
 	}
 
 	if len(errs) > 0 {
@@ -528,10 +546,7 @@ func (f FleetRolloutsLogic) replaceComposeApplicationParameters(device *domain.D
 		}
 	}
 
-	providerType, err := composeApp.Type()
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed getting provider type for compose app %s: %w", appName, err)}
-	}
+	providerType := composeApp.Type()
 
 	switch providerType {
 	case domain.ImageApplicationProviderType:
@@ -594,10 +609,7 @@ func (f FleetRolloutsLogic) replaceQuadletApplicationParameters(device *domain.D
 		}
 	}
 
-	providerType, err := quadletApp.Type()
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed getting provider type for quadlet app %s: %w", appName, err)}
-	}
+	providerType := quadletApp.Type()
 
 	switch providerType {
 	case domain.ImageApplicationProviderType:
@@ -646,10 +658,7 @@ func (f FleetRolloutsLogic) replaceVmApplicationParameters(device *domain.Device
 	}
 	appName := lo.FromPtr(vmApp.Name)
 
-	providerType, err := vmApp.Type()
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed getting provider type for vm app %s: %w", appName, err)}
-	}
+	providerType := vmApp.Type()
 
 	switch providerType {
 	case domain.ImageApplicationProviderType:

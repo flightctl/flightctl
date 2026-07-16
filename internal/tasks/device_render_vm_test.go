@@ -451,11 +451,11 @@ func TestVmRenderOptionsFromConfig(t *testing.T) {
 		}
 	}`), cfg))
 
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
 	assert.Equal(t, "registry.example.com/kubevirt/virt-launcher:custom", logic.vmRenderOptions.LauncherImage)
 	assert.False(t, logic.vmRenderOptions.PasstWorkarounds)
 
-	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, &config.Config{}, [16]byte{}, domain.Event{})
+	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, &config.Config{}, [16]byte{}, domain.Event{})
 	assert.Equal(t, config.DefaultVirtLauncherImage, defaults.vmRenderOptions.LauncherImage)
 	assert.False(t, defaults.vmRenderOptions.PasstWorkarounds)
 }

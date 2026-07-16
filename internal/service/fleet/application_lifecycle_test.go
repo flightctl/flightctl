@@ -32,8 +32,8 @@ func newLifecycleTestFleet(t *testing.T, appName string) (h *ServiceHandler, st 
 	containerApp := domain.ContainerApplication{
 		AppType: domain.AppTypeContainer,
 		Name:    lo.ToPtr(appName),
-		Image:   "quay.io/test/app:v1",
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
 	var app domain.ApplicationProviderSpec
 	require.NoError(app.FromContainerApplication(containerApp))
 

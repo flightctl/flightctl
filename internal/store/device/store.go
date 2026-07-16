@@ -72,7 +72,7 @@ type Store interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -1127,7 +1127,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -1184,6 +1184,8 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		"render_timestamp":      time.Now(),
 	}
 
+	updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: osImage})
+
 	if mutateStatus != nil {
 		existingRecord.Annotations = model.MakeJSONMap(existingAnnotations)
 		apiDevice, convertErr := existingRecord.ToApiResource()
@@ -1191,10 +1193,6 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 			return false, "", convertErr
 		}
 		if mutateStatus(apiDevice) && apiDevice.Status != nil {
-			// apiDevice.Status.Conditions/DependencySync were merged in by ToApiResource above
-			// for the mutator's benefit (e.g. diffing SpecValid). Round-trip back through
-			// NewDeviceFromApiResource to split them back out into service_conditions before
-			// writing the status column, the same way every other device write does.
 			deviceOnlyRecord, convertErr := model.NewDeviceFromApiResource(apiDevice)
 			if convertErr != nil {
 				return false, "", convertErr
@@ -1286,13 +1284,13 @@ func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions
 	return model.MakeJSONField(sc)
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate, mutateStatus)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, mutateStatus)
 		return retry, err
 	}
 

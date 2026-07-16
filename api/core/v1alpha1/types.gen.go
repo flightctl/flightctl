@@ -333,7 +333,7 @@ type CatalogItemVersion struct {
 	Readme *string `json:"readme,omitempty"`
 
 	// References Map of artifact type to image tag or digest. Keys must match a type in spec.artifacts. Only keyed artifacts are available for this version.
-	References map[string]string `json:"references"`
+	References map[CatalogItemArtifactType]string `json:"references"`
 
 	// Replaces The single version this one replaces, defining the primary upgrade edge.
 	Replaces *SemVer `json:"replaces,omitempty"`

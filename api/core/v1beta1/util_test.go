@@ -16,10 +16,10 @@ func newTestContainerAppWithLifecycle(require *require.Assertions, name string, 
 	containerApp := ContainerApplication{
 		Name:              lo.ToPtr(name),
 		AppType:           AppTypeContainer,
-		Image:             "quay.io/app/image:1",
 		DesiredState:      desiredState,
 		RestartGeneration: restartGeneration,
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{Image: "quay.io/app/image:1"}))
 	var spec ApplicationProviderSpec
 	require.NoError(spec.FromContainerApplication(containerApp))
 	return spec
@@ -31,10 +31,10 @@ func newTestHelmAppWithLifecycle(require *require.Assertions, name string, desir
 	helmApp := HelmApplication{
 		Name:              lo.ToPtr(name),
 		AppType:           AppTypeHelm,
-		Image:             "quay.io/app/chart:1",
 		DesiredState:      desiredState,
 		RestartGeneration: restartGeneration,
 	}
+	require.NoError(helmApp.FromImageApplicationProviderSpec(ImageApplicationProviderSpec{Image: "quay.io/app/chart:1"}))
 	var spec ApplicationProviderSpec
 	require.NoError(spec.FromHelmApplication(helmApp))
 	return spec
