@@ -223,6 +223,14 @@ func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "RestartDeviceApplication")
+
+	dp1, s1 = _d.inner.RestartDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (d1 domain.DeviceResumeResponse, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ResumeDevices")
 
@@ -251,6 +259,22 @@ func (_d *TracedDeviceService) SetOutOfDate(ctx context.Context, orgId uuid.UUID
 	return err
 }
 
+func (_d *TracedDeviceService) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "StartDeviceApplication")
+
+	dp1, s1 = _d.inner.StartDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
+func (_d *TracedDeviceService) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "StopDeviceApplication")
+
+	dp1, s1 = _d.inner.StopDeviceApplication(ctx, orgId, name, appName)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UnmarkDevicesRolloutSelection")
 
@@ -277,30 +301,6 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	s1 = _d.inner.UpdateDeviceAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	endSpan(span, s1)
 	return s1
-}
-
-func (_d *TracedDeviceService) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "StopDeviceApplication")
-
-	dp1, s1 = _d.inner.StopDeviceApplication(ctx, orgId, name, appName)
-	endSpan(span, s1)
-	return dp1, s1
-}
-
-func (_d *TracedDeviceService) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "StartDeviceApplication")
-
-	dp1, s1 = _d.inner.StartDeviceApplication(ctx, orgId, name, appName)
-	endSpan(span, s1)
-	return dp1, s1
-}
-
-func (_d *TracedDeviceService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "RestartDeviceApplication")
-
-	dp1, s1 = _d.inner.RestartDeviceApplication(ctx, orgId, name, appName)
-	endSpan(span, s1)
-	return dp1, s1
 }
 
 func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (s1 domain.Status) {

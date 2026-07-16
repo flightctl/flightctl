@@ -376,6 +376,21 @@ func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, orgId, name, device 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceStatus", reflect.TypeOf((*MockService)(nil).ReplaceDeviceStatus), ctx, orgId, name, device)
 }
 
+// RestartDeviceApplication mocks base method.
+func (m *MockService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestartDeviceApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// RestartDeviceApplication indicates an expected call of RestartDeviceApplication.
+func (mr *MockServiceMockRecorder) RestartDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartDeviceApplication", reflect.TypeOf((*MockService)(nil).RestartDeviceApplication), ctx, orgId, name, appName)
+}
+
 // ResumeDevices mocks base method.
 func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	m.ctrl.T.Helper()
@@ -419,6 +434,36 @@ func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, orgId, owner any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, orgId, owner)
 }
 
+// StartDeviceApplication mocks base method.
+func (m *MockService) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartDeviceApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// StartDeviceApplication indicates an expected call of StartDeviceApplication.
+func (mr *MockServiceMockRecorder) StartDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartDeviceApplication", reflect.TypeOf((*MockService)(nil).StartDeviceApplication), ctx, orgId, name, appName)
+}
+
+// StopDeviceApplication mocks base method.
+func (m *MockService) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StopDeviceApplication", ctx, orgId, name, appName)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// StopDeviceApplication indicates an expected call of StopDeviceApplication.
+func (mr *MockServiceMockRecorder) StopDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDeviceApplication", reflect.TypeOf((*MockService)(nil).StopDeviceApplication), ctx, orgId, name, appName)
+}
+
 // UnmarkDevicesRolloutSelection mocks base method.
 func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
 	m.ctrl.T.Helper()
@@ -460,51 +505,6 @@ func (m *MockService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UU
 func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, orgId, name, annotations, deleteKeys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeviceAnnotations", reflect.TypeOf((*MockService)(nil).UpdateDeviceAnnotations), ctx, orgId, name, annotations, deleteKeys)
-}
-
-// StopDeviceApplication mocks base method.
-func (m *MockService) StopDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StopDeviceApplication", ctx, orgId, name, appName)
-	ret0, _ := ret[0].(*domain.Device)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// StopDeviceApplication indicates an expected call of StopDeviceApplication.
-func (mr *MockServiceMockRecorder) StopDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDeviceApplication", reflect.TypeOf((*MockService)(nil).StopDeviceApplication), ctx, orgId, name, appName)
-}
-
-// StartDeviceApplication mocks base method.
-func (m *MockService) StartDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StartDeviceApplication", ctx, orgId, name, appName)
-	ret0, _ := ret[0].(*domain.Device)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// StartDeviceApplication indicates an expected call of StartDeviceApplication.
-func (mr *MockServiceMockRecorder) StartDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartDeviceApplication", reflect.TypeOf((*MockService)(nil).StartDeviceApplication), ctx, orgId, name, appName)
-}
-
-// RestartDeviceApplication mocks base method.
-func (m *MockService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Device, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RestartDeviceApplication", ctx, orgId, name, appName)
-	ret0, _ := ret[0].(*domain.Device)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// RestartDeviceApplication indicates an expected call of RestartDeviceApplication.
-func (mr *MockServiceMockRecorder) RestartDeviceApplication(ctx, orgId, name, appName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartDeviceApplication", reflect.TypeOf((*MockService)(nil).RestartDeviceApplication), ctx, orgId, name, appName)
 }
 
 // UpdateRenderedDevice mocks base method.
