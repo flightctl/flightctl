@@ -770,6 +770,9 @@ To deploy a VM application, add an entry to the `applications` section of the de
 > [!NOTE]
 > The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly.
 
+> [!NOTE]
+> The `spec.running` field in `vm.yaml` is ignored. Use [application lifecycle](#managing-application-lifecycle) commands (`flightctl app start` / `stop` / `restart`) to control whether the VM is running.
+
 #### Examples
 
 ##### Fedora
@@ -946,18 +949,15 @@ The agent reports the following status values for a VM application:
 | Running | The virtual machine is running and accepting workloads. |
 | Error | The VM failed to start or terminated with an error. Check the device events for details. |
 | Unknown | The VM was submitted but no running state has been observed yet. |
-| Completed | The VM exited cleanly. This is expected only if `spec.running` is set to `false`. |
+| Completed | The VM exited cleanly. |
 | Stopping | The VM was stopped with `flightctl app stop` and is shutting down. |
 | Stopped | The VM was stopped with `flightctl app stop` and is no longer running. |
 
 #### VM restart behavior
 
-When `spec.running: true` is set in the VM manifest, the agent automatically restarts the virtual machine if it crashes or is stopped unexpectedly. This matches the restart-on-failure policy applied to other Quadlet-based applications.
+The `spec.running` field in the KubeVirt `VirtualMachine` manifest is ignored. Flight Control controls whether the VM is running through application lifecycle actions instead.
 
-To stop a VM without triggering a restart, set `spec.running: false` and apply the updated device specification.
-
-> [!TIP]
-> You can also stop, start, or restart a VM application on demand, without editing the device specification, using `flightctl app stop`, `flightctl app start`, and `flightctl app restart`. See [Managing Application Lifecycle](#managing-application-lifecycle).
+By default, a deployed VM application is kept running and is automatically restarted if it crashes or is stopped unexpectedly. To stop, start, or restart a VM application on demand, use `flightctl app stop`, `flightctl app start`, and `flightctl app restart`. See [Managing Application Lifecycle](#managing-application-lifecycle).
 
 #### Accessing a VM Application Console
 
