@@ -82,7 +82,7 @@ Flight Control currently recognizes the following roles with defined permissions
 
 - **`flightctl-admin`** - Full access to all resources (super admin)
 - **`flightctl-org-admin`** - Full access to all resources within assigned organization
-- **`flightctl-operator`** - CRUD operations on devices, fleets, resourcesyncs, repositories; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
+- **`flightctl-operator`** - CRUD operations on devices, fleets, resourcesyncs, repositories; application lifecycle (start/stop/restart); device and application console; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
 - **`flightctl-viewer`** - Read-only access to devices, fleets, resourcesyncs, organizations; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer`** - Access to get and approve enrollmentrequests, manage certificate signing requests; view imagebuilds and imageexports; download imageexports
 
