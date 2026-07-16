@@ -79,11 +79,11 @@ func (a ContainerApplication) RunAsWithDefault() Username {
 	return a.RunAs.WithDefault(CurrentProcessUsername)
 }
 
-func (a QuadletApplication) RunAsWithDefault() Username {
-	return a.RunAs.WithDefault(CurrentProcessUsername)
+func (q QuadletApplication) RunAsWithDefault() Username {
+	return q.RunAs.WithDefault(CurrentProcessUsername)
 }
 
-func (a ComposeApplication) RunAsWithDefault() Username {
+func (c ComposeApplication) RunAsWithDefault() Username {
 	return CurrentProcessUsername
 }
 
@@ -117,3 +117,14 @@ func (a *ApplicationContent) ContentsDecoded() ([]byte, error) {
 	}
 	return decodeContents(*a.Content, a.ContentEncoding)
 }
+
+type CatalogItemRefSource interface {
+	AsCatalogItemRefApplicationProviderSpec() (CatalogItemRefApplicationProviderSpec, error)
+	MergeCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error
+	MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error
+}
+
+var _ CatalogItemRefSource = (*QuadletApplication)(nil)
+var _ CatalogItemRefSource = (*ContainerApplication)(nil)
+var _ CatalogItemRefSource = (*ComposeApplication)(nil)
+var _ CatalogItemRefSource = (*HelmApplication)(nil)

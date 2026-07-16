@@ -123,8 +123,8 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		containerApp := api.ContainerApplication{
 			AppType: api.AppTypeContainer,
 			Name:    lo.ToPtr(name),
-			Image:   "quay.io/test/app:v1",
 		}
+		Expect(containerApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"})).To(Succeed())
 		var app api.ApplicationProviderSpec
 		Expect(app.FromContainerApplication(containerApp)).To(Succeed())
 		return app
@@ -149,7 +149,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect(rolloutLogic.RolloutDevice(ctx)).To(Succeed())
 
 		By("rendering the device for the first time with no lifecycle override")
-		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -176,7 +176,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				Name: deviceName,
 			},
 		}
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -194,7 +194,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus := deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -207,7 +207,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, startStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(startStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -220,7 +220,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus = deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -260,7 +260,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 			}
 		}
 		renderDevice := func(event api.Event) {
-			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 		}
 		rolloutAndRender := func(name string, event api.Event) {

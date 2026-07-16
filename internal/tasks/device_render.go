@@ -13,10 +13,12 @@ import (
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/core/v1alpha1"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -47,8 +49,8 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, k8sClient, kvStore, cfg, orgId, event)
+func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
 	if event.InvolvedObject.Kind == domain.DeviceKind {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -66,6 +68,7 @@ type DeviceRenderLogic struct {
 	log             logrus.FieldLogger
 	deviceSvc       deviceservice.Service
 	repositorySvc   repositoryservice.Service
+	catalogSvc      catalogservice.Service
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
 	cfg             *config.Config
@@ -78,11 +81,12 @@ type DeviceRenderLogic struct {
 	vmConverter     VmConverterFn
 }
 
-func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
+func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
 	return DeviceRenderLogic{
 		log:           log,
 		deviceSvc:     deviceSvc,
 		repositorySvc: repositorySvc,
+		catalogSvc:    catalogSvc,
 		k8sClient:     k8sClient,
 		kvStore:       kvStore,
 		cfg:           cfg,
@@ -215,6 +219,16 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, renderErr)
 	}
 
+	var osImage string
+	if device.Spec != nil && device.Spec.Os != nil {
+		if device.Spec.Os.CatalogItemRef != nil {
+			osImage, err = resolveCatalogItemRef(ctx, *device.Spec.Os.CatalogItemRef, t.orgId, t.catalogSvc, v1alpha1.CatalogItemTypeOS)
+		}
+		if err != nil {
+			return t.setStatus(ctx, err)
+		}
+	}
+
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
 		if isPermanentRenderError(err) {
@@ -232,9 +246,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	// forceUpdate tells the store layer to persist this render and bump the rendered version
-	// even though specHash is unchanged (see bypassHashCheck above).
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, osImage, syncRefs, bypassHashCheck)
 	return t.setStatus(ctx, common.ApiStatusToErr(status))
 }
 
@@ -284,7 +296,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 
 	for i := range *t.applications {
 		application := (*t.applications)[i]
-		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.kvStore)
+		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.kvStore, t.orgId, t.catalogSvc)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
 		// Append invalid configs only if there's an error
@@ -404,7 +416,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 	}
 }
 
-func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
+func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore, orgId uuid.UUID, catalogSvc catalogservice.Service) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed to get app type: %w", ErrUnknownApplicationType, err)
@@ -412,13 +424,57 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 
 	switch appType {
 	case domain.AppTypeContainer:
-		_, err = (*app).AsContainerApplication()
+		container, err := app.AsContainerApplication()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		}
+		err = resolveApplicationCatalogItemRefIfExists(ctx, appType, &container, orgId, catalogSvc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve catalog item ref: %w", err)
+		}
+		if err := app.MergeContainerApplication(container); err != nil {
+			return nil, nil, fmt.Errorf("Failed to merge in resolved container app: %w", err)
+		}
+		return container.Name, app, nil
 	case domain.AppTypeHelm:
-		_, err = (*app).AsHelmApplication()
+		helm, err := app.AsHelmApplication()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		}
+		err = resolveApplicationCatalogItemRefIfExists(ctx, appType, &helm, orgId, catalogSvc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve catalog item ref: %w", err)
+		}
+		if err := app.MergeHelmApplication(helm); err != nil {
+			return nil, nil, fmt.Errorf("Failed to merge in resolved helm app: %w", err)
+		}
+		return helm.Name, app, nil
 	case domain.AppTypeCompose:
-		_, err = (*app).AsComposeApplication()
+		compose, err := app.AsComposeApplication()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		}
+		err = resolveApplicationCatalogItemRefIfExists(ctx, appType, &compose, orgId, catalogSvc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve catalog item ref: %w", err)
+		}
+		if err := app.MergeComposeApplication(compose); err != nil {
+			return nil, nil, fmt.Errorf("Failed to merge in resolved compose app: %w", err)
+		}
+		return compose.Name, app, nil
 	case domain.AppTypeQuadlet:
-		_, err = (*app).AsQuadletApplication()
+		quadlet, err := app.AsQuadletApplication()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		}
+		err = resolveApplicationCatalogItemRefIfExists(ctx, appType, &quadlet, orgId, catalogSvc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve catalog item ref: %w", err)
+		}
+		if err := app.MergeQuadletApplication(quadlet); err != nil {
+			return nil, nil, fmt.Errorf("Failed to merge in resolved quadlet app: %w", err)
+		}
+		return quadlet.Name, app, nil
 	case domain.AppTypeVm:
 		vmApp, parseErr := (*app).AsVmApplication()
 		if parseErr != nil {
@@ -433,14 +489,6 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, err)
-	}
-	appName, err := (*app).GetName()
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed to get app name: %w", ErrUnknownApplicationType, err)
-	}
-	return appName, app, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, *string, error) {
@@ -961,4 +1009,66 @@ func hashRenderedWithSpec(deviceSpec *domain.DeviceSpec) string {
 	specBytes, _ := json.Marshal(deviceSpec)
 	hash := sha256.Sum256(specBytes)
 	return hex.EncodeToString(hash[:])
+}
+
+func resolveCatalogItemRef(ctx context.Context, ref v1beta1.CatalogItemRefSpec, orgId uuid.UUID, catalogSvc catalogservice.Service, expectedItemType v1alpha1.CatalogItemType) (string, error) {
+	catalogItem, status := catalogSvc.GetCatalogItem(ctx, orgId, ref.Catalog, ref.Item)
+	if status.Code != http.StatusOK {
+		return "", fmt.Errorf("invalid catalog item reference: %s", status.Message)
+	}
+
+	if catalogItem.Spec.Type != expectedItemType {
+		return "", fmt.Errorf("cannot use catalog item of type %s as type %s", catalogItem.Spec.Type, expectedItemType)
+	}
+
+	specVersion := catalogItem.Spec.FindVersion(ref.Version)
+	if specVersion == nil {
+		return "", fmt.Errorf("unknown version %s for catalog item %s/%s", ref.Version, ref.Catalog, ref.Item)
+	}
+
+	artifact := catalogItem.Spec.FindArtifact(v1alpha1.CatalogItemArtifactTypeContainer)
+	if artifact == nil {
+		return "", fmt.Errorf("category item reference %s/%s must have container artifact", ref.Catalog, ref.Item)
+	}
+
+	tag := specVersion.References[v1alpha1.CatalogItemArtifactTypeContainer]
+	if len(tag) == 0 {
+		return "", fmt.Errorf("catalog item version %s for %s/%s lacks container version ref", ref.Version, ref.Catalog, ref.Item)
+	}
+
+	return fmt.Sprintf("%s:%s", artifact.Uri, tag), nil
+}
+
+func resolveApplicationCatalogItemRefIfExists(ctx context.Context, appType v1beta1.AppType, ref v1beta1.CatalogItemRefSource, orgId uuid.UUID, catalogSvc catalogservice.Service) error {
+	spec, err := ref.AsCatalogItemRefApplicationProviderSpec()
+	if err != nil {
+		return err
+	}
+
+	if spec.CatalogItemRef == nil {
+		return nil
+	}
+
+	var expectedItemType v1alpha1.CatalogItemType
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		expectedItemType = v1alpha1.CatalogItemTypeCompose
+	case v1beta1.AppTypeContainer:
+		expectedItemType = v1alpha1.CatalogItemTypeContainer
+	case v1beta1.AppTypeHelm:
+		expectedItemType = v1alpha1.CatalogItemTypeHelm
+	case v1beta1.AppTypeQuadlet:
+		expectedItemType = v1alpha1.CatalogItemTypeQuadlet
+	default:
+		return fmt.Errorf("appType %s does not support catalog item refs", appType)
+	}
+
+	image, err := resolveCatalogItemRef(ctx, *spec.CatalogItemRef, orgId, catalogSvc, expectedItemType)
+	if err != nil {
+		return err
+	}
+
+	return ref.MergeImageApplicationProviderSpec(v1beta1.ImageSpec{
+		Image: image,
+	})
 }

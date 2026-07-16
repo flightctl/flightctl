@@ -44,7 +44,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "1.0.0",
-					References: map[string]string{"container": "v1.0.0"},
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
 					Channels:   []string{"stable"},
 				},
 			}
@@ -58,7 +58,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "1.0.0",
-					References: map[string]string{"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+					References: map[api.CatalogItemArtifactType]string{"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
 					Channels:   []string{"stable"},
 				},
 			}
@@ -86,7 +86,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "1.0.0",
-					References: map[string]string{},
+					References: map[api.CatalogItemArtifactType]string{},
 					Channels:   []string{"stable"},
 				},
 			}
@@ -101,7 +101,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "2.0.0",
-					References: map[string]string{"container": "v2.0.0"},
+					References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"},
 					Channels:   []string{"fast"},
 				},
 				{
@@ -120,7 +120,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "1.0.0",
-					References: map[string]string{"nonexistent": "v1.0.0"},
+					References: map[api.CatalogItemArtifactType]string{"nonexistent": "v1.0.0"},
 					Channels:   []string{"stable"},
 				},
 			}
@@ -139,7 +139,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version: "1.0.0",
-					References: map[string]string{
+					References: map[api.CatalogItemArtifactType]string{
 						"container": "v1.0.0",
 						"qcow2":     "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
 					},
@@ -159,9 +159,9 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Type: api.CatalogItemArtifactTypeIso, Uri: "quay.io/test/gateway-iso"},
 			}
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "3.0.0", References: map[string]string{"container": "v3.0", "qcow2": "v3.0", "iso": "v3.0"}, Channels: []string{"fast"}, Replaces: lo.ToPtr("2.0.0")},
-				{Version: "2.0.0", References: map[string]string{"container": "v2.0", "qcow2": "v2.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("1.0.0")},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0"}, Channels: []string{"stable"}},
+				{Version: "3.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v3.0", "qcow2": "v3.0", "iso": "v3.0"}, Channels: []string{"fast"}, Replaces: lo.ToPtr("2.0.0")},
+				{Version: "2.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v2.0", "qcow2": "v2.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("1.0.0")},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0"}, Channels: []string{"stable"}},
 			}
 
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
@@ -273,7 +273,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 						{Type: api.CatalogItemArtifactTypeContainer, Uri: ""},
 					},
 					Versions: []api.CatalogItemVersion{
-						{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+						{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 					},
 				},
 			}
@@ -304,7 +304,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should reject version with empty channels", func() {
 			item := createValidCatalogItem("empty-channels")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -347,9 +347,9 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should accept valid semver versions", func() {
 			item := createValidCatalogItem("valid-semver")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
-				{Version: "2.0.0-beta.1", References: map[string]string{"container": "v2.0.0-beta.1"}, Channels: []string{"fast"}},
-				{Version: "3.0.0+build.123", References: map[string]string{"container": "v3.0.0"}, Channels: []string{"fast"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "2.0.0-beta.1", References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0-beta.1"}, Channels: []string{"fast"}},
+				{Version: "3.0.0+build.123", References: map[api.CatalogItemArtifactType]string{"container": "v3.0.0"}, Channels: []string{"fast"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -358,7 +358,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should reject invalid semver version", func() {
 			item := createValidCatalogItem("invalid-semver")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "not-semver", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "not-semver", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -368,7 +368,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should reject version with v prefix", func() {
 			item := createValidCatalogItem("v-prefix")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "v1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "v1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -396,8 +396,8 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should reject duplicate version numbers", func() {
 			item := createValidCatalogItem("dup-versions")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0-alt"}, Channels: []string{"fast"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0-alt"}, Channels: []string{"fast"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -425,8 +425,8 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should accept valid replaces reference", func() {
 			item := createValidCatalogItem("valid-replaces")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("1.0.0")},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "2.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("1.0.0")},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -435,8 +435,8 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should accept replaces referencing any valid semver (not validated against versions list)", func() {
 			item := createValidCatalogItem("replaces-any-semver")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("0.9.0")},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "2.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("0.9.0")},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -445,9 +445,9 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should accept valid skips references", func() {
 			item := createValidCatalogItem("valid-skips")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "3.0.0", References: map[string]string{"container": "v3.0.0"}, Channels: []string{"stable"}, Skips: &[]string{"2.0.0", "1.0.0"}},
-				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"fast"}},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "3.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v3.0.0"}, Channels: []string{"stable"}, Skips: &[]string{"2.0.0", "1.0.0"}},
+				{Version: "2.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"}, Channels: []string{"fast"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -456,8 +456,8 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should accept skips referencing any valid semver (not validated against versions list)", func() {
 			item := createValidCatalogItem("skips-any-semver")
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Skips: &[]string{"0.9.0"}},
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "2.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Skips: &[]string{"0.9.0"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -528,7 +528,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Type: api.CatalogItemArtifactTypeIso, Uri: "quay.io/redhat/rhel-bootc-iso"},
 			}
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "9.4.0", References: map[string]string{"container": "9.4", "qcow2": "9.4", "iso": "9.4"}, Channels: []string{"stable"}},
+				{Version: "9.4.0", References: map[api.CatalogItemArtifactType]string{"container": "9.4", "qcow2": "9.4", "iso": "9.4"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
@@ -541,7 +541,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Type: api.CatalogItemArtifactTypeQcow2, Uri: ""},
 			}
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -555,7 +555,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Uri: "quay.io/test/image-qcow2"},
 			}
 			item.Spec.Versions = []api.CatalogItemVersion{
-				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+				{Version: "1.0.0", References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
@@ -744,7 +744,7 @@ func createValidCatalogItem(name string) api.CatalogItem {
 			Versions: []api.CatalogItemVersion{
 				{
 					Version:    "1.0.0",
-					References: map[string]string{"container": "v1.0.0"},
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
 					Channels:   []string{"stable"},
 				},
 			},

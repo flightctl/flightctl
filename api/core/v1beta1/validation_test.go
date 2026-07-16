@@ -1481,12 +1481,15 @@ func newTestApplicationWithVolume(require *require.Assertions, name string, appT
 
 	switch appType {
 	case AppTypeContainer:
+		imageSpec := ImageApplicationProviderSpec{
+			Image: appImage,
+		}
 		containerApp := ContainerApplication{
 			Name:    lo.ToPtr(name),
 			AppType: appType,
-			Image:   appImage,
 			Volumes: &volumes,
 		}
+		require.NoError(containerApp.FromImageApplicationProviderSpec(imageSpec))
 		require.NoError(app.FromContainerApplication(containerApp))
 	case AppTypeCompose:
 		imageSpec := ImageApplicationProviderSpec{
@@ -1525,13 +1528,16 @@ func newTestApplicationWithPortsAndResources(require *require.Assertions, name s
 		appPorts = &ports
 	}
 
+	imageSpec := ImageApplicationProviderSpec{
+		Image: appImage,
+	}
 	containerApp := ContainerApplication{
 		Name:      lo.ToPtr(name),
 		AppType:   AppTypeContainer,
-		Image:     appImage,
 		Ports:     appPorts,
 		Resources: resources,
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(imageSpec))
 	require.NoError(app.FromContainerApplication(containerApp))
 
 	return app

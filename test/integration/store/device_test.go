@@ -1152,7 +1152,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -1175,7 +1175,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1198,19 +1198,19 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Establish an initial rendered version for a given specHash.
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(noopVersion).To(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
 			// advance the rendered version, e.g. to reflect a device-level application lifecycle
 			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true)
+			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "", nil, true)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(forcedVersion).ToNot(BeEmpty())
 			Expect(forcedVersion).ToNot(Equal(firstVersion))

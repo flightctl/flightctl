@@ -78,10 +78,7 @@ func newQuadletProvider(
 		return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
 	}
 
-	providerType, err := quadletApp.Type()
-	if err != nil {
-		return nil, fmt.Errorf("getting quadlet provider type: %w", err)
-	}
+	providerType := quadletApp.Type()
 
 	var imageRef string
 	var inlineContent []v1beta1.ApplicationContent

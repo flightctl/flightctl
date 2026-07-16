@@ -145,10 +145,7 @@ var defaultVmConverter = NewVmConverter(vmToQuadletBinary)
 //     annotation so the agent can identify the workload without inspecting
 //     image names.
 func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, converter VmConverterFn, kvStore kvstore.KVStore) (*domain.ApplicationProviderSpec, error) {
-	providerType, err := vmApp.Type()
-	if err != nil {
-		return nil, fmt.Errorf("invalid vm application provider type: %w", err)
-	}
+	providerType := vmApp.Type()
 	if providerType != domain.InlineApplicationProviderType {
 		return nil, fmt.Errorf("VmApplication with %q provider is not yet supported for server-side rendering; use inline: with a vm.yaml file", providerType)
 	}

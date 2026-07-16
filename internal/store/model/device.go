@@ -37,6 +37,9 @@ type Device struct {
 	// The rendered application provided by the service.
 	RenderedApplications *JSONField[*[]domain.ApplicationProviderSpec] `gorm:"type:jsonb"`
 
+	// The rendered OS image resolved from a catalog item ref.
+	RenderedOs *JSONField[domain.DeviceOsSpec] `gorm:"type:jsonb"`
+
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
 
@@ -207,6 +210,9 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		spec.Config = d.RenderedConfig.Data
 		spec.Applications = d.RenderedApplications.Data
 		spec.Consoles = &consoles
+		if d.RenderedOs != nil {
+			spec.Os = &d.RenderedOs.Data
+		}
 	}
 
 	status := domain.NewDeviceStatus()

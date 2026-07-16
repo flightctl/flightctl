@@ -33,8 +33,8 @@ func newLifecycleTestDevice(t *testing.T, appName string) (h Service, st *fakeSt
 	containerApp := domain.ContainerApplication{
 		AppType: domain.AppTypeContainer,
 		Name:    lo.ToPtr(appName),
-		Image:   "quay.io/test/app:v1",
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
 	var app domain.ApplicationProviderSpec
 	require.NoError(app.FromContainerApplication(containerApp))
 

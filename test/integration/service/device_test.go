@@ -788,7 +788,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Give device rendered content (version 1)
 			renderedConfig, err := createMinimalRenderedConfig("test-config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil, false)
+			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set device annotations: AwaitingReconnect and service version 1 (device 5 > service 1 -> ConflictPaused)
@@ -839,7 +839,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			renderedConfig, err := createMinimalRenderedConfig("test-config-2")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil, false)
+			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
@@ -1737,7 +1737,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash1", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash1", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Prime the KV rendered-version to match what the agent reports.
@@ -1769,7 +1769,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash2", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash2", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
@@ -1809,7 +1809,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash3", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash3", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Pin the DeviceAnnotationRenderedVersion annotation to a known value.
@@ -1853,7 +1853,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash4", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash4", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set console annotation to simulate an open console session.
@@ -1884,7 +1884,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash5", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash5", "", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{

@@ -443,7 +443,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	// Status.LastSeen and Status.SystemInfo.AdditionalProperties are not marshaled into newObj by ApplyJSONPatch
 	// and will always be set to nil as they have "-" json tags and will not be copied into newObj.  For now, set the fields manually
 	// so later validation passes
-	if currentObj.Status != nil {
+	if currentObj.Status != nil && newObj.Status != nil {
 		newObj.Status.LastSeen = currentObj.Status.LastSeen
 		newObj.Status.SystemInfo.AdditionalProperties = currentObj.Status.SystemInfo.AdditionalProperties
 	}
@@ -511,8 +511,8 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)

@@ -5735,6 +5735,12 @@ components:
       required:
         - appType
 
+    CatalogItemRefApplicationProviderSpec:
+      type: object
+      properties:
+        catalogItemRef:
+          $ref: '#/components/schemas/CatalogItemRefSpec'
+
     ComposeApplication:
       type: object
       allOf:
@@ -5743,6 +5749,7 @@ components:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
 
     QuadletApplication:
@@ -5754,6 +5761,7 @@ components:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
 
     ContainerApplication:
@@ -5763,7 +5771,9 @@ components:
         - $ref: '#/components/schemas/ApplicationEnvVars'
         - $ref: '#/components/schemas/ApplicationUser'
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
-        - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
         - type: object
           properties:
             ports:
@@ -5778,11 +5788,11 @@ components:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
+        - oneOf:
+          - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+          - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
         - type: object
           properties:
-            image:
-              type: string
-              description: Reference to the chart for this helm application.
             namespace:
               type: string
               description: The target namespace for the application deployment.
@@ -5860,13 +5870,20 @@ components:
             $ref: '#/components/schemas/ApplicationPort'
         resources:
           $ref: '#/components/schemas/ApplicationResources'
-    ImageApplicationProviderSpec:
+    ImageOrCatalogItemRefSpec:
       allOf:
-        - $ref: '#/components/schemas/ImageSpec'
+        - type: object
+          description: Reference to an OCI image or artifact with tag
+          properties:
+            image:
+              type: string
+              x-go-type-skip-optional-pointer: true
         - type: object
           properties:
             catalogItemRef:
               $ref: '#/components/schemas/CatalogItemRefSpec'
+    ImageApplicationProviderSpec:
+      $ref: '#/components/schemas/ImageSpec'
     InlineApplicationProviderSpec:
       type: object
       allOf:
@@ -6267,15 +6284,7 @@ components:
         - items
     DeviceOsSpec:
       description: DeviceOsSpec describes the target OS for the device.
-      allOf:
-       - $ref: '#/components/schemas/ImageSpec'
-       - type: object
-         properties:
-           catalogItemRef:
-             $ref: '#/components/schemas/CatalogItemRefSpec'
-    AgentDeviceOsSpec:
-      description: AgentDeviceOsSpec describes the target OS for the device in a form appropriate for agents to consume.
-      $ref: '#/components/schemas/ImageSpec'
+      $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -7270,13 +7279,6 @@ components:
       # Note: No additionalProperties: false here because this schema is used in allOf compositions
       # (e.g., TemplateVersionStatus) where other schemas add their own properties. Setting
       # additionalProperties: false would prevent the composition from working properly.
-    AgentDeviceSpec:
-      type: object
-      description: A DeviceSpec that has been appropriately rendered/processed for consumption by a device agent
-      properties:
-        <<: *deviceSpecProps
-        os:
-          $ref: '#/components/schemas/ImageSpec'
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.

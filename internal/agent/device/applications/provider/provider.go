@@ -80,6 +80,9 @@ type ApplicationSpec struct {
 	// Volume manager.
 	Volume VolumeManager
 
+	// Image is the resolved OCI image reference for the application.
+	Image string
+
 	// App-type-specific specs (only one will be set based on AppType)
 	ContainerApp *v1beta1.ContainerApplication
 	HelmApp      *v1beta1.HelmApplication
@@ -350,16 +353,17 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 		if err != nil {
 			return "", err
 		}
-		return app.Image, nil
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return imageSpec.Image, nil
 	case v1beta1.AppTypeCompose:
 		app, err := (*appSpec).AsComposeApplication()
 		if err != nil {
 			return "", err
 		}
-		providerType, err := app.Type()
-		if err != nil {
-			return "", err
-		}
+		providerType := app.Type()
 		if providerType == v1beta1.ImageApplicationProviderType {
 			imageSpec, err := app.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -373,10 +377,7 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 		if err != nil {
 			return "", err
 		}
-		providerType, err := app.Type()
-		if err != nil {
-			return "", err
-		}
+		providerType := app.Type()
 		if providerType == v1beta1.ImageApplicationProviderType {
 			imageSpec, err := app.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -390,7 +391,11 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 		if err != nil {
 			return "", err
 		}
-		return helm.SanitizeReleaseName(app.Image)
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return helm.SanitizeReleaseName(imageSpec.Image)
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -415,20 +420,14 @@ func AppNeedsNestedExtraction(appSpec *v1beta1.ApplicationProviderSpec) (bool, e
 		if err != nil {
 			return false, err
 		}
-		providerType, err := composeApp.Type()
-		if err != nil {
-			return false, err
-		}
+		providerType := composeApp.Type()
 		return providerType == v1beta1.ImageApplicationProviderType, nil
 	case v1beta1.AppTypeQuadlet:
 		quadletApp, err := (*appSpec).AsQuadletApplication()
 		if err != nil {
 			return false, err
 		}
-		providerType, err := quadletApp.Type()
-		if err != nil {
-			return false, err
-		}
+		providerType := quadletApp.Type()
 		return providerType == v1beta1.ImageApplicationProviderType, nil
 	default:
 		return false, nil
@@ -449,13 +448,21 @@ func ResolveImageRef(appSpec *v1beta1.ApplicationProviderSpec) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return app.Image, nil
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return imageSpec.Image, nil
 	case v1beta1.AppTypeHelm:
 		app, err := (*appSpec).AsHelmApplication()
 		if err != nil {
 			return "", err
 		}
-		return app.Image, nil
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return imageSpec.Image, nil
 	case v1beta1.AppTypeCompose:
 		app, err := (*appSpec).AsComposeApplication()
 		if err != nil {
