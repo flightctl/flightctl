@@ -336,7 +336,7 @@ var _ = Describe("DeviceStore create", func() {
 				return names
 			}
 
-			packageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+			packageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=package", selector.WithPrivateSelectors()),
@@ -345,7 +345,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deviceNames(packageList.Items)).To(ConsistOf("osmode-package"))
 
-			imageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+			imageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=image", selector.WithPrivateSelectors()),
