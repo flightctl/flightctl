@@ -415,6 +415,10 @@ CRI-O
  ImageContentSourcePolicy
  walkthrough
  arg
+ - docs/user/references/cli-commands.md
+VNC
+stdin
+stdout
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
@@ -474,8 +478,16 @@ setgid
 setuid
 TargetRevision
 undeploy
+undeploying
 unpackaged
 v3.4
+VNC
+VirtIO
+Hyper-V
+hostDisk
+RDP
+ISO
+ISOs
 WorkDir
 10s
  - docs/user/using/managing-fleets.md
