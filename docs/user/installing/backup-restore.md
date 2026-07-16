@@ -4,16 +4,16 @@ This document describes how to back up and restore Flight Control server state u
 
 ## Overview
 
-Flight Control provides CLI commands for backing up and restoring server state (database, PKI materials, and service configuration), enabling disaster recovery without device re-enrollment.
+Flight Control provides CLI commands for backing up and restoring server state (database, PKI materials, encryption keys, and service configuration), enabling disaster recovery without device re-enrollment.
 
 Supports Podman and Kubernetes with Helm deployments.
 Works with cron or Kubernetes CronJob schedulers.
 
-⚠️ **Warning**: Backup archives contain sensitive materials including database content, CA private keys, TLS certificates, and database credentials. Store backup archives on encrypted storage with restricted access and use encrypted channels when transporting archives.
+⚠️ **Warning**: Backup archives contain sensitive materials including database content, CA private keys, TLS certificates, encryption keys, and database credentials. Store backup archives on encrypted storage with restricted access and use encrypted channels when transporting archives.
 
 **Key capabilities:**
 
-- Back up database, PKI materials, and service configuration to timestamped archives
+- Back up database, PKI materials, encryption keys, and service configuration to timestamped archives
 - Restore from backup archives with automatic integrity verification
 - Podman and Kubernetes with Helm deployments
 - Cron and Kubernetes CronJob automation
@@ -77,6 +77,7 @@ Backup archives contain the following:
 
 - `db/dump.sql` — PostgreSQL database dump (internal database only; omitted for external databases)
 - `pki/` — CA keys and TLS certificates (Podman: directory tree, Kubernetes: Secret YAML exports)
+- `encryption/` — Encryption keys (Podman: key files, Kubernetes: Secret YAML export)
 - `config/` — Service configuration files
 - `volumes/` — Podman volumes (PAM Issuer user database, if present)
 - `metadata.json` — Backup metadata (timestamp, Flight Control version, deployment type)
@@ -178,9 +179,10 @@ The restore process performs the following steps:
 3. Stops Flight Control services
 4. Restores the database (if `db/dump.sql` is present in the archive)
 5. Restores PKI materials
-6. Restores service configuration
-7. Prepares devices (clears KV store, updates device annotations)
-8. Starts Flight Control services
+6. Restores encryption keys (if `encryption/` is present in the archive)
+7. Restores service configuration
+8. Prepares devices (clears KV store, updates device annotations)
+9. Starts Flight Control services
 
 **Note**: Services are automatically started even if the restore fails, ensuring the system is not left in a stopped state.
 
