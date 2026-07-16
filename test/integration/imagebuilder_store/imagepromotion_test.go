@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -61,14 +62,14 @@ func newTestImagePromotionWithStatus(name, imageBuildRef string, reason api.Imag
 
 var _ = Describe("ImagePromotionStore", func() {
 	var (
-		log           *logrus.Logger
-		ctx           context.Context
-		orgId         uuid.UUID
-		storeInst     store.Store
-		mainStoreInst flightctlstore.Store
-		cfg           *config.Config
-		dbName        string
-		db            *gorm.DB
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		storeInst         store.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -78,17 +79,16 @@ var _ = Describe("ImagePromotionStore", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		_ = mainStoreInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -166,7 +166,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			wrongOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, wrongOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, wrongOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImagePromotion().Get(ctx, wrongOrgId, "org-test")
@@ -209,7 +209,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := storeInst.ImagePromotion().List(ctx, otherOrgId, flightctlstore.ListParams{})
@@ -254,7 +254,7 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			deleted, err := storeInst.ImagePromotion().Delete(ctx, otherOrgId, "cross-org-delete")
@@ -499,7 +499,7 @@ var _ = Describe("ImagePromotionStore", func() {
 
 		It("should not return promotions from a different org", func() {
 			otherOrgId := uuid.New()
-			err := testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err := testutilpkg.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			waiting := newTestImagePromotionWithStatus("other-org-promotion", "shared-build", api.ImagePromotionConditionReasonWaitingForArtifacts)

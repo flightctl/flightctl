@@ -31,6 +31,37 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
+// CheckHealth verifies database connectivity and basic read capability. It depends only on
+// *gorm.DB, not on any per-resource store, so composition roots that no longer construct the
+// monolithic Store can still perform a DB health check.
+func CheckHealth(ctx context.Context, db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("db handle error: %w", err)
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("db ping error: %w", err)
+	}
+	var one int
+	if err := db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error; err != nil {
+		return fmt.Errorf("db simple query error: %w", err)
+	}
+	return nil
+}
+
+// DBHealthChecker adapts CheckHealth to the api_server.HealthChecker interface without
+// requiring a full Store.
+type DBHealthChecker struct {
+	DB *gorm.DB
+}
+
+func (h *DBHealthChecker) CheckHealth(ctx context.Context) error {
+	return CheckHealth(ctx, h.DB)
+}
+
 func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password domain.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 

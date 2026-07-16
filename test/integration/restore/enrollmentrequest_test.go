@@ -30,7 +30,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 
 	Context("PrepareEnrollmentRequestsAfterRestore", func() {
 		It("should annotate non-approved enrollment requests with awaitingReconnect", func() {
-			erStore := s.Store.EnrollmentRequest()
+			erStore := s.EnrollmentRequestStore
 
 			nonApprovedName, nonApprovedCSR := GenerateDeviceNameAndCSR()
 			toApproveName, toApproveCSR := GenerateDeviceNameAndCSR()
@@ -62,14 +62,14 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Spec: api.EnrollmentRequestSpec{Csr: string(alreadyAnnotatedCSR)},
 			}
 
-			_, st := s.Handler.CreateEnrollmentRequest(s.Ctx, s.OrgID, nonApprovedER)
+			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, nonApprovedER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
-			_, st = s.Handler.CreateEnrollmentRequest(s.Ctx, s.OrgID, toApproveER)
+			_, st = s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, toApproveER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			internalCtx := context.WithValue(s.Ctx, consts.InternalRequestCtxKey, true)
-			_, st = s.Handler.CreateEnrollmentRequest(internalCtx, s.OrgID, alreadyAnnotatedER)
+			_, st = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, alreadyAnnotatedER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			By("Debug: Verifying annotation was preserved")
@@ -85,7 +85,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st = s.Handler.ApproveEnrollmentRequest(ctxApproval, s.OrgID, toApproveName, approval)
+			_, st = s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, toApproveName, approval)
 			Expect(st.Code).To(BeEquivalentTo(200))
 
 			By("Debug: Listing all enrollment requests before PrepareEnrollmentRequestsAfterRestore")
@@ -117,7 +117,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 		})
 
 		It("should handle enrollment requests with nil status", func() {
-			erStore := s.Store.EnrollmentRequest()
+			erStore := s.EnrollmentRequestStore
 
 			nilStatusName, nilStatusCSR := GenerateDeviceNameAndCSR()
 			nilStatusER := api.EnrollmentRequest{
@@ -127,7 +127,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Spec:       api.EnrollmentRequestSpec{Csr: string(nilStatusCSR)},
 			}
 
-			_, st := s.Handler.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilStatusER)
+			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilStatusER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
@@ -141,7 +141,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 		})
 
 		It("should handle enrollment requests with nil approval", func() {
-			erStore := s.Store.EnrollmentRequest()
+			erStore := s.EnrollmentRequestStore
 
 			nilApprovalName, nilApprovalCSR := GenerateDeviceNameAndCSR()
 			nilApprovalER := api.EnrollmentRequest{
@@ -151,7 +151,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Spec:       api.EnrollmentRequestSpec{Csr: string(nilApprovalCSR)},
 			}
 
-			_, st := s.Handler.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilApprovalER)
+			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilApprovalER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
@@ -173,7 +173,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Spec:       api.EnrollmentRequestSpec{Csr: string(toApproveCSR)},
 			}
 
-			_, st := s.Handler.CreateEnrollmentRequest(s.Ctx, s.OrgID, toApproveER)
+			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, toApproveER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
@@ -184,7 +184,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st = s.Handler.ApproveEnrollmentRequest(ctxApproval, s.OrgID, toApproveName, approval)
+			_, st = s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, toApproveName, approval)
 			Expect(st.Code).To(BeEquivalentTo(200))
 
 			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
@@ -206,13 +206,13 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 
 			By("creating enrollment requests")
 			internalCtx := context.WithValue(s.Ctx, consts.InternalRequestCtxKey, true)
-			_, status := s.Handler.CreateEnrollmentRequest(internalCtx, s.OrgID, er1)
+			_, status := s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er1)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = s.Handler.CreateEnrollmentRequest(internalCtx, s.OrgID, er2)
+			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er2)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = s.Handler.CreateEnrollmentRequest(internalCtx, s.OrgID, er3)
+			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er3)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			By("approving one enrollment request before restore")
@@ -229,7 +229,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := s.Handler.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er1Name, approval)
+			_, st := s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er1Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("simulating restore process - annotating non-approved enrollment requests")
@@ -238,37 +238,37 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			Expect(enrollmentRequestsUpdated).To(Equal(int64(2)), "Should update 2 non-approved enrollment requests")
 
 			By("verifying enrollment requests were annotated")
-			er2Updated, status := s.Handler.GetEnrollmentRequest(s.Ctx, s.OrgID, er2Name)
+			er2Updated, status := s.EnrollmentRequest.GetEnrollmentRequest(s.Ctx, s.OrgID, er2Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er2Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er2Updated.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
-			er3Updated, status := s.Handler.GetEnrollmentRequest(s.Ctx, s.OrgID, er3Name)
+			er3Updated, status := s.EnrollmentRequest.GetEnrollmentRequest(s.Ctx, s.OrgID, er3Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er3Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er3Updated.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
-			er1Updated, status := s.Handler.GetEnrollmentRequest(s.Ctx, s.OrgID, er1Name)
+			er1Updated, status := s.EnrollmentRequest.GetEnrollmentRequest(s.Ctx, s.OrgID, er1Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er1Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er1Updated.Metadata.Annotations).To(BeEmpty())
 
 			By("approving the annotated enrollment requests and verifying device creation")
-			_, st = s.Handler.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er2Name, approval)
+			_, st = s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er2Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
-			_, st = s.Handler.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er3Name, approval)
+			_, st = s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, er3Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying devices were created with awaitingReconnect status")
-			device2, status := s.Handler.GetDevice(s.Ctx, s.OrgID, er2Name)
+			device2, status := s.Device.GetDevice(s.Ctx, s.OrgID, er2Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device2).ToNot(BeNil())
 			Expect(device2.Metadata.Annotations).ToNot(BeNil())
 			Expect(*device2.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 			Expect(device2.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 
-			device3, status := s.Handler.GetDevice(s.Ctx, s.OrgID, er3Name)
+			device3, status := s.Device.GetDevice(s.Ctx, s.OrgID, er3Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device3).ToNot(BeNil())
 			Expect(device3.Metadata.Annotations).ToNot(BeNil())

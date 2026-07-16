@@ -9,7 +9,7 @@ import (
 // (GET /api/v1/organizations)
 func (h *TransportHandler) ListOrganizations(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListOrganizationsParams) {
 	domainParams := h.converter.Organization().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListOrganizations(r.Context(), domainParams)
+	body, status := h.organization.ListOrganizations(r.Context(), domainParams)
 	apiResult := h.converter.Organization().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

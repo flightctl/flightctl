@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -152,14 +152,14 @@ func newDepChangeEvent(deviceName, resourceKey, fingerprint string) domain.Event
 
 // newFleetOwnedLogic builds a DeviceRenderLogic that simulates a fleet-owned device.
 func newFleetOwnedLogic(
-	svc service.Service,
+	repositorySvc repositoryservice.Service,
 	k8s k8sclient.K8SClient,
 	kv kvstore.KVStore,
 	orgId uuid.UUID,
 	event domain.Event,
 	fleet, templateVersion string,
 ) DeviceRenderLogic {
-	l := NewDeviceRenderLogic(logrus.New(), svc, k8s, kv, &config.Config{}, orgId, event)
+	l := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, k8s, kv, &config.Config{}, orgId, event)
 	l.ownerFleet = &fleet
 	l.templateVersion = &templateVersion
 	return l
@@ -446,7 +446,7 @@ func TestRenderHttpProviderConfig_CacheInvalidation(t *testing.T) {
 			fullURL := repoURL + suffix
 
 			repo := makeHTTPRepository(repoName, repoURL)
-			mockSvc := service.NewMockService(ctrl)
+			mockSvc := repositoryservice.NewMockService(ctrl)
 			mockSvc.EXPECT().GetRepository(gomock.Any(), orgId, repoName).Return(repo, statusOK)
 
 			kv := newTestKVStore()

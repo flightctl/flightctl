@@ -6,16 +6,18 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetApplicationLifecycle(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
-	logic := NewFleetApplicationLifecycleLogic(log, serviceHandler, orgId, event)
+func fleetApplicationLifecycle(ctx context.Context, orgId uuid.UUID, event domain.Event, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, eventSvc eventservice.Service, log logrus.FieldLogger) error {
+	logic := NewFleetApplicationLifecycleLogic(log, fleetSvc, deviceSvc, eventSvc, orgId, event)
 	err := logic.SyncFleet(ctx)
 	if err != nil {
 		log.Errorf("failed propagating fleet application lifecycle default for fleet %s/%s: %v", orgId, event.InvolvedObject.Name, err)
@@ -27,26 +29,30 @@ func fleetApplicationLifecycle(ctx context.Context, orgId uuid.UUID, event domai
 // default to every device currently owned by the fleet: it refreshes each device's local
 // cache of that default and triggers a re-render for each one.
 type FleetApplicationLifecycleLogic struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	orgId          uuid.UUID
-	event          domain.Event
-	itemsPerPage   int
+	log          logrus.FieldLogger
+	fleetSvc     fleetservice.Service
+	deviceSvc    deviceservice.Service
+	eventSvc     eventservice.Service
+	orgId        uuid.UUID
+	event        domain.Event
+	itemsPerPage int
 }
 
-func NewFleetApplicationLifecycleLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event domain.Event) FleetApplicationLifecycleLogic {
+func NewFleetApplicationLifecycleLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, eventSvc eventservice.Service, orgId uuid.UUID, event domain.Event) FleetApplicationLifecycleLogic {
 	return FleetApplicationLifecycleLogic{
-		log:            log,
-		serviceHandler: serviceHandler,
-		orgId:          orgId,
-		event:          event,
-		itemsPerPage:   ItemsPerPage,
+		log:          log,
+		fleetSvc:     fleetSvc,
+		deviceSvc:    deviceSvc,
+		eventSvc:     eventSvc,
+		orgId:        orgId,
+		event:        event,
+		itemsPerPage: ItemsPerPage,
 	}
 }
 
 func (f FleetApplicationLifecycleLogic) SyncFleet(ctx context.Context) error {
 	fleetName := f.event.InvolvedObject.Name
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, fleetName, domain.GetFleetParams{})
+	fleet, status := f.fleetSvc.GetFleet(ctx, f.orgId, fleetName, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet %s/%s: %s", f.orgId, fleetName, status.Message)
 	}
@@ -69,7 +75,7 @@ func (f FleetApplicationLifecycleLogic) SyncFleet(ctx context.Context) error {
 	failureCount := 0
 	for {
 		iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
-		devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, nil)
+		devices, status := f.deviceSvc.ListDevices(iterCtx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			cancel()
 			return fmt.Errorf("failed fetching devices for fleet %s/%s: %s", f.orgId, fleetName, status.Message)
@@ -111,11 +117,11 @@ func (f FleetApplicationLifecycleLogic) syncDevice(ctx context.Context, device *
 	} else {
 		annotations[domain.DeviceAnnotationFleetApplicationLifecycle] = fleetRaw
 	}
-	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, annotations, deleteKeys)
+	status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, annotations, deleteKeys)
 	if status.Code != http.StatusOK {
-		return service.ApiStatusToErr(status)
+		return common.ApiStatusToErr(status)
 	}
 
-	f.serviceHandler.CreateEvent(ctx, f.orgId, common.GetApplicationLifecycleChangedEvent(ctx, deviceName, details.AppName, details.Action))
+	f.eventSvc.CreateEvent(ctx, f.orgId, common.GetApplicationLifecycleChangedEvent(ctx, deviceName, details.AppName, details.Action))
 	return nil
 }

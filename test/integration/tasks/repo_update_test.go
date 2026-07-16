@@ -6,9 +6,14 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -25,16 +30,18 @@ import (
 
 var _ = Describe("RepoUpdate", func() {
 	var (
-		log            *logrus.Logger
-		ctx            context.Context
-		orgId          uuid.UUID
-		storeInst      store.Store
-		serviceHandler service.Service
-		cfg            *config.Config
-		dbName         string
-		db             *gorm.DB
-		workerClient   *worker_client.MockWorkerClient
-		ctrl           *gomock.Controller
+		log           *logrus.Logger
+		ctx           context.Context
+		orgId         uuid.UUID
+		fleetStore    fleetstore.Store
+		deviceStore   devicestore.Store
+		repositorySvc repositoryservice.Service
+		eventSvc      eventservice.Service
+		cfg           *config.Config
+		dbName        string
+		db            *gorm.DB
+		workerClient  *worker_client.MockWorkerClient
+		ctrl          *gomock.Controller
 	)
 
 	BeforeEach(func() {
@@ -45,15 +52,18 @@ var _ = Describe("RepoUpdate", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
-		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
+		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 
 		// Create 2 git config items, each to a different repo
-		err = testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+		err = testutil.CreateRepositories(ctx, 2, repositoryStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig1 := &api.GitConfigProviderSpec{
@@ -104,13 +114,13 @@ var _ = Describe("RepoUpdate", func() {
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet1, nil)
 		Expect(err).ToNot(HaveOccurred())
-		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
+		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet2, nil)
 		Expect(err).ToNot(HaveOccurred())
-		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
+		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create device1 referencing repo1, device2 referencing repo2
@@ -128,19 +138,18 @@ var _ = Describe("RepoUpdate", func() {
 			},
 		}
 
-		_, err = storeInst.Device().Create(ctx, orgId, &device1, nil)
+		_, err = deviceStore.Create(ctx, orgId, &device1, nil)
 		Expect(err).ToNot(HaveOccurred())
-		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
+		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Device().Create(ctx, orgId, &device2, nil)
+		_, err = deviceStore.Create(ctx, orgId, &device2, nil)
 		Expect(err).ToNot(HaveOccurred())
-		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
+		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		ctrl.Finish()
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -153,7 +162,7 @@ var _ = Describe("RepoUpdate", func() {
 					Name: "myrepository-1",
 				},
 			}
-			logic := tasks.NewRepositoryUpdateLogic(log, serviceHandler, orgId, event)
+			logic := tasks.NewRepositoryUpdateLogic(log, repositorySvc, eventSvc, orgId, event)
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())

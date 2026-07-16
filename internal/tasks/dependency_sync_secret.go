@@ -9,8 +9,10 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -28,16 +30,20 @@ const secretSyncLabelPrefix = "flightctl.io/sync-"
 // for affected fleets/devices.
 type DependencySyncSecret struct {
 	log               logrus.FieldLogger
-	serviceHandler    service.Service
+	dependencyrefSvc  dependencyrefservice.Service
+	eventSvc          eventservice.Service
+	syncstateSvc      syncstateservice.Service
 	releaseNamespace  string
 	metrics           *periodic.DependencySyncCollector
 	informerConnected atomic.Bool
 }
 
-func NewDependencySyncSecret(log logrus.FieldLogger, serviceHandler service.Service, releaseNamespace string, metrics *periodic.DependencySyncCollector) *DependencySyncSecret {
+func NewDependencySyncSecret(log logrus.FieldLogger, dependencyrefSvc dependencyrefservice.Service, eventSvc eventservice.Service, syncstateSvc syncstateservice.Service, releaseNamespace string, metrics *periodic.DependencySyncCollector) *DependencySyncSecret {
 	return &DependencySyncSecret{
 		log:              log,
-		serviceHandler:   serviceHandler,
+		dependencyrefSvc: dependencyrefSvc,
+		eventSvc:         eventSvc,
+		syncstateSvc:     syncstateSvc,
 		releaseNamespace: releaseNamespace,
 		metrics:          metrics,
 	}
@@ -132,7 +138,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		d.metrics.ObserveProbeCycle(periodic.RefTypeSecret)
 	}
 
-	refs, status := d.serviceHandler.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
+	refs, status := d.dependencyrefSvc.ListSecretDependencyTargets(ctx, namespace, name, newFingerprint)
 	if status.Code != http.StatusOK {
 		d.log.Errorf("failed listing secret dependency targets for %s/%s: %s", namespace, name, status.Message)
 		return
@@ -162,7 +168,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		}
 		event := common.GetDependencyChangeDetectedEvent(ctx, kind, targetName, resourceKey, newFingerprint)
 		if event != nil {
-			d.serviceHandler.CreateEvent(ctx, ref.OrgID, event)
+			d.eventSvc.CreateEvent(ctx, ref.OrgID, event)
 		}
 	}
 
@@ -174,7 +180,7 @@ func (d *DependencySyncSecret) reconcile(ctx context.Context, namespace, name, n
 		LastCheckedAt: now,
 		LastChangeAt:  &now,
 	}
-	if st := d.serviceHandler.SetSyncState(ctx, uuid.Nil, state); st.Code != http.StatusOK {
+	if st := d.syncstateSvc.SetSyncState(ctx, uuid.Nil, state); st.Code != http.StatusOK {
 		d.log.Errorf("failed setting sync state for %s: %s", resourceKey, st.Message)
 		return
 	}

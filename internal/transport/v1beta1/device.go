@@ -17,7 +17,7 @@ func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) 
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.serviceHandler.CreateDevice(r.Context(), transport.OrgIDFromContext(r.Context()), domainDevice)
+	body, status := h.device.CreateDevice(r.Context(), transport.OrgIDFromContext(r.Context()), domainDevice)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -25,14 +25,14 @@ func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) 
 // (GET /api/v1/devices)
 func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListDevicesParams) {
 	domainParams := h.converter.Device().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListDevices(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams, nil)
+	body, status := h.device.ListDevices(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams, nil)
 	apiResult := h.converter.Device().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/devices/{name})
 func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.device.GetDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,27 +46,27 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.serviceHandler.ReplaceDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice, nil)
+	body, status := h.device.ReplaceDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice, nil)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/devices/{name})
 func (h *TransportHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.device.DeleteDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	h.SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/devices/{name}/status)
 func (h *TransportHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.device.GetDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/devices/{name}/lastseen)
 func (h *TransportHandler) GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.device.GetDeviceLastSeen(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Device().LastSeenFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -80,7 +80,7 @@ func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Re
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.serviceHandler.ReplaceDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice)
+	body, status := h.device.ReplaceDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -88,7 +88,7 @@ func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Re
 // (GET /api/v1/devices/{name}/rendered)
 func (h *TransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params apiv1beta1.GetRenderedDeviceParams) {
 	domainParams := h.converter.Device().GetRenderedParamsToDomain(params)
-	body, status := h.serviceHandler.GetRenderedDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainParams)
+	body, status := h.device.GetRenderedDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainParams)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -102,7 +102,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -116,7 +116,7 @@ func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.device.PatchDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -130,28 +130,28 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 	}
 
 	domainDecom := h.converter.Device().DecommissionToDomain(decom)
-	body, status := h.serviceHandler.DecommissionDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDecom)
+	body, status := h.device.DecommissionDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDecom)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/devices/{name}/applications/{appname}/actions/stop)
 func (h *TransportHandler) StopDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
-	body, status := h.serviceHandler.StopDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	body, status := h.device.StopDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/devices/{name}/applications/{appname}/actions/start)
 func (h *TransportHandler) StartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
-	body, status := h.serviceHandler.StartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	body, status := h.device.StartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/devices/{name}/applications/{appname}/actions/restart)
 func (h *TransportHandler) RestartDeviceApplication(w http.ResponseWriter, r *http.Request, name string, appName string) {
-	body, status := h.serviceHandler.RestartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
+	body, status := h.device.RestartDeviceApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appName)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -165,7 +165,7 @@ func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request)
 	}
 
 	domainRequest := h.converter.Device().ResumeRequestToDomain(request)
-	response, status := h.serviceHandler.ResumeDevices(r.Context(), transport.OrgIDFromContext(r.Context()), domainRequest)
+	response, status := h.device.ResumeDevices(r.Context(), transport.OrgIDFromContext(r.Context()), domainRequest)
 	apiResult := h.converter.Device().ResumeResponseFromDomain(response)
 	h.SetResponse(w, apiResult, status)
 }

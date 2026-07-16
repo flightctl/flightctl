@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -15,7 +16,7 @@ import (
 type FleetCollector struct {
 	totalFleetsGauge *prometheus.GaugeVec
 
-	store          store.Store
+	fleetStore     fleetstore.Store
 	log            logrus.FieldLogger
 	mu             sync.RWMutex
 	ctx            context.Context
@@ -24,7 +25,7 @@ type FleetCollector struct {
 }
 
 // NewFleetCollector creates a FleetCollector.
-func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *FleetCollector {
+func NewFleetCollector(ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, cfg *config.Config) *FleetCollector {
 	interval := cfg.Metrics.FleetCollector.TickerInterval
 
 	collector := &FleetCollector{
@@ -32,7 +33,7 @@ func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldL
 			Name: "flightctl_fleets",
 			Help: "Total number of fleets managed (by status)",
 		}, []string{"organization_id", "status"}),
-		store:          store,
+		fleetStore:     fleetStore,
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: time.Duration(interval),
@@ -81,7 +82,7 @@ func (c *FleetCollector) updateFleetMetrics() {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	// Get status counts grouped by org and status
-	statusCounts, err := c.store.Fleet().CountByRolloutStatus(ctx, nil, nil)
+	statusCounts, err := c.fleetStore.CountByRolloutStatus(ctx, nil, nil)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get fleet status counts for metrics")
 		return

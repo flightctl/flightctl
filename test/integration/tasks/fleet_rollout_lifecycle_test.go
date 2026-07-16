@@ -10,9 +10,21 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
+	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -34,24 +46,28 @@ import (
 // declarative spec (see internal/tasks/device_render.go).
 var _ = Describe("Application lifecycle overlay at render time", func() {
 	var (
-		log               *logrus.Logger
-		ctx               context.Context
-		orgId             uuid.UUID
-		deviceStore       store.Device
-		fleetStore        store.Fleet
-		tvStore           store.TemplateVersion
-		storeInst         store.Store
-		serviceHandler    service.Service
-		cfg               *config.Config
-		db                *gorm.DB
-		dbName            string
-		fleetName         string
-		deviceName        string
-		workerClient      worker_client.WorkerClient
-		mockQueueProducer *queues.MockQueueProducer
-		ctrl              *gomock.Controller
-		kvStoreInst       kvstore.KVStore
-		queuesProvider    queues.Provider
+		log                *logrus.Logger
+		ctx                context.Context
+		orgId              uuid.UUID
+		deviceStore        devicestore.Store
+		fleetStore         fleetstore.Store
+		tvStore            templateversionstore.Store
+		fleetSvc           fleetservice.Service
+		templateVersionSvc templateversionservice.Service
+		deviceSvc          deviceservice.Service
+		dependencyrefSvc   dependencyrefservice.Service
+		repositorySvc      repositoryservice.Service
+		eventSvc           eventservice.Service
+		cfg                *config.Config
+		db                 *gorm.DB
+		dbName             string
+		fleetName          string
+		deviceName         string
+		workerClient       worker_client.WorkerClient
+		mockQueueProducer  *queues.MockQueueProducer
+		ctrl               *gomock.Controller
+		kvStoreInst        kvstore.KVStore
+		queuesProvider     queues.Provider
 	)
 
 	BeforeEach(func() {
@@ -64,17 +80,28 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
-		deviceStore = storeInst.Device()
-		fleetStore = storeInst.Fleet()
-		tvStore = storeInst.TemplateVersion()
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		newTvStore := templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		newRepoStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		dependencyrefStore := dependencyrefstore.NewDependencyRefStore(db, log.WithField("pkg", "dependencyref-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStoreInst, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
+		repositorySvc = repositoryservice.NewServiceHandler(newRepoStore, eventsSvc, log)
+		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 
 		// Initialize queues provider and rendered.Bus for successful device rendering.
 		// Only initialize once (singleton pattern), subsequent calls are no-ops.
@@ -88,7 +115,6 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -119,21 +145,21 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				Name: deviceName,
 			},
 		}
-		rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+		rolloutLogic := tasks.NewFleetRolloutsLogic(log, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, orgId, event)
 		Expect(rolloutLogic.RolloutDevice(ctx)).To(Succeed())
 
 		By("rendering the device for the first time with no lifecycle override")
-		renderLogic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
-		renderedDevice, status := serviceHandler.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+		renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(renderedDevice.Spec.Applications).ToNot(BeNil())
 		Expect(*renderedDevice.Spec.Applications).To(HaveLen(1))
 		Expect((*renderedDevice.Spec.Applications)[0].GetDesiredState()).To(Equal(api.ApplicationDesiredStateRunning))
 
 		By("stopping the application via the dedicated lifecycle API")
-		_, stopStatus := serviceHandler.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, stopStatus := deviceSvc.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(stopStatus.Code).To(Equal(int32(200)))
 
 		By("the declarative spec is untouched by the stop API")
@@ -150,10 +176,10 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				Name: deviceName,
 			},
 		}
-		renderLogic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
-		renderedDevice, status = serviceHandler.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(renderedDevice.Spec.Applications).ToNot(BeNil())
 		Expect(*renderedDevice.Spec.Applications).To(HaveLen(1))
@@ -165,39 +191,39 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect((*dev.Spec.Applications)[0].GetDesiredState()).To(Equal(api.ApplicationDesiredStateRunning))
 
 		By("restarting the application increments restartGeneration atomically")
-		_, restartStatus := serviceHandler.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, restartStatus := deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
-		renderedDevice, status = serviceHandler.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect((*renderedDevice.Spec.Applications)[0].GetDesiredState()).To(Equal(api.ApplicationDesiredStateStopped),
 			"restarting should not clear the stopped override")
 		Expect((*renderedDevice.Spec.Applications)[0].GetRestartGeneration()).To(Equal(1))
 
 		By("starting the application sets desiredState=running while preserving restartGeneration")
-		_, startStatus := serviceHandler.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, startStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(startStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
-		renderedDevice, status = serviceHandler.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect((*renderedDevice.Spec.Applications)[0].GetDesiredState()).To(Equal(api.ApplicationDesiredStateRunning))
 		Expect((*renderedDevice.Spec.Applications)[0].GetRestartGeneration()).To(Equal(1),
 			"start no longer clears the annotation, so a previously-recorded restartGeneration must survive a stop/start cycle")
 
 		By("restarting again after start simply continues incrementing restartGeneration")
-		_, restartStatus = serviceHandler.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, restartStatus = deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
-		renderedDevice, status = serviceHandler.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
+		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect((*renderedDevice.Spec.Applications)[0].GetRestartGeneration()).To(Equal(2))
 	})
@@ -234,19 +260,19 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 			}
 		}
 		renderDevice := func(event api.Event) {
-			renderLogic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 		}
 		rolloutAndRender := func(name string, event api.Event) {
-			Expect(tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event).RolloutDevice(ctx)).To(Succeed())
+			Expect(tasks.NewFleetRolloutsLogic(log, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, orgId, event).RolloutDevice(ctx)).To(Succeed())
 			renderDevice(event)
 		}
 		syncFleetFanOut := func(action api.ApplicationLifecycleChangedDetailsAction) {
 			event := lo.FromPtr(common.GetFleetApplicationLifecycleChangedEvent(ctx, fleetName, "app-1", action))
-			Expect(tasks.NewFleetApplicationLifecycleLogic(log, serviceHandler, orgId, event).SyncFleet(ctx)).To(Succeed())
+			Expect(tasks.NewFleetApplicationLifecycleLogic(log, fleetSvc, deviceSvc, eventSvc, orgId, event).SyncFleet(ctx)).To(Succeed())
 		}
 		desiredStateOf := func(name string) api.ApplicationDesiredState {
-			renderedDevice, status := serviceHandler.GetRenderedDevice(ctx, orgId, name, api.GetRenderedDeviceParams{})
+			renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, name, api.GetRenderedDeviceParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(*renderedDevice.Spec.Applications).To(HaveLen(1))
 			return (*renderedDevice.Spec.Applications)[0].GetDesiredState()
@@ -262,32 +288,32 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect(desiredStateOf(deviceName)).To(Equal(api.ApplicationDesiredStateRunning))
 
 		By("a device-level stop overrides the fleet's (absent) default for that device only")
-		_, deviceStopStatus := serviceHandler.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, deviceStopStatus := deviceSvc.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(deviceStopStatus.Code).To(Equal(int32(200)))
 		renderDevice(lifecycleRenderEvent(deviceName))
 		Expect(desiredStateOf(deviceName)).To(Equal(api.ApplicationDesiredStateStopped))
 
 		By("starting the device again re-asserts running, since it is the most recent action for this device")
-		_, deviceStartStatus := serviceHandler.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, deviceStartStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(deviceStartStatus.Code).To(Equal(int32(200)))
 		renderDevice(lifecycleRenderEvent(deviceName))
 		Expect(desiredStateOf(deviceName)).To(Equal(api.ApplicationDesiredStateRunning))
 
 		By("stopping the application fleet-wide overrides the device's earlier start, since the fleet action happened more recently")
-		_, stopStatus := serviceHandler.StopFleetApplication(ctx, orgId, fleetName, "app-1")
+		_, stopStatus := fleetSvc.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		Expect(stopStatus.Code).To(Equal(int32(200)))
 		syncFleetFanOut(api.ApplicationLifecycleActionStop)
 		renderDevice(lifecycleRenderEvent(deviceName))
 		Expect(desiredStateOf(deviceName)).To(Equal(api.ApplicationDesiredStateStopped))
 
 		By("a device-level start issued after that fleet-level stop wins again, since it is now the most recent action")
-		_, startStatus := serviceHandler.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
+		_, startStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(startStatus.Code).To(Equal(int32(200)))
 		renderDevice(lifecycleRenderEvent(deviceName))
 		Expect(desiredStateOf(deviceName)).To(Equal(api.ApplicationDesiredStateRunning))
 
 		By("stopping the application fleet-wide a second time wins yet again over the device's earlier start")
-		_, stopAgainStatus := serviceHandler.StopFleetApplication(ctx, orgId, fleetName, "app-1")
+		_, stopAgainStatus := fleetSvc.StopFleetApplication(ctx, orgId, fleetName, "app-1")
 		Expect(stopAgainStatus.Code).To(Equal(int32(200)))
 		syncFleetFanOut(api.ApplicationLifecycleActionStop)
 		renderDevice(lifecycleRenderEvent(deviceName))
@@ -303,7 +329,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect(bootstrappedCache).NotTo(BeEmpty())
 
 		By("a routine (non-lifecycle) rollout for an already-bootstrapped device never re-syncs its fleet lifecycle cache")
-		_, driftStatus := serviceHandler.StartFleetApplication(ctx, orgId, fleetName, "app-1")
+		_, driftStatus := fleetSvc.StartFleetApplication(ctx, orgId, fleetName, "app-1")
 		Expect(driftStatus.Code).To(Equal(int32(200)),
 			"changes the fleet's own live annotation without running the fan-out task, simulating a fleet action whose fan-out hasn't reached this device yet")
 		rolloutAndRender(deviceName2, rolloutEvent(deviceName2))

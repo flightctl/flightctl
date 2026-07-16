@@ -20,9 +20,10 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/events"
 	mainstore "github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -86,8 +87,8 @@ type ImageExportDownload struct {
 type imageExportService struct {
 	imageExportStore store.ImageExportStore
 	imageBuildStore  store.ImageBuildStore
-	repositoryStore  mainstore.Repository
-	eventHandler     *internalservice.EventHandler
+	repositoryStore  repositorystore.Store
+	eventSvc         events.Service
 	queueProducer    queues.QueueProducer
 	kvStore          kvstore.KVStore
 	cfg              *config.ImageBuilderServiceConfig
@@ -95,12 +96,12 @@ type imageExportService struct {
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore repositorystore.Store, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
 		repositoryStore:  repositoryStore,
-		eventHandler:     eventHandler,
+		eventSvc:         eventSvc,
 		queueProducer:    queueProducer,
 		kvStore:          kvStore,
 		cfg:              cfg,
@@ -146,10 +147,10 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 
 	// Create event separately (no transaction)
 	var event *coredomain.Event
-	if result != nil && s.eventHandler != nil {
+	if result != nil && s.eventSvc != nil {
 		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, coredomain.ResourceKind(string(domain.ResourceKindImageExport)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
 		if event != nil {
-			s.eventHandler.CreateEvent(ctx, orgId, event)
+			s.eventSvc.CreateEvent(ctx, orgId, event)
 		}
 	}
 
@@ -374,7 +375,7 @@ func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, 
 
 	// Create event for status update
 	var event *coredomain.Event
-	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
+	if result != nil && result.Metadata.Name != nil && s.eventSvc != nil {
 		// Create a simple status update event since status is not in UpdatedFields enum
 		event = coredomain.GetBaseEvent(
 			ctx,
@@ -385,7 +386,7 @@ func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, 
 			nil,
 		)
 		if event != nil {
-			s.eventHandler.CreateEvent(ctx, orgId, event)
+			s.eventSvc.CreateEvent(ctx, orgId, event)
 		}
 	}
 

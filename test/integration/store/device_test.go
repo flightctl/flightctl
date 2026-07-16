@@ -12,8 +12,13 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -42,17 +47,17 @@ var _ = BeforeSuite(func() {
 
 var _ = Describe("DeviceStore create", func() {
 	var (
-		log        *logrus.Logger
-		ctx        context.Context
-		orgId      uuid.UUID
-		storeInst  store.Store
-		devStore   store.Device
-		cfg        *config.Config
-		db         *gorm.DB
-		dbName     string
-		numDevices int
-		called     bool
-		callback   store.EventCallback
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		devStore          devicestore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		db                *gorm.DB
+		dbName            string
+		numDevices        int
+		called            bool
+		callback          store.EventCallback
 	)
 
 	BeforeEach(func() {
@@ -62,22 +67,21 @@ var _ = Describe("DeviceStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
-		devStore = storeInst.Device()
+		devStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 		called = false
 		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 			called = true
 		})
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -199,7 +203,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with summary", func() {
-			allDevices, err := devStore.List(ctx, orgId, store.DeviceListParams{})
+			allDevices, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
 			expectedApplicationMap := make(map[string]int64)
@@ -219,7 +223,7 @@ var _ = Describe("DeviceStore create", func() {
 				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
-			allDevices, err = devStore.List(ctx, orgId, store.DeviceListParams{})
+			allDevices, err = devStore.List(ctx, orgId, devicestore.DeviceListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
 			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
@@ -236,7 +240,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with paging", func() {
-			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
+			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
 			allDevices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(numDevices))
@@ -278,7 +282,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with paging", func() {
-			listParams := store.DeviceListParams{
+			listParams := devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}),
@@ -291,7 +295,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with status field filter paging", func() {
-			listParams := store.DeviceListParams{
+			listParams := devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("status.updated.status in (Unknown, Updating)", selector.WithPrivateSelectors()),
@@ -332,7 +336,7 @@ var _ = Describe("DeviceStore create", func() {
 				return names
 			}
 
-			packageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+			packageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=package", selector.WithPrivateSelectors()),
@@ -341,7 +345,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deviceNames(packageList.Items)).To(ConsistOf("osmode-package"))
 
-			imageList, err := devStore.List(ctx, orgId, store.DeviceListParams{
+			imageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("status.capabilities.osMode=image", selector.WithPrivateSelectors()),
@@ -354,7 +358,7 @@ var _ = Describe("DeviceStore create", func() {
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)
-			listParams := store.DeviceListParams{
+			listParams := devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit: 1000,
 					FieldSelector: selector.NewFieldSelectorFromMapOrDie(
@@ -365,7 +369,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
-			listParams = store.DeviceListParams{
+			listParams = devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit: 1000,
 					FieldSelector: selector.NewFieldSelectorFromMapOrDie(
@@ -376,7 +380,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(Equal(1))
 
-			listParams = store.DeviceListParams{
+			listParams = devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: selector.NewFieldSelectorOrDie("metadata.owner in (Fleet/fleet-a, Fleet/fleet-b)", selector.WithPrivateSelectors()),
@@ -388,7 +392,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with CVE ID filter", func() {
-			findingStore := storeInst.VulnerabilityFinding()
+			findingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(db, log.WithField("pkg", "vulnerabilityfinding-store"))
 
 			// Create devices with OS image digests
 			testutil.CreateTestDevice(ctx, devStore, orgId, "device-with-cve", nil, nil, nil)
@@ -426,14 +430,14 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// List without CVE filter - should return all devices with spec
-			listParams := store.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
+			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 1000}}
 			devices, err := devStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(devices.Items)).To(BeNumerically(">=", 3))
 
 			// List with CVE filter for CVE-2024-1234 - should return only device-with-cve
 			cveID := "CVE-2024-1234"
-			listParams = store.DeviceListParams{
+			listParams = devicestore.DeviceListParams{
 				ListParams: store.ListParams{Limit: 1000},
 				CveID:      &cveID,
 			}
@@ -444,7 +448,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// List with CVE filter for CVE-2024-9999 - should return only device-without-cve
 			cveID = "CVE-2024-9999"
-			listParams = store.DeviceListParams{
+			listParams = devicestore.DeviceListParams{
 				ListParams: store.ListParams{Limit: 1000},
 				CveID:      &cveID,
 			}
@@ -455,7 +459,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// List with CVE filter for non-existent CVE - should return empty
 			cveID = "CVE-9999-9999"
-			listParams = store.DeviceListParams{
+			listParams = devicestore.DeviceListParams{
 				ListParams: store.ListParams{Limit: 1000},
 				CveID:      &cveID,
 			}
@@ -465,7 +469,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with CVE ID and device status lifecycle field selector (no ambiguous SQL status column)", func() {
-			findingStore := storeInst.VulnerabilityFinding()
+			findingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(db, log.WithField("pkg", "vulnerabilityfinding-store"))
 			digest := "sha256:cve-fs-digest"
 
 			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-enrolled", nil, nil, nil)
@@ -499,7 +503,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			cveID := cveForTest
-			listParams := store.DeviceListParams{
+			listParams := devicestore.DeviceListParams{
 				ListParams: store.ListParams{
 					Limit:         1000,
 					FieldSelector: fs,
@@ -1137,7 +1141,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("GetRendered", func() {
-			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev", nil, nil, nil)
 
 			// No rendered version
 			_, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
@@ -1188,7 +1192,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
-			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev-force-update", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil, nil)
 
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())
@@ -1213,45 +1217,47 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("OverwriteRepositoryRefs", func() {
-			err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+			repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+			err := testutil.CreateRepositories(ctx, 2, repositoryStore, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			err = devStore.OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			repos, err := devStore.GetRepositoryRefs(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			devs, err := storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-1")
+			devs, err := repositoryStore.GetDeviceRefs(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devs.Items).To(HaveLen(1))
 			Expect(*(devs.Items[0]).Metadata.Name).To(Equal("mydevice-1"))
 
-			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-2")
+			err = devStore.OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-2")
 			Expect(err).ToNot(HaveOccurred())
-			repos, err = storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			repos, err = devStore.GetRepositoryRefs(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-2"))
 
-			devs, err = storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-1")
+			devs, err = repositoryStore.GetDeviceRefs(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devs.Items).To(HaveLen(0))
 
-			devs, err = storeInst.Repository().GetDeviceRefs(ctx, orgId, "myrepository-2")
+			devs, err = repositoryStore.GetDeviceRefs(ctx, orgId, "myrepository-2")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devs.Items).To(HaveLen(1))
 			Expect(*(devs.Items[0]).Metadata.Name).To(Equal("mydevice-1"))
 		})
 
 		It("Delete device with repo association", func() {
-			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
+			repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+			err := testutil.CreateRepositories(ctx, 1, repositoryStore, orgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
+			err = devStore.OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
+			repos, err := devStore.GetRepositoryRefs(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
@@ -1426,7 +1432,7 @@ var _ = Describe("DeviceStore create", func() {
 
 		It("FleetSpec database scenarios", func() {
 			// Test FleetSpecsAreEqual in realistic fleet scenarios
-			fleetStore := storeInst.Fleet()
+			fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 
 			originalFleetSpec := api.FleetSpec{
 				Selector: &api.LabelSelector{
@@ -1534,7 +1540,7 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-device-2", lo.ToPtr("Fleet/test-fleet"), nil, nil)
 
 			// Test CountByOrgAndStatus with groupByFleet=true
-			results, err := devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary, true)
+			results, err := devStore.CountByOrgAndStatus(ctx, &orgId, devicestore.DeviceStatusTypeSummary, true)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).ToNot(BeEmpty())
 
@@ -1550,7 +1556,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(fleetCounts["Fleet/test-fleet"]).To(Equal(int64(2))) // fleet-device-1,2
 
 			// Test CountByOrgAndStatus with groupByFleet=false
-			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary, false)
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, devicestore.DeviceStatusTypeSummary, false)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).ToNot(BeEmpty())
 
@@ -1563,16 +1569,16 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(totalCount).To(Equal(int64(5))) // All 5 devices
 
 			// Test different status types
-			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeApplication, true)
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, devicestore.DeviceStatusTypeApplication, true)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).ToNot(BeEmpty())
 
-			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeUpdate, true)
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, devicestore.DeviceStatusTypeUpdate, true)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).ToNot(BeEmpty())
 
 			// Test with nil orgId
-			results, err = devStore.CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, true)
+			results, err = devStore.CountByOrgAndStatus(ctx, nil, devicestore.DeviceStatusTypeSummary, true)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(results).ToNot(BeEmpty())
 

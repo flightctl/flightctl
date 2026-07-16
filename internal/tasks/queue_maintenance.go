@@ -10,7 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -23,21 +25,25 @@ import (
 // - Retrying failed messages
 // - Checkpoint advancement based on in-flight task completion tracking
 type QueueMaintenanceTask struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	queuesProvider queues.Provider
-	workerClient   worker_client.WorkerClient
-	workerMetrics  *worker.WorkerCollector
+	log             logrus.FieldLogger
+	checkpointSvc   checkpointservice.Service
+	eventSvc        eventservice.Service
+	organizationSvc organizationservice.Service
+	queuesProvider  queues.Provider
+	workerClient    worker_client.WorkerClient
+	workerMetrics   *worker.WorkerCollector
 }
 
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service, organizationSvc organizationservice.Service, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
-		log:            log,
-		serviceHandler: serviceHandler,
-		queuesProvider: queuesProvider,
-		workerClient:   workerClient,
-		workerMetrics:  workerMetrics,
+		log:             log,
+		checkpointSvc:   checkpointSvc,
+		eventSvc:        eventSvc,
+		organizationSvc: organizationSvc,
+		queuesProvider:  queuesProvider,
+		workerClient:    workerClient,
+		workerMetrics:   workerMetrics,
 	}
 }
 
@@ -104,7 +110,7 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 			EmitInternalTaskFailedEvent(ctx, eventWithOrgId.OrgId,
 				fmt.Sprintf("Message processing timed out after %v", EventProcessingTimeout),
 				originalEvent,
-				t.serviceHandler)
+				t.eventSvc)
 
 			log.WithField("entryID", entryID).
 				WithField("resourceKind", resourceKind).
@@ -160,7 +166,7 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			}
 
 			// Emit the event
-			t.serviceHandler.CreateEvent(ctx, eventWithOrgId.OrgId, event)
+			t.eventSvc.CreateEvent(ctx, eventWithOrgId.OrgId, event)
 
 			log.WithField("entryID", entryID).
 				WithField("resourceKind", resourceKind).
@@ -215,7 +221,7 @@ func (t *QueueMaintenanceTask) syncCheckpointToDatabase(ctx context.Context, log
 	// Convert timestamp to bytes for storage
 	checkpointBytes := []byte(checkpointTime.Format(time.RFC3339Nano))
 	// Store in database using task queue consumer and global checkpoint key
-	status := t.serviceHandler.SetCheckpoint(ctx, consts.CheckpointConsumerTaskQueue, consts.CheckpointKeyGlobal, checkpointBytes)
+	status := t.checkpointSvc.SetCheckpoint(ctx, consts.CheckpointConsumerTaskQueue, consts.CheckpointKeyGlobal, checkpointBytes)
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to set checkpoint in database: %s", status.Message)
 	}
@@ -228,7 +234,7 @@ func (t *QueueMaintenanceTask) recoverFromMissingCheckpoint(ctx context.Context,
 	log.Info("Starting checkpoint recovery process")
 
 	// Try to get the last known checkpoint from the database
-	dbCheckpointBytes, status := t.serviceHandler.GetCheckpoint(ctx, consts.CheckpointConsumerTaskQueue, consts.CheckpointKeyGlobal)
+	dbCheckpointBytes, status := t.checkpointSvc.GetCheckpoint(ctx, consts.CheckpointConsumerTaskQueue, consts.CheckpointKeyGlobal)
 
 	var lastCheckpointTime time.Time
 	if status.Code >= 400 {
@@ -272,7 +278,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
 	// First, get all organizations
-	orgList, status := t.serviceHandler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	orgList, status := t.organizationSvc.ListOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to list organizations: %s", status.Message)
 	}
@@ -312,7 +318,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			}
 
 			// List events from database for this organization
-			eventList, status := t.serviceHandler.ListEvents(ctx, orgID, params)
+			eventList, status := t.eventSvc.ListEvents(ctx, orgID, params)
 			if status.Code >= 400 {
 				orgLog.WithError(fmt.Errorf("status: %s", status.Message)).Warn("Failed to list events for organization, continuing with next")
 				break

@@ -8,7 +8,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -66,7 +66,7 @@ var (
 	}
 )
 
-func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, st store.Store, log logrus.FieldLogger) bool {
+func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, fleetStore fleetstore.Store, log logrus.FieldLogger) bool {
 	if device == nil {
 		return false
 	}
@@ -75,7 +75,7 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *domai
 	}
 
 	deviceStatusChanged := updateServerSideDeviceStatus(device)
-	updatedStatusChanged := updateServerSideDeviceUpdatedStatus(device, ctx, st, log, orgId)
+	updatedStatusChanged := updateServerSideDeviceUpdatedStatus(device, ctx, fleetStore, log, orgId)
 	applicationStatusChanged := updateServerSideApplicationStatus(device)
 	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
 
@@ -194,7 +194,7 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 	return device.Status.Lifecycle.Status != lastLifecycleStatus && device.Status.Lifecycle.Info != lastLifecycleInfo
 }
 
-func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
+func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
 	lastUpdateStatus := device.Status.Updated.Status
 	if device.IsDisconnected(domain.DeviceDisconnectedTimeout) && device.Status != nil && device.Status.LastSeen != nil && !device.Status.LastSeen.IsZero() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUnknown
@@ -236,7 +236,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			log.Errorf("Failed to determine owner for device %q: %v", *device.Metadata.Name, err)
 			return false
 		}
-		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.GetWithDeviceSummary(false))
+		f, err := fleetStore.Get(ctx, orgId, fleetName, fleetstore.GetWithDeviceSummary(false))
 		if err != nil {
 			log.Errorf("Failed to get fleet for device %q: %v", *device.Metadata.Name, err)
 			return false
@@ -331,7 +331,7 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	}
 }
 
-func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
+func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID) ResourceUpdates {
 	resourceUpdates := make(ResourceUpdates, 0, 7)
 
 	// Don't generate status change events during device creation (when oldDevice is nil)

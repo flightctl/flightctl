@@ -58,6 +58,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 
 - **API (OpenAPI, codegen, versioning):** [api/AGENTS.md](api/AGENTS.md)
 - **Device agent (reconciliation, lifecycle, testing):** [internal/agent/AGENTS.md](internal/agent/AGENTS.md)
+- **Service layer (mockgen/tracing-wrapper conventions for `internal/service/{resource}` sub-packages):** [internal/service/AGENTS.md](internal/service/AGENTS.md)
 - **Documentation (structure, style, lint):** [docs/AGENTS.md](docs/AGENTS.md)
 - **Deployment (Helm, quadlets, kind):** [deploy/AGENTS.md](deploy/AGENTS.md)
 - **Testing (unit, integration, e2e):** [test/AGENTS.md](test/AGENTS.md)

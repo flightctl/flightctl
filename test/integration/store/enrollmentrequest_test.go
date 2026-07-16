@@ -8,7 +8,9 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
@@ -24,14 +26,14 @@ import (
 
 var _ = Describe("enrollmentRequestStore create", func() {
 	var (
-		log                   *logrus.Logger
-		ctx                   context.Context
-		orgId                 uuid.UUID
-		storeInst             store.Store
-		cfg                   *config.Config
-		dbName                string
-		db                    *gorm.DB
-		numEnrollmentRequests int
+		log                    *logrus.Logger
+		ctx                    context.Context
+		orgId                  uuid.UUID
+		enrollmentRequestStore enrollmentrequeststore.Store
+		cfg                    *config.Config
+		dbName                 string
+		db                     *gorm.DB
+		numEnrollmentRequests  int
 	)
 
 	BeforeEach(func() {
@@ -41,53 +43,53 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		enrollmentRequestStore = enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
+		organizationStore := organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
+		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, enrollmentRequestStore, orgId)
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("EnrollmentRequest store", func() {
 		It("Get enrollmentrequest success", func() {
-			dev, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
+			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Name).To(Equal("myenrollmentrequest-1"))
 		})
 
 		It("Get enrollmentrequest - not found error", func() {
-			_, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "nonexistent")
+			_, err := enrollmentRequestStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get enrollmentrequest - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := storeInst.EnrollmentRequest().Get(ctx, badOrgId, "myenrollmentrequest-1")
+			_, err := enrollmentRequestStore.Get(ctx, badOrgId, "myenrollmentrequest-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete enrollmentrequest success", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "myenrollmentrequest-1", nil)
+			err := enrollmentRequestStore.Delete(ctx, orgId, "myenrollmentrequest-1", nil)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete enrollmentrequest success when not found", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent", nil)
+			err := enrollmentRequestStore.Delete(ctx, orgId, "nonexistent", nil)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
-			allEnrollmentRequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
+			allEnrollmentRequests, err := enrollmentRequestStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allEnrollmentRequests.Items)).To(Equal(numEnrollmentRequests))
 			allDevNames := make([]string, len(allEnrollmentRequests.Items))
@@ -97,7 +99,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 			foundDevNames := make([]string, len(allEnrollmentRequests.Items))
 			listParams.Limit = 1
-			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
+			enrollmentrequests, err := enrollmentRequestStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))
 			Expect(*enrollmentrequests.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -106,7 +108,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			cont, err := store.ParseContinueString(enrollmentrequests.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			enrollmentrequests, err = storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
+			enrollmentrequests, err = enrollmentRequestStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))
 			Expect(*enrollmentrequests.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -115,7 +117,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			cont, err = store.ParseContinueString(enrollmentrequests.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			enrollmentrequests, err = storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
+			enrollmentrequests, err = enrollmentRequestStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))
 			Expect(enrollmentrequests.Metadata.RemainingItemCount).To(BeNil())
@@ -131,7 +133,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
 				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
-			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
+			enrollmentrequests, err := enrollmentRequestStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))
 			Expect(*enrollmentrequests.Items[0].Metadata.Name).To(Equal("myenrollmentrequest-1"))
@@ -147,7 +149,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				},
 				Status: nil,
 			}
-			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
+			er, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
@@ -169,14 +171,14 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Certificate: lo.ToPtr("bogus-cert"),
 				},
 			}
-			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
+			er, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
 
-			er, err = storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
+			er, err = enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
@@ -204,9 +206,9 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, err := storeInst.EnrollmentRequest().UpdateStatus(ctx, orgId, &enrollmentrequest, nil)
+			_, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest, nil)
 			Expect(err).ToNot(HaveOccurred())
-			dev, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
+			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(dev.Kind).To(Equal(api.EnrollmentRequestKind))

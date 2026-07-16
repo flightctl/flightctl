@@ -9,8 +9,15 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -64,8 +71,12 @@ var _ = Describe("Rollout disruption budget test", func() {
 		dbName           string
 		db               *gorm.DB
 		cfg              *config.Config
-		storeInst        store.Store
-		serviceHandler   service.Service
+		fleetStore       fleetstore.Store
+		deviceStore      devicestore.Store
+		tvStore          templateversionstore.Store
+		deviceSvc        deviceservice.Service
+		fleetSvc         fleetservice.Service
+		eventSvc         eventservice.Service
 		ctrl             *gomock.Controller
 		mockWorkerClient *worker_client.MockWorkerClient
 		tvName           string
@@ -92,7 +103,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -106,13 +117,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -126,13 +137,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
 	setLabels := func(labels []map[string]string, numToSet []int) {
 		Expect(labels).To(HaveLen(len(numToSet)))
-		devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
+		devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(len(devices.Items)).To(BeNumerically(">=", lo.Sum(numToSet)))
 		offset := 0
@@ -220,17 +231,24 @@ var _ = Describe("Rollout disruption budget test", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		newFleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		newDeviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, mockWorkerClient, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -239,13 +257,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 			_ = createTestFleet(FleetName, d)
 			createTestTemplateVersion(FleetName)
 			if numDevices > 0 {
-				testutil.CreateTestDevices(ctx, numDevices, storeInst.Device(), store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
-				devices, err := storeInst.Device().List(ctx, store.NullOrgId, store.DeviceListParams{})
+				testutil.CreateTestDevices(ctx, numDevices, deviceStore, store.NullOrgId, util.SetResourceOwner(api.FleetKind, FleetName), false)
+				devices, err := deviceStore.List(ctx, store.NullOrgId, devicestore.DeviceListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -255,45 +273,45 @@ var _ = Describe("Rollout disruption budget test", func() {
 						annotations[api.DeviceAnnotationRenderedTemplateVersion] = tvName
 					}
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
-					Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
+					Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
 		}
 		It("One fleet - no devices", func() {
 			initTest(nil, 0, false, false)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, false, false)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, true, true)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 2, true, false)
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
@@ -301,7 +319,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 6, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 
 			captureAndVerifyEvents(3, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx, store.NullOrgId)
@@ -310,7 +328,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels - without unavailable", func() {
 			initTest(disruptionBudget(nil, lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 9, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 3})
-			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
+			reconciler := disruption_budget.NewReconciler(deviceSvc, fleetSvc, eventSvc, log)
 			captureAndVerifyEvents(6, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,14 +15,14 @@ const AlertCheckpointConsumer = "alert-exporter"
 const AlertCheckpointKey = "active-alerts"
 
 type CheckpointManager struct {
-	log     *logrus.Logger
-	handler service.Service
+	log           *logrus.Logger
+	checkpointSvc checkpointservice.Service
 }
 
-func NewCheckpointManager(log *logrus.Logger, handler service.Service) *CheckpointManager {
+func NewCheckpointManager(log *logrus.Logger, checkpointSvc checkpointservice.Service) *CheckpointManager {
 	return &CheckpointManager{
-		log:     log,
-		handler: handler,
+		log:           log,
+		checkpointSvc: checkpointSvc,
 	}
 }
 
@@ -43,7 +43,7 @@ func (c *CheckpointManager) LoadCheckpoint(ctx context.Context) *AlertCheckpoint
 
 	logger.Debug("Loading alert checkpoint")
 
-	checkpointData, status := c.handler.GetCheckpoint(ctx, AlertCheckpointConsumer, AlertCheckpointKey)
+	checkpointData, status := c.checkpointSvc.GetCheckpoint(ctx, AlertCheckpointConsumer, AlertCheckpointKey)
 	if status.Code == http.StatusNotFound {
 		CheckpointOperationsTotal.WithLabelValues("load", "not_found").Inc()
 		logger.Info("No existing alert checkpoint found, starting with fresh state")
@@ -120,7 +120,7 @@ func (c *CheckpointManager) StoreCheckpoint(ctx context.Context, checkpoint *Ale
 		"checkpoint_size": len(data),
 	}).Debug("Checkpoint marshaled successfully")
 
-	status := c.handler.SetCheckpoint(ctx, AlertCheckpointConsumer, AlertCheckpointKey, data)
+	status := c.checkpointSvc.SetCheckpoint(ctx, AlertCheckpointConsumer, AlertCheckpointKey, data)
 	if status.Code != http.StatusOK {
 		CheckpointOperationsTotal.WithLabelValues("store", "error").Inc()
 		logger.WithFields(logrus.Fields{

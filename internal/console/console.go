@@ -9,7 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -36,17 +36,17 @@ type InternalSessionRegistration interface {
 }
 
 type ConsoleSessionManager struct {
-	serviceHandler service.Service
-	log            logrus.FieldLogger
-	notifier       ConsoleEventNotifier
+	deviceSvc deviceservice.Service
+	log       logrus.FieldLogger
+	notifier  ConsoleEventNotifier
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration, notifier ConsoleEventNotifier) *ConsoleSessionManager {
+func NewConsoleSessionManager(deviceSvc deviceservice.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration, notifier ConsoleEventNotifier) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
-		serviceHandler:      serviceHandler,
+		deviceSvc:           deviceSvc,
 		log:                 log,
 		notifier:            notifier,
 		sessionRegistration: sessionRegistration,
@@ -59,7 +59,7 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 		newValue string
 	)
 	for i := 0; i != 10; i++ {
-		device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
+		device, status := m.deviceSvc.GetDevice(ctx, orgId, deviceName)
 		if status.Code != http.StatusOK {
 			return status
 		}
@@ -84,7 +84,7 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 		}
 		(*device.Metadata.Annotations)[domain.DeviceAnnotationConsole] = newValue
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
-		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
+		_, err = m.deviceSvc.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}
@@ -148,7 +148,7 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
 
 	// Guard: device doesn't exist - check once at the beginning
-	device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
+	device, status := m.deviceSvc.GetDevice(ctx, orgId, deviceName)
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
@@ -177,7 +177,7 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 	// Now that we know the device exists and is accessible, modify annotations
 	if status := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); status.Code != http.StatusOK {
 		// If modifyAnnotations fails, check if the device still exists to return the correct error
-		if _, deviceStatus := m.serviceHandler.GetDevice(ctx, orgId, deviceName); deviceStatus.Code != http.StatusOK {
+		if _, deviceStatus := m.deviceSvc.GetDevice(ctx, orgId, deviceName); deviceStatus.Code != http.StatusOK {
 			return nil, deviceStatus
 		}
 		return nil, status

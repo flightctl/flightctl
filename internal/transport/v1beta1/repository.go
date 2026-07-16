@@ -17,7 +17,7 @@ func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Reque
 	}
 
 	domainRepo := h.converter.Repository().ToDomain(rs)
-	body, status := h.serviceHandler.CreateRepository(r.Context(), transport.OrgIDFromContext(r.Context()), domainRepo)
+	body, status := h.repository.CreateRepository(r.Context(), transport.OrgIDFromContext(r.Context()), domainRepo)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -25,14 +25,14 @@ func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Reque
 // (GET /api/v1/repositories)
 func (h *TransportHandler) ListRepositories(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListRepositoriesParams) {
 	domainParams := h.converter.Repository().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListRepositories(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	body, status := h.repository.ListRepositories(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.Repository().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/repositories/{name})
 func (h *TransportHandler) GetRepository(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.repository.GetRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,14 +46,14 @@ func (h *TransportHandler) ReplaceRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	domainRepo := h.converter.Repository().ToDomain(rs)
-	body, status := h.serviceHandler.ReplaceRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRepo)
+	body, status := h.repository.ReplaceRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRepo)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/repositories/{name})
 func (h *TransportHandler) DeleteRepository(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.repository.DeleteRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	h.SetResponse(w, nil, status)
 }
 
@@ -66,7 +66,7 @@ func (h *TransportHandler) PatchRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.repository.PatchRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -79,7 +79,7 @@ func (h *TransportHandler) CheckRepositoryOciTag(w http.ResponseWriter, r *http.
 		return
 	}
 
-	result, status := h.serviceHandler.CheckRepositoryOciTag(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName, req.Tag)
+	result, status := h.repository.CheckRepositoryOciTag(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName, req.Tag)
 	if result == nil {
 		h.SetResponse(w, nil, status)
 		return
@@ -107,7 +107,7 @@ func (h *TransportHandler) CheckRepositoryOciImage(w http.ResponseWriter, r *htt
 		return
 	}
 
-	result, status := h.serviceHandler.CheckRepositoryOciImage(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName)
+	result, status := h.repository.CheckRepositoryOciImage(r.Context(), transport.OrgIDFromContext(r.Context()), name, req.ImageName)
 	if result == nil {
 		h.SetResponse(w, nil, status)
 		return

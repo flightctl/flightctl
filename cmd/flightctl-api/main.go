@@ -24,6 +24,10 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -72,9 +76,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -117,7 +123,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, caClient, agentListener, provider, agentTlsConfig)
+	agentServer, err := agentserver.New(ctx, log, cfg, db, caClient, agentListener, provider, agentTlsConfig)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}
@@ -136,7 +142,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, caClient, listener, provider, agentServer.GetGRPCServer())
+		server := apiserver.New(log, cfg, db, caClient, listener, provider, agentServer.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -153,16 +159,16 @@ func main() {
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
 		var collectors []prometheus.Collector
 		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
-			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
+			collectors = append(collectors, domain.NewDeviceCollector(ctx, devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store")), log, cfg))
 		}
 		if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
-			collectors = append(collectors, domain.NewFleetCollector(ctx, store, log, cfg))
+			collectors = append(collectors, domain.NewFleetCollector(ctx, fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store")), log, cfg))
 		}
 		if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
-			collectors = append(collectors, domain.NewRepositoryCollector(ctx, store, log, cfg))
+			collectors = append(collectors, domain.NewRepositoryCollector(ctx, repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store")), log, cfg))
 		}
 		if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
-			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
+			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store")), log, cfg))
 		}
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
 			if systemMetricsCollector := system.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {

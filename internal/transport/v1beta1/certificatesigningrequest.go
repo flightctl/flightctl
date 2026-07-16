@@ -11,7 +11,7 @@ import (
 // (GET /api/v1/certificatesigningrequests)
 func (h *TransportHandler) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListCertificateSigningRequestsParams) {
 	domainParams := h.converter.CertificateSigningRequest().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListCertificateSigningRequests(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	body, status := h.certificatesigningrequest.ListCertificateSigningRequests(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.CertificateSigningRequest().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -25,20 +25,20 @@ func (h *TransportHandler) CreateCertificateSigningRequest(w http.ResponseWriter
 	}
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
-	body, status := h.serviceHandler.CreateCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainCSR)
+	body, status := h.certificatesigningrequest.CreateCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainCSR)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.certificatesigningrequest.DeleteCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	h.SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.certificatesigningrequest.GetCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -52,7 +52,7 @@ func (h *TransportHandler) PatchCertificateSigningRequest(w http.ResponseWriter,
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.certificatesigningrequest.PatchCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -66,7 +66,7 @@ func (h *TransportHandler) ReplaceCertificateSigningRequest(w http.ResponseWrite
 	}
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
-	body, status := h.serviceHandler.ReplaceCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
+	body, status := h.certificatesigningrequest.ReplaceCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -80,7 +80,7 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 	}
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
-	body, status := h.serviceHandler.UpdateCertificateSigningRequestApproval(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
+	body, status := h.certificatesigningrequest.UpdateCertificateSigningRequestApproval(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

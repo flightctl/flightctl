@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
@@ -40,7 +40,7 @@ func getOwnerFleet(device *domain.Device) (string, bool, error) {
 	return ownerName, true, nil
 }
 
-func EmitInternalTaskFailedEvent(ctx context.Context, orgID uuid.UUID, errorMessage string, originalEvent domain.Event, serviceHandler service.Service) {
+func EmitInternalTaskFailedEvent(ctx context.Context, orgID uuid.UUID, errorMessage string, originalEvent domain.Event, eventSvc event.Service) {
 	resourceKind := domain.ResourceKind(originalEvent.InvolvedObject.Kind)
 	resourceName := originalEvent.InvolvedObject.Name
 	reason := originalEvent.Reason
@@ -62,5 +62,5 @@ func EmitInternalTaskFailedEvent(ctx context.Context, orgID uuid.UUID, errorMess
 	}
 
 	// Emit the event
-	serviceHandler.CreateEvent(ctx, orgID, event)
+	eventSvc.CreateEvent(ctx, orgID, event)
 }

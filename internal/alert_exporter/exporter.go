@@ -38,7 +38,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -81,16 +83,20 @@ func NewAlertKey(org string, kind string, name string) AlertKey {
 }
 
 type AlertExporter struct {
-	log     *logrus.Logger
-	handler service.Service
-	config  *config.Config
+	log             *logrus.Logger
+	checkpointSvc   checkpointservice.Service
+	organizationSvc organizationservice.Service
+	eventSvc        eventservice.Service
+	config          *config.Config
 }
 
-func NewAlertExporter(log *logrus.Logger, handler service.Service, config *config.Config) *AlertExporter {
+func NewAlertExporter(log *logrus.Logger, checkpointSvc checkpointservice.Service, organizationSvc organizationservice.Service, eventSvc eventservice.Service, config *config.Config) *AlertExporter {
 	return &AlertExporter{
-		log:     log,
-		handler: handler,
-		config:  config,
+		log:             log,
+		checkpointSvc:   checkpointSvc,
+		organizationSvc: organizationSvc,
+		eventSvc:        eventSvc,
+		config:          config,
 	}
 }
 
@@ -108,8 +114,8 @@ func (a *AlertExporter) Poll(ctx context.Context) error {
 		"alertmanager":     fmt.Sprintf("%s:%d", a.config.Alertmanager.Hostname, a.config.Alertmanager.Port),
 	}).Info("Starting alert exporter polling")
 
-	checkpointManager := NewCheckpointManager(a.log, a.handler)
-	eventProcessor := NewEventProcessor(a.log, a.handler)
+	checkpointManager := NewCheckpointManager(a.log, a.checkpointSvc)
+	eventProcessor := NewEventProcessor(a.log, a.organizationSvc, a.checkpointSvc, a.eventSvc)
 	alertSender := NewAlertSender(a.log, a.config.Alertmanager.Hostname, a.config.Alertmanager.Port, a.config)
 
 	ticker := time.NewTicker(time.Duration(a.config.Service.AlertPollingInterval))

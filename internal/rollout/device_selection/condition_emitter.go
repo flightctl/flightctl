@@ -5,23 +5,24 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/google/uuid"
 )
 
 type conditionEmitter struct {
-	orgId          uuid.UUID
-	fleetName      string
-	batchName      string
-	serviceHandler service.Service
+	orgId     uuid.UUID
+	fleetName string
+	batchName string
+	fleetSvc  fleetservice.Service
 }
 
-func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, serviceHandler service.Service) *conditionEmitter {
+func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, fleetSvc fleetservice.Service) *conditionEmitter {
 	return &conditionEmitter{
-		orgId:          orgId,
-		fleetName:      fleetName,
-		batchName:      batchName,
-		serviceHandler: serviceHandler,
+		orgId:     orgId,
+		fleetName: fleetName,
+		batchName: batchName,
+		fleetSvc:  fleetSvc,
 	}
 }
 
@@ -35,7 +36,7 @@ func (c *conditionEmitter) create(status domain.ConditionStatus, reason, message
 }
 
 func (c *conditionEmitter) save(ctx context.Context, condition domain.Condition) error {
-	return service.ApiStatusToErr(c.serviceHandler.UpdateFleetConditions(ctx, c.orgId, c.fleetName, []domain.Condition{condition}))
+	return common.ApiStatusToErr(c.fleetSvc.UpdateFleetConditions(ctx, c.orgId, c.fleetName, []domain.Condition{condition}))
 }
 
 func (c *conditionEmitter) inactive(ctx context.Context) error {

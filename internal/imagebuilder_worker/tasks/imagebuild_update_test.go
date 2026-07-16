@@ -92,8 +92,8 @@ func makeExportForBuild(name, buildRef string, reason domain.ImageExportConditio
 }
 
 // newTestConsumerWithProducer is a convenience wrapper that wires a custom queue producer.
-func newTestConsumerWithProducer(svc *testIBService, coreStore *dummyCoreStore, producer *recordingQueueProducer) *Consumer {
-	c := newTestConsumer(svc, coreStore)
+func newTestConsumerWithProducer(svc *testIBService, catalogStore *dummyCatalogStoreAdapter, producer *recordingQueueProducer) *Consumer {
+	c := newTestConsumer(svc, catalogStore)
 	c.queueProducer = producer
 	return c
 }
@@ -108,7 +108,7 @@ func TestHandleImageBuildUpdate_BuildNotFound(t *testing.T) {
 	orgID := uuid.New()
 
 	svc := newTestIBService(orgID)
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "missing-build"), consumer.log)
 	require.Error(err)
@@ -128,7 +128,7 @@ func TestHandleImageBuildUpdate_NoStatus(t *testing.T) {
 		Spec:     api.ImageBuildSpec{Source: api.ImageBuildSource{Repository: "src"}, Destination: api.ImageBuildDestination{Repository: "dst"}},
 	}
 	_, _ = svc.builds.Create(ctx, orgID, build)
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-no-status"), consumer.log)
 	require.NoError(err)
@@ -153,7 +153,7 @@ func TestHandleImageBuildUpdate_NoReadyCondition(t *testing.T) {
 		},
 	}
 	_, _ = svc.builds.Create(ctx, orgID, build)
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-no-ready"), consumer.log)
 	require.NoError(err)
@@ -169,7 +169,7 @@ func TestHandleImageBuildUpdate_UnknownReason(t *testing.T) {
 	svc := newTestIBService(orgID)
 	build := makeBuildWithReason("build-building", domain.ImageBuildConditionReasonBuilding)
 	_, _ = svc.builds.Create(ctx, orgID, build)
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-building"), consumer.log)
 	require.NoError(err)
@@ -185,7 +185,7 @@ func TestHandleImageBuildUpdate_Completed_NoPendingWork(t *testing.T) {
 	svc := newTestIBService(orgID)
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.NoError(err)
@@ -218,7 +218,7 @@ func TestHandleImageBuildUpdate_Completed_RequeuePendingExports(t *testing.T) {
 	_, _ = svc.exports.Create(ctx, orgID, completed)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.NoError(err)
@@ -240,7 +240,7 @@ func TestHandleImageBuildUpdate_Completed_EvaluatesPromotions(t *testing.T) {
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.NoError(err)
@@ -266,7 +266,7 @@ func TestHandleImageBuildUpdate_Completed_RequeueListError(t *testing.T) {
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.Error(err)
@@ -289,7 +289,7 @@ func TestHandleImageBuildUpdate_Completed_BothErrors(t *testing.T) {
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
 
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.Error(err)
@@ -311,7 +311,7 @@ func TestHandleImageBuildUpdate_Failed_FailsPromotions(t *testing.T) {
 	promotion := makeWaitingPromotion("promo-1", "build-1", "my-catalog", "my-app", "1.0.0")
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.NoError(err)
@@ -332,7 +332,7 @@ func TestHandleImageBuildUpdate_Canceled_FailsPromotions(t *testing.T) {
 	promotion := makeWaitingPromotion("promo-1", "build-1", "my-catalog", "my-app", "1.0.0")
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.NoError(err)
@@ -352,7 +352,7 @@ func TestHandleImageBuildUpdate_Failed_PromoListError(t *testing.T) {
 	build := makeBuildWithReason("build-1", domain.ImageBuildConditionReasonFailed)
 	_, _ = svc.builds.Create(ctx, orgID, build)
 
-	consumer := newTestConsumer(svc, &dummyCoreStore{writer: newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
 
 	err := consumer.HandleImageBuildUpdate(ctx, makeBuildUpdateEvent(orgID, "build-1"), consumer.log)
 	require.Error(err)
