@@ -726,7 +726,7 @@ spec:
 
 ### Managing Application Lifecycle
 
-In addition to deploying, updating, or undeploying applications through the device specification, you can start, stop, or restart a deployed application on demand, without changing the specification. This is useful for temporarily taking an application out of service, or for triggering a restart to recover from an issue. A user with the appropriate authorization (`update` permission on the `devices/applications/lifecycle` or `fleets/applications/lifecycle` resource) can issue these actions.
+In addition to deploying, updating, or undeploying applications through the device specification, you can start, stop, or restart a deployed application on demand, without changing the specification. This is useful for temporarily taking an application out of service, or for triggering a restart to recover from an issue.
 
 Use the `flightctl app stop`, `flightctl app start`, and `flightctl app restart` commands to control an application without changing the device or fleet specification. See the [`flightctl app start`](../references/cli-commands.md#flightctl-app-start), [`flightctl app stop`](../references/cli-commands.md#flightctl-app-stop), and [`flightctl app restart`](../references/cli-commands.md#flightctl-app-restart) CLI reference pages for command syntax, flags, and examples.
 
