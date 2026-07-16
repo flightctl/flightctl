@@ -338,7 +338,9 @@ flightctl app start (device/NAME | fleet/NAME) --name APP [flags]
 
 ### Description
 
-Starting an application on a fleet sets a fleet-wide default that is applied on top of the rendered application spec of every device currently owned by the fleet, and is automatically inherited by devices that join the fleet later. If a specific device also has its own override for the same application, from a previous `flightctl app start` or `flightctl app stop` issued directly against that device, whichever of the two actions was issued most recently takes effect for that device.
+Requests that the named application be started on the target device, or on every device owned by the target fleet.
+
+If the application is already started, the request still succeeds; the application stays running and no restart is performed. Starting on a fleet applies to every current member device and to devices that join the fleet later. A later start or stop issued directly against a device takes precedence for that device over the fleet-wide setting.
 
 ### Examples
 
@@ -381,7 +383,9 @@ flightctl app stop (device/NAME | fleet/NAME) --name APP [flags]
 
 ### Description
 
-Stopping an application on a fleet sets a fleet-wide default that is applied on top of the rendered application spec of every device currently owned by the fleet, and is automatically inherited by devices that join the fleet later. If a specific device also has its own override for the same application, from a previous `flightctl app start` or `flightctl app stop` issued directly against that device, whichever of the two actions was issued most recently takes effect for that device.
+Requests that the named application be stopped on the target device, or on every device owned by the target fleet.
+
+If the application is already stopped, the request still succeeds; the application stays stopped. Stopping on a fleet applies to every current member device and to devices that join the fleet later. A later start or stop issued directly against a device takes precedence for that device over the fleet-wide setting.
 
 ### Examples
 
@@ -424,7 +428,9 @@ flightctl app restart device/NAME --name APP [flags]
 
 ### Description
 
-Restarting an application is only supported on individual devices; fleets are not supported.
+Requests that the named application be restarted on the target device. Restart is only supported on individual devices; fleets are not supported.
+
+The command can be issued whether or not the application is currently running. A restart only takes effect while the application is supposed to be running; if the application has been stopped, the request still succeeds but no restart is performed.
 
 ### Examples
 
