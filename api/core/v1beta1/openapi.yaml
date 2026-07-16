@@ -5763,11 +5763,9 @@ components:
         - $ref: '#/components/schemas/ApplicationEnvVars'
         - $ref: '#/components/schemas/ApplicationUser'
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
+        - $ref: '#/components/schemas/ImageApplicationProviderSpec'
         - type: object
           properties:
-            image:
-              type: string
-              description: Reference to the image for this container.
             ports:
               type: array
               description: Port mappings.
@@ -5775,8 +5773,6 @@ components:
                 $ref: '#/components/schemas/ApplicationPort'
             resources:
               $ref: '#/components/schemas/ApplicationResources'
-          required:
-            - image
 
     HelmApplication:
       type: object
@@ -5865,15 +5861,12 @@ components:
         resources:
           $ref: '#/components/schemas/ApplicationResources'
     ImageApplicationProviderSpec:
-      type: object
       allOf:
+        - $ref: '#/components/schemas/ImageSpec'
         - type: object
           properties:
-            image:
-              type: string
-              description: Reference to the OCI image or artifact for the application package.
-          required:
-            - image
+            catalogItemRef:
+              $ref: '#/components/schemas/CatalogItemRefSpec'
     InlineApplicationProviderSpec:
       type: object
       allOf:
@@ -6273,14 +6266,16 @@ components:
         - metadata
         - items
     DeviceOsSpec:
-      type: object
       description: DeviceOsSpec describes the target OS for the device.
-      properties:
-        image:
-          type: string
-          description: The target OS image name or URL.
-      required:
-        - image
+      allOf:
+       - $ref: '#/components/schemas/ImageSpec'
+       - type: object
+         properties:
+           catalogItemRef:
+             $ref: '#/components/schemas/CatalogItemRefSpec'
+    AgentDeviceOsSpec:
+      description: AgentDeviceOsSpec describes the target OS for the device in a form appropriate for agents to consume.
+      $ref: '#/components/schemas/ImageSpec'
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -7232,7 +7227,7 @@ components:
     DeviceSpec:
       type: object
       description: DeviceSpec describes a device.
-      properties:
+      properties: &deviceSpecProps
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
@@ -7275,6 +7270,13 @@ components:
       # Note: No additionalProperties: false here because this schema is used in allOf compositions
       # (e.g., TemplateVersionStatus) where other schemas add their own properties. Setting
       # additionalProperties: false would prevent the composition from working properly.
+    AgentDeviceSpec:
+      type: object
+      description: A DeviceSpec that has been appropriately rendered/processed for consumption by a device agent
+      properties:
+        <<: *deviceSpecProps
+        os:
+          $ref: '#/components/schemas/ImageSpec'
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
@@ -9001,4 +9003,33 @@ components:
       required:
         - imageName
       additionalProperties: false
-
+    ImageSpec:
+      type: object
+      description: Reference to an OCI image or artifact with tag
+      properties:
+        image:
+          type: string
+      required:
+        - image
+      additionalProperties: false
+    CatalogItemRefSpec:
+      type: object
+      description: A reference to a catalog item, along with its configuration
+      properties:
+        catalog:
+          type: string
+          description: The catalog name that the item is part of
+        item:
+          type: string
+          description: The name of the catalog item itself
+        version:
+          type: string
+          description: A valid version that currently exists in the catalog item
+        channel:
+          type: string
+          description: An optional update channel which will be used to provide update cues when available.
+      required:
+        - catalog
+        - item
+        - version
+      additionalProperties: false

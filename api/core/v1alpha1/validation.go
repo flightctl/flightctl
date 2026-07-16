@@ -207,7 +207,7 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 		allErrs = append(allErrs, fmt.Errorf("%s.references: required and must contain at least one entry", pathPrefix))
 	} else {
 		for key, ref := range version.References {
-			if _, ok := artifactTypes[key]; !ok {
+			if _, ok := artifactTypes[string(key)]; !ok {
 				allErrs = append(allErrs, fmt.Errorf("%s.references[%s]: key does not match any artifact type in spec.artifacts", pathPrefix, key))
 			}
 			if ref == "" {

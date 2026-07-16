@@ -630,6 +630,39 @@ type AbsolutePath struct {
 	Path *string `json:"path,omitempty"`
 }
 
+// AgentDeviceOsSpec Reference to an OCI image or artifact with tag
+type AgentDeviceOsSpec = ImageSpec
+
+// AgentDeviceSpec A DeviceSpec that has been appropriately rendered/processed for consumption by a device agent
+type AgentDeviceSpec struct {
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
+
+	// Config List of config providers.
+	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
+
+	// Decommissioning Metadata about a device decommissioning request.
+	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
+
+	// Os Reference to an OCI image or artifact with tag
+	Os *ImageSpec `json:"os,omitempty"`
+
+	// Resources Array of resource monitor configurations.
+	Resources *[]ResourceMonitor `json:"resources,omitempty"`
+
+	// Systemd The systemd services to monitor.
+	Systemd *struct {
+		// MatchPatterns A list of match patterns.
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	} `json:"systemd,omitempty"`
+
+	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
+	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
+}
+
 // ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 type ApiVersion = string
 
@@ -927,6 +960,21 @@ type BatchSequence struct {
 	Strategy RolloutStrategy `json:"strategy"`
 }
 
+// CatalogItemRefSpec A reference to a catalog item, along with its configuration
+type CatalogItemRefSpec struct {
+	// Catalog The catalog name that the item is part of
+	Catalog string `json:"catalog"`
+
+	// Channel An optional update channel which will be used to provide update cues when available.
+	Channel *string `json:"channel,omitempty"`
+
+	// Item The name of the catalog item itself
+	Item string `json:"item"`
+
+	// Version A valid version that currently exists in the catalog item
+	Version string `json:"version"`
+}
+
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -1103,14 +1151,15 @@ type ContainerApplication struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// CatalogItemRef A reference to a catalog item, along with its configuration
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+
 	// DesiredState Desired lifecycle state for this application, as most recently set by the stop/start device APIs. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent.
 	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
 
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
-
-	// Image Reference to the image for this container.
-	Image string `json:"image"`
+	Image   string             `json:"image"`
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
@@ -1398,10 +1447,11 @@ type DeviceMultipleOwnersResolvedDetailsDetailType string
 // DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
 type DeviceMultipleOwnersResolvedDetailsResolutionType string
 
-// DeviceOsSpec DeviceOsSpec describes the target OS for the device.
+// DeviceOsSpec defines model for DeviceOsSpec.
 type DeviceOsSpec struct {
-	// Image The target OS image name or URL.
-	Image string `json:"image"`
+	// CatalogItemRef A reference to a catalog item, along with its configuration
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+	Image          string              `json:"image"`
 }
 
 // DeviceOsStatus Current status of the device OS.
@@ -2262,8 +2312,9 @@ type HttpRepoSpecType string
 
 // ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
 type ImageApplicationProviderSpec struct {
-	// Image Reference to the OCI image or artifact for the application package.
-	Image string `json:"image"`
+	// CatalogItemRef A reference to a catalog item, along with its configuration
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+	Image          string              `json:"image"`
 }
 
 // ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
@@ -2277,6 +2328,11 @@ type ImageMountVolumeProviderSpec struct {
 
 // ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
 type ImagePullPolicy string
+
+// ImageSpec Reference to an OCI image or artifact with tag
+type ImageSpec struct {
+	Image string `json:"image"`
+}
 
 // ImageVolumeProviderSpec defines model for ImageVolumeProviderSpec.
 type ImageVolumeProviderSpec struct {

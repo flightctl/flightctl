@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1alpha1"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
@@ -651,7 +652,7 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	require.Len(item.Spec.Versions, 1)
 	require.Equal("1.0.0", item.Spec.Versions[0].Version)
 	require.Equal([]string{"testing"}, item.Spec.Versions[0].Channels)
-	require.Equal("v1.0", item.Spec.Versions[0].References[string(coredomain.CatalogItemArtifactTypeContainer)])
+	require.Equal("v1.0", item.Spec.Versions[0].References[coredomain.CatalogItemArtifactTypeContainer])
 }
 
 // TestEvaluator_NewCatalogItemWithDisplayName verifies that displayName from the promotion target
@@ -788,8 +789,8 @@ func TestEvaluator_ExportsReady(t *testing.T) {
 	require.NotNil(item, "CatalogItem should be created")
 	require.Len(item.Spec.Versions, 1)
 	refs := item.Spec.Versions[0].References
-	require.Equal("v1.0", refs[string(coredomain.CatalogItemArtifactTypeContainer)], "container reference must be the image tag")
-	require.Equal("sha256:qcow2digest", refs[string(coredomain.CatalogItemArtifactTypeQcow2)], "qcow2 reference must be the export digest")
+	require.Equal("v1.0", refs[coredomain.CatalogItemArtifactTypeContainer], "container reference must be the image tag")
+	require.Equal("sha256:qcow2digest", refs[coredomain.CatalogItemArtifactTypeQcow2], "qcow2 reference must be the export digest")
 }
 
 // TestEvaluator_FailPromotionsForBuild verifies that failPromotionsForBuild transitions
@@ -838,7 +839,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 				{Type: coredomain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test-org/build-3"},
 			},
 			Versions: []coredomain.CatalogItemVersion{
-				{Version: "1.0.0", Channels: []string{"stable"}, References: map[string]string{string(coredomain.CatalogItemArtifactTypeContainer): "v0.9"}},
+				{Version: "1.0.0", Channels: []string{"stable"}, References: map[v1alpha1.CatalogItemArtifactType]string{coredomain.CatalogItemArtifactTypeContainer: "v0.9"}},
 			},
 		},
 	}
@@ -937,8 +938,8 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 					{Type: coredomain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test-org/build-1"},
 				},
 				Versions: []coredomain.CatalogItemVersion{
-					{Version: "1.0.0", Channels: []string{"testing"}, References: map[string]string{
-						string(coredomain.CatalogItemArtifactTypeContainer): build.Spec.Destination.ImageTag,
+					{Version: "1.0.0", Channels: []string{"testing"}, References: map[v1alpha1.CatalogItemArtifactType]string{
+						coredomain.CatalogItemArtifactTypeContainer: build.Spec.Destination.ImageTag,
 					}},
 				},
 			},
@@ -972,8 +973,8 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 					{Type: coredomain.CatalogItemArtifactTypeContainer, Uri: "quay.io/other-org/other-image"},
 				},
 				Versions: []coredomain.CatalogItemVersion{
-					{Version: "1.0.0", Channels: []string{"stable"}, References: map[string]string{
-						string(coredomain.CatalogItemArtifactTypeContainer): "other-tag",
+					{Version: "1.0.0", Channels: []string{"stable"}, References: map[v1alpha1.CatalogItemArtifactType]string{
+						coredomain.CatalogItemArtifactTypeContainer: "other-tag",
 					}},
 				},
 			},
