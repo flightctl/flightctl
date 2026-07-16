@@ -8,7 +8,9 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -17,14 +19,15 @@ import (
 )
 
 type ServiceHandler struct {
-	store  catalogstore.Store
-	events events.Service
-	log    logrus.FieldLogger
+	store       catalogstore.Store
+	deviceStore devicestore.Store
+	events      events.Service
+	log         logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new catalog ServiceHandler instance.
-func NewServiceHandler(store catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, events: events, log: log}
+func NewServiceHandler(store catalogstore.Store, deviceStore devicestore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, deviceStore: deviceStore, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -386,6 +389,199 @@ func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID,
 		return domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
+}
+
+func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItemDeploymentList, domain.Status) {
+	listParams := store.ListParams{Limit: common.MaxRecordsPerListRequest}
+
+	var deployments []domain.CatalogItemDeployment
+
+	osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	for _, dev := range osDevices.Items {
+		if dev.Spec == nil || dev.Spec.Os == nil || dev.Spec.Os.CatalogItemRef == nil {
+			continue
+		}
+		ref := dev.Spec.Os.CatalogItemRef
+		deployments = append(deployments, domain.CatalogItemDeployment{
+			ApiVersion:  domain.QualifiedV1Alpha1,
+			Kind:        domain.CatalogItemDeploymentKind,
+			Catalog:     ref.Catalog,
+			CatalogItem: ref.Item,
+			Version:     ref.Version,
+			Channel:     ref.Channel,
+		})
+	}
+
+	appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	for _, dev := range appDevices.Items {
+		if dev.Spec == nil || dev.Spec.Applications == nil {
+			continue
+		}
+		for _, app := range *dev.Spec.Applications {
+			ref, appName := extractAppCatalogItemRef(&app)
+			if ref == nil || ref.Catalog != catalogName || ref.Item != itemName {
+				continue
+			}
+			deployments = append(deployments, domain.CatalogItemDeployment{
+				ApiVersion:      domain.QualifiedV1Alpha1,
+				Kind:            domain.CatalogItemDeploymentKind,
+				Catalog:         ref.Catalog,
+				CatalogItem:     ref.Item,
+				Version:         ref.Version,
+				Channel:         ref.Channel,
+				ApplicationName: appName,
+			})
+		}
+	}
+
+	volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+	for _, dev := range volDevices.Items {
+		if dev.Spec == nil || dev.Spec.Applications == nil {
+			continue
+		}
+		for _, app := range *dev.Spec.Applications {
+			refs, appName := extractVolumesCatalogItemRefs(&app)
+			for _, ref := range refs {
+				if ref.Catalog != catalogName || ref.Item != itemName {
+					continue
+				}
+				deployments = append(deployments, domain.CatalogItemDeployment{
+					ApiVersion:      domain.QualifiedV1Alpha1,
+					Kind:            domain.CatalogItemDeploymentKind,
+					Catalog:         ref.Catalog,
+					CatalogItem:     ref.Item,
+					Version:         ref.Version,
+					Channel:         ref.Channel,
+					ApplicationName: appName,
+				})
+			}
+		}
+	}
+
+	return &domain.CatalogItemDeploymentList{
+		ApiVersion: domain.QualifiedV1Alpha1,
+		Kind:       domain.CatalogItemDeploymentListKind,
+		Items:      deployments,
+	}, domain.StatusOK()
+}
+
+func extractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.CatalogItemRefSpec, *string) {
+	appType, err := app.GetAppType()
+	if err != nil {
+		return nil, nil
+	}
+
+	var source domain.CatalogItemRefSource
+	var name *string
+	switch appType {
+	case domain.AppTypeContainer:
+		a, err := app.AsContainerApplication()
+		if err != nil {
+			return nil, nil
+		}
+		source = &a
+		name = a.Name
+	case domain.AppTypeHelm:
+		a, err := app.AsHelmApplication()
+		if err != nil {
+			return nil, nil
+		}
+		source = &a
+		name = a.Name
+	case domain.AppTypeCompose:
+		a, err := app.AsComposeApplication()
+		if err != nil {
+			return nil, nil
+		}
+		source = &a
+		name = a.Name
+	case domain.AppTypeQuadlet:
+		a, err := app.AsQuadletApplication()
+		if err != nil {
+			return nil, nil
+		}
+		source = &a
+		name = a.Name
+	default:
+		return nil, nil
+	}
+
+	spec, err := source.AsCatalogItemRefApplicationProviderSpec()
+	if err != nil {
+		return nil, nil
+	}
+	return &spec.CatalogItemRef, name
+}
+
+func extractVolumesCatalogItemRefs(app *domain.ApplicationProviderSpec) ([]domain.CatalogItemRefSpec, *string) {
+	appType, err := app.GetAppType()
+	if err != nil {
+		return nil, nil
+	}
+
+	var volumes *[]domain.ApplicationVolume
+	var name *string
+	switch appType {
+	case domain.AppTypeContainer:
+		a, err := app.AsContainerApplication()
+		if err != nil {
+			return nil, nil
+		}
+		volumes = a.Volumes
+		name = a.Name
+	case domain.AppTypeCompose:
+		a, err := app.AsComposeApplication()
+		if err != nil {
+			return nil, nil
+		}
+		volumes = a.Volumes
+		name = a.Name
+	case domain.AppTypeQuadlet:
+		a, err := app.AsQuadletApplication()
+		if err != nil {
+			return nil, nil
+		}
+		volumes = a.Volumes
+		name = a.Name
+	default:
+		return nil, nil
+	}
+
+	if volumes == nil {
+		return nil, nil
+	}
+
+	var refs []domain.CatalogItemRefSpec
+	for _, vol := range *volumes {
+		volType, err := vol.Type()
+		if err != nil {
+			continue
+		}
+		switch volType {
+		case domain.ImageApplicationVolumeProviderType:
+			provider, err := vol.AsImageVolumeProviderSpec()
+			if err != nil || provider.Image.CatalogItemRef == nil {
+				continue
+			}
+			refs = append(refs, *provider.Image.CatalogItemRef)
+		case domain.ImageMountApplicationVolumeProviderType:
+			provider, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil || provider.Image.CatalogItemRef == nil {
+				continue
+			}
+			refs = append(refs, *provider.Image.CatalogItemRef)
+		}
+	}
+	return refs, name
 }
 
 // callbackCatalogUpdated is the catalog-specific callback that handles catalog events

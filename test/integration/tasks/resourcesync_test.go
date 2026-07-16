@@ -16,6 +16,7 @@ import (
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -65,6 +66,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		resourcesyncStore := resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
 		catalogStore := catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
+		deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
@@ -75,7 +77,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 		fleetSvc = fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
 		resourcesyncSvc = resourcesyncservice.NewServiceHandler(resourcesyncStore, catalogStore, fleetStore, eventsSvc, log)
-		catalogSvc = catalogservice.NewServiceHandler(catalogStore, eventsSvc, log)
+		catalogSvc = catalogservice.NewServiceHandler(catalogStore, deviceStore, eventsSvc, log)
 		resourceSync = tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, nil)
 
 		// Set up mock expectations for the publisher

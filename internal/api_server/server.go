@@ -215,7 +215,7 @@ func (s *Server) Run(ctx context.Context) error {
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
 		resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
-		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+		catalogservice.NewServiceHandler(catalogStore, deviceStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(
 		eventservice.NewServiceHandler(eventStore, eventsSvc))
 	organizationSvc := organizationservice.WrapWithTracing(

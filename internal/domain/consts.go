@@ -3,11 +3,19 @@ package domain
 import (
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 )
 
 // ========== API Group ==========
 
 const APIGroup = v1beta1.APIGroup
+
+// ========== API Versioning ==========
+
+const (
+	QualifiedV1Alpha1 = apiversioning.QualifiedV1Alpha1
+	QualifiedV1Beta1  = apiversioning.QualifiedV1Beta1
+)
 
 // ========== CertificateSigningRequest ==========
 

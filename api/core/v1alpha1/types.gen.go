@@ -216,6 +216,45 @@ type CatalogItemConfigurable struct {
 	Readme *string `json:"readme,omitempty"`
 }
 
+// CatalogItemDeployment CatalogItemDeployment represents a specific deployment of a catalog item to a fleet or device. A catalog item associated to a fleet that has no devices is still considered a deployment. A deployment is only associated with the fleet and not the individual devices in cases where a device is using a catalog item deployment that came from a device spec template on a fleet.
+type CatalogItemDeployment struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// ApplicationName For catalog items in the 'application' category, the name of the application on the device that the deployment is associated with. Required for application catalog items.
+	ApplicationName *string `json:"applicationName,omitempty"`
+
+	// Catalog The catalog of the catalogItem.
+	Catalog string `json:"catalog"`
+
+	// CatalogItem The catalogItem that this deployment corresponds to.
+	CatalogItem string `json:"catalogItem"`
+
+	// Channel The channel, if any, that is intended to be tracked for the catalog item.
+	Channel *string `json:"channel,omitempty"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Version The version of the catalog item that is deployed.
+	Version string `json:"version"`
+}
+
+// CatalogItemDeploymentList CatalogItemDeploymentList is a list of CatalogItemDeployments.
+type CatalogItemDeploymentList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items List of CatalogItemDeployments.
+	Items []CatalogItemDeployment `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
 // CatalogItemDeprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 type CatalogItemDeprecation struct {
 	// Message Required message explaining why this is deprecated and what to do instead.

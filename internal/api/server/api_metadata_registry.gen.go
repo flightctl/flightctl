@@ -11,6 +11,7 @@ const (
 	API_RESOURCE_AUTHPROVIDERS = "authproviders"
 	API_RESOURCE_CATALOGITEMS = "catalogitems"
 	API_RESOURCE_CATALOGS = "catalogs"
+	API_RESOURCE_CATALOGS_DEPLOYMENTS = "catalogs/deployments"
 	API_RESOURCE_CATALOGS_ITEMS = "catalogs/items"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS = "certificatesigningrequests"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
@@ -219,6 +220,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "replaceCatalogItem",
 		Resource:    "catalogs/items",
 		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/catalogs/{catalog}/items/{name}/deployments": {
+		OperationID: "getCatalogItemDeployments",
+		Resource:    "catalogs/deployments",
+		Action:      "get",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},

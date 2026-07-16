@@ -128,6 +128,9 @@ type ClientInterface interface {
 
 	ReplaceCatalogItem(ctx context.Context, catalog string, name string, body ReplaceCatalogItemJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetCatalogItemDeployments request
+	GetCatalogItemDeployments(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteCatalog request
 	DeleteCatalog(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -325,6 +328,18 @@ func (c *Client) ReplaceCatalogItemWithBody(ctx context.Context, catalog string,
 
 func (c *Client) ReplaceCatalogItem(ctx context.Context, catalog string, name string, body ReplaceCatalogItemJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceCatalogItemRequest(c.Server, catalog, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetCatalogItemDeployments(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCatalogItemDeploymentsRequest(c.Server, catalog, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,6 +1121,47 @@ func NewReplaceCatalogItemRequestWithBody(server string, catalog string, name st
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetCatalogItemDeploymentsRequest generates requests for GetCatalogItemDeployments
+func NewGetCatalogItemDeploymentsRequest(server string, catalog string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "catalog", runtime.ParamLocationPath, catalog)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/catalogs/%s/items/%s/deployments", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -2090,6 +2146,9 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceCatalogItemWithResponse(ctx context.Context, catalog string, name string, body ReplaceCatalogItemJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCatalogItemResponse, error)
 
+	// GetCatalogItemDeploymentsWithResponse request
+	GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error)
+
 	// DeleteCatalogWithResponse request
 	DeleteCatalogWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteCatalogResponse, error)
 
@@ -2384,6 +2443,33 @@ func (r ReplaceCatalogItemResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceCatalogItemResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetCatalogItemDeploymentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CatalogItemDeploymentList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCatalogItemDeploymentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCatalogItemDeploymentsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -2896,6 +2982,15 @@ func (c *ClientWithResponses) ReplaceCatalogItemWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceCatalogItemResponse(rsp)
+}
+
+// GetCatalogItemDeploymentsWithResponse request returning *GetCatalogItemDeploymentsResponse
+func (c *ClientWithResponses) GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error) {
+	rsp, err := c.GetCatalogItemDeployments(ctx, catalog, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCatalogItemDeploymentsResponse(rsp)
 }
 
 // DeleteCatalogWithResponse request returning *DeleteCatalogResponse
@@ -3634,6 +3729,67 @@ func ParseReplaceCatalogItemResponse(rsp *http.Response) (*ReplaceCatalogItemRes
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetCatalogItemDeploymentsResponse parses an HTTP response from a GetCatalogItemDeploymentsWithResponse call
+func ParseGetCatalogItemDeploymentsResponse(rsp *http.Response) (*GetCatalogItemDeploymentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCatalogItemDeploymentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CatalogItemDeploymentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

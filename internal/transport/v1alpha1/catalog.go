@@ -178,3 +178,8 @@ func (h *TransportHandler) DeleteCatalogItem(w http.ResponseWriter, r *http.Requ
 	status := h.catalog.DeleteCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, item, true)
 	h.SetResponse(w, nil, status)
 }
+
+func (h *TransportHandler) GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, item string) {
+	body, status := h.catalog.GetCatalogItemDeployments(r.Context(), transport.OrgIDFromContext(r.Context()), catalog, item)
+	h.SetResponse(w, body, status)
+}

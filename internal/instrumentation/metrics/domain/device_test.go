@@ -129,6 +129,18 @@ func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, na
 	return nil, nil
 }
 
+func (m *MockDevice) ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ListDevicesByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ListDevicesByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	return nil, nil
+}
+
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation
 	mockResults := []devicestore.CountByOrgAndStatusResult{
