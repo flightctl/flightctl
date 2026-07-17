@@ -131,7 +131,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	}
 
 	repo := &domain.Repository{Spec: spec}
-	auth, err := GetAuth(repo, d.cfg)
+	auth, err := GetAuth(ctx, repo, d.cfg)
 	if err != nil {
 		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)
 		return nil

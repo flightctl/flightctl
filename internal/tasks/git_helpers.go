@@ -17,6 +17,7 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	sshcrypto "github.com/flightctl/flightctl/internal/ssh"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
@@ -37,9 +38,9 @@ import (
 var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
-type cloneGitRepoFunc func(repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error)
+type cloneGitRepoFunc func(ctx context.Context, repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error)
 
-func CloneGitRepo(repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error) {
+func CloneGitRepo(ctx context.Context, repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
 	repoURL, err := repo.Spec.GetRepoURL()
@@ -52,7 +53,7 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int, cfg *co
 	if depth != nil {
 		opts.Depth = *depth
 	}
-	auth, err := GetAuth(repo, cfg)
+	auth, err := GetAuth(ctx, repo, cfg)
 	if err != nil {
 		return nil, "", err
 	}
@@ -66,7 +67,7 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int, cfg *co
 			hash = *revision
 		}
 	}
-	gitRepo, err := git.Clone(storage, mfs, opts)
+	gitRepo, err := git.CloneContext(ctx, storage, mfs, opts)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed cloning git repo: %w", err)
 	}
@@ -224,7 +225,7 @@ func wrapAuthWithCryptoSettings(auth transport.AuthMethod, settings sshcrypto.SS
 
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
-func GetAuth(repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
+func GetAuth(ctx context.Context, repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
 	gitSpec, err := repository.Spec.AsGitRepoSpec()
 	if err != nil {
 		// Not a Git repo spec, no auth
@@ -235,14 +236,25 @@ func GetAuth(repository *domain.Repository, cfg *config.Config) (transport.AuthM
 	if gitSpec.SshConfig != nil {
 		var auth *gitssh.PublicKeys
 		if gitSpec.SshConfig.SshPrivateKey != nil {
-			sshPrivateKey, err := base64.StdEncoding.DecodeString(*gitSpec.SshConfig.SshPrivateKey)
+			// Decrypt SSH private key (passthrough if plaintext for BC)
+			decryptedKey, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*gitSpec.SshConfig.SshPrivateKey))
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("decrypt SSH private key: %w", err)
+			}
+
+			sshPrivateKey, err := base64.StdEncoding.DecodeString(string(decryptedKey))
+			if err != nil {
+				return nil, fmt.Errorf("decode SSH private key: %w", err)
 			}
 
 			password := ""
 			if gitSpec.SshConfig.PrivateKeyPassphrase != nil {
-				password = *gitSpec.SshConfig.PrivateKeyPassphrase
+				// Decrypt passphrase (passthrough if plaintext for BC)
+				decryptedPassphrase, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*gitSpec.SshConfig.PrivateKeyPassphrase))
+				if err != nil {
+					return nil, fmt.Errorf("decrypt SSH passphrase: %w", err)
+				}
+				password = string(decryptedPassphrase)
 			}
 			user := ""
 			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(gitSpec.Url)
@@ -291,21 +303,31 @@ func GetAuth(repository *domain.Repository, cfg *config.Config) (transport.AuthM
 	// Handle HTTP authentication
 	if gitSpec.HttpConfig != nil {
 		if strings.HasPrefix(gitSpec.Url, "https") {
-			err := configureRepoHTTPSClient(*gitSpec.HttpConfig)
+			err := configureRepoHTTPSClient(ctx, *gitSpec.HttpConfig)
 			if err != nil {
 				return nil, err
 			}
 		}
 		if gitSpec.HttpConfig.Token != nil {
+			// Decrypt token (passthrough if plaintext for BC)
+			decryptedToken, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*gitSpec.HttpConfig.Token))
+			if err != nil {
+				return nil, fmt.Errorf("decrypt HTTP token: %w", err)
+			}
 			auth := &githttp.TokenAuth{
-				Token: *gitSpec.HttpConfig.Token,
+				Token: string(decryptedToken),
 			}
 			return auth, nil
 		}
 		if gitSpec.HttpConfig.Username != nil && gitSpec.HttpConfig.Password != nil {
+			// Decrypt password (passthrough if plaintext for BC)
+			decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*gitSpec.HttpConfig.Password))
+			if err != nil {
+				return nil, fmt.Errorf("decrypt HTTP password: %w", err)
+			}
 			auth := &githttp.BasicAuth{
 				Username: *gitSpec.HttpConfig.Username,
-				Password: *gitSpec.HttpConfig.Password,
+				Password: string(decryptedPassword),
 			}
 			return auth, nil
 		}
@@ -315,21 +337,29 @@ func GetAuth(repository *domain.Repository, cfg *config.Config) (transport.AuthM
 	return nil, nil
 }
 
-func configureRepoHTTPSClient(httpConfig domain.HttpConfig) error {
+func configureRepoHTTPSClient(ctx context.Context, httpConfig domain.HttpConfig) error {
 	tlsConfig := tls.Config{} //nolint:gosec
 	if httpConfig.SkipServerVerification != nil {
 		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
 	}
 
 	if httpConfig.TlsCrt != nil && httpConfig.TlsKey != nil {
-		cert, err := base64.StdEncoding.DecodeString(*httpConfig.TlsCrt)
+		decryptedCrt, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*httpConfig.TlsCrt))
 		if err != nil {
-			return err
+			return fmt.Errorf("decrypt TLS cert: %w", err)
+		}
+		cert, err := base64.StdEncoding.DecodeString(string(decryptedCrt))
+		if err != nil {
+			return fmt.Errorf("decode TLS cert: %w", err)
 		}
 
-		key, err := base64.StdEncoding.DecodeString(*httpConfig.TlsKey)
+		decryptedKey, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*httpConfig.TlsKey))
 		if err != nil {
-			return err
+			return fmt.Errorf("decrypt TLS key: %w", err)
+		}
+		key, err := base64.StdEncoding.DecodeString(string(decryptedKey))
+		if err != nil {
+			return fmt.Errorf("decode TLS key: %w", err)
 		}
 
 		tlsPair, err := tls.X509KeyPair(cert, key)
@@ -411,8 +441,8 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_lat
 	return &ignition, nil
 }
 
-func CloneGitRepoToIgnition(repo *domain.Repository, revision string, path string, cfg *config.Config) (*config_latest_types.Config, string, error) {
-	mfs, hash, err := CloneGitRepo(repo, &revision, nil, cfg)
+func CloneGitRepoToIgnition(ctx context.Context, repo *domain.Repository, revision string, path string, cfg *config.Config) (*config_latest_types.Config, string, error) {
+	mfs, hash, err := CloneGitRepo(ctx, repo, &revision, nil, cfg)
 	if err != nil {
 		return nil, "", err
 	}

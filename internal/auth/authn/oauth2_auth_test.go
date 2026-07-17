@@ -6,11 +6,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -19,6 +24,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "authn-test")
+	if err != nil {
+		panic(err)
+	}
+
+	key, err := crypto.GenerateAES256Key()
+	if err != nil {
+		panic(err)
+	}
+	keyPath := filepath.Join(dir, "key")
+	if err := os.WriteFile(keyPath, []byte(key), 0600); err != nil {
+		panic(err)
+	}
+
+	cfg := config.NewDefault()
+	cfg.Encryption = &config.EncryptionConfig{
+		Keys:        []config.EncryptionKeyConfig{{ID: "test", Path: keyPath}},
+		ActiveKeyID: "test",
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	if err := encryption.InitGlobalEncryption(logger, cfg); err != nil {
+		panic(err)
+	}
+
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // Helper function to create a test OAuth2Auth instance
 func createTestOAuth2Auth(t *testing.T, spec api.OAuth2ProviderSpec) *OAuth2Auth {
@@ -42,7 +80,9 @@ func createTestOAuth2Auth(t *testing.T, spec api.OAuth2ProviderSpec) *OAuth2Auth
 }
 
 // Helper function to create a basic OAuth2ProviderSpec
-func createBasicOAuth2Spec() api.OAuth2ProviderSpec {
+func createBasicOAuth2Spec(t *testing.T) api.OAuth2ProviderSpec {
+	t.Helper()
+
 	assignment := api.AuthOrganizationAssignment{}
 	staticAssignment := api.AuthStaticOrganizationAssignment{
 		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
@@ -57,13 +97,16 @@ func createBasicOAuth2Spec() api.OAuth2ProviderSpec {
 	}
 	_ = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 
+	encryptedSecret, err := encryption.Encrypt(t.Context(), []byte("test-client-secret"))
+	require.NoError(t, err)
+
 	spec := api.OAuth2ProviderSpec{
 		ProviderType:           api.Oauth2,
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            "https://oauth2.example.com/userinfo",
 		ClientId:               "test-client-id",
-		ClientSecret:           "test-client-secret",
+		ClientSecret:           string(encryptedSecret),
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -88,14 +131,14 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 		{
 			name:        "valid OAuth2 spec",
 			metadata:    api.ObjectMeta{Name: lo.ToPtr("test-provider")},
-			spec:        createBasicOAuth2Spec(),
+			spec:        createBasicOAuth2Spec(t),
 			expectError: false,
 		},
 		{
 			name:     "missing authorizationUrl",
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
-				spec := createBasicOAuth2Spec()
+				spec := createBasicOAuth2Spec(t)
 				spec.AuthorizationUrl = ""
 				return spec
 			}(),
@@ -106,7 +149,7 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 			name:     "missing tokenUrl",
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
-				spec := createBasicOAuth2Spec()
+				spec := createBasicOAuth2Spec(t)
 				spec.TokenUrl = ""
 				return spec
 			}(),
@@ -117,7 +160,7 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 			name:     "missing userinfoUrl",
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
-				spec := createBasicOAuth2Spec()
+				spec := createBasicOAuth2Spec(t)
 				spec.UserinfoUrl = ""
 				return spec
 			}(),
@@ -128,7 +171,7 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 			name:     "missing clientId",
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
-				spec := createBasicOAuth2Spec()
+				spec := createBasicOAuth2Spec(t)
 				spec.ClientId = ""
 				return spec
 			}(),
@@ -139,7 +182,7 @@ func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
 			name:     "missing clientSecret",
 			metadata: api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 			spec: func() api.OAuth2ProviderSpec {
-				spec := createBasicOAuth2Spec()
+				spec := createBasicOAuth2Spec(t)
 				spec.ClientSecret = ""
 				return spec
 			}(),
@@ -198,7 +241,7 @@ func TestOAuth2Auth_IntrospectRFC7662(t *testing.T) {
 	defer server.Close()
 
 	// Create OAuth2Auth with RFC 7662 introspection
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	introspection := &api.OAuth2Introspection{}
 	rfc7662Spec := api.Rfc7662IntrospectionSpec{
 		Type: api.Rfc7662,
@@ -283,7 +326,7 @@ func TestOAuth2Auth_IntrospectGitHub(t *testing.T) {
 	defer server.Close()
 
 	// Create OAuth2Auth with GitHub introspection
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	introspection := &api.OAuth2Introspection{}
 	githubSpec := api.GitHubIntrospectionSpec{
 		Type: api.Github,
@@ -345,7 +388,7 @@ func TestOAuth2Auth_IntrospectJWT(t *testing.T) {
 	defer jwksServer.Close()
 
 	// Create OAuth2Auth with JWT introspection
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	spec.Issuer = lo.ToPtr("https://test-issuer.com")
 	introspection := &api.OAuth2Introspection{}
 	jwtSpec := api.JwtIntrospectionSpec{
@@ -480,7 +523,7 @@ func TestOAuth2Auth_IntrospectJWT_CustomIssuerAndAudience(t *testing.T) {
 	defer jwksServer.Close()
 
 	// Create OAuth2Auth with JWT introspection with custom issuer and audience
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	introspection := &api.OAuth2Introspection{}
 	jwtSpec := api.JwtIntrospectionSpec{
 		Type:     api.Jwt,
@@ -538,7 +581,7 @@ func TestOAuth2Auth_GetIdentity(t *testing.T) {
 	defer userinfoServer.Close()
 
 	// Create OAuth2Auth
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	spec.UserinfoUrl = userinfoServer.URL
 
 	oauth2Auth := createTestOAuth2Auth(t, spec)
@@ -634,13 +677,16 @@ func TestOAuth2Auth_GetIdentity_FiltersFlightctlAdmin_NotCreatedBySuperAdmin(t *
 	}
 	_ = roleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
 
+	encryptedSecret, err := encryption.Encrypt(t.Context(), []byte("test-client-secret"))
+	require.NoError(t, err)
+
 	spec := api.OAuth2ProviderSpec{
 		ProviderType:           api.Oauth2,
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            userinfoServer.URL,
 		ClientId:               "test-client-id",
-		ClientSecret:           "test-client-secret",
+		ClientSecret:           string(encryptedSecret),
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -726,13 +772,16 @@ func TestOAuth2Auth_GetIdentity_AllowsFlightctlAdmin_CreatedBySuperAdmin(t *test
 	}
 	_ = roleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
 
+	encryptedSecret, err := encryption.Encrypt(t.Context(), []byte("test-client-secret"))
+	require.NoError(t, err)
+
 	spec := api.OAuth2ProviderSpec{
 		ProviderType:           api.Oauth2,
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            userinfoServer.URL,
 		ClientId:               "test-client-id",
-		ClientSecret:           "test-client-secret",
+		ClientSecret:           string(encryptedSecret),
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
@@ -794,7 +843,7 @@ func TestOAuth2Auth_IntrospectJWT_CacheLifecycle(t *testing.T) {
 	defer jwksServer.Close()
 
 	// Create OAuth2Auth with JWT introspection
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	spec.Issuer = lo.ToPtr("https://test-issuer.com")
 	introspection := &api.OAuth2Introspection{}
 	jwtSpec := api.JwtIntrospectionSpec{
@@ -854,7 +903,7 @@ func TestOAuth2Auth_IntrospectJWT_ProviderContextUsed(t *testing.T) {
 	defer jwksServer.Close()
 
 	// Create OAuth2Auth with JWT introspection
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	spec.Issuer = lo.ToPtr("https://test-issuer.com")
 	introspection := &api.OAuth2Introspection{}
 	jwtSpec := api.JwtIntrospectionSpec{
@@ -899,7 +948,7 @@ func TestOAuth2Auth_IntrospectJWT_ProviderContextUsed(t *testing.T) {
 }
 
 func TestOAuth2Auth_StartStop(t *testing.T) {
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
 
@@ -930,7 +979,7 @@ func TestOAuth2Auth_StartStop(t *testing.T) {
 }
 
 func TestOAuth2Auth_GetAuthToken(t *testing.T) {
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	oauth2Auth := createTestOAuth2Auth(t, spec)
 	defer oauth2Auth.Stop()
 
@@ -983,7 +1032,7 @@ func TestOAuth2Auth_GetAuthToken(t *testing.T) {
 }
 
 func TestOAuth2Auth_GetAuthConfig(t *testing.T) {
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	spec.Issuer = lo.ToPtr("https://test-issuer.com")
 
 	oauth2Auth := createTestOAuth2Auth(t, spec)
@@ -1011,7 +1060,7 @@ func TestOAuth2Auth_GetAuthConfig(t *testing.T) {
 }
 
 func TestOAuth2Auth_TLSConfig(t *testing.T) {
-	spec := createBasicOAuth2Spec()
+	spec := createBasicOAuth2Spec(t)
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
 
