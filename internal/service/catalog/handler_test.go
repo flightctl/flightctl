@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -61,6 +60,11 @@ func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog 
 	old, exists := f.catalogs[name]
 	if !exists {
 		return nil, flterrors.ErrResourceNotFound
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if catalog.Metadata.Owner == nil {
+		catalog.Metadata.Owner = old.Metadata.Owner
 	}
 	f.catalogs[name] = catalog
 	if callbackEvent != nil {
@@ -190,8 +194,14 @@ func (f *fakeCatalogStore) UpdateItem(ctx context.Context, orgId uuid.UUID, cata
 		return nil, flterrors.ErrParentResourceNotFound
 	}
 	key := itemKey(catalogName, lo.FromPtr(item.Metadata.Name))
-	if _, ok := f.items[key]; !ok {
+	old, ok := f.items[key]
+	if !ok {
 		return nil, flterrors.ErrResourceNotFound
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if item.Metadata.Owner == nil {
+		item.Metadata.Owner = old.Metadata.Owner
 	}
 	item.Metadata.Catalog = catalogName
 	f.items[key] = item
@@ -310,24 +320,36 @@ func TestCreateCatalog(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
-	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
-		h, fakeStore, _ := newTestHandler()
-		catalog := createTestCatalog("c2", nil)
-		catalog.Metadata.Owner = lo.ToPtr("someone")
-		catalog.Metadata.Generation = lo.ToPtr(int64(5))
-
-		_, status := h.CreateCatalog(context.Background(), uuid.New(), catalog)
-		require.Equal(t, int32(http.StatusCreated), status.Code)
-		require.Nil(t, fakeStore.catalogs["c2"].Metadata.Owner)
-		require.Nil(t, fakeStore.catalogs["c2"].Metadata.Generation)
-	})
-
 	t.Run("When the store errors it should return an internal-server-error status", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		fakeStore.err = errors.New("db down")
 
 		_, status := h.CreateCatalog(context.Background(), uuid.New(), createTestCatalog("c3", nil))
 		require.Equal(t, int32(http.StatusInternalServerError), status.Code)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCatalogFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c4", nil)
+		catalog.Metadata.Owner = lo.ToPtr("someone")
+		catalog.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := CreateCatalogFromUntrusted(context.Background(), h, uuid.New(), catalog)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, fakeStore.catalogs["c4"].Metadata.Owner)
+		require.Nil(t, fakeStore.catalogs["c4"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCatalog (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c4-trusted", nil)
+		catalog.Metadata.Owner = lo.ToPtr("someone")
+		catalog.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateCatalog(context.Background(), uuid.New(), catalog)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.catalogs["c4-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.catalogs["c4-trusted"].Metadata.Generation))
 	})
 }
 
@@ -375,7 +397,7 @@ func TestReplaceCatalog(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		catalog := createTestCatalog("new-catalog", nil)
 
-		result, status := h.ReplaceCatalog(context.Background(), uuid.New(), "new-catalog", catalog)
+		result, status := h.ReplaceCatalog(context.Background(), uuid.New(), "new-catalog", catalog, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.catalogs, "new-catalog")
@@ -385,7 +407,7 @@ func TestReplaceCatalog(t *testing.T) {
 		h, _, _ := newTestHandler()
 		catalog := createTestCatalog("c1", nil)
 
-		_, status := h.ReplaceCatalog(context.Background(), uuid.New(), "different-name", catalog)
+		_, status := h.ReplaceCatalog(context.Background(), uuid.New(), "different-name", catalog, true)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
 
@@ -396,7 +418,7 @@ func TestReplaceCatalog(t *testing.T) {
 		_, status := h.CreateCatalog(context.Background(), orgId, catalog)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 
-		result, status := h.ReplaceCatalog(context.Background(), orgId, "c1", catalog)
+		result, status := h.ReplaceCatalog(context.Background(), orgId, "c1", catalog, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.catalogs, "c1")
@@ -405,26 +427,147 @@ func TestReplaceCatalog(t *testing.T) {
 		require.Len(t, fakeEvents.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCatalogFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("replace-untrusted", nil)
+		catalog.Metadata.Owner = lo.ToPtr("someone")
+		catalog.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceCatalogFromUntrusted(context.Background(), h, orgId, "replace-untrusted", catalog, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, fakeStore.catalogs["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, fakeStore.catalogs["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCatalog (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("replace-trusted", nil)
+		catalog.Metadata.Owner = lo.ToPtr("someone")
+		catalog.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceCatalog(context.Background(), orgId, "replace-trusted", catalog, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.catalogs["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.catalogs["replace-trusted"].Metadata.Generation))
+	})
+}
+
+func TestReplaceCatalogOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When replacing an owned catalog with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		updated := createTestCatalog("owned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		_, status := h.ReplaceCatalog(context.Background(), orgId, "owned-catalog", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When enforceOwnership is false it should allow updating an owned catalog", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		updated := createTestCatalog("owned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		result, status := h.ReplaceCatalog(context.Background(), orgId, "owned-catalog", updated, false)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["owned-catalog"].Spec.DisplayName))
+		require.Equal(t, owner, lo.FromPtr(fakeStore.catalogs["owned-catalog"].Metadata.Owner))
+	})
+
+	t.Run("When replacing an unowned catalog with a changed spec it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("unowned-catalog", nil)
+		fakeStore.catalogs["unowned-catalog"] = &existing
+
+		updated := createTestCatalog("unowned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		result, status := h.ReplaceCatalog(context.Background(), orgId, "unowned-catalog", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["unowned-catalog"].Spec.DisplayName))
+	})
+}
+
+func TestPatchCatalogOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When patching an owned catalog spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = "Changed Name"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/displayName", Value: &valueIface}}
+
+		_, status := h.PatchCatalog(context.Background(), uuid.New(), "owned-catalog", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When enforceOwnership is false it should allow patching an owned catalog", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = "Changed Name"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/displayName", Value: &valueIface}}
+
+		result, status := h.PatchCatalog(context.Background(), uuid.New(), "owned-catalog", patch, false)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["owned-catalog"].Spec.DisplayName))
+		require.Equal(t, owner, lo.FromPtr(fakeStore.catalogs["owned-catalog"].Metadata.Owner))
+	})
+
+	t.Run("When patching an owned catalog labels it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = map[string]string{"env": "prod"}
+		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &valueIface}}
+
+		result, status := h.PatchCatalog(context.Background(), uuid.New(), "owned-catalog", patch, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+	})
 }
 
 func TestDeleteCatalog(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 
 	tests := []struct {
-		name                  string
-		catalogName           string
-		catalogOwner          *string
-		createCatalog         bool
-		isResourceSyncRequest bool
-		expectedStatusCode    int32
-		expectedError         error
-		expectCatalogDeleted  bool
+		name                 string
+		catalogName          string
+		catalogOwner         *string
+		createCatalog        bool
+		enforceOwnership     bool
+		expectedStatusCode   int32
+		expectedError        error
+		expectCatalogDeleted bool
 	}{
 		{
 			name:                 "delete catalog without owner succeeds",
 			catalogName:          "test-catalog",
 			catalogOwner:         nil,
 			createCatalog:        true,
+			enforceOwnership:     true,
 			expectedStatusCode:   int32(http.StatusOK),
 			expectCatalogDeleted: true,
 		},
@@ -432,6 +575,7 @@ func TestDeleteCatalog(t *testing.T) {
 			name:                 "delete non-existent catalog returns OK (idempotent)",
 			catalogName:          "nonexistent-catalog",
 			createCatalog:        false,
+			enforceOwnership:     true,
 			expectedStatusCode:   int32(http.StatusOK),
 			expectCatalogDeleted: true,
 		},
@@ -440,18 +584,19 @@ func TestDeleteCatalog(t *testing.T) {
 			catalogName:          "owned-catalog",
 			catalogOwner:         &owner,
 			createCatalog:        true,
+			enforceOwnership:     true,
 			expectedStatusCode:   int32(http.StatusConflict),
 			expectedError:        flterrors.ErrDeletingResourceWithOwnerNotAllowed,
 			expectCatalogDeleted: false,
 		},
 		{
-			name:                  "resourceSync can delete catalogs it owns",
-			catalogName:           "resourcesync-owned-catalog",
-			catalogOwner:          &owner,
-			createCatalog:         true,
-			isResourceSyncRequest: true,
-			expectedStatusCode:    int32(http.StatusOK),
-			expectCatalogDeleted:  true,
+			name:                 "delete owned catalog succeeds when enforceOwnership is false",
+			catalogName:          "resourcesync-owned-catalog",
+			catalogOwner:         &owner,
+			createCatalog:        true,
+			enforceOwnership:     false,
+			expectedStatusCode:   int32(http.StatusOK),
+			expectCatalogDeleted: true,
 		},
 	}
 
@@ -466,12 +611,7 @@ func TestDeleteCatalog(t *testing.T) {
 				fakeStore.catalogs[tt.catalogName] = &catalog
 			}
 
-			deleteCtx := ctx
-			if tt.isResourceSyncRequest {
-				deleteCtx = context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
-			}
-
-			status := h.DeleteCatalog(deleteCtx, testOrgId, tt.catalogName)
+			status := h.DeleteCatalog(ctx, testOrgId, tt.catalogName, tt.enforceOwnership)
 			require.Equal(t, tt.expectedStatusCode, status.Code)
 
 			if tt.expectedError != nil {
@@ -499,7 +639,7 @@ func TestPatchCatalog(t *testing.T) {
 		var value interface{} = "value"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/k", Value: &value}}
 
-		_, status := h.PatchCatalog(context.Background(), uuid.New(), "missing", patch)
+		_, status := h.PatchCatalog(context.Background(), uuid.New(), "missing", patch, true)
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 
@@ -511,7 +651,7 @@ func TestPatchCatalog(t *testing.T) {
 		var value interface{} = map[string]string{"env": "prod"}
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &value}}
 
-		result, status := h.PatchCatalog(context.Background(), uuid.New(), "c1", patch)
+		result, status := h.PatchCatalog(context.Background(), uuid.New(), "c1", patch, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 		require.Len(t, fakeEvents.created, 1)
@@ -656,6 +796,34 @@ func TestCreateCatalogItem(t *testing.T) {
 		_, status := h.CreateCatalogItem(context.Background(), uuid.New(), "missing", item)
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCatalogItemFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "i2", nil)
+		item.Metadata.Owner = lo.ToPtr("someone")
+		item.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := CreateCatalogItemFromUntrusted(context.Background(), h, uuid.New(), "c1", item)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, fakeStore.items[itemKey("c1", "i2")].Metadata.Owner)
+		require.Nil(t, fakeStore.items[itemKey("c1", "i2")].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCatalogItem (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "i3", nil)
+		item.Metadata.Owner = lo.ToPtr("someone")
+		item.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateCatalogItem(context.Background(), uuid.New(), "c1", item)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey("c1", "i3")].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey("c1", "i3")].Metadata.Generation))
+	})
 }
 
 func TestReplaceCatalogItem(t *testing.T) {
@@ -669,7 +837,7 @@ func TestReplaceCatalogItem(t *testing.T) {
 		fakeStore.catalogs[catalogName] = &catalog
 
 		item := createTestCatalogItem(catalogName, itemName, nil)
-		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), catalogName, itemName, item)
+		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), catalogName, itemName, item, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.NotNil(t, result)
 	})
@@ -680,8 +848,38 @@ func TestReplaceCatalogItem(t *testing.T) {
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
 
-		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "different-item", item)
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "different-item", item, true)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCatalogItemFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "replace-untrusted", nil)
+		item.Metadata.Owner = lo.ToPtr("someone")
+		item.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceCatalogItemFromUntrusted(context.Background(), h, orgId, "c1", "replace-untrusted", item, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, fakeStore.items[itemKey("c1", "replace-untrusted")].Metadata.Owner)
+		require.Nil(t, fakeStore.items[itemKey("c1", "replace-untrusted")].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCatalogItem (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "replace-trusted", nil)
+		item.Metadata.Owner = lo.ToPtr("someone")
+		item.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceCatalogItem(context.Background(), orgId, "c1", "replace-trusted", item, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey("c1", "replace-trusted")].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey("c1", "replace-trusted")].Metadata.Generation))
 	})
 }
 
@@ -691,7 +889,7 @@ func TestPatchCatalogItem(t *testing.T) {
 		var value interface{} = "value"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/k", Value: &value}}
 
-		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "missing", "i1", patch)
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "missing", "i1", patch, true)
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 	})
 
@@ -705,7 +903,7 @@ func TestPatchCatalogItem(t *testing.T) {
 		var value interface{} = map[string]string{"env": "prod"}
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &value}}
 
-		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "i1", patch)
+		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "i1", patch, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 	})
@@ -715,15 +913,15 @@ func TestDeleteCatalogItem(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 
 	tests := []struct {
-		name                  string
-		catalogName           string
-		itemName              string
-		itemOwner             *string
-		createItem            bool
-		isResourceSyncRequest bool
-		expectedStatusCode    int32
-		expectedError         error
-		expectItemDeleted     bool
+		name               string
+		catalogName        string
+		itemName           string
+		itemOwner          *string
+		createItem         bool
+		enforceOwnership   bool
+		expectedStatusCode int32
+		expectedError      error
+		expectItemDeleted  bool
 	}{
 		{
 			name:               "delete item without owner succeeds",
@@ -731,6 +929,7 @@ func TestDeleteCatalogItem(t *testing.T) {
 			itemName:           "test-item",
 			itemOwner:          nil,
 			createItem:         true,
+			enforceOwnership:   true,
 			expectedStatusCode: int32(http.StatusOK),
 			expectItemDeleted:  true,
 		},
@@ -739,6 +938,7 @@ func TestDeleteCatalogItem(t *testing.T) {
 			catalogName:        "test-catalog",
 			itemName:           "nonexistent-item",
 			createItem:         false,
+			enforceOwnership:   true,
 			expectedStatusCode: int32(http.StatusOK),
 			expectItemDeleted:  true,
 		},
@@ -748,19 +948,20 @@ func TestDeleteCatalogItem(t *testing.T) {
 			itemName:           "owned-item",
 			itemOwner:          &owner,
 			createItem:         true,
+			enforceOwnership:   true,
 			expectedStatusCode: int32(http.StatusConflict),
 			expectedError:      flterrors.ErrDeletingResourceWithOwnerNotAllowed,
 			expectItemDeleted:  false,
 		},
 		{
-			name:                  "resourceSync can delete items it owns",
-			catalogName:           "test-catalog",
-			itemName:              "rs-owned-item",
-			itemOwner:             &owner,
-			createItem:            true,
-			isResourceSyncRequest: true,
-			expectedStatusCode:    int32(http.StatusOK),
-			expectItemDeleted:     true,
+			name:               "delete owned item succeeds when enforceOwnership is false",
+			catalogName:        "test-catalog",
+			itemName:           "rs-owned-item",
+			itemOwner:          &owner,
+			createItem:         true,
+			enforceOwnership:   false,
+			expectedStatusCode: int32(http.StatusOK),
+			expectItemDeleted:  true,
 		},
 	}
 
@@ -778,12 +979,7 @@ func TestDeleteCatalogItem(t *testing.T) {
 				fakeStore.items[itemKey(tt.catalogName, tt.itemName)] = &item
 			}
 
-			deleteCtx := ctx
-			if tt.isResourceSyncRequest {
-				deleteCtx = context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
-			}
-
-			status := h.DeleteCatalogItem(deleteCtx, testOrgId, tt.catalogName, tt.itemName)
+			status := h.DeleteCatalogItem(ctx, testOrgId, tt.catalogName, tt.itemName, tt.enforceOwnership)
 			require.Equal(t, tt.expectedStatusCode, status.Code)
 
 			if tt.expectedError != nil {

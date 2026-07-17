@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -12,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -88,6 +90,24 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	// External updates of owned fleets cannot change spec or labels (ResourceSync may).
+	// Internal requests skip this check (store fromAPI=false path).
+	if !isInternal {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
+			}
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 && !common.IsResourceSyncRequest(ctx) {
+			if !domain.FleetSpecsAreEqual(existing.Spec, fleet.Spec) {
+				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+			}
+			if !reflect.DeepEqual(existing.Metadata.Labels, fleet.Metadata.Labels) {
+				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+			}
+		}
+	}
+
 	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackFleetUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
@@ -142,6 +162,16 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	// Owned fleets cannot change spec or labels via patch (ResourceSync may).
+	if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 && !common.IsResourceSyncRequest(ctx) {
+		if !domain.FleetSpecsAreEqual(currentObj.Spec, newObj.Spec) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+		}
+		if !reflect.DeepEqual(currentObj.Metadata.Labels, newObj.Metadata.Labels) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+		}
+	}
 
 	result, err := h.store.Update(ctx, orgId, newObj, nil, true, h.callbackFleetUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
