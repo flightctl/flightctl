@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -11,6 +12,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -95,6 +97,21 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	// External updates of owned catalogs cannot change spec (ResourceSync may).
+	// Internal requests skip this check (store fromAPI=false path).
+	if !isInternal {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogKind, &name)
+			}
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
+			!common.IsResourceSyncRequest(ctx) &&
+			!reflect.DeepEqual(existing.Spec, catalog.Spec) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+		}
+	}
+
 	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, !isInternal, h.callbackCatalogUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
@@ -144,6 +161,14 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	// Owned catalogs cannot change spec via patch (ResourceSync may).
+	if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 &&
+		!common.IsResourceSyncRequest(ctx) &&
+		!reflect.DeepEqual(currentObj.Spec, newObj.Spec) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+	}
+
 	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCatalogUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }

@@ -407,6 +407,116 @@ func TestReplaceCatalog(t *testing.T) {
 	})
 }
 
+func TestReplaceCatalogOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When replacing an owned catalog with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		updated := createTestCatalog("owned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		_, status := h.ReplaceCatalog(context.Background(), orgId, "owned-catalog", updated)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When ResourceSync replaces an owned catalog it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		updated := createTestCatalog("owned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
+
+		result, status := h.ReplaceCatalog(ctx, orgId, "owned-catalog", updated)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["owned-catalog"].Spec.DisplayName))
+	})
+
+	t.Run("When an internal request replaces an owned catalog it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		updated := createTestCatalog("owned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+		ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+
+		result, status := h.ReplaceCatalog(ctx, orgId, "owned-catalog", updated)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["owned-catalog"].Spec.DisplayName))
+	})
+
+	t.Run("When replacing an unowned catalog with a changed spec it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("unowned-catalog", nil)
+		fakeStore.catalogs["unowned-catalog"] = &existing
+
+		updated := createTestCatalog("unowned-catalog", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		result, status := h.ReplaceCatalog(context.Background(), orgId, "unowned-catalog", updated)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["unowned-catalog"].Spec.DisplayName))
+	})
+}
+
+func TestPatchCatalogOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When patching an owned catalog spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = "Changed Name"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/displayName", Value: &valueIface}}
+
+		_, status := h.PatchCatalog(context.Background(), uuid.New(), "owned-catalog", patch)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When ResourceSync patches an owned catalog it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = "Changed Name"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/displayName", Value: &valueIface}}
+		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
+
+		result, status := h.PatchCatalog(ctx, uuid.New(), "owned-catalog", patch)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "Changed Name", lo.FromPtr(fakeStore.catalogs["owned-catalog"].Spec.DisplayName))
+	})
+
+	t.Run("When patching an owned catalog labels it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestCatalog("owned-catalog", &owner)
+		fakeStore.catalogs["owned-catalog"] = &existing
+
+		var valueIface interface{} = map[string]string{"env": "prod"}
+		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &valueIface}}
+
+		result, status := h.PatchCatalog(context.Background(), uuid.New(), "owned-catalog", patch)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+	})
+}
+
 func TestDeleteCatalog(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 

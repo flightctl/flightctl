@@ -432,6 +432,132 @@ func TestReplaceFleet(t *testing.T) {
 	})
 }
 
+func TestReplaceFleetOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When replacing an owned fleet with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		updated := createTestFleet("owned-fleet", nil)
+		updated.Spec.Template.Spec.Os.Image = "img-updated"
+
+		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+		require.Equal(t, "img", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+
+	t.Run("When replacing an owned fleet with changed labels it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		updated := createTestFleet("owned-fleet", nil)
+		updated.Metadata.Labels = &map[string]string{"labelKey": "changed"}
+
+		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When ResourceSync replaces an owned fleet it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		updated := createTestFleet("owned-fleet", nil)
+		updated.Spec.Template.Spec.Os.Image = "img-updated"
+		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
+
+		result, status := h.ReplaceFleet(ctx, orgId, "owned-fleet", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+
+	t.Run("When an internal request replaces an owned fleet it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		updated := createTestFleet("owned-fleet", nil)
+		updated.Spec.Template.Spec.Os.Image = "img-updated"
+		ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+
+		result, status := h.ReplaceFleet(ctx, orgId, "owned-fleet", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+
+	t.Run("When replacing an unowned fleet with a changed spec it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("unowned-fleet", nil)
+		fakeStore.fleets["unowned-fleet"] = &existing
+
+		updated := createTestFleet("unowned-fleet", nil)
+		updated.Spec.Template.Spec.Os.Image = "img-updated"
+
+		result, status := h.ReplaceFleet(context.Background(), orgId, "unowned-fleet", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "img-updated", fakeStore.fleets["unowned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+}
+
+func TestPatchFleetOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When patching an owned fleet spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		var valueIface interface{} = "img-updated"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/template/spec/os/image", Value: &valueIface}}
+
+		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+		require.Equal(t, "img", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+
+	t.Run("When patching an owned fleet labels it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		var valueIface interface{} = "changed"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/labelKey", Value: &valueIface}}
+
+		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When ResourceSync patches an owned fleet it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		existing := createTestFleet("owned-fleet", &owner)
+		fakeStore.fleets["owned-fleet"] = &existing
+
+		var valueIface interface{} = "img-updated"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/template/spec/os/image", Value: &valueIface}}
+		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
+
+		result, status := h.PatchFleet(ctx, uuid.New(), "owned-fleet", patch)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
+	})
+}
+
 func TestDeleteFleet(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 
