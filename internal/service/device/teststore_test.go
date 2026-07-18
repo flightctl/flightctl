@@ -102,9 +102,14 @@ func preserveNilMetadata(device, existing *domain.Device, fieldsToUnset []string
 func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
-	if existed && validationCallback != nil {
-		if err := validationCallback(ctx, old, device); err != nil {
-			return nil, false, err
+	if existed {
+		if old.Spec != nil && old.Spec.Decommissioning != nil {
+			return nil, false, flterrors.ErrDecommission
+		}
+		if validationCallback != nil {
+			if err := validationCallback(ctx, old, device); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	if existed {
@@ -124,6 +129,9 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	old, ok := s.devices[name]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
+	}
+	if old.Spec != nil && old.Spec.Decommissioning != nil {
+		return nil, flterrors.ErrDecommission
 	}
 	if validationCallback != nil {
 		if err := validationCallback(ctx, old, device); err != nil {
