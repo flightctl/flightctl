@@ -125,7 +125,7 @@ func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, org
 	return false, nil
 }
 
-func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
+func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
 
