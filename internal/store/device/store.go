@@ -390,15 +390,31 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *dom
 	return device, err
 }
 
+// withDecommissionPersistenceGuard refuses updates when the stored device is already
+// decommissioning. This is a persistence contract of device mutate paths (not a pluggable
+// product-policy callback); it runs inside the createOrUpdate retry loop so races are
+// no weaker than when the service previously supplied that check as validationCallback.
+func withDecommissionPersistenceGuard(userCallback DeviceStoreValidationCallback) DeviceStoreValidationCallback {
+	return func(ctx context.Context, before, after *domain.Device) error {
+		if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
+			return flterrors.ErrDecommission
+		}
+		if userCallback != nil {
+			return userCallback(ctx, before, after)
+		}
+		return nil
+	}
+}
+
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
-	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, validationCallback)
+	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, withDecommissionPersistenceGuard(validationCallback))
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
 	return device, err
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
-	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, validationCallback)
+	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, withDecommissionPersistenceGuard(validationCallback))
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
 	return device, created, err
