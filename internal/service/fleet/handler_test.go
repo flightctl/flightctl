@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -335,16 +334,28 @@ func TestCreateFleet(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
-	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateFleetFromUntrusted should clear them before creation", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		fleet := createTestFleet("f2", nil)
 		fleet.Metadata.Owner = lo.ToPtr("someone")
 		fleet.Metadata.Generation = lo.ToPtr(int64(5))
 
-		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		_, status := CreateFleetFromUntrusted(context.Background(), h, uuid.New(), fleet)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.fleets["f2"].Metadata.Owner)
 		require.Nil(t, fakeStore.fleets["f2"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateFleet (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fleet := createTestFleet("f2-trusted", nil)
+		fleet.Metadata.Owner = lo.ToPtr("someone")
+		fleet.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.fleets["f2-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.fleets["f2-trusted"].Metadata.Generation))
 	})
 
 	t.Run("When the store errors it should return an internal-server-error status", func(t *testing.T) {
@@ -400,7 +411,7 @@ func TestReplaceFleet(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		fleet := createTestFleet("new-fleet", nil)
 
-		result, status := h.ReplaceFleet(context.Background(), uuid.New(), "new-fleet", fleet)
+		result, status := h.ReplaceFleet(context.Background(), uuid.New(), "new-fleet", fleet, true)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.fleets, "new-fleet")
@@ -410,7 +421,7 @@ func TestReplaceFleet(t *testing.T) {
 		h, _, _ := newTestHandler()
 		fleet := createTestFleet("f1", nil)
 
-		_, status := h.ReplaceFleet(context.Background(), uuid.New(), "different-name", fleet)
+		_, status := h.ReplaceFleet(context.Background(), uuid.New(), "different-name", fleet, true)
 		require.Equal(t, statusBadRequestCode, status.Code)
 	})
 
@@ -421,7 +432,7 @@ func TestReplaceFleet(t *testing.T) {
 		_, status := h.CreateFleet(context.Background(), orgId, fleet)
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		result, status := h.ReplaceFleet(context.Background(), orgId, "f1", fleet)
+		result, status := h.ReplaceFleet(context.Background(), orgId, "f1", fleet, true)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.fleets, "f1")
@@ -429,6 +440,32 @@ func TestReplaceFleet(t *testing.T) {
 		// metadata (no generation/labels/owner change) emits nothing further.
 		require.Len(t, fakeEvents.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceFleetFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		fleet := createTestFleet("replace-untrusted", nil)
+		fleet.Metadata.Owner = lo.ToPtr("someone")
+		fleet.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceFleetFromUntrusted(context.Background(), h, orgId, "replace-untrusted", fleet, true)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.fleets["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, fakeStore.fleets["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceFleet (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		fleet := createTestFleet("replace-trusted", nil)
+		fleet.Metadata.Owner = lo.ToPtr("someone")
+		fleet.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceFleet(context.Background(), orgId, "replace-trusted", fleet, true)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.fleets["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.fleets["replace-trusted"].Metadata.Generation))
 	})
 }
 
@@ -444,7 +481,7 @@ func TestReplaceFleetOwnership(t *testing.T) {
 		updated := createTestFleet("owned-fleet", nil)
 		updated.Spec.Template.Spec.Os.Image = "img-updated"
 
-		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated)
+		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated, true)
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
 		require.Equal(t, "img", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
@@ -459,12 +496,12 @@ func TestReplaceFleetOwnership(t *testing.T) {
 		updated := createTestFleet("owned-fleet", nil)
 		updated.Metadata.Labels = &map[string]string{"labelKey": "changed"}
 
-		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated)
+		_, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated, true)
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
 	})
 
-	t.Run("When ResourceSync replaces an owned fleet it should allow the update", func(t *testing.T) {
+	t.Run("When enforceOwnership is false it should allow updating an owned fleet", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		orgId := uuid.New()
 		existing := createTestFleet("owned-fleet", &owner)
@@ -472,25 +509,8 @@ func TestReplaceFleetOwnership(t *testing.T) {
 
 		updated := createTestFleet("owned-fleet", nil)
 		updated.Spec.Template.Spec.Os.Image = "img-updated"
-		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
 
-		result, status := h.ReplaceFleet(ctx, orgId, "owned-fleet", updated)
-		require.Equal(t, statusSuccessCode, status.Code)
-		require.NotNil(t, result)
-		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
-	})
-
-	t.Run("When an internal request replaces an owned fleet it should allow the update", func(t *testing.T) {
-		h, fakeStore, _ := newTestHandler()
-		orgId := uuid.New()
-		existing := createTestFleet("owned-fleet", &owner)
-		fakeStore.fleets["owned-fleet"] = &existing
-
-		updated := createTestFleet("owned-fleet", nil)
-		updated.Spec.Template.Spec.Os.Image = "img-updated"
-		ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
-
-		result, status := h.ReplaceFleet(ctx, orgId, "owned-fleet", updated)
+		result, status := h.ReplaceFleet(context.Background(), orgId, "owned-fleet", updated, false)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.NotNil(t, result)
 		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
@@ -505,7 +525,7 @@ func TestReplaceFleetOwnership(t *testing.T) {
 		updated := createTestFleet("unowned-fleet", nil)
 		updated.Spec.Template.Spec.Os.Image = "img-updated"
 
-		result, status := h.ReplaceFleet(context.Background(), orgId, "unowned-fleet", updated)
+		result, status := h.ReplaceFleet(context.Background(), orgId, "unowned-fleet", updated, true)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.NotNil(t, result)
 		require.Equal(t, "img-updated", fakeStore.fleets["unowned-fleet"].Spec.Template.Spec.Os.Image)
@@ -523,7 +543,7 @@ func TestPatchFleetOwnership(t *testing.T) {
 		var valueIface interface{} = "img-updated"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/template/spec/os/image", Value: &valueIface}}
 
-		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch)
+		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch, true)
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
 		require.Equal(t, "img", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
@@ -537,21 +557,20 @@ func TestPatchFleetOwnership(t *testing.T) {
 		var valueIface interface{} = "changed"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/labelKey", Value: &valueIface}}
 
-		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch)
+		_, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch, true)
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
 	})
 
-	t.Run("When ResourceSync patches an owned fleet it should allow the update", func(t *testing.T) {
+	t.Run("When enforceOwnership is false it should allow patching an owned fleet", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		existing := createTestFleet("owned-fleet", &owner)
 		fakeStore.fleets["owned-fleet"] = &existing
 
 		var valueIface interface{} = "img-updated"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/template/spec/os/image", Value: &valueIface}}
-		ctx := context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true)
 
-		result, status := h.PatchFleet(ctx, uuid.New(), "owned-fleet", patch)
+		result, status := h.PatchFleet(context.Background(), uuid.New(), "owned-fleet", patch, false)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.NotNil(t, result)
 		require.Equal(t, "img-updated", fakeStore.fleets["owned-fleet"].Spec.Template.Spec.Os.Image)
@@ -562,20 +581,21 @@ func TestDeleteFleet(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 
 	tests := []struct {
-		name                  string
-		fleetName             string
-		fleetOwner            *string
-		createFleet           bool
-		isResourceSyncRequest bool
-		expectedStatusCode    int32
-		expectedError         error
-		expectFleetDeleted    bool
+		name               string
+		fleetName          string
+		fleetOwner         *string
+		createFleet        bool
+		enforceOwnership   bool
+		expectedStatusCode int32
+		expectedError      error
+		expectFleetDeleted bool
 	}{
 		{
 			name:               "delete fleet without owner succeeds",
 			fleetName:          "test-fleet",
 			fleetOwner:         nil,
 			createFleet:        true,
+			enforceOwnership:   true,
 			expectedStatusCode: statusSuccessCode,
 			expectFleetDeleted: true,
 		},
@@ -583,6 +603,7 @@ func TestDeleteFleet(t *testing.T) {
 			name:               "delete non-existent fleet returns OK (idempotent)",
 			fleetName:          "nonexistent-fleet",
 			createFleet:        false,
+			enforceOwnership:   true,
 			expectedStatusCode: statusSuccessCode,
 			expectFleetDeleted: true,
 		},
@@ -591,18 +612,19 @@ func TestDeleteFleet(t *testing.T) {
 			fleetName:          "owned-fleet",
 			fleetOwner:         &owner,
 			createFleet:        true,
+			enforceOwnership:   true,
 			expectedStatusCode: statusConflictCode,
 			expectedError:      flterrors.ErrDeletingResourceWithOwnerNotAllowed,
 			expectFleetDeleted: false,
 		},
 		{
-			name:                  "resourceSync can delete fleets it owns",
-			fleetName:             "resourcesync-owned-fleet",
-			fleetOwner:            &owner,
-			createFleet:           true,
-			isResourceSyncRequest: true,
-			expectedStatusCode:    statusSuccessCode,
-			expectFleetDeleted:    true,
+			name:               "delete owned fleet succeeds when enforceOwnership is false",
+			fleetName:          "resourcesync-owned-fleet",
+			fleetOwner:         &owner,
+			createFleet:        true,
+			enforceOwnership:   false,
+			expectedStatusCode: statusSuccessCode,
+			expectFleetDeleted: true,
 		},
 	}
 
@@ -617,12 +639,7 @@ func TestDeleteFleet(t *testing.T) {
 				fakeStore.fleets[tt.fleetName] = &fleet
 			}
 
-			deleteCtx := ctx
-			if tt.isResourceSyncRequest {
-				deleteCtx = context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
-			}
-
-			status := h.DeleteFleet(deleteCtx, testOrgId, tt.fleetName)
+			status := h.DeleteFleet(ctx, testOrgId, tt.fleetName, tt.enforceOwnership)
 			require.Equal(t, tt.expectedStatusCode, status.Code)
 
 			if tt.expectedError != nil {
@@ -689,7 +706,7 @@ func testFleetPatch(t *testing.T, patch domain.PatchRequest) (*domain.Fleet, dom
 	h, fakeStore, _ := newTestHandler()
 	fakeStore.fleets["foo"] = &orig
 
-	resp, status := h.PatchFleet(context.Background(), uuid.New(), "foo", patch)
+	resp, status := h.PatchFleet(context.Background(), uuid.New(), "foo", patch, true)
 	require.NotEqual(int32(0), status.Code)
 	return resp, orig, status
 }
@@ -772,7 +789,7 @@ func TestPatchFleetNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	resp, status := h.PatchFleet(context.Background(), uuid.New(), "doesnotexist", pr)
+	resp, status := h.PatchFleet(context.Background(), uuid.New(), "doesnotexist", pr, true)
 	require.Equal(t, statusNotFoundCode, status.Code)
 	require.Nil(t, resp)
 }

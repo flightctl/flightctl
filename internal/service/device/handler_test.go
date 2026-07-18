@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -53,6 +52,44 @@ func TestCreateDevice(t *testing.T) {
 		_, status := svc.CreateDevice(ctx, orgId, device)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateDeviceFromUntrusted should clear them before creation", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr("untrusted"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: &domain.DeviceSpec{},
+		}
+
+		_, status := CreateDeviceFromUntrusted(ctx, svc, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, st.device.devices["untrusted"].Metadata.Owner)
+		require.Nil(t, st.device.devices["untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateDevice (trusted) should preserve them", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr("trusted"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: &domain.DeviceSpec{},
+		}
+
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "Fleet/f1", lo.FromPtr(st.device.devices["trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(st.device.devices["trusted"].Metadata.Generation))
+	})
 }
 
 func TestGetDevice(t *testing.T) {
@@ -85,7 +122,7 @@ func TestReplaceDevice(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 		}
-		_, status := svc.ReplaceDevice(ctx, orgId, "bar", device, nil)
+		_, status := svc.ReplaceDevice(ctx, orgId, "bar", device, nil, true)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
 
@@ -97,9 +134,47 @@ func TestReplaceDevice(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 		}
-		result, status := svc.ReplaceDevice(ctx, orgId, "foo", device, nil)
+		result, status := svc.ReplaceDevice(ctx, orgId, "foo", device, nil, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceDeviceFromUntrusted should clear them before replacing", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr("replace-untrusted"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: &domain.DeviceSpec{},
+		}
+
+		_, status := ReplaceDeviceFromUntrusted(ctx, svc, orgId, "replace-untrusted", device, nil, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Nil(t, st.device.devices["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, st.device.devices["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceDevice (trusted) should preserve them", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr("replace-trusted"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: &domain.DeviceSpec{},
+		}
+
+		_, status := svc.ReplaceDevice(ctx, orgId, "replace-trusted", device, nil, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, "Fleet/f1", lo.FromPtr(st.device.devices["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(st.device.devices["replace-trusted"].Metadata.Generation))
 	})
 }
 
@@ -148,7 +223,7 @@ func TestPatchDevice(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/spec/os/image", Value: &value},
 		}
-		result, status := svc.PatchDevice(context.Background(), orgId, "foo", patch)
+		result, status := svc.PatchDevice(context.Background(), orgId, "foo", patch, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.Equal(t, "newimg", result.Spec.Os.Image)
 	})
@@ -159,7 +234,7 @@ func TestPatchDevice(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/metadata/name", Value: &value},
 		}
-		_, status := svc.PatchDevice(context.Background(), orgId, "foo", patch)
+		_, status := svc.PatchDevice(context.Background(), orgId, "foo", patch, true)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
 
@@ -169,7 +244,7 @@ func TestPatchDevice(t *testing.T) {
 		patch := domain.PatchRequest{
 			{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 		}
-		_, status := svc.PatchDevice(context.Background(), orgId, "bar", patch)
+		_, status := svc.PatchDevice(context.Background(), orgId, "bar", patch, true)
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 		require.Equal(t, domain.StatusResourceNotFound("Device", "bar"), status)
 	})
@@ -515,7 +590,6 @@ func TestUpdateDevice(t *testing.T) {
 		orgId := uuid.New()
 		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}, Spec: &domain.DeviceSpec{}}, nil)
 		require.NoError(t, err)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		device := domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
@@ -589,7 +663,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 	t.Run("When device status is missing it should return bad request", func(t *testing.T) {
 		_, _, svc := newTestHandler()
 		device := domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}
-		_, status := svc.ReplaceDeviceStatus(context.Background(), uuid.New(), "foo", device)
+		_, status := svc.ReplaceDeviceStatus(context.Background(), uuid.New(), "foo", device, true)
 		require.Equal(t, int32(http.StatusBadRequest), status.Code)
 	})
 
@@ -608,8 +682,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
 		}
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-		result, status := svc.ReplaceDeviceStatus(ctx, orgId, "foo", incoming)
+		result, status := svc.ReplaceDeviceStatus(ctx, orgId, "foo", incoming, false)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 	})

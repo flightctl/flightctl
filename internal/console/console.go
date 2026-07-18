@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
@@ -84,7 +83,7 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 		}
 		(*device.Metadata.Annotations)[domain.DeviceAnnotationConsole] = newValue
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
-		_, err = m.deviceSvc.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
+		_, err = m.deviceSvc.UpdateDevice(ctx, orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}

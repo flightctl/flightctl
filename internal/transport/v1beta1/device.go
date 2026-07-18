@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) 
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.device.CreateDevice(r.Context(), transport.OrgIDFromContext(r.Context()), domainDevice)
+	body, status := deviceservice.CreateDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), domainDevice)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +47,7 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.device.ReplaceDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice, nil)
+	body, status := deviceservice.ReplaceDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainDevice, nil, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -80,7 +81,7 @@ func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Re
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := h.device.ReplaceDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice)
+	body, status := h.device.ReplaceDeviceStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainDevice, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -102,7 +103,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

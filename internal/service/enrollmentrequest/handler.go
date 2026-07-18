@@ -67,6 +67,28 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 
 var _ Service = (*ServiceHandler)(nil)
 
+// SanitizeEnrollmentRequest clears status and managed metadata from an untrusted enrollment
+// request document (HTTP body).
+func SanitizeEnrollmentRequest(er *domain.EnrollmentRequest) {
+	if er == nil {
+		return
+	}
+	er.Status = nil
+	common.NilOutManagedObjectMetaProperties(&er.Metadata)
+}
+
+// CreateEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then creates it.
+func CreateEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.CreateEnrollmentRequest(ctx, orgId, er)
+}
+
+// ReplaceEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then replaces it.
+func ReplaceEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.ReplaceEnrollmentRequest(ctx, orgId, name, er)
+}
+
 // getTPMCAPool loads the TPM CA certificates from configured paths
 func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
 	if len(h.tpmCAPaths) == 0 {
@@ -311,13 +333,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	er.Status = nil
 	addStatusIfNeeded(&er)
-
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&er.Metadata)
-	}
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -386,10 +402,7 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	// don't set fields that are managed by the service
-	er.Status = nil
 	addStatusIfNeeded(&er)
-	common.NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
