@@ -772,6 +772,33 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(called).To(BeTrue())
 		})
 
+		It("CreateOrUpdateDevice refuses update when device is already decommissioning", func() {
+			name := "decom-guard-device"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec: &api.DeviceSpec{
+					Os:              &api.DeviceOsSpec{Image: "img"},
+					Decommissioning: &api.DeviceDecommission{Target: api.DeviceDecommissionTargetTypeUnenroll},
+				},
+			}
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			stored, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:            lo.ToPtr(name),
+					ResourceVersion: stored.Metadata.ResourceVersion,
+					Labels:          &map[string]string{"k": "v"},
+				},
+				Spec: stored.Spec,
+			}
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &updated, nil, nil, callback)
+			Expect(err).To(MatchError(flterrors.ErrDecommission))
+		})
+
 		It("UpdateDeviceStatus", func() {
 			// Random Condition to make sure Conditions do get stored
 			status := api.NewDeviceStatus()
