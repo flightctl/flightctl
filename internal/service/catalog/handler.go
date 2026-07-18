@@ -162,9 +162,10 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 		return nil
 	}
 
+	// Product rule: refuse deleting a non-empty catalog. The service chooses store.Delete
+	// (TX primitive that returns ErrResourceNotEmpty when items exist) and maps the error.
 	err = h.store.Delete(ctx, orgId, name, callback, h.callbackCatalogDeleted)
-	status := common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
-	return status
+	return common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.

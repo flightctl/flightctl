@@ -110,6 +110,11 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
+	for _, it := range f.items {
+		if it.Metadata.Catalog == name {
+			return flterrors.ErrResourceNotEmpty
+		}
+	}
 	delete(f.catalogs, name)
 	if callback != nil {
 		_ = callback(ctx, nil, orgId, name)
