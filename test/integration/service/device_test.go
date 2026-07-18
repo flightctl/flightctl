@@ -11,6 +11,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -725,6 +726,55 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 	})
 
 	// PrepareDevicesAfterRestore tests have been moved to test/integration/restore/device_test.go
+
+	Context("Device ownership enforcement", func() {
+		seedOwnedDevice := func(deviceName string) {
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:  lo.ToPtr(deviceName),
+					Owner: lo.ToPtr("Fleet/f1"),
+				},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			// Trusted caller (CreateDevice) preserves Owner as given, unlike
+			// CreateDeviceFromUntrusted, which would sanitize it away.
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+		}
+
+		It("denies a spec change on an owned device when enforceOwnership is true", func() {
+			deviceName := "owned-device-deny"
+			seedOwnedDevice(deviceName)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os.Image).To(Equal("img"))
+		})
+
+		It("allows a spec change on an owned device when enforceOwnership is false", func() {
+			deviceName := "owned-device-allow"
+			seedOwnedDevice(deviceName)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, false)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os.Image).To(Equal("img-updated"))
+		})
+	})
 
 	Context("GetRenderedDevice when AwaitingReconnect moves to ConflictPaused", func() {
 		var (
