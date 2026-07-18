@@ -140,7 +140,7 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, false, h.callbackCatalogUpdated)
+	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, h.callbackCatalogUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 

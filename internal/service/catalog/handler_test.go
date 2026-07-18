@@ -73,7 +73,7 @@ func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog 
 	return catalog, nil
 }
 
-func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, fromAPI bool, callbackEvent store.EventCallback) (*domain.Catalog, bool, error) {
+func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, bool, error) {
 	name := lo.FromPtr(catalog.Metadata.Name)
 	if _, exists := f.catalogs[name]; exists {
 		result, err := f.Update(ctx, orgId, catalog, callbackEvent)

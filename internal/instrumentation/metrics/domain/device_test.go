@@ -45,10 +45,10 @@ func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
 func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, callback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, error) {
+func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, bool, error) {
+func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, bool, error) {
 	return nil, false, nil
 }
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {

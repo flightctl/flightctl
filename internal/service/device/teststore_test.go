@@ -90,7 +90,7 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
 	if existed && validationCallback != nil {
@@ -112,7 +112,7 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	return deepCopyDevice(d), created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {

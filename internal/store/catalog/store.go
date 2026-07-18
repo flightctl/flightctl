@@ -21,7 +21,7 @@ type Store interface {
 
 	Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error)
 	Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, fromAPI bool, callbackEvent store.EventCallback) (*domain.Catalog, bool, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error
@@ -126,13 +126,13 @@ func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, resource *do
 }
 
 func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
-	newCatalog, oldCatalog, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newCatalog, oldCatalog, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, false, err)
 	return newCatalog, err
 }
 
-func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, fromAPI bool, eventCallback store.EventCallback) (*domain.Catalog, bool, error) {
-	newCatalog, oldCatalog, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, nil)
+func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, bool, error) {
+	newCatalog, oldCatalog, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, created, err)
 	return newCatalog, created, err
 }

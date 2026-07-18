@@ -131,18 +131,16 @@ func applyAuthProviderDefaults(spec *domain.AuthProviderSpec) error {
 }
 
 // handleSuperAdminAnnotation checks if the request is from a super admin and sets the annotation if needed.
-// Returns true if the auth provider was created by a super admin, false otherwise.
-func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) bool {
+func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) {
 	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
-
-	if createdBySuperAdmin {
-		// Clear user-provided annotations and set our annotation
-		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
-			domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
-		})
+	if !ok || !mappedIdentity.IsSuperAdmin() {
+		return
 	}
-	return createdBySuperAdmin
+
+	// Clear user-provided annotations and set our annotation
+	authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
+		domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+	})
 }
 
 func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
@@ -156,16 +154,8 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
-	// Check if created by super admin and prepare annotations
-	createdBySuperAdmin := h.handleSuperAdminAnnotation(ctx, &authProvider)
+	h.handleSuperAdminAnnotation(ctx, &authProvider)
 
-	// Use fromAPI=false to preserve annotations when created by super admin
-	if createdBySuperAdmin {
-		result, err := h.store.CreateWithFromAPI(ctx, orgId, &authProvider, false, h.callbackAuthProviderUpdated)
-		return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
-	}
-
-	// For non-super-admin users, use regular Create (fromAPI=true, annotations cleared)
 	result, err := h.store.Create(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
 	return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 }

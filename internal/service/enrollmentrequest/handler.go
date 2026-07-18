@@ -317,7 +317,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
-	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
+	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
 		// Prevent overwriting existing devices during enrollment request approval
 		if before != nil {
 			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
@@ -365,8 +365,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 		}
 	}
 
-	// Use fromAPI=false for internal requests to preserve annotations
-	result, err := h.store.CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
+	result, err := h.store.Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, common.StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
 }
 

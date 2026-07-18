@@ -371,7 +371,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback)
+			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, &fleet, nil, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
@@ -410,7 +410,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Metadata.Labels = nil
 			updatedFleet.Metadata.Annotations = nil
 
-			returnedFleet, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
+			returnedFleet, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
@@ -433,7 +433,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, true, callback)
+			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
@@ -744,13 +744,13 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Spec.Selector = &api.LabelSelector{
 				MatchLabels: &map[string]string{"key": "updated"},
 			}
-			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, true, nil)
+			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			refetched, err := fleetStore.Get(ctx, orgId, "owned-fleet")
 			Expect(err).ToNot(HaveOccurred())
 			refetched.Metadata.Labels = &map[string]string{"updated": "label"}
-			_, err = fleetStore.Update(ctx, orgId, refetched, nil, true, nil)
+			_, err = fleetStore.Update(ctx, orgId, refetched, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			got, err := fleetStore.Get(ctx, orgId, "owned-fleet")
