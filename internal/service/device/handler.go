@@ -21,6 +21,7 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -511,8 +512,43 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	return nil
 }
 
+// prepareDeviceForDecommission applies decommission mutations: set Spec.Decommissioning,
+// Lifecycle status Decommissioning, and clear Owner and Labels.
+func prepareDeviceForDecommission(existing *domain.Device, decom domain.DeviceDecommission) *domain.Device {
+	prepared := util.Clone(existing)
+
+	spec := domain.DeviceSpec{}
+	if existing.Spec != nil {
+		spec = *existing.Spec
+	}
+	spec.Decommissioning = &decom
+	prepared.Spec = &spec
+
+	status := domain.NewDeviceStatus()
+	if existing.Status != nil {
+		status = *existing.Status
+	}
+	status.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
+	prepared.Status = &status
+
+	prepared.Metadata.Owner = nil
+	prepared.Metadata.Labels = nil
+	return prepared
+}
+
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
+	existing, err := h.deviceStore.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+
+	// Product rule: refuse a second decommission without calling the store (no success event).
+	if existing.Spec != nil && existing.Spec.Decommissioning != nil {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceVersionConflict, false, domain.DeviceKind, &name)
+	}
+
+	prepared := prepareDeviceForDecommission(existing, decom)
+	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, prepared, h.callbackDeviceDecommission)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

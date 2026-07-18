@@ -72,7 +72,10 @@ type Store interface {
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
-	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
+	// DecommissionDevice persists an already-prepared device under resourceVersion CAS.
+	// Persistence contract: if the stored row already has Spec.Decommissioning set, returns
+	// flterrors.ErrResourceVersionConflict. Caller owns product-rule mutations.
+	DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -1346,47 +1349,39 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	})
 }
 
-func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (retry bool, device *domain.Device, err error) {
+func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device, eventCallback store.EventCallback) (retry bool, device *domain.Device, err error) {
+	if prepared == nil || prepared.Metadata.Name == nil {
+		return false, nil, flterrors.ErrResourceIsNil
+	}
+	name := *prepared.Metadata.Name
+
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, nil, store.ErrorFromGormError(result.Error)
 	}
 
-	// Convert to API resource to check precondition
 	existingDevice, err := existingRecord.ToApiResource()
 	if err != nil {
 		return false, nil, err
 	}
 
-	// Check precondition: device must not already be decommissioning
+	// Persistence contract of this write path: refuse when already decommissioning.
 	if existingDevice.Spec != nil && existingDevice.Spec.Decommissioning != nil {
 		return false, nil, flterrors.ErrResourceVersionConflict
 	}
 
-	// Capture old device with deep copy for callback
 	var oldDevice domain.Device
 	var devices []domain.Device
 	devices = append(devices, *existingDevice)
 	oldDevice = devices[0]
 
-	// Apply decommissioning changes to the model
-	if existingRecord.Spec == nil {
-		existingRecord.Spec = model.MakeJSONField(domain.DeviceSpec{})
-	}
-	existingRecord.Spec.Data.Decommissioning = &decom
-
-	// Update status
-	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(domain.NewDeviceStatus())
-	}
-	existingRecord.Status.Data.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
-
-	// These fields must be un-set so that device is no longer associated with any fleet
+	// Persist the service-prepared state (spec/status/cleared owner+labels).
+	existingRecord.Spec = model.MakeJSONField(lo.FromPtr(prepared.Spec))
+	existingRecord.Status = model.MakeJSONField(lo.FromPtr(prepared.Status))
 	existingRecord.Owner = nil
 	existingRecord.Labels = nil
 
-	// Update using optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"spec":             existingRecord.Spec,
 		"status":           existingRecord.Status,
@@ -1402,26 +1397,24 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, n
 		return true, nil, flterrors.ErrNoRowsUpdated
 	}
 
-	// Convert updated record to API resource for return and callback
 	updatedDevice, err := existingRecord.ToApiResource()
 	if err != nil {
 		return false, nil, err
 	}
 
-	// Call event callback
 	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, updatedDevice, false, nil)
 
 	return false, updatedDevice, nil
 }
 
-func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
-	var device *domain.Device
+func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+	var result *domain.Device
 	err := retryUpdate(func() (bool, error) {
-		retry, dev, err := s.decommissionDevice(ctx, orgId, name, decom, eventCallback)
-		device = dev
+		retry, dev, err := s.decommissionDevice(ctx, orgId, device, eventCallback)
+		result = dev
 		return retry, err
 	})
-	return device, err
+	return result, err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
