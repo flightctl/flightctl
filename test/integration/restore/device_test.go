@@ -70,7 +70,7 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			createdDevice, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, testDevice, nil, false, nil, callback)
+			createdDevice, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, testDevice, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdDevice).ToNot(BeNil())
 			Expect(created).To(BeTrue())
@@ -118,7 +118,7 @@ var _ = Describe("Device restore operations", func() {
 				Status: nil,
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &device, nil, true, nil, callback)
+			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -214,17 +214,17 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissioningDevice, nil, false, nil, callback)
+			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissioningDevice, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(decommissioningDeviceName, *decommissioningDevice.Status.LastSeen)
 
-			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissionedDevice, nil, false, nil, callback)
+			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissionedDevice, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(decommissionedDeviceName, *decommissionedDevice.Status.LastSeen)
 
-			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &normalDevice, nil, false, nil, callback)
+			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &normalDevice, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(normalDeviceName, *normalDevice.Status.LastSeen)
@@ -283,7 +283,7 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, device, nil, false, nil, callback)
+			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 

@@ -23,8 +23,8 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, eventCallback store.EventCallback) (*domain.Fleet, error)
-	Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*domain.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...ListOption) (*domain.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error
@@ -120,14 +120,14 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *doma
 	return fleet, err
 }
 
-func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, error) {
-	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error) {
+	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, false, err)
 	return newFleet, err
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
-	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
+	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, created, err)
 	return newFleet, created, err
 }

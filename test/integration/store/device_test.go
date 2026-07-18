@@ -109,7 +109,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(BeFalse())
 	})
@@ -143,7 +143,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(Equal(false))
 		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -158,12 +158,12 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(err).ToNot(HaveOccurred())
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
-		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+		updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(updated.Spec.Os.Image).To(Equal("newos"))
 	})
@@ -545,7 +545,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -566,7 +566,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -579,12 +579,12 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+			updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Spec.Os.Image).To(Equal("newos"))
 		})
@@ -776,7 +776,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the first device with comprehensive spec
 			device1 := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil)
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the device from the store
@@ -788,7 +788,7 @@ var _ = Describe("DeviceStore create", func() {
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			// This should succeed because only labels (metadata) are different, not the spec
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, nil, callback)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -830,7 +830,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = lo.ToPtr("newowner")
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -841,7 +841,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			called = false
 			dev.Metadata.Owner = nil
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -981,7 +981,7 @@ var _ = Describe("DeviceStore create", func() {
 							},
 						}
 
-						_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, false, nil, callback)
+						_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 						Expect(err).ToNot(HaveOccurred())
 
 						if d.hasConflict {
@@ -1373,7 +1373,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Store the device in database
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1659,7 +1659,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the devices
 			for _, device := range devices {
-				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(created).To(BeTrue())
 				setLastSeen(db, orgId, *device.Metadata.Name, *device.Status.LastSeen)
@@ -1723,7 +1723,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1768,7 +1768,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			initialLastSeen := time.Now().Add(-1 * time.Hour)
@@ -1803,7 +1803,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation - should return false
@@ -1833,7 +1833,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation - should return false
@@ -1869,7 +1869,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with device version <= service version
@@ -1925,7 +1925,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with device version > service version
@@ -1983,7 +1983,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with nil device reported version
@@ -2029,7 +2029,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with empty device reported version
@@ -2076,7 +2076,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with invalid device reported version
@@ -2123,7 +2123,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation
@@ -2173,7 +2173,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation
@@ -2234,7 +2234,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation

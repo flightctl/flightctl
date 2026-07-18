@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -21,7 +20,6 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error)
-	CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, fromAPI bool, eventCallback store.EventCallback) (*domain.AuthProvider, error)
 	Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error)
@@ -124,26 +122,14 @@ func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	return provider, err
 }
 
-func (s *AuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, fromAPI bool, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	provider, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, func(ctx context.Context, before, after *domain.AuthProvider) error {
-		// If there's an existing resource, return an error to enforce create-only behavior
-		if before != nil {
-			return flterrors.ErrDuplicateName
-		}
-		return nil
-	})
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, provider, true, err)
-	return provider, err
-}
-
 func (s *AuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	newProvider, oldProvider, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newProvider, oldProvider, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldProvider, newProvider, false, err)
 	return newProvider, err
 }
 
 func (s *AuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, bool, error) {
-	newProvider, oldProvider, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+	newProvider, oldProvider, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldProvider, newProvider, created, err)
 	return newProvider, created, err
 }

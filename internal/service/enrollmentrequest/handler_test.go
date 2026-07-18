@@ -47,10 +47,6 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
 func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
-	return f.CreateWithFromAPI(ctx, orgId, req, true, callbackEvent)
-}
-
-func (f *fakeEnrollmentRequestStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, fromAPI bool, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
@@ -81,7 +77,7 @@ func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId u
 		result, err := f.Update(ctx, orgId, req, callbackEvent)
 		return result, false, err
 	}
-	result, err := f.CreateWithFromAPI(ctx, orgId, req, true, callbackEvent)
+	result, err := f.Create(ctx, orgId, req, callbackEvent)
 	return result, true, err
 }
 
@@ -144,7 +140,7 @@ func (f *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return d, nil
 }
 
-func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	existing := f.items[name]
 	if validationCallback != nil {

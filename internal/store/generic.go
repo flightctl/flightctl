@@ -75,20 +75,14 @@ func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID,
 	return updated, err
 }
 
-// fromAPI is accepted for interface compatibility with callers across all domain stores
-// but is no longer used internally; ownership/ACL enforcement for this resource has moved
-// to the service layer. Other domain stores still thread fromAPI through until their own
-// service-layer migration lands.
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
-	_ = fromAPI
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
 	updated, before, _, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeUpdateOnly, validationCallback)
 	})
 	return updated, before, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
-	_ = fromAPI
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
 	return retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeCreateOrUpdate, validationCallback)
 	})

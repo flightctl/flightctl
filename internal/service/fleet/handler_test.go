@@ -74,7 +74,7 @@ func (f *fakeFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *dom
 	return fleet, nil
 }
 
-func (f *fakeFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, error) {
+func (f *fakeFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -95,10 +95,10 @@ func (f *fakeFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *dom
 	return fleet, nil
 }
 
-func (f *fakeFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
+func (f *fakeFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
 	name := lo.FromPtr(fleet.Metadata.Name)
 	if _, exists := f.fleets[name]; exists {
-		result, err := f.Update(ctx, orgId, fleet, fieldsToUnset, fromAPI, eventCallback)
+		result, err := f.Update(ctx, orgId, fleet, fieldsToUnset, eventCallback)
 		return result, false, err
 	}
 	result, err := f.Create(ctx, orgId, fleet, eventCallback)

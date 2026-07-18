@@ -64,10 +64,6 @@ func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, aut
 	return authProvider, nil
 }
 
-func (f *fakeAuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, fromAPI bool, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	return f.Create(ctx, orgId, authProvider, eventCallback)
-}
-
 func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
 	if f.err != nil {
 		return nil, f.err
