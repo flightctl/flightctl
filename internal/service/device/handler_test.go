@@ -179,6 +179,9 @@ func TestReplaceDevice(t *testing.T) {
 	})
 }
 
+// TestReplaceDeviceOwnership mirrors fleet.TestReplaceFleetOwnership: an external caller
+// (enforceOwnership=true) must be denied a spec change on an owned device, while an
+// internal/ResourceSync caller (enforceOwnership=false) must still be allowed through.
 func TestReplaceDeviceOwnership(t *testing.T) {
 	owner := "Fleet/f1"
 
@@ -319,6 +322,9 @@ func TestPatchDevice(t *testing.T) {
 	})
 }
 
+// TestPatchDeviceOwnership mirrors fleet.TestPatchFleetOwnership: an external caller
+// (enforceOwnership=true) must be denied a spec-changing patch on an owned device, while an
+// internal/ResourceSync caller (enforceOwnership=false) must still be allowed through.
 func TestPatchDeviceOwnership(t *testing.T) {
 	owner := "Fleet/f1"
 
@@ -706,6 +712,24 @@ func TestUpdateDevice(t *testing.T) {
 		result, err := svc.UpdateDevice(ctx, orgId, "foo", device, nil)
 		require.NoError(t, err)
 		require.Equal(t, "img", result.Spec.Os.Image)
+	})
+
+	t.Run("When updating an owned device it should not deny the change", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		st.device.devices["owned-device"] = &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr("Fleet/f1")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
+		}
+
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img-updated"}},
+		}
+		result, err := svc.UpdateDevice(ctx, orgId, "owned-device", device, nil)
+		require.NoError(t, err)
+		require.Equal(t, "img-updated", result.Spec.Os.Image)
 	})
 }
 
