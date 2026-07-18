@@ -712,10 +712,8 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				}
 
-				// Create decommissioning spec
-				decommissioning := &api.DeviceDecommission{
-					Target: api.DeviceDecommissionTargetTypeUnenroll,
-				}
+				// Omit Spec.Decommissioning: DeviceStore.CreateOrUpdate refuses updates when
+				// the stored device is already decommissioning (persistence contract).
 
 				// Create systemd spec
 				systemd := &struct {
@@ -743,14 +741,13 @@ var _ = Describe("DeviceStore create", func() {
 						Owner:  owner,
 					},
 					Spec: &api.DeviceSpec{
-						Os:              osSpec,
-						Config:          &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
-						Applications:    &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
-						Resources:       &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
-						Consoles:        &consoles,
-						Decommissioning: decommissioning,
-						Systemd:         systemd,
-						UpdatePolicy:    updatePolicy,
+						Os:           osSpec,
+						Config:       &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
+						Applications: &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
+						Resources:    &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
+						Consoles:     &consoles,
+						Systemd:      systemd,
+						UpdatePolicy: updatePolicy,
 					},
 				}
 			}
