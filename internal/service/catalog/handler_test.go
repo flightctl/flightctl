@@ -638,6 +638,36 @@ func TestDeleteCatalog(t *testing.T) {
 	}
 }
 
+func TestDeleteCatalogNonEmpty(t *testing.T) {
+	t.Run("When deleting a catalog that has items it should return conflict and leave the catalog", func(t *testing.T) {
+		h, fakeStore, fakeEvents := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("catalog-with-items", nil)
+		fakeStore.catalogs["catalog-with-items"] = &catalog
+		item := createTestCatalogItem("catalog-with-items", "app-1", nil)
+		fakeStore.items[itemKey("catalog-with-items", "app-1")] = &item
+
+		status := h.DeleteCatalog(context.Background(), orgId, "catalog-with-items", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrResourceNotEmpty.Error(), status.Message)
+		require.Contains(t, fakeStore.catalogs, "catalog-with-items")
+		require.Empty(t, fakeEvents.deleted)
+	})
+
+	t.Run("When deleting an empty catalog it should succeed and remove it", func(t *testing.T) {
+		h, fakeStore, fakeEvents := newTestHandler()
+		orgId := uuid.New()
+		catalog := createTestCatalog("empty-catalog", nil)
+		fakeStore.catalogs["empty-catalog"] = &catalog
+
+		status := h.DeleteCatalog(context.Background(), orgId, "empty-catalog", true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotContains(t, fakeStore.catalogs, "empty-catalog")
+		require.Len(t, fakeEvents.deleted, 1)
+		require.Equal(t, "empty-catalog", fakeEvents.deleted[0].name)
+	})
+}
+
 func TestPatchCatalog(t *testing.T) {
 	t.Run("When the catalog does not exist it should return a not-found status", func(t *testing.T) {
 		h, _, _ := newTestHandler()
