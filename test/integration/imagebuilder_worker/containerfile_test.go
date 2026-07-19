@@ -119,7 +119,7 @@ func createOCIRepository(ctx context.Context, repoStore repositorystore.Store, o
 		},
 		Spec: spec,
 	}
-return repoStore.Create(ctx, orgId, &resource)
+	return repoStore.Create(ctx, orgId, &resource)
 }
 
 var _ = Describe("Containerfile Generation", func() {
