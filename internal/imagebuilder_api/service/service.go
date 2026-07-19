@@ -6,7 +6,9 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
@@ -27,7 +29,7 @@ type service struct {
 }
 
 // NewService creates a new aggregate Service with all sub-services
-func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Store, catalogs CatalogLookup, repositories RepositoryLookup, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
+func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Store, catalogs catalogservice.Service, repositories repositoryservice.Service, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
 	// Get ImageBuilderService config (nil-safe)
 	var imageBuilderServiceCfg *config.ImageBuilderServiceConfig
 	if cfg != nil {
