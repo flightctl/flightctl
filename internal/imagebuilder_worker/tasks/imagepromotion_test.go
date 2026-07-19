@@ -302,8 +302,8 @@ func (a *dummyCatalogStoreAdapter) CreateOrUpdate(ctx context.Context, orgId uui
 func (a *dummyCatalogStoreAdapter) List(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (*coredomain.CatalogList, error) {
 	return &coredomain.CatalogList{}, nil
 }
-func (a *dummyCatalogStoreAdapter) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	return nil
+func (a *dummyCatalogStoreAdapter) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return true, nil
 }
 func (a *dummyCatalogStoreAdapter) UpdateStatus(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
 	return nil, nil, nil

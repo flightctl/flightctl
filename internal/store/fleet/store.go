@@ -27,7 +27,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string) (*domain.Fleet, *domain.Fleet, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*domain.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...ListOption) (*domain.FleetList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error)
 
 	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error)
@@ -346,12 +346,11 @@ func (s *FleetStore) ListIgnoreOrg(ctx context.Context) ([]model.Fleet, error) {
 	return fleets, nil
 }
 
-func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	_, err := s.genericStore.Delete(
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return s.genericStore.Delete(
 		ctx,
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},
 	)
-	return err
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet) (*domain.Fleet, error) {

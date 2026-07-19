@@ -85,12 +85,12 @@ func (f *fakeResourceSyncStore) WithTransaction(ctx context.Context, fn func(ctx
 	return fn(ctx)
 }
 
-func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {

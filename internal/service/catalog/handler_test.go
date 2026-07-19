@@ -99,18 +99,18 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	_, exists := f.catalogs[name]
 	if !exists {
-		return flterrors.ErrResourceNotFound
+		return false, flterrors.ErrResourceNotFound
 	}
 	for _, it := range f.items {
 		if it.Metadata.Catalog == name {
-			return flterrors.ErrResourceNotEmpty
+			return false, flterrors.ErrResourceNotEmpty
 		}
 	}
 	delete(f.catalogs, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {

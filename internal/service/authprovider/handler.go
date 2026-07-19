@@ -288,8 +288,8 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 
 func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 
-	err := h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackAuthProviderDeleted(ctx, domain.AuthProviderKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)

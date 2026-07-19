@@ -145,8 +145,8 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name 
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
-	err = h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackFleetDeleted(ctx, domain.FleetKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)

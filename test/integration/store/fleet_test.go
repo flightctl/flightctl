@@ -168,12 +168,12 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("Delete fleet success", func() {
-			err := fleetStore.Delete(ctx, orgId, "myfleet-1")
+			_, err := fleetStore.Delete(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete fleet success when not found", func() {
-			err := fleetStore.Delete(ctx, orgId, "nonexistent")
+			_, err := fleetStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -480,7 +480,7 @@ var _ = Describe("FleetStore create", func() {
 			}
 
 			for i := 1; i <= numFleets; i++ {
-				err := fleetStore.Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i))
+				_, err := fleetStore.Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i))
 				Expect(err).ToNot(HaveOccurred())
 			}
 			testutil.CreateTestFleets(ctx, numFleets, fleetStore, orgId, "myfleet", true, lo.ToPtr(owner))
@@ -574,7 +574,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = fleetStore.Delete(ctx, orgId, "myfleet-1")
+			_, err = fleetStore.Delete(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 

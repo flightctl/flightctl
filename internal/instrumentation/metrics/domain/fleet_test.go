@@ -71,8 +71,8 @@ func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams s
 	return m.fleetList, nil
 }
 
-func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	return nil
+func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return true, nil
 }
 
 func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {

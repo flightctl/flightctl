@@ -46,8 +46,8 @@ func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*domain.Reposi
 func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*domain.RepositoryList, error) {
 	return nil, nil
 }
-func (m *MockRepository) Delete(context.Context, uuid.UUID, string) error {
-	return nil
+func (m *MockRepository) Delete(context.Context, uuid.UUID, string) (bool, error) {
+	return true, nil
 }
 func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	return nil, nil, nil

@@ -22,7 +22,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
@@ -120,7 +120,7 @@ func (s *ResourceSyncStore) WithTransaction(ctx context.Context, fn func(ctx con
 	return store.WithTransaction(ctx, s.dbHandler, fn)
 }
 
-func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
 	// Join caller TX when present so service-owned cascades stay atomic.
 	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
@@ -138,12 +138,12 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {

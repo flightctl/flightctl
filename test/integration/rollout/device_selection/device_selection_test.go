@@ -106,13 +106,15 @@ var _ = Describe("Rollout batch sequence test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationLastBatchCompletionReport: fmt.Sprintf(`{"successPercentage":%d}`, percentage),
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)).ToNot(HaveOccurred())
+		_, _, err := fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	setAutomaticApproval := func(fleetName string) {
 		annotations := map[string]string{
 			api.FleetAnnotationRolloutApprovalMethod: "automatic",
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)).ToNot(HaveOccurred())
+		_, _, err := fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	rolloutDeviceSelection := func(b api.BatchSequence) *api.RolloutDeviceSelection {
 		ret := &api.RolloutDeviceSelection{}
@@ -157,7 +159,8 @@ var _ = Describe("Rollout batch sequence test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)).ToNot(HaveOccurred())
+		_, _, err = fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels

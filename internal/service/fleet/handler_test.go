@@ -123,13 +123,13 @@ func (f *fakeFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams s
 	return &domain.FleetList{Items: items}, nil
 }
 
-func (f *fakeFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	_, exists := f.fleets[name]
 	if !exists {
-		return flterrors.ErrResourceNotFound
+		return false, flterrors.ErrResourceNotFound
 	}
 	delete(f.fleets, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {

@@ -249,8 +249,8 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)

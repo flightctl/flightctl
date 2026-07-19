@@ -24,7 +24,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.AuthProviderList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error)
 	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, error)
 	GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, error)
@@ -138,9 +138,8 @@ func (s *AuthProviderStore) getDB(ctx context.Context) *gorm.DB {
 	return s.dbHandler.WithContext(ctx)
 }
 
-func (s *AuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	_, err := s.genericStore.Delete(ctx, model.AuthProvider{Resource: model.Resource{OrgID: orgId, Name: name}})
-	return err
+func (s *AuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return s.genericStore.Delete(ctx, model.AuthProvider{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
 func (s *AuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {

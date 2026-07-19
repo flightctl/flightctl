@@ -438,8 +438,8 @@ func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	return &domain.RepositoryList{}, nil
 }
 
-func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	return nil
+func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return true, nil
 }
 
 func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {

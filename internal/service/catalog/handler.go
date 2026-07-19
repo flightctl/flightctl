@@ -165,8 +165,8 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 
 	// Product rule: refuse deleting a non-empty catalog. The service chooses store.Delete
 	// (TX primitive that returns ErrResourceNotEmpty when items exist) and maps the error.
-	err = h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackCatalogDeleted(ctx, domain.CatalogKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)

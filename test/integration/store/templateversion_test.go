@@ -130,7 +130,7 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = fleetStore.Delete(ctx, otherOrgId, "myfleet")
+			_, err = fleetStore.Delete(ctx, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := tvStore.List(ctx, orgId, store.ListParams{})
