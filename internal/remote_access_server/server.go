@@ -63,7 +63,8 @@ func (s *storeAppConsoleService) GetDevice(ctx context.Context, orgId uuid.UUID,
 }
 
 func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
-	return s.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, nil)
+	result, _, err := s.deviceStore.Update(ctx, orgId, &device, fieldsToUnset)
+	return result, err
 }
 
 // New returns a new Server. All initialisation requiring a context (listeners,

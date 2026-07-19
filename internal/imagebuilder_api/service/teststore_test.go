@@ -390,7 +390,7 @@ func (s *DummyRepositoryStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := s.repositories[name]; exists {
 		return nil, flterrors.ErrDuplicateName
@@ -401,18 +401,18 @@ func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repo
 	return &created, nil
 }
 
-func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := s.repositories[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	var updated domain.Repository
 	deepCopy(repository, &updated)
 	s.repositories[name] = &updated
-	return &updated, nil
+	return &updated, nil, nil
 }
 
-func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, bool, error) {
+func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	created := false
 	if _, exists := s.repositories[name]; !exists {
@@ -421,7 +421,7 @@ func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UU
 	var result domain.Repository
 	deepCopy(repository, &result)
 	s.repositories[name] = &result
-	return &result, created, nil
+	return &result, nil, created, nil
 }
 
 func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
@@ -438,12 +438,12 @@ func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	return &domain.RepositoryList{}, nil
 }
 
-func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback flightctlstore.EventCallback) error {
+func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	return nil
 }
 
-func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
-	return nil, nil
+func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
+	return nil, nil, nil
 }
 
 func (s *DummyRepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {

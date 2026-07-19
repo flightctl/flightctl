@@ -103,7 +103,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -117,13 +117,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -137,7 +137,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil)
+		_, _, err := deviceStore.Update(ctx, store.NullOrgId, device, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -263,7 +263,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, _, err := deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -275,7 +275,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, _, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}

@@ -290,23 +290,23 @@ func (a *dummyCatalogStoreAdapter) CreateOrUpdateItem(ctx context.Context, orgId
 	a.w.items[key] = &cp
 	return &cp, !existed, nil
 }
-func (a *dummyCatalogStoreAdapter) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
+func (a *dummyCatalogStoreAdapter) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, error) {
 	return nil, nil
 }
-func (a *dummyCatalogStoreAdapter) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
+func (a *dummyCatalogStoreAdapter) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
+	return nil, nil, nil
 }
-func (a *dummyCatalogStoreAdapter) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, bool, error) {
-	return nil, false, nil
+func (a *dummyCatalogStoreAdapter) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, bool, error) {
+	return nil, nil, false, nil
 }
 func (a *dummyCatalogStoreAdapter) List(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (*coredomain.CatalogList, error) {
 	return &coredomain.CatalogList{}, nil
 }
-func (a *dummyCatalogStoreAdapter) Delete(ctx context.Context, orgId uuid.UUID, name string, rc flightctlstore.RemoveOwnerCallback, cb flightctlstore.EventCallback) error {
+func (a *dummyCatalogStoreAdapter) Delete(ctx context.Context, orgId uuid.UUID, name string, rc flightctlstore.RemoveOwnerCallback) error {
 	return nil
 }
-func (a *dummyCatalogStoreAdapter) UpdateStatus(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
+func (a *dummyCatalogStoreAdapter) UpdateStatus(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
+	return nil, nil, nil
 }
 func (a *dummyCatalogStoreAdapter) Count(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (int64, error) {
 	return 0, nil

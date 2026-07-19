@@ -42,39 +42,33 @@ func newFakeRepositoryStore() *fakeRepositoryStore {
 
 func (f *fakeRepositoryStore) InitialMigration(_ context.Context) error { return nil }
 
-func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = repository
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, nil, repository, true, nil)
-	}
 	return repository, nil
 }
 
-func (f *fakeRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = repository
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, old, repository, false, nil)
-	}
-	return repository, nil
+	return repository, old, nil
 }
 
-func (f *fakeRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, bool, error) {
+func (f *fakeRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, repository, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, repository)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, repository, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, repository)
+	return result, nil, true, err
 }
 
 func (f *fakeRepositoryStore) Get(_ context.Context, _ uuid.UUID, name string) (*domain.Repository, error) {
@@ -93,29 +87,23 @@ func (f *fakeRepositoryStore) List(_ context.Context, _ uuid.UUID, _ store.ListP
 	return &domain.RepositoryList{Items: items}, nil
 }
 
-func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	if _, exists := f.items[name]; !exists {
 		return nil
 	}
 	delete(f.items, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, nil, nil, false, nil)
-	}
 	return nil
 }
 
-func (f *fakeRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
 	existing, ok := f.items[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	old := *existing
 	existing.Status = resource.Status
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, &old, existing, false, nil)
-	}
-	return existing, nil
+	return existing, &old, nil
 }
 
 func (f *fakeRepositoryStore) GetFleetRefs(_ context.Context, _ uuid.UUID, name string) (*domain.FleetList, error) {

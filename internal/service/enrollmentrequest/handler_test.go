@@ -46,39 +46,33 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, true, nil)
-	}
 	return req, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, old, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, req, callbackEvent)
-		return result, false, err
+		result, _, err := f.Update(ctx, orgId, req)
+		return result, nil, false, err
 	}
-	result, err := f.Create(ctx, orgId, req, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, req)
+	return result, nil, true, err
 }
 
 func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
@@ -97,27 +91,22 @@ func (f *fakeEnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, 
 	return &domain.EnrollmentRequestList{Items: items}, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {
+func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	if _, exists := f.items[name]; !exists {
 		return nil
 	}
 	delete(f.items, name)
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, nil, false, nil)
-	}
 	return nil
 }
 
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
+	old := f.items[name]
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
 // fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
@@ -139,27 +128,21 @@ func (f *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return d, nil
 }
 
-func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = device
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, nil, device, true, nil)
-	}
 	return device, nil
 }
 
-func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	existing := f.items[name]
 	created := existing == nil
 	f.items[name] = device
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, existing, device, created, nil)
-	}
-	return device, created, nil
+	return device, existing, created, nil
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method
