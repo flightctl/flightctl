@@ -117,13 +117,14 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 
 		var writeErr error
 		result, oldResourceSync, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
 
@@ -188,12 +189,13 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 
 		var writeErr error
 		result, oldResourceSync, writeErr = h.store.Update(ctx, orgId, &toWrite)
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 

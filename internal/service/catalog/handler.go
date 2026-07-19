@@ -151,13 +151,14 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 
 		var writeErr error
 		result, oldCatalog, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -226,12 +227,13 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 
 		var writeErr error
 		result, oldCatalog, writeErr = h.store.Update(ctx, orgId, &toWrite)
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 

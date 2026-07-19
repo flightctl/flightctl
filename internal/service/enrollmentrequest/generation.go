@@ -12,7 +12,15 @@ func setGenerationOnCreate(meta *domain.ObjectMeta) {
 }
 
 func setGenerationOnUpdate(existing, next *domain.EnrollmentRequest) {
-	nextGen := lo.FromPtr(existing.Metadata.Generation)
+	if existing.Metadata.Generation == nil {
+		if enrollmentRequestHasSameSpec(existing, next) {
+			next.Metadata.Generation = nil
+			return
+		}
+		next.Metadata.Generation = lo.ToPtr(int64(1))
+		return
+	}
+	nextGen := *existing.Metadata.Generation
 	if !enrollmentRequestHasSameSpec(existing, next) {
 		nextGen++
 	}

@@ -10,7 +10,15 @@ func setGenerationOnCreate(meta *domain.ObjectMeta) {
 }
 
 func setGenerationOnUpdate(existing, next *domain.Device) {
-	nextGen := lo.FromPtr(existing.Metadata.Generation)
+	if existing.Metadata.Generation == nil {
+		if deviceHasSameSpec(existing, next) {
+			next.Metadata.Generation = nil
+			return
+		}
+		next.Metadata.Generation = lo.ToPtr(int64(1))
+		return
+	}
+	nextGen := *existing.Metadata.Generation
 	if !deviceHasSameSpec(existing, next) {
 		nextGen++
 	}
