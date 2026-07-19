@@ -111,9 +111,15 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	// Service owns the cascade: one TX for delete + owner cleanup. Store Delete joins
 	// the active TX via store.RunInTransaction so UnsetOwner* see the same connection.
+	var deleted bool
 	err := h.store.WithTransaction(ctx, func(ctx context.Context) error {
-		if err := h.store.Delete(ctx, orgId, name); err != nil {
-			return err
+		var delErr error
+		deleted, delErr = h.store.Delete(ctx, orgId, name)
+		if delErr != nil {
+			return delErr
+		}
+		if !deleted {
+			return nil
 		}
 		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
 		tx := store.DB(ctx, nil)
@@ -125,7 +131,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID
 		}
 		return h.fleetStore.UnsetOwner(ctx, tx, orgId, *owner)
 	})
-	if err == nil {
+	if err == nil && deleted {
 		h.callbackResourceSyncDeleted(ctx, domain.ResourceSyncKind, orgId, name, nil, nil, false, nil)
 	}
 	status := common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
