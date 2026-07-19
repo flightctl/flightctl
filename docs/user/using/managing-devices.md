@@ -818,7 +818,9 @@ spec:
 
 ##### Windows
 
-This example installs a Windows guest from ISOs staged on the device (`hostDisk`), with a blank root disk, VirtIO drivers media, UEFI firmware, Hyper-V features, and a TPM. You can also supply those ISOs from an OCI registry (for example as a `containerDisk`) instead; this example uses `hostDisk` for illustration. The `hostDisk` paths must already exist on the target device before applying the specification, and RDP is published on host port `3389`:
+This example installs a Windows guest from ISOs staged on the device (`hostDisk`), with a blank root disk, VirtIO drivers media, UEFI firmware, Hyper-V enlightenments, and a TPM. The Hyper-V settings in the manifest are guest enlightenments exposed for Windows compatibility and performance; the VM still runs on KubeVirt/KVM on the device, not on Microsoft Hyper-V, and they do not enable nested virtualization.
+
+Because each `hostDisk` path must already exist on every target device, this `hostDisk` layout is mainly for manual or illustrative setups. For production or larger-scale deployments, pull the ISOs from an OCI registry (for example as a `containerDisk`) instead. RDP is published on host port `3389`:
 
 ```yaml
 apiVersion: flightctl.io/v1beta1
