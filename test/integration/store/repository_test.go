@@ -36,17 +36,17 @@ func newOciAuth(username, password string) *api.OciAuth {
 
 var _ = Describe("RepositoryStore create", func() {
 	var (
-		log                 *logrus.Logger
-		ctx                 context.Context
-		orgId               uuid.UUID
-		repositoryStore     repositorystore.Store
-		deviceStore         devicestore.Store
-		fleetStore          fleetstore.Store
-		organizationStore   organizationstore.Store
-		cfg                 *config.Config
-		dbName              string
-		db                  *gorm.DB
-		numRepositories     int
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		repositoryStore   repositorystore.Store
+		deviceStore       devicestore.Store
+		fleetStore        fleetstore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
+		numRepositories   int
 	)
 
 	BeforeEach(func() {
