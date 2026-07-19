@@ -8,31 +8,39 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 )
 
+// OrganizationSync is the organization.Service surface IdentityMapper needs.
+// Defined here so package service does not import internal/service/organization.
+type OrganizationSync interface {
+	UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error)
+	ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error)
+	ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error)
+	List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error)
+}
+
 // IdentityMapper handles mapping from identity information to database entities
 type IdentityMapper struct {
-	organizationStore organizationstore.Store
-	provisioner       OrgProvisionerInterface
-	log               logrus.FieldLogger
-	cache             *ttlcache.Cache[string, *model.Organization]
+	organizations OrganizationSync
+	provisioner   OrgProvisionerInterface
+	log           logrus.FieldLogger
+	cache         *ttlcache.Cache[string, *model.Organization]
 }
 
 // NewIdentityMapper creates a new IdentityMapper instance
-func NewIdentityMapper(organizationStore organizationstore.Store, provisioner OrgProvisionerInterface, log logrus.FieldLogger) *IdentityMapper {
+func NewIdentityMapper(organizations OrganizationSync, provisioner OrgProvisionerInterface, log logrus.FieldLogger) *IdentityMapper {
 	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *model.Organization](10 * time.Minute),
 	)
 
 	return &IdentityMapper{
-		organizationStore: organizationStore,
-		provisioner:       provisioner,
-		log:               log,
-		cache:             cache,
+		organizations: organizations,
+		provisioner:   provisioner,
+		log:           log,
+		cache:         cache,
 	}
 }
 
@@ -102,7 +110,7 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 	// Fetch organizations by internal IDs
 	var existingOrgs []*model.Organization
 	if len(uncachedInternalIds) > 0 {
-		internalOrgs, err := m.organizationStore.ListByIDs(ctx, uncachedInternalIds)
+		internalOrgs, err := m.organizations.ListByIDs(ctx, uncachedInternalIds)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch organizations by internal IDs: %w", err)
 		}
@@ -111,7 +119,7 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 
 	// Fetch organizations by external IDs
 	if len(uncachedExternalIds) > 0 {
-		externalOrgs, err := m.organizationStore.ListByExternalIDs(ctx, uncachedExternalIds)
+		externalOrgs, err := m.organizations.ListByExternalIDs(ctx, uncachedExternalIds)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch organizations by external IDs: %w", err)
 		}
@@ -160,7 +168,7 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 
 	// Create new organizations if any
 	if len(newOrgs) > 0 {
-		createdOrgs, err := m.organizationStore.UpsertMany(ctx, newOrgs)
+		createdOrgs, err := m.organizations.UpsertMany(ctx, newOrgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create organizations: %w", err)
 		}
@@ -181,7 +189,7 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 // Super admins get access to all organizations, bypassing cache
 func (m *IdentityMapper) ensureOrganizationsForSuperAdmin(ctx context.Context, reportedOrgs []common.ReportedOrganization) ([]*model.Organization, error) {
 	// Fetch all organizations from the database
-	allOrgs, err := m.organizationStore.List(ctx, store.ListParams{})
+	allOrgs, err := m.organizations.List(ctx, store.ListParams{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all organizations for super admin: %w", err)
 	}
@@ -211,7 +219,7 @@ func (m *IdentityMapper) ensureOrganizationsForSuperAdmin(ctx context.Context, r
 	}
 
 	if len(newOrgs) > 0 {
-		createdOrgs, err := m.organizationStore.UpsertMany(ctx, newOrgs)
+		createdOrgs, err := m.organizations.UpsertMany(ctx, newOrgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create organizations for super admin: %w", err)
 		}

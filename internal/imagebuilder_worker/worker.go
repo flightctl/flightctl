@@ -13,8 +13,11 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -31,9 +34,9 @@ type Worker struct {
 	cfg               *config.Config
 	log               logrus.FieldLogger
 	imageBuilderStore imagebuilderstore.Store
-	organizationStore organizationstore.Store
-	repositoryStore   repositorystore.Store
-	catalogStore      catalogstore.Store
+	organizationSvc   organizationservice.Service
+	repositorySvc     repositoryservice.Service
+	catalogSvc        catalogservice.Service
 	eventStore        eventstore.Store
 	kvStore           kvstore.KVStore
 	queuesProvider    queues.Provider
@@ -64,13 +67,17 @@ func New(
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log.WithField("component", "events"))
 	serviceHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl)
 
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
+	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
+	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
+
 	return &Worker{
 		cfg:               cfg,
 		log:               log,
 		imageBuilderStore: imageBuilderStore,
-		organizationStore: organizationStore,
-		repositoryStore:   repositoryStore,
-		catalogStore:      catalogStore,
+		organizationSvc:   organizationSvc,
+		repositorySvc:     repositorySvc,
+		catalogSvc:        catalogSvc,
 		eventStore:        eventStore,
 		kvStore:           kvStore,
 		queuesProvider:    queuesProvider,
@@ -93,10 +100,10 @@ func (w *Worker) Run(ctx context.Context) error {
 	// nil worker_client: events are stored in DB for audit/logging but are not pushed to
 	// TaskQueue - events are manually enqueued to ImageBuildTaskQueue instead.
 	eventsSvc := events.NewServiceHandler(w.eventStore, nil, w.log)
-	imageBuilderService := imagebuilderapi.NewService(ctx, w.cfg, w.imageBuilderStore, w.catalogStore, w.repositoryStore, eventsSvc, queueProducer, w.kvStore, w.log)
+	imageBuilderService := imagebuilderapi.NewService(ctx, w.cfg, w.imageBuilderStore, w.catalogSvc, w.repositorySvc, eventsSvc, queueProducer, w.kvStore, w.log)
 
 	// Launch queue consumers
-	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.imageBuilderStore, w.organizationStore, w.repositoryStore, w.catalogStore, w.kvStore, w.serviceHandler, imageBuilderService, w.cfg, w.log); err != nil {
+	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.imageBuilderStore, w.organizationSvc, w.repositorySvc, w.catalogSvc, w.kvStore, w.serviceHandler, imageBuilderService, w.cfg, w.log); err != nil {
 		w.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

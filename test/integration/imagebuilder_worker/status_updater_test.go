@@ -13,7 +13,10 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -70,6 +73,10 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 		catalogStore = catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
 		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+		catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
+		repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
+		organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
@@ -102,7 +109,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		}
 
 		// Create imagebuilder service with kvStore
-		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, catalogStore, repositoryStore, events.NewServiceHandler(eventStore, nil, log), nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, catalogSvc, repositorySvc, events.NewServiceHandler(eventStore, nil, log), nil, kvStoreInst, log)
 	})
 
 	AfterEach(func() {
