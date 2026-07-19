@@ -38,8 +38,8 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 	}
 
 	result, err := h.store.Create(ctx, orgId, &templateVersion)
+	h.callbackTemplateVersionUpdated(ctx, domain.TemplateVersionKind, orgId, lo.FromPtr(templateVersion.Metadata.Name), nil, result, true, err)
 	if err == nil {
-		h.callbackTemplateVersionUpdated(ctx, domain.TemplateVersionKind, orgId, lo.FromPtr(templateVersion.Metadata.Name), nil, result, true, nil)
 		fleet.EmitFleetRolloutStartedEvent(ctx, h.events, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
 	return result, common.StoreErrorToApiStatus(err, true, domain.TemplateVersionKind, templateVersion.Metadata.Name)
@@ -99,8 +99,8 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, orgId uuid.U
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
 
-	_, err = h.store.Delete(ctx, orgId, fleet, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, fleet, name)
+	if err == nil && deleted {
 		h.callbackTemplateVersionDeleted(ctx, domain.TemplateVersionKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.TemplateVersionKind, &name)
