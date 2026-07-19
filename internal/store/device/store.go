@@ -115,6 +115,7 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.Device).ToApiResource,
 		model.DevicesToApiResource,
 	)
+	genericStore.SetPrePersistValidate(decommissionPersistenceGuard)
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
@@ -385,11 +386,11 @@ func decommissionPersistenceGuard(ctx context.Context, before, after *domain.Dev
 }
 
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, error) {
-	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, decommissionPersistenceGuard)
+	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset)
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, decommissionPersistenceGuard)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset)
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {

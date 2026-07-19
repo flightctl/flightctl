@@ -119,11 +119,11 @@ func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 }
 
 func (s *AuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
+	return s.genericStore.Update(ctx, orgId, resource, nil)
 }
 
 func (s *AuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil)
 }
 
 func (s *AuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {

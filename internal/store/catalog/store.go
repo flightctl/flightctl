@@ -122,11 +122,11 @@ func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, resource *do
 }
 
 func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
+	return s.genericStore.Update(ctx, orgId, resource, nil)
 }
 
 func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil)
 }
 
 func (s *CatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
