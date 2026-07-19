@@ -37,6 +37,7 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	setGenerationOnCreate(&templateVersion.Metadata)
 	result, err := h.store.Create(ctx, orgId, &templateVersion)
 	h.callbackTemplateVersionUpdated(ctx, domain.TemplateVersionKind, orgId, lo.FromPtr(templateVersion.Metadata.Name), nil, result, true, err)
 	if err == nil {

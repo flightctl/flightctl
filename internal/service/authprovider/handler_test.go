@@ -250,10 +250,10 @@ func TestCreateAuthProvider(t *testing.T) {
 		_, status := CreateAuthProviderFromUntrusted(adminCtx(), h, uuid.New(), provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Nil(t, fakeStore.providers["p3"].Metadata.Owner)
-		require.Nil(t, fakeStore.providers["p3"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.providers["p3"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateAuthProvider (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateAuthProvider (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "p3-trusted", "", nil)
 		provider.Metadata.Owner = lo.ToPtr("someone")
@@ -262,7 +262,7 @@ func TestCreateAuthProvider(t *testing.T) {
 		_, status := h.CreateAuthProvider(memberCtx(), uuid.New(), provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Generation))
 	})
 
 	t.Run("When creating an OAuth2 provider it should default the issuer to the authorization URL and infer introspection", func(t *testing.T) {
@@ -428,10 +428,10 @@ func TestReplaceAuthProvider(t *testing.T) {
 		_, status := ReplaceAuthProviderFromUntrusted(memberCtx(), h, uuid.New(), "replace-untrusted", provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Owner)
-		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.providers["replace-untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceAuthProvider (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceAuthProvider (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-trusted", "", nil)
 		provider.Metadata.Owner = lo.ToPtr("someone")
@@ -440,7 +440,36 @@ func TestReplaceAuthProvider(t *testing.T) {
 		_, status := h.ReplaceAuthProvider(memberCtx(), uuid.New(), "replace-trusted", provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-bump", "", nil)
+		_, status := h.CreateAuthProvider(adminCtx(), orgId, provider)
+		require.Equal(t, int32(201), status.Code)
+		fakeStore.providers["replace-bump"].Metadata.Generation = lo.ToPtr(int64(2))
+
+		updated := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-bump", "https://other-issuer.example.com", nil)
+		_, status = h.ReplaceAuthProvider(adminCtx(), orgId, "replace-bump", updated)
+		require.Equal(t, int32(200), status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(fakeStore.providers["replace-bump"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-same", "", nil)
+		_, status := h.CreateAuthProvider(adminCtx(), orgId, provider)
+		require.Equal(t, int32(201), status.Code)
+		fakeStore.providers["replace-same"].Metadata.Generation = lo.ToPtr(int64(2))
+
+		updated := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-same", "", nil)
+		updated.Metadata.Labels = &map[string]string{"env": "prod"}
+		_, status = h.ReplaceAuthProvider(adminCtx(), orgId, "replace-same", updated)
+		require.Equal(t, int32(200), status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(fakeStore.providers["replace-same"].Metadata.Generation))
 	})
 }
 

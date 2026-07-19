@@ -175,6 +175,7 @@ func TestCreateTemplateVersion(t *testing.T) {
 		}
 		require.Contains(t, reasons, domain.EventReasonFleetRolloutStarted)
 		require.Contains(t, reasons, domain.EventReasonResourceCreated)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items[tvKey{fleet: "myfleet", name: "v1"}].Metadata.Generation))
 	})
 
 	t.Run("When metadata.owner and spec.fleet disagree it should return bad request", func(t *testing.T) {

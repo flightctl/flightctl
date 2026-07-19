@@ -235,10 +235,10 @@ func TestCreateResourceSync(t *testing.T) {
 		_, status := CreateResourceSyncFromUntrusted(context.Background(), h, uuid.New(), rs)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.items["untrusted-rs"].Metadata.Owner)
-		require.Nil(t, fakeStore.items["untrusted-rs"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items["untrusted-rs"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateResourceSync (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateResourceSync (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler()
 		rs := testResourceSync("trusted-rs")
 		rs.Metadata.Owner = lo.ToPtr("someone")
@@ -247,7 +247,7 @@ func TestCreateResourceSync(t *testing.T) {
 		_, status := h.CreateResourceSync(context.Background(), uuid.New(), rs)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items["trusted-rs"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items["trusted-rs"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items["trusted-rs"].Metadata.Generation))
 	})
 }
 
@@ -302,10 +302,10 @@ func TestReplaceResourceSync(t *testing.T) {
 		_, status := ReplaceResourceSyncFromUntrusted(context.Background(), h, orgId, "replace-untrusted", rs)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.items["replace-untrusted"].Metadata.Owner)
-		require.Nil(t, fakeStore.items["replace-untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items["replace-untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceResourceSync (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceResourceSync (trusted) should preserve owner and set generation to 1 on create", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler()
 		orgId := uuid.New()
 		rs := testResourceSync("replace-trusted")
@@ -315,7 +315,36 @@ func TestReplaceResourceSync(t *testing.T) {
 		_, status := h.ReplaceResourceSync(context.Background(), orgId, "replace-trusted", rs)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items["replace-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items["replace-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items["replace-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := testResourceSync("gen-bump")
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.items["gen-bump"] = &existing
+
+		updated := testResourceSync("gen-bump")
+		updated.Spec.Repository = "updated-repo"
+
+		_, status := h.ReplaceResourceSync(context.Background(), orgId, "gen-bump", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(fakeStore.items["gen-bump"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := testResourceSync("gen-same")
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.items["gen-same"] = &existing
+
+		updated := testResourceSync("gen-same")
+
+		_, status := h.ReplaceResourceSync(context.Background(), orgId, "gen-same", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(fakeStore.items["gen-same"].Metadata.Generation))
 	})
 }
 

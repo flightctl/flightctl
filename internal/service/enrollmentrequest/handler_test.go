@@ -291,10 +291,10 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 		_, status := CreateEnrollmentRequestFromUntrusted(context.Background(), h, uuid.New(), er)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
-		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateEnrollmentRequest (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateEnrollmentRequest (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler(t)
 		cn := "trusted-device"
 		er := domain.EnrollmentRequest{
@@ -311,7 +311,7 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 		_, status := h.CreateEnrollmentRequest(context.Background(), uuid.New(), er)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
 }
 
@@ -383,10 +383,10 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		_, status := ReplaceEnrollmentRequestFromUntrusted(context.Background(), h, orgId, cn, er)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
-		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceEnrollmentRequest (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceEnrollmentRequest (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _, _, _ := newTestHandler(t)
 		orgId := uuid.New()
 		cn := "replace-trusted"
@@ -402,7 +402,43 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 		_, status := h.ReplaceEnrollmentRequest(context.Background(), orgId, cn, er)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-bump"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Generation: lo.ToPtr(int64(2))},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		updated := er
+		updated.Spec.Labels = &map[string]string{"env": "prod"}
+
+		_, status := h.ReplaceEnrollmentRequest(context.Background(), orgId, cn, updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-same"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Generation: lo.ToPtr(int64(2))},
+			Spec:     domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+		fakeStore.items[cn] = &er
+
+		updated := er
+		updated.Metadata.Labels = &map[string]string{"env": "prod"}
+
+		_, status := h.ReplaceEnrollmentRequest(context.Background(), orgId, cn, updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
 }
 

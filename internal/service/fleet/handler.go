@@ -61,6 +61,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	setGenerationOnCreate(&fleet.Metadata)
 	result, err := h.store.Create(ctx, orgId, &fleet)
 	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
@@ -100,19 +101,32 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
+	var result, oldFleet *domain.Fleet
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
 		existing, getErr := h.store.Get(ctx, orgId, name)
 		if getErr != nil {
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
+				return getErr
 			}
-		} else if fleetOwnershipConflict(existing, &fleet) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+			existing = nil
 		}
-	}
+		if existing != nil && enforceOwnership && fleetOwnershipConflict(existing, &fleet) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
 
-	result, oldFleet, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil)
-	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, err)
+		toWrite := fleet
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+
+		var writeErr error
+		result, oldFleet, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite, nil)
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -186,8 +200,22 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 	}
 
-	result, oldFleet, err := h.store.Update(ctx, orgId, newObj, nil)
-	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, err)
+	var result, oldFleet *domain.Fleet
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		if enforceOwnership && fleetOwnershipConflict(existing, newObj) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		var writeErr error
+		result, oldFleet, writeErr = h.store.Update(ctx, orgId, &toWrite, nil)
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

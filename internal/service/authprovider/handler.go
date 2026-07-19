@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
@@ -157,6 +158,7 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 
 	h.handleSuperAdminAnnotation(ctx, &authProvider)
 
+	setGenerationOnCreate(&authProvider.Metadata)
 	result, err := h.store.Create(ctx, orgId, &authProvider)
 	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, lo.FromPtr(authProvider.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
@@ -224,23 +226,40 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 
 	// Get the existing resource to perform update validation
 	currentObj, err := h.store.Get(ctx, orgId, name)
-	if err == nil {
-		// Resource exists, validate update
-		if errs := authProvider.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+	if err != nil {
+		if !errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 		}
-
-		// Preserve sensitive data from existing provider if the new one contains masked placeholders
-		if preserveErr := authProvider.PreserveSensitiveData(currentObj); preserveErr != nil {
-			return nil, domain.StatusInternalServerError(preserveErr.Error())
-		}
-	} else {
 		// Resource doesn't exist, delegate to CreateAuthProvider which handles all creation logic
 		return h.CreateAuthProvider(ctx, orgId, authProvider)
 	}
 
-	result, oldAuthProvider, created, err := h.store.CreateOrUpdate(ctx, orgId, &authProvider)
-	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, err)
+	// Resource exists, validate update
+	if errs := authProvider.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+	}
+
+	// Preserve sensitive data from existing provider if the new one contains masked placeholders
+	if preserveErr := authProvider.PreserveSensitiveData(currentObj); preserveErr != nil {
+		return nil, domain.StatusInternalServerError(preserveErr.Error())
+	}
+
+	var result, oldAuthProvider *domain.AuthProvider
+	var created bool
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := authProvider
+		setGenerationOnUpdate(existing, &toWrite)
+
+		var writeErr error
+		result, oldAuthProvider, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
 
@@ -275,8 +294,21 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, oldAuthProvider, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, err)
+	var result, oldAuthProvider *domain.AuthProvider
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+
+		var writeErr error
+		result, oldAuthProvider, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
