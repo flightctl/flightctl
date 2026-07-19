@@ -135,14 +135,8 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, _, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(created).To(Equal(false))
-		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
-		Expect(dev.Kind).To(Equal(api.DeviceKind))
-		Expect(dev.Spec.Os.Image).To(Equal("newos"))
-		Expect(dev.Metadata.ResourceVersion).ToNot(BeNil())
-		Expect(*dev.Metadata.ResourceVersion).To(Equal("6"))
+		_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
+		Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 	})
 
 	It("CreateOrUpdateDevice updates owned device (ownership enforced in service)", func() {

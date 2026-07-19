@@ -178,7 +178,6 @@ func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, org
 }
 
 func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource P) (bool, error) {
-	resource.SetGeneration(lo.ToPtr(int64(1)))
 	resource.SetResourceVersion(lo.ToPtr(int64(1)))
 
 	result := s.getDB(ctx).Create(resource)
@@ -190,12 +189,6 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 }
 
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, existing, resource P, fieldsToUnset []string) (bool, error) {
-	sameSpec := resource.HasSameSpecAs(existing)
-	if !sameSpec {
-		// Update the generation if the spec was updated
-		resource.SetGeneration(lo.ToPtr(lo.FromPtr(existing.GetGeneration()) + 1))
-	}
-
 	if resource.GetResourceVersion() != nil &&
 		lo.FromPtr(existing.GetResourceVersion()) != lo.FromPtr(resource.GetResourceVersion()) {
 		return false, flterrors.ErrResourceVersionConflict
@@ -222,7 +215,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, existing
 		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 
 	// Merge preserved fields from existing into resource

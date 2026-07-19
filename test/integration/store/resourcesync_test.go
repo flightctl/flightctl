@@ -65,8 +65,9 @@ var _ = Describe("ResourceSyncStore create", func() {
 			var gen int64 = 1
 			rs := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name:   lo.ToPtr("rs1"),
-					Labels: &map[string]string{"key": "rs1"},
+					Name:       lo.ToPtr("rs1"),
+					Labels:     &map[string]string{"key": "rs1"},
+					Generation: &gen,
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myrepo",
