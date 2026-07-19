@@ -1,0 +1,49 @@
+name: "Verify RPM Install Paths"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'packaging/**'
+      - 'hack/build_rpms.sh'
+      - 'test/scripts/verify-rpm-install.sh'
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - 'hack/build_rpms.sh'
+      - 'test/scripts/verify-rpm-install.sh'
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-rpms:
+    uses: ./.github/workflows/build-rpms.yaml
+    with:
+      root: centos-stream+epel-next-9-x86_64
+
+  verify:
+    needs: build-rpms
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-centos-stream+epel-next-9-x86_64
+          path: bin/rpm
+
+      - name: Verify RPM install paths
+        run: |
+          test/scripts/verify-rpm-install.sh

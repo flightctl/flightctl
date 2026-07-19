@@ -21,7 +21,6 @@ info() { printf "${YELLOW}>>> %s${NC}\n" "$1"; }
 assert_installed()   { podman exec "$1" rpm -q "$2" >/dev/null 2>&1 && pass "$2 is installed"      || fail "$2 is NOT installed"; }
 assert_not_installed() { podman exec "$1" rpm -q "$2" >/dev/null 2>&1 && fail "$2 IS installed"     || pass "$2 is not installed"; }
 assert_file_exists() { podman exec "$1" test -f "$2"               && pass "$2 exists"             || fail "$2 does NOT exist"; }
-assert_file_absent() { podman exec "$1" test -f "$2"               && fail "$2 exists unexpectedly" || pass "$2 is absent"; }
 
 check_rpms() {
     if [ ! -d "${RPM_DIR}" ]; then
@@ -149,6 +148,7 @@ test_agent_unit_smoke() {
     setup_container "${ctr}"
 
     podman exec "${ctr}" dnf install -y --setopt=install_weak_deps=False flightctl-agent
+    podman exec "${ctr}" dnf install -y -q systemd 2>/dev/null
 
     local execstartpre
     execstartpre=$(podman exec "${ctr}" grep '^ExecStartPre=' /usr/lib/systemd/system/flightctl-agent.service || true)
