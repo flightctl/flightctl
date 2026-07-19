@@ -112,31 +112,24 @@ var _ = Describe("ResourceSyncStore create", func() {
 					map[string]string{"metadata.owner": *fleetowner}, selector.WithPrivateSelectors()),
 			}
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, fleetowner)
-			callbackCalled := false
-			err := resourceSyncStore.Delete(ctx, orgId, rsName, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-				Expect(owner).To(Equal(*fleetowner))
+			err := resourceSyncStore.WithTransaction(ctx, func(ctx context.Context) error {
+				if err := resourceSyncStore.Delete(ctx, orgId, rsName); err != nil {
+					return err
+				}
 				f, err := fleetStore.List(ctx, orgId, listParams)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(len(f.Items)).To(Equal(1))
-				err = fleetStore.UnsetOwner(ctx, tx, orgId, owner)
-				callbackCalled = true
-				return err
+				return fleetStore.UnsetOwner(ctx, store.DB(ctx, nil), orgId, *fleetowner)
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
 			f, err := fleetStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(f.Items)).To(Equal(0))
 		})
 
 		It("Delete resourcesync fail when not found", func() {
-			callbackCalled := false
-			err := resourceSyncStore.Delete(ctx, orgId, "nonexistent", func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-				callbackCalled = true
-				return nil
-			})
+			err := resourceSyncStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeFalse())
 		})
 
 		It("List with paging", func() {

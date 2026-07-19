@@ -99,7 +99,7 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	_, exists := f.catalogs[name]
 	if !exists {
 		return flterrors.ErrResourceNotFound
@@ -110,9 +110,6 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 		}
 	}
 	delete(f.catalogs, name)
-	if callback != nil {
-		_ = callback(ctx, nil, orgId, name)
-	}
 	return nil
 }
 

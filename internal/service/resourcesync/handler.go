@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 type ServiceHandler struct {
@@ -110,17 +109,22 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-		if err := h.catalogStore.UnsetItemOwner(ctx, tx, orgId, owner); err != nil {
+	// Service owns the cascade: one TX for delete + owner cleanup. Store Delete joins
+	// the active TX via store.RunInTransaction so UnsetOwner* see the same connection.
+	err := h.store.WithTransaction(ctx, func(ctx context.Context) error {
+		if err := h.store.Delete(ctx, orgId, name); err != nil {
 			return err
 		}
-		if err := h.catalogStore.UnsetOwner(ctx, tx, orgId, owner); err != nil {
+		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
+		tx := store.DB(ctx, nil)
+		if err := h.catalogStore.UnsetItemOwner(ctx, tx, orgId, *owner); err != nil {
 			return err
 		}
-		return h.fleetStore.UnsetOwner(ctx, tx, orgId, owner)
-	}
-
-	err := h.store.Delete(ctx, orgId, name, callback)
+		if err := h.catalogStore.UnsetOwner(ctx, tx, orgId, *owner); err != nil {
+			return err
+		}
+		return h.fleetStore.UnsetOwner(ctx, tx, orgId, *owner)
+	})
 	if err == nil {
 		h.callbackResourceSyncDeleted(ctx, domain.ResourceSyncKind, orgId, name, nil, nil, false, nil)
 	}

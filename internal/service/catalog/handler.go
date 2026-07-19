@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 type ServiceHandler struct {
@@ -164,14 +163,9 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
-	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-		// No owned resources for Catalog currently
-		return nil
-	}
-
 	// Product rule: refuse deleting a non-empty catalog. The service chooses store.Delete
 	// (TX primitive that returns ErrResourceNotEmpty when items exist) and maps the error.
-	err = h.store.Delete(ctx, orgId, name, callback)
+	err = h.store.Delete(ctx, orgId, name)
 	if err == nil {
 		h.callbackCatalogDeleted(ctx, domain.CatalogKind, orgId, name, nil, nil, false, nil)
 	}

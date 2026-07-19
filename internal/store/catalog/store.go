@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -24,7 +23,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
@@ -138,10 +137,11 @@ func (s *CatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams sto
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	existingRecord := model.Catalog{Resource: model.Resource{OrgID: orgId, Name: name}}
-	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
-		result := innerTx.Take(&existingRecord)
+	// Join caller TX when present so multi-store cascades stay atomic.
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		result := tx.Take(&existingRecord)
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
@@ -149,19 +149,18 @@ func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string,
 		// Persistence contract of this delete path: count+delete in one TX.
 		// Returns ErrResourceNotEmpty when items still exist (not a separate policy API).
 		var itemCount int64
-		if err := innerTx.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ?", orgId, name).Count(&itemCount).Error; err != nil {
+		if err := tx.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ?", orgId, name).Count(&itemCount).Error; err != nil {
 			return store.ErrorFromGormError(err)
 		}
 		if itemCount > 0 {
 			return flterrors.ErrResourceNotEmpty
 		}
 
-		result = innerTx.Unscoped().Delete(&existingRecord)
+		result = tx.Unscoped().Delete(&existingRecord)
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
-		owner := util.SetResourceOwner(domain.CatalogKind, name)
-		return callback(ctx, innerTx, orgId, *owner)
+		return nil
 	})
 
 	if err != nil {

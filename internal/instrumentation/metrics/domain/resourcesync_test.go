@@ -36,7 +36,10 @@ func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string
 func (m *MockResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (m *MockResourceSync) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+func (m *MockResourceSync) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	return nil
 }
 func (m *MockResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {

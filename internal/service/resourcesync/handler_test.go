@@ -81,17 +81,15 @@ func (f *fakeResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listP
 	return &domain.ResourceSyncList{Items: items}, nil
 }
 
-func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (f *fakeResourceSyncStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	if _, exists := f.items[name]; !exists {
 		return nil
 	}
 	delete(f.items, name)
-	if callback != nil {
-		owner := "ResourceSync/" + name
-		if err := callback(ctx, nil, orgId, owner); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -114,8 +112,8 @@ func (f *fakeResourceSyncStore) CountByOrgAndStatus(ctx context.Context, orgId *
 	return nil, nil
 }
 
-// fakeCatalogStore embeds catalogstore.Store (nil) and overrides only the 2 methods
-// DeleteResourceSync's ownership-cleanup callback actually calls.
+// fakeCatalogStore embeds catalogstore.Store (nil) and overrides UnsetItemOwner/UnsetOwner
+// used by DeleteResourceSync's service-owned cascade.
 type fakeCatalogStore struct {
 	catalogstore.Store
 	unsetItemOwnerCalls []string
@@ -136,10 +134,14 @@ func (f *fakeCatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uu
 type fakeFleetStore struct {
 	fleetstore.Store
 	unsetOwnerCalls []string
+	failUnset       bool
 }
 
 func (f *fakeFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 	f.unsetOwnerCalls = append(f.unsetOwnerCalls, owner)
+	if f.failUnset {
+		return flterrors.ErrResourceNotFound
+	}
 	return nil
 }
 
@@ -404,6 +406,18 @@ func TestDeleteResourceSync(t *testing.T) {
 		require.Len(t, fakeFleet.unsetOwnerCalls, 1)
 		require.Equal(t, "ResourceSync/foo", fakeFleet.unsetOwnerCalls[0])
 		require.Len(t, fakeEvents.deleted, 1)
+	})
+
+	t.Run("When owner cleanup fails it should not emit a deleted event", func(t *testing.T) {
+		h, fakeStore, _, fakeFleet, fakeEvents := newTestHandler()
+		orgId := uuid.New()
+		rs := testResourceSync("foo")
+		fakeStore.items["foo"] = &rs
+		fakeFleet.failUnset = true
+
+		status := h.DeleteResourceSync(context.Background(), orgId, "foo")
+		require.NotEqual(t, statusSuccessCode, status.Code)
+		require.Empty(t, fakeEvents.deleted)
 	})
 }
 
