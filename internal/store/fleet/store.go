@@ -428,7 +428,7 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	})
 	err := store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
 		return false, flterrors.ErrNoRowsUpdated

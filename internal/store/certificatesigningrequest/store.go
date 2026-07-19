@@ -2,7 +2,6 @@ package certificatesigningrequest
 
 import (
 	"context"
-	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -148,7 +147,7 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 	})
 	err := store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
 		return false, flterrors.ErrNoRowsUpdated
