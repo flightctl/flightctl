@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -71,5 +72,18 @@ func TestRetryOnNoRowsUpdated(t *testing.T) {
 		})
 		require.ErrorIs(t, err, flterrors.ErrResourceNotFound)
 		require.Equal(t, 1, attempts)
+	})
+
+	t.Run("When fn returns a deadlock error it should retry", func(t *testing.T) {
+		attempts := 0
+		err := RetryOnNoRowsUpdated(func() error {
+			attempts++
+			if attempts < 2 {
+				return errors.New("ERROR: deadlock detected")
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, 2, attempts)
 	})
 }

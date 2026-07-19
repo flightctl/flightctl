@@ -1308,10 +1308,7 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 	if existingRecord.ServiceConditions == nil {
 		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
 	}
-	prepared := conditions
-	if prepared == nil {
-		prepared = []domain.Condition{}
-	}
+	prepared := append([]domain.Condition(nil), conditions...)
 	existingRecord.ServiceConditions.Data.Conditions = &prepared
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -1320,7 +1317,7 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 	})
 	err = store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
 		return false, flterrors.ErrNoRowsUpdated

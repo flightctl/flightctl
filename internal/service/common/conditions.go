@@ -2,6 +2,7 @@ package common
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -22,7 +23,14 @@ func MergeStatusConditions(existing []domain.Condition, updates []domain.Conditi
 	return merged, changed
 }
 
-// RetryOnNoRowsUpdated runs fn until it succeeds or returns a non-CAS error.
+func shouldRetryConditionUpdate(err error) bool {
+	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "deadlock")
+}
+
+// RetryOnNoRowsUpdated runs fn until it succeeds or returns a non-retryable error.
 func RetryOnNoRowsUpdated(fn func() error) error {
 	var err error
 	for i := 0; i < ConditionUpdateRetryIterations; i++ {
@@ -30,7 +38,7 @@ func RetryOnNoRowsUpdated(fn func() error) error {
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, flterrors.ErrNoRowsUpdated) {
+		if !shouldRetryConditionUpdate(err) {
 			return err
 		}
 	}
