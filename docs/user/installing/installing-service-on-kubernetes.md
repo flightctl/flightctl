@@ -60,7 +60,7 @@ Both values are optional and unset by default, which preserves the existing dyna
 Setting either value on a component also makes Flight Control render `storageClassName: ""` on that `PersistentVolumeClaim` when `global.storageClassName` is not explicitly set, instead of omitting the field. This keeps the binding working regardless of whether the cluster has a default `StorageClass` — without it, Kubernetes could inject a default class that does not match the pre-provisioned `PersistentVolume` and leave the claim unbound.
 
 > [!IMPORTANT]
-> `volumeName` and `selector` take effect only when Flight Control first creates the `PersistentVolumeClaim`. Kubernetes does not allow changing these fields on an existing `PersistentVolumeClaim`, so setting or changing them on an already-installed release causes `helm upgrade` to fail for that resource. Set the values before the first `helm install`.
+> `volumeName` and `selector` take effect only when Flight Control first creates the underlying storage resource. For the database, Kubernetes does not allow changing these fields on an existing `PersistentVolumeClaim`. For Alertmanager, Kubernetes does not allow changing `volumeClaimTemplates` on an existing `StatefulSet` at all. Either way, setting or changing these values on an already-installed release causes `helm upgrade` to fail for that resource. Set the values before the first `helm install`.
 
 If you need a binding pattern the `volumeName` and `selector.matchLabels` values do not cover, such as `matchExpressions`, or changing the binding on an already-installed release, manage the `PersistentVolumeClaim` outside the values covered here:
 
