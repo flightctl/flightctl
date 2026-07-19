@@ -489,7 +489,7 @@ check-rpmlint:
 
 .PHONY: verify-rpm-install
 verify-rpm-install: bin/.rpm
-	$(ROOT_DIR)/test/scripts/verify-rpm-install.sh
+	go test -v -count=1 -timeout 15m ./test/packaging/...
 
 .output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
