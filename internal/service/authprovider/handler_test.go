@@ -106,12 +106,15 @@ func (f *fakeAuthProviderStore) List(ctx context.Context, orgId uuid.UUID, listP
 	return &domain.AuthProviderList{Items: items}, nil
 }
 
-func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if f.err != nil {
-		return f.err
+		return false, f.err
+	}
+	if _, exists := f.providers[name]; !exists {
+		return false, nil
 	}
 	delete(f.providers, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeAuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {

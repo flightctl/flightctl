@@ -20,7 +20,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.RepositoryList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error)
 
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error)
@@ -121,9 +121,8 @@ func (s *RepositoryStore) ListIgnoreOrg(ctx context.Context) ([]model.Repository
 	return repositories, nil
 }
 
-func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	_, err := s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}})
-	return err
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
 func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error) {

@@ -87,12 +87,12 @@ func (f *fakeRepositoryStore) List(_ context.Context, _ uuid.UUID, _ store.ListP
 	return &domain.RepositoryList{Items: items}, nil
 }
 
-func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {

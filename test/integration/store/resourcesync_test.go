@@ -113,7 +113,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			}
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, fleetowner)
 			err := resourceSyncStore.WithTransaction(ctx, func(ctx context.Context) error {
-				if err := resourceSyncStore.Delete(ctx, orgId, rsName); err != nil {
+				if _, err := resourceSyncStore.Delete(ctx, orgId, rsName); err != nil {
 					return err
 				}
 				f, err := fleetStore.List(ctx, orgId, listParams)
@@ -128,7 +128,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		})
 
 		It("Delete resourcesync fail when not found", func() {
-			err := resourceSyncStore.Delete(ctx, orgId, "nonexistent")
+			_, err := resourceSyncStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 

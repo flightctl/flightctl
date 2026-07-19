@@ -337,20 +337,19 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	_, exists := f.catalogs[name]
 	if !exists {
-		return flterrors.ErrResourceNotFound
+		return false, flterrors.ErrResourceNotFound
 	}
 	prefix := name + "/"
 	for key := range f.items {
 		if strings.HasPrefix(key, prefix) {
-			return flterrors.ErrResourceNotEmpty
+			return false, flterrors.ErrResourceNotEmpty
 		}
 	}
 	delete(f.catalogs, name)
-	return nil
-}
+	return true, nil
 
 func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
