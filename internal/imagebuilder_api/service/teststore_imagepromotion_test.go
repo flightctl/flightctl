@@ -8,6 +8,7 @@ import (
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -174,6 +175,11 @@ func (s *DummyCatalogStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 	}, nil
 }
 
+func (s *DummyCatalogStore) GetCatalog(ctx context.Context, orgId uuid.UUID, name string) (*coredomain.Catalog, coredomain.Status) {
+	result, err := s.Get(ctx, orgId, name)
+	return result, common.StoreErrorToApiStatus(err, false, coredomain.CatalogKind, &name)
+}
+
 func (s *DummyCatalogStore) GetItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*coredomain.CatalogItem, error) {
 	key := catalogName + "/" + itemName
 	item, ok := s.items[key]
@@ -183,6 +189,21 @@ func (s *DummyCatalogStore) GetItem(ctx context.Context, orgId uuid.UUID, catalo
 	var result coredomain.CatalogItem
 	deepCopy(item, &result)
 	return &result, nil
+}
+
+func (s *DummyCatalogStore) GetCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*coredomain.CatalogItem, coredomain.Status) {
+	result, err := s.GetItem(ctx, orgId, catalogName, itemName)
+	return result, common.StoreErrorToApiStatus(err, false, coredomain.CatalogItemKind, &itemName)
+}
+
+func (s *DummyCatalogStore) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, item coredomain.CatalogItem) (*coredomain.CatalogItem, coredomain.Status) {
+	result, err := s.CreateItem(ctx, orgId, catalogName, &item)
+	return result, common.StoreErrorToApiStatus(err, true, coredomain.CatalogItemKind, item.Metadata.Name)
+}
+
+func (s *DummyCatalogStore) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item coredomain.CatalogItem, enforceOwnership bool) (*coredomain.CatalogItem, coredomain.Status) {
+	result, created, err := s.CreateOrUpdateItem(ctx, orgId, catalogName, &item)
+	return result, common.StoreErrorToApiStatus(err, created, coredomain.CatalogItemKind, &itemName)
 }
 
 func (s *DummyCatalogStore) CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *coredomain.CatalogItem) (*coredomain.CatalogItem, error) {

@@ -20,8 +20,10 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -108,6 +110,10 @@ func (s *Server) Run(ctx context.Context) error {
 	eventsSvc := events.NewServiceHandler(eventStore, nil, s.log)
 	deviceSvc := deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, nil, "", s.log))
+	catalogSvc := catalogservice.WrapWithTracing(
+		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+	organizationSvc := organizationservice.WrapWithTracing(
+		organizationservice.NewServiceHandler(organizationStore))
 
 	// Auth — matches imagebuilder-api: tracing-wrapped store-backed service,
 	// InitMultiAuth, then Start(ctx) in a goroutine with an error channel.
@@ -141,8 +147,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Identity mapper.
-	orgProvisioner := service.NewOrgProvisioner(catalogStore, s.log)
-	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
