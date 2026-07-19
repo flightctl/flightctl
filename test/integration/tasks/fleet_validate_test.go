@@ -93,7 +93,8 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("git-repo"),
+				Name:       lo.ToPtr("git-repo"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: spec,
 		}
@@ -105,7 +106,8 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("http-repo"),
+				Name:       lo.ToPtr("http-repo"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: specHttp,
 		}
@@ -116,7 +118,8 @@ var _ = Describe("FleetValidate", func() {
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("myfleet"),
+				Name:       lo.ToPtr("myfleet"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 		}
 

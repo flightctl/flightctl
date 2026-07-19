@@ -233,7 +233,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		// since StopFleetApplication/StartFleetApplication validate appName against the fleet's
 		// own declarative template (mirroring how the device-scoped APIs validate against
 		// device.Spec.Applications), not against the TemplateVersion.
-		fleet := api.Fleet{Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)}}
+		fleet := api.Fleet{Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName), Generation: lo.ToPtr(int64(1))}}
 		fleet.Spec.Template.Spec.Applications = &[]api.ApplicationProviderSpec{fleetApp}
 		_, err := fleetStore.Create(ctx, orgId, &fleet)
 		Expect(err).ToNot(HaveOccurred())

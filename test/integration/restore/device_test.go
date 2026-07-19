@@ -30,7 +30,8 @@ var _ = Describe("Device restore operations", func() {
 			testDeviceName := "restore-test-device"
 			testDevice := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(testDeviceName),
+					Name:       lo.ToPtr(testDeviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{
 						"existing-annotation": "existing-value",
 					},
@@ -108,7 +109,8 @@ var _ = Describe("Device restore operations", func() {
 			deviceName := "test-device-no-status"
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOsSpec{Image: "test-image"},
@@ -146,6 +148,7 @@ var _ = Describe("Device restore operations", func() {
 			decommissioningDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(decommissioningDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{
@@ -170,6 +173,7 @@ var _ = Describe("Device restore operations", func() {
 			decommissionedDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(decommissionedDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{
@@ -194,6 +198,7 @@ var _ = Describe("Device restore operations", func() {
 			normalDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(normalDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
@@ -271,7 +276,7 @@ var _ = Describe("Device restore operations", func() {
 
 			deviceName := "last-seen-column-test"
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
 				Status: &api.DeviceStatus{
 					LastSeen: lo.ToPtr(time.Now()),

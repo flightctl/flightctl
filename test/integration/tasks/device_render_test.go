@@ -190,7 +190,7 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-k8s-render-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
 				_, err = deviceStore.Create(ctx, orgId, device)
@@ -225,7 +225,7 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-k8s-unsafe-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
 				_, err = deviceStore.Create(ctx, orgId, device)
@@ -261,7 +261,7 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-unrenderable-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
 				_, err = deviceStore.Create(ctx, orgId, device)
@@ -328,7 +328,8 @@ var _ = Describe("DeviceRender", func() {
 
 			repo := &api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(repoName),
+					Name:       lo.ToPtr(repoName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: repoSpec,
 			}
@@ -352,7 +353,8 @@ var _ = Describe("DeviceRender", func() {
 
 			fleet := &api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(fleetName),
+					Name:       lo.ToPtr(fleetName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -388,7 +390,8 @@ var _ = Describe("DeviceRender", func() {
 			// Create a device with initial label
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Labels: &map[string]string{
 						"device": "camera",
 						"size":   "small",
@@ -468,7 +471,8 @@ var _ = Describe("DeviceRender", func() {
 
 			repo := &api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(repoName),
+					Name:       lo.ToPtr(repoName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: repoSpec,
 			}
@@ -492,7 +496,8 @@ var _ = Describe("DeviceRender", func() {
 
 			fleet := &api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(fleetName),
+					Name:       lo.ToPtr(fleetName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -528,7 +533,8 @@ var _ = Describe("DeviceRender", func() {
 			// Create a device
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Labels: &map[string]string{
 						"device": "camera",
 						"size":   "small",
@@ -595,7 +601,7 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-fingerprint-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
 			_, err = deviceStore.Create(ctx, orgId, device)
@@ -637,7 +643,7 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-inline-only-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
 			_, err = deviceStore.Create(ctx, orgId, device)
@@ -683,7 +689,7 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-mixed-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{k8sProvider, inlineProvider}},
 			}
 			_, err = deviceStore.Create(ctx, orgId, device)
@@ -723,7 +729,7 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-fail-render-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
 			_, err = deviceStore.Create(ctx, orgId, device)
@@ -763,7 +769,7 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			fleet := &api.Fleet{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName), Generation: lo.ToPtr(int64(1))},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
 					Template: struct {
@@ -786,8 +792,9 @@ var _ = Describe("DeviceRender", func() {
 			testDeviceName := deviceName + "-fleet-rollout-" + uuid.New().String()[:8]
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name:  lo.ToPtr(testDeviceName),
-					Owner: lo.ToPtr("Fleet/" + fleetName),
+					Name:       lo.ToPtr(testDeviceName),
+					Generation: lo.ToPtr(int64(1)),
+					Owner:      lo.ToPtr("Fleet/" + fleetName),
 				},
 				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}

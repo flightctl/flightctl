@@ -102,13 +102,13 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1"), Generation: lo.ToPtr(int64(1))},
 			Spec:     api.FleetSpec{},
 		}
 		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &config1}
 
 		fleet2 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2"), Generation: lo.ToPtr(int64(1))},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
@@ -123,14 +123,14 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create device1 referencing repo1, device2 referencing repo2
 		device1 := api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1"), Generation: lo.ToPtr(int64(1))},
 			Spec: &api.DeviceSpec{
 				Config: &config1,
 			},
 		}
 
 		device2 := api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2"), Generation: lo.ToPtr(int64(1))},
 			Spec: &api.DeviceSpec{
 				Config: &config2,
 			},
