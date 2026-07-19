@@ -99,11 +99,13 @@ func NewManager(
 // Initialize ensures the device is enrolled to the management service.
 func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
-		if err := m.writeEnrollmentBanner(ctx); err != nil {
+		if err := m.enrollmentRequest(ctx, status); err != nil {
 			return err
 		}
 
-		if err := m.enrollmentRequest(ctx, status); err != nil {
+		// EDM-3605: write the enrollment banner only after the enrollment request
+		// has been successfully created on the server.
+		if err := m.writeEnrollmentBanner(ctx); err != nil {
 			return err
 		}
 
