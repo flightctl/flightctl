@@ -18,6 +18,10 @@ const E2ESetupAbortExitCode = 2
 // E2ESetupAbortStderrMarker is written to stderr on setup abort so CI can detect it from logs.
 const E2ESetupAbortStderrMarker = "FLIGHTCTL_E2E_SETUP_ABORT=1"
 
+// NeedVMLabel marks specs that require a live VM/agent during suites that
+// otherwise use a no-VM harness by default.
+const NeedVMLabel = "needvm"
+
 var (
 	// Per-worker storage
 	workerHarnesses sync.Map // map[int]*Harness
@@ -117,6 +121,17 @@ func StartAuxServicesAsync(ctx context.Context) *AuxServicesFuture {
 // Wait blocks until aux service setup completes and returns the services.
 func (f *AuxServicesFuture) Wait() *auxiliary.Services {
 	return <-f.result
+}
+
+// CurrentSpecNeedsVM reports whether the currently running Ginkgo spec is
+// labeled as requiring VM setup.
+func CurrentSpecNeedsVM() bool {
+	for _, label := range ginkgo.CurrentSpecReport().Labels() {
+		if label == NeedVMLabel {
+			return true
+		}
+	}
+	return false
 }
 
 // GetWorkerHarness retrieves the harness for the current worker.
