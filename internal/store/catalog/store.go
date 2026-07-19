@@ -19,13 +19,13 @@ import (
 type Store interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error)
-	Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error)
+	Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
@@ -41,10 +41,9 @@ type Store interface {
 }
 
 type CatalogStore struct {
-	dbHandler           *gorm.DB
-	log                 logrus.FieldLogger
-	genericStore        *store.GenericStore[*model.Catalog, model.Catalog, domain.Catalog, domain.CatalogList]
-	eventCallbackCaller store.EventCallbackCaller
+	dbHandler    *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *store.GenericStore[*model.Catalog, model.Catalog, domain.Catalog, domain.CatalogList]
 }
 
 // Make sure we conform to the Store interface
@@ -58,7 +57,7 @@ func NewCatalogStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.Catalog).ToApiResource,
 		model.CatalogsToApiResource,
 	)
-	return &CatalogStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: store.CallEventCallback(domain.CatalogKind, log)}
+	return &CatalogStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
 func (s *CatalogStore) getDB(ctx context.Context) *gorm.DB {
@@ -119,22 +118,16 @@ func (s *CatalogStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
-	catalog, err := s.genericStore.Create(ctx, orgId, resource)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, catalog, true, err)
-	return catalog, err
+func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, error) {
+	return s.genericStore.Create(ctx, orgId, resource)
 }
 
-func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
-	newCatalog, oldCatalog, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, false, err)
-	return newCatalog, err
+func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
+	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
 }
 
-func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, bool, error) {
-	newCatalog, oldCatalog, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, created, err)
-	return newCatalog, created, err
+func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *CatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
@@ -145,7 +138,7 @@ func (s *CatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams sto
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
+func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
 	existingRecord := model.Catalog{Resource: model.Resource{OrgID: orgId, Name: name}}
 	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.Take(&existingRecord)
@@ -171,9 +164,6 @@ func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string,
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
-	if err == nil && callbackEvent != nil {
-		s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, err)
-	}
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil
@@ -184,24 +174,18 @@ func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string,
 	return nil
 }
 
-func (s *CatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
-	// Get the old resource to compare conditions
+func (s *CatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	var oldCatalog *domain.Catalog
 	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
 	if err == nil && existingResource != nil {
 		oldCatalog = existingResource
 	}
 
-	// Update the status
 	newCatalog, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	if err != nil {
-		return newCatalog, err
+		return nil, oldCatalog, err
 	}
-
-	// Call the event callback to emit condition-specific events
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, false, err)
-
-	return newCatalog, err
+	return newCatalog, oldCatalog, nil
 }
 
 func (s *CatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {

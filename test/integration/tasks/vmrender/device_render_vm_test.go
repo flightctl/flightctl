@@ -131,7 +131,7 @@ var _ = Describe("VmApplicationRender", func() {
 			Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 			Spec:     &api.DeviceSpec{Applications: &[]api.ApplicationProviderSpec{appSpec}},
 		}
-		_, err := deviceStore.Create(ctx, orgId, device, nil)
+		_, err := deviceStore.Create(ctx, orgId, device)
 		Expect(err).ToNot(HaveOccurred())
 
 		event := api.Event{

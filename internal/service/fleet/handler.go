@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -60,7 +61,10 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &fleet, h.callbackFleetUpdated)
+	result, err := h.store.Create(ctx, orgId, &fleet)
+	if err == nil {
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, result, true, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
 }
 
@@ -109,7 +113,10 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, h.callbackFleetUpdated)
+	result, oldFleet, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil)
+	if err == nil {
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -138,7 +145,10 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name 
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
-	err = h.store.Delete(ctx, orgId, name, h.callbackFleetDeleted)
+	err = h.store.Delete(ctx, orgId, name)
+	if err == nil {
+		h.callbackFleetDeleted(ctx, domain.FleetKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -180,7 +190,10 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, nil, h.callbackFleetUpdated)
+	result, oldFleet, err := h.store.Update(ctx, orgId, newObj, nil)
+	if err == nil {
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -210,13 +223,21 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.U
 		if !changed {
 			return nil
 		}
-		return h.store.UpdateConditions(ctx, orgId, name, merged, h.callbackFleetUpdated)
+		oldFleet, newFleet, updateErr := h.store.UpdateConditions(ctx, orgId, name, merged)
+		if updateErr != nil {
+			return updateErr
+		}
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, nil)
+		return nil
 	})
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
-	err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
+	oldFleet, newFleet, err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	if err == nil {
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -232,10 +253,14 @@ func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.
 
 // callbackFleetUpdated is the fleet-specific callback that handles fleet events
 func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	EmitFleetUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		EmitFleetUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // callbackFleetDeleted is the fleet-specific callback that handles fleet deletion events
 func (h *ServiceHandler) callbackFleetDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -90,7 +91,10 @@ func (h *ServiceHandler) CreateCatalog(ctx context.Context, orgId uuid.UUID, cat
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &catalog, h.callbackCatalogUpdated)
+	result, err := h.store.Create(ctx, orgId, &catalog)
+	if err == nil {
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, lo.FromPtr(catalog.Metadata.Name), nil, result, true, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, true, domain.CatalogKind, catalog.Metadata.Name)
 }
 
@@ -140,7 +144,10 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, h.callbackCatalogUpdated)
+	result, oldCatalog, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog)
+	if err == nil {
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -164,7 +171,10 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 
 	// Product rule: refuse deleting a non-empty catalog. The service chooses store.Delete
 	// (TX primitive that returns ErrResourceNotEmpty when items exist) and maps the error.
-	err = h.store.Delete(ctx, orgId, name, callback, h.callbackCatalogDeleted)
+	err = h.store.Delete(ctx, orgId, name, callback)
+	if err == nil {
+		h.callbackCatalogDeleted(ctx, domain.CatalogKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -197,7 +207,10 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCatalogUpdated)
+	result, oldCatalog, err := h.store.Update(ctx, orgId, newObj)
+	if err == nil {
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -213,7 +226,10 @@ func (h *ServiceHandler) ReplaceCatalogStatus(ctx context.Context, orgId uuid.UU
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, err := h.store.UpdateStatus(ctx, orgId, &catalog, h.callbackCatalogUpdated)
+	result, oldCatalog, err := h.store.UpdateStatus(ctx, orgId, &catalog)
+	if err == nil {
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -233,7 +249,10 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.UpdateStatus(ctx, orgId, newObj, h.callbackCatalogUpdated)
+	result, oldCatalog, err := h.store.UpdateStatus(ctx, orgId, newObj)
+	if err == nil {
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
+	}
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -391,26 +410,30 @@ func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID,
 
 // callbackCatalogUpdated is the catalog-specific callback that handles catalog events
 func (h *ServiceHandler) callbackCatalogUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldCatalog, newCatalog *domain.Catalog
-				ok                     bool
-			)
-			if oldCatalog, newCatalog, ok = common.CastResources[domain.Catalog](oldResource, newResource); ok && oldCatalog != nil && newCatalog != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldCatalog.Metadata, newCatalog.Metadata)
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldCatalog, newCatalog *domain.Catalog
+					ok                     bool
+				)
+				if oldCatalog, newCatalog, ok = common.CastResources[domain.Catalog](oldResource, newResource); ok && oldCatalog != nil && newCatalog != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldCatalog.Metadata, newCatalog.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackCatalogDeleted is the catalog-specific callback that handles catalog deletion events
 func (h *ServiceHandler) callbackCatalogDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }

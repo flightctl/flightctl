@@ -46,7 +46,7 @@ func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore
 
 func (f *fakeCertificateSigningRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, error) {
+func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
@@ -57,17 +57,14 @@ func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId u
 		req.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	}
 	f.items[name] = req
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, req, true, nil)
-	}
 	return req, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, error) {
+func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	// Mirror internal/store/model.NewCertificateSigningRequestFromApiResource, which always
 	// defaults Status to a non-nil, empty-conditions struct regardless of the caller's input.
@@ -75,20 +72,17 @@ func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId u
 		req.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	}
 	f.items[name] = req
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, old, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, bool, error) {
+func (f *fakeCertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, req, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, req)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, req, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, req)
+	return result, nil, true, err
 }
 
 func (f *fakeCertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {
@@ -107,14 +101,11 @@ func (f *fakeCertificateSigningRequestStore) List(ctx context.Context, orgId uui
 	return &domain.CertificateSigningRequestList{Items: items}, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	if _, exists := f.items[name]; !exists {
 		return nil
 	}
 	delete(f.items, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
-	}
 	return nil
 }
 

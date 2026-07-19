@@ -352,7 +352,8 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string) e
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},
 	)
 	return err
-\}
+}
+
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet) (*domain.Fleet, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }

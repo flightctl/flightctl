@@ -36,39 +36,33 @@ func newFakeResourceSyncStore() *fakeResourceSyncStore {
 
 func (f *fakeResourceSyncStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
+func (f *fakeResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, error) {
 	name := lo.FromPtr(rs.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = rs
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.ResourceSyncKind, orgId, name, nil, rs, true, nil)
-	}
 	return rs, nil
 }
 
-func (f *fakeResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
+func (f *fakeResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
 	name := lo.FromPtr(rs.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = rs
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.ResourceSyncKind, orgId, name, old, rs, false, nil)
-	}
-	return rs, nil
+	return rs, old, nil
 }
 
-func (f *fakeResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, bool, error) {
+func (f *fakeResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
 	name := lo.FromPtr(rs.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, rs, callbackEvent)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, rs)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, rs, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, rs)
+	return result, nil, true, err
 }
 
 func (f *fakeResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
@@ -87,7 +81,7 @@ func (f *fakeResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listP
 	return &domain.ResourceSyncList{Items: items}, nil
 }
 
-func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
+func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
 	if _, exists := f.items[name]; !exists {
 		return nil
 	}
@@ -98,20 +92,18 @@ func (f *fakeResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, nam
 			return err
 		}
 	}
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.ResourceSyncKind, orgId, name, nil, nil, false, nil)
-	}
 	return nil
 }
 
-func (f *fakeResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
+func (f *fakeResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
 	existing, ok := f.items[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
+	old := *existing
 	existing.Status = resource.Status
-	return existing, nil
+	return existing, &old, nil
 }
 
 func (f *fakeResourceSyncStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {

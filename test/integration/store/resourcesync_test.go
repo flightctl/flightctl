@@ -73,13 +73,13 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       "my/path",
 				},
 			}
-			resp, err := resourceSyncStore.Create(ctx, orgId, &rs, nil)
+			resp, err := resourceSyncStore.Create(ctx, orgId, &rs)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Metadata.Generation).ToNot(BeNil())
 			Expect(*resp.Metadata.Generation).To(Equal(gen))
 
 			// name already exisis
-			_, err = resourceSyncStore.Create(ctx, orgId, &rs, nil)
+			_, err = resourceSyncStore.Create(ctx, orgId, &rs)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})
@@ -121,7 +121,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				err = fleetStore.UnsetOwner(ctx, tx, orgId, owner)
 				callbackCalled = true
 				return err
-			}, nil)
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			f, err := fleetStore.List(ctx, orgId, listParams)
@@ -134,7 +134,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			err := resourceSyncStore.Delete(ctx, orgId, "nonexistent", func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 				callbackCalled = true
 				return nil
-			}, nil)
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeFalse())
 		})
@@ -202,7 +202,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync, nil)
+			rs, _, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
@@ -224,7 +224,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync, nil)
+			rs, _, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))

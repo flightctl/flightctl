@@ -37,7 +37,7 @@ func itemKey(catalogName, itemName string) string {
 
 func (f *fakeCatalogStore) InitialMigration(ctx context.Context) error { return f.err }
 
-func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -46,20 +46,17 @@ func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog 
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.catalogs[name] = catalog
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, nil, catalog, true, nil)
-	}
 	return catalog, nil
 }
 
-func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	name := lo.FromPtr(catalog.Metadata.Name)
 	old, exists := f.catalogs[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	// Mirrors the real generic store: fields left nil by the caller are preserved
 	// from the existing resource rather than wiped on update.
@@ -67,20 +64,17 @@ func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog 
 		catalog.Metadata.Owner = old.Metadata.Owner
 	}
 	f.catalogs[name] = catalog
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, old, catalog, false, nil)
-	}
-	return catalog, nil
+	return catalog, old, nil
 }
 
-func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, bool, error) {
+func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
 	name := lo.FromPtr(catalog.Metadata.Name)
 	if _, exists := f.catalogs[name]; exists {
-		result, err := f.Update(ctx, orgId, catalog, callbackEvent)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, catalog)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, catalog, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, catalog)
+	return result, nil, true, err
 }
 
 func (f *fakeCatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
@@ -105,8 +99,8 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
-	old, exists := f.catalogs[name]
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+	_, exists := f.catalogs[name]
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
@@ -119,23 +113,17 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 	if callback != nil {
 		_ = callback(ctx, nil, orgId, name)
 	}
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, old, nil, false, nil)
-	}
 	return nil
 }
 
-func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
 	old, exists := f.catalogs[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.catalogs[name] = resource
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CatalogKind, orgId, name, old, resource, false, nil)
-	}
-	return resource, nil
+	return resource, old, nil
 }
 
 func (f *fakeCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {

@@ -31,14 +31,14 @@ func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]st
 
 // Implement other required methods with empty implementations
 func (m *MockRepository) InitialMigration(context.Context) error { return nil }
-func (m *MockRepository) Create(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
+func (m *MockRepository) Create(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) Update(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
-	return nil, nil
+func (m *MockRepository) Update(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, error) {
+	return nil, nil, nil
 }
-func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, bool, error) {
-	return nil, false, nil
+func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
+	return nil, nil, false, nil
 }
 func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*domain.Repository, error) {
 	return nil, nil
@@ -46,11 +46,11 @@ func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*domain.Reposi
 func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*domain.RepositoryList, error) {
 	return nil, nil
 }
-func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
+func (m *MockRepository) Delete(context.Context, uuid.UUID, string) error {
 	return nil
 }
-func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
-	return nil, nil
+func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, error) {
+	return nil, nil, nil
 }
 func (m *MockRepository) GetFleetRefs(context.Context, uuid.UUID, string) (*domain.FleetList, error) {
 	return nil, nil

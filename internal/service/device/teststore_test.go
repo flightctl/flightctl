@@ -66,16 +66,13 @@ type fakeDeviceStore struct {
 	setServiceConditionsCalls int
 }
 
-func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	if _, exists := s.devices[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, nil, d, true, nil)
-	}
 	return deepCopyDevice(d), nil
 }
 
@@ -91,12 +88,12 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
 	if existed {
 		if old.Spec != nil && old.Spec.Decommissioning != nil {
-			return nil, false, flterrors.ErrDecommission
+			return nil, nil, false, flterrors.ErrDecommission
 		}
 	}
 	// Mirrors the real generic store: fields left nil by the caller are preserved
@@ -107,20 +104,17 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	created := !existed
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, created, nil)
-	}
-	return deepCopyDevice(d), created, nil
+	return deepCopyDevice(d), old, created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	if old.Spec != nil && old.Spec.Decommissioning != nil {
-		return nil, flterrors.ErrDecommission
+		return nil, nil, flterrors.ErrDecommission
 	}
 	// Mirrors the real generic store: fields left nil by the caller are preserved
 	// from the existing resource rather than wiped on update.
@@ -129,33 +123,24 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
-	}
-	return deepCopyDevice(d), nil
+	return deepCopyDevice(d), old, nil
 }
 
-func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
-	old, ok := s.devices[name]
+func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	_, ok := s.devices[name]
 	if !ok {
 		return false, flterrors.ErrResourceNotFound
 	}
 	delete(s.devices, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, nil, false, nil)
-	}
 	return true, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old := s.devices[name]
 	d := deepCopyDevice(device)
 	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
-	}
-	return deepCopyDevice(d), nil
+	return deepCopyDevice(d), old, nil
 }
 
 func (s *fakeDeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
@@ -288,33 +273,30 @@ func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, own
 	return nil
 }
 
-func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
 	if device == nil || device.Metadata.Name == nil {
-		return nil, flterrors.ErrResourceIsNil
+		return nil, nil, flterrors.ErrResourceIsNil
 	}
 	name := *device.Metadata.Name
 	d, ok := s.devices[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	if d.Spec != nil && d.Spec.Decommissioning != nil {
-		return nil, flterrors.ErrResourceVersionConflict
+		return nil, nil, flterrors.ErrResourceVersionConflict
 	}
 	old := deepCopyDevice(d)
 	// Persist the service-prepared device as the source of truth.
 	prepared := deepCopyDevice(device)
 	s.devices[name] = prepared
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, prepared, false, nil)
-	}
-	return deepCopyDevice(prepared), nil
+	return deepCopyDevice(prepared), old, nil
 }
 
-func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
+func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (*domain.Device, []domain.Condition, []domain.Condition, error) {
 	s.setServiceConditionsCalls++
 	d, ok := s.devices[name]
 	if !ok {
-		return flterrors.ErrResourceNotFound
+		return nil, nil, nil, flterrors.ErrResourceNotFound
 	}
 	if d.Status == nil {
 		d.Status = lo.ToPtr(domain.NewDeviceStatus())
@@ -330,10 +312,7 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	}
 	prepared := append([]domain.Condition(nil), conditions...)
 	d.Status.Conditions = append(kept, prepared...)
-	if callback != nil {
-		callback(ctx, orgId, d, oldServiceConditions, prepared)
-	}
-	return nil
+	return d, oldServiceConditions, prepared, nil
 }
 
 func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {

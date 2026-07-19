@@ -164,7 +164,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			noopCallback := store.RemoveOwnerCallback(func(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ string) error {
 				return nil
 			})
-			Expect(catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback, nil)).To(Succeed())
+			Expect(catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback)).To(Succeed())
 
 			// Confirm it is gone.
 			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)

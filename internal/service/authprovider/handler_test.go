@@ -49,7 +49,7 @@ func newFakeAuthProviderStore() *fakeAuthProviderStore {
 
 func (f *fakeAuthProviderStore) InitialMigration(ctx context.Context) error { return f.err }
 
-func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
+func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -58,36 +58,30 @@ func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, aut
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.providers[name] = authProvider
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, nil, authProvider, true, nil)
-	}
 	return authProvider, nil
 }
 
-func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
+func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	name := lo.FromPtr(authProvider.Metadata.Name)
 	old, exists := f.providers[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.providers[name] = authProvider
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, old, authProvider, false, nil)
-	}
-	return authProvider, nil
+	return authProvider, old, nil
 }
 
-func (f *fakeAuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, bool, error) {
+func (f *fakeAuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
 	name := lo.FromPtr(authProvider.Metadata.Name)
 	if _, exists := f.providers[name]; exists {
-		result, err := f.Update(ctx, orgId, authProvider, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, authProvider)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, authProvider, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, authProvider)
+	return result, nil, true, err
 }
 
 func (f *fakeAuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {
@@ -112,19 +106,16 @@ func (f *fakeAuthProviderStore) List(ctx context.Context, orgId uuid.UUID, listP
 	return &domain.AuthProviderList{Items: items}, nil
 }
 
-func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	if f.err != nil {
 		return f.err
 	}
 	delete(f.providers, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, nil, nil, false, nil)
-	}
 	return nil
 }
 
-func (f *fakeAuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	return resource, f.err
+func (f *fakeAuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
+	return resource, nil, f.err
 }
 
 func (f *fakeAuthProviderStore) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, error) {
