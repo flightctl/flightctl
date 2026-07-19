@@ -526,7 +526,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(len(fleets.Items)).To(BeZero())
 		})
 
-		It("UpdateConditions", func() {
+		It("UpdateConditions persists a prepared conditions slice", func() {
 			conditions := []api.Condition{
 				{
 					Type:    api.ConditionTypeEnrollmentRequestApproved,
