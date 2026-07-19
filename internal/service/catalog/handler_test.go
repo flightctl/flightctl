@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -336,15 +337,18 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	_, exists := f.catalogs[name]
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
-	delete(f.catalogs, name)
-	if callback != nil {
-		_ = callback(ctx, nil, orgId, name)
+	prefix := name + "/"
+	for key := range f.items {
+		if strings.HasPrefix(key, prefix) {
+			return flterrors.ErrResourceNotEmpty
+		}
 	}
+	delete(f.catalogs, name)
 	return nil
 }
 
