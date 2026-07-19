@@ -244,8 +244,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		eventsSvc := events.NewServiceHandler(eventStore, mockWorkerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 		capturedEvents = make([]api.Event, 0)
 	})

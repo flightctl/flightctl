@@ -22,6 +22,7 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -466,7 +467,7 @@ type EnrollmentCredentialGenerator interface {
 // This function is exported for testing purposes
 func GenerateContainerfile(
 	ctx context.Context,
-	repositories RepositoryLookup,
+	repositories repositoryservice.Service,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,

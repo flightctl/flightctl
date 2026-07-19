@@ -117,7 +117,7 @@ var _ = Describe("FleetRollout", func() {
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStore, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
 	})
 

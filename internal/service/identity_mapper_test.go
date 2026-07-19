@@ -10,7 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	svcommon "github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -50,9 +52,10 @@ func (m *mockIdentity) GetIssuer() *identity.Issuer {
 	return nil
 }
 
-// fakeOrganizationStore is a minimal in-memory OrganizationSync fake for
+// fakeOrganizationStore is a minimal in-memory organization.Service fake for
 // identity-mapper tests.
 type fakeOrganizationStore struct {
+	organization.Service
 	organizations []*model.Organization
 	err           error
 }
@@ -129,8 +132,9 @@ func (s *fakeOrganizationStore) ListByIDs(ctx context.Context, ids []string) ([]
 	return result, nil
 }
 
-// fakeCatalogStore is a minimal in-memory CatalogDefaults fake for OrgProvisioner tests.
+// fakeCatalogStore is a minimal in-memory catalog.Service fake for OrgProvisioner tests.
 type fakeCatalogStore struct {
+	catalog.Service
 	catalogs []*domain.Catalog
 	getErr   error
 }

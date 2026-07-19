@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -16,18 +17,11 @@ type OrgProvisionerInterface interface {
 	EnsureDefaults(ctx context.Context, orgs []*model.Organization)
 }
 
-// CatalogDefaults is the catalog.Service surface OrgProvisioner needs.
-// Defined here so package service does not import internal/service/catalog.
-type CatalogDefaults interface {
-	GetCatalog(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status)
-	CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status)
-}
-
 // OrgProvisioner ensures that default resources exist for every organization.
 // It is called by IdentityMapper only when new organizations are created,
 // so each org is provisioned at most once per identity-mapper cache TTL.
 type OrgProvisioner struct {
-	catalogs CatalogDefaults
+	catalogs catalog.Service
 	log      logrus.FieldLogger
 }
 
@@ -35,7 +29,7 @@ type OrgProvisioner struct {
 var _ OrgProvisionerInterface = (*OrgProvisioner)(nil)
 
 // NewOrgProvisioner creates a new OrgProvisioner.
-func NewOrgProvisioner(catalogs CatalogDefaults, log logrus.FieldLogger) *OrgProvisioner {
+func NewOrgProvisioner(catalogs catalog.Service, log logrus.FieldLogger) *OrgProvisioner {
 	return &OrgProvisioner{catalogs: catalogs, log: log}
 }
 

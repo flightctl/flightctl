@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/repository"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -378,6 +379,7 @@ func (s *DummyImageExportStore) GetLogs(ctx context.Context, orgId uuid.UUID, na
 
 // DummyRepositoryStore is a mock implementation of flightctlstore.Repository
 type DummyRepositoryStore struct {
+	repository.Service
 	repositories map[string]*domain.Repository // key: name
 }
 

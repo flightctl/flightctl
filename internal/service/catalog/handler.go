@@ -421,3 +421,11 @@ func (h *ServiceHandler) callbackCatalogDeleted(ctx context.Context, resourceKin
 		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 	})
 }
+
+func (h *ServiceHandler) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.UnsetOwner(ctx, store.DB(ctx, nil), orgId, owner)
+}
+
+func (h *ServiceHandler) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.UnsetItemOwner(ctx, store.DB(ctx, nil), orgId, owner)
+}

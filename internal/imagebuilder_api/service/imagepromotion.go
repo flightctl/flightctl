@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	ibstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -45,7 +46,7 @@ type ImagePromotionService interface {
 type imagePromotionService struct {
 	store           ibstore.ImagePromotionStore
 	imageBuildStore ibstore.ImageBuildStore
-	catalogs        CatalogLookup
+	catalogs        catalogservice.Service
 	queueProducer   queues.QueueProducer
 	log             logrus.FieldLogger
 }
@@ -54,7 +55,7 @@ type imagePromotionService struct {
 func NewImagePromotionService(
 	store ibstore.ImagePromotionStore,
 	imageBuildStore ibstore.ImageBuildStore,
-	catalogs CatalogLookup,
+	catalogs catalogservice.Service,
 	queueProducer queues.QueueProducer,
 	log logrus.FieldLogger,
 ) ImagePromotionService {

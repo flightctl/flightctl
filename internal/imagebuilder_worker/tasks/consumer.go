@@ -14,7 +14,10 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -31,9 +34,9 @@ const (
 // Consumer handles incoming jobs from the queue and routes them to appropriate handlers
 type Consumer struct {
 	store               imagebuilderstore.Store
-	organizations       OrganizationLister
-	repositories        RepositoryLookup
-	catalogs            CatalogItems
+	organizations       organizationservice.Service
+	repositories        repositoryservice.Service
+	catalogs            catalogservice.Service
 	kvStore             kvstore.KVStore
 	serviceHandler      *certificatesigningrequestservice.ServiceHandler
 	imageBuilderService imagebuilderapi.Service
@@ -45,9 +48,9 @@ type Consumer struct {
 // NewConsumer creates a new Consumer instance with the provided dependencies
 func NewConsumer(
 	store imagebuilderstore.Store,
-	organizations OrganizationLister,
-	repositories RepositoryLookup,
-	catalogs CatalogItems,
+	organizations organizationservice.Service,
+	repositories repositoryservice.Service,
+	catalogs catalogservice.Service,
 	kvStore kvstore.KVStore,
 	serviceHandler *certificatesigningrequestservice.ServiceHandler,
 	imageBuilderService imagebuilderapi.Service,
@@ -221,9 +224,9 @@ func LaunchConsumers(
 	ctx context.Context,
 	queuesProvider queues.Provider,
 	store imagebuilderstore.Store,
-	organizations OrganizationLister,
-	repositories RepositoryLookup,
-	catalogs CatalogItems,
+	organizations organizationservice.Service,
+	repositories repositoryservice.Service,
+	catalogs catalogservice.Service,
 	kvStore kvstore.KVStore,
 	serviceHandler *certificatesigningrequestservice.ServiceHandler,
 	imageBuilderService imagebuilderapi.Service,

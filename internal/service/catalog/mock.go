@@ -278,3 +278,31 @@ func (mr *MockServiceMockRecorder) ReplaceCatalogStatus(ctx, orgId, name, catalo
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogStatus", reflect.TypeOf((*MockService)(nil).ReplaceCatalogStatus), ctx, orgId, name, catalog)
 }
+
+// UnsetItemOwner mocks base method.
+func (m *MockService) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnsetItemOwner", ctx, orgId, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnsetItemOwner indicates an expected call of UnsetItemOwner.
+func (mr *MockServiceMockRecorder) UnsetItemOwner(ctx, orgId, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsetItemOwner", reflect.TypeOf((*MockService)(nil).UnsetItemOwner), ctx, orgId, owner)
+}
+
+// UnsetOwner mocks base method.
+func (m *MockService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnsetOwner", ctx, orgId, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnsetOwner indicates an expected call of UnsetOwner.
+func (mr *MockServiceMockRecorder) UnsetOwner(ctx, orgId, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsetOwner", reflect.TypeOf((*MockService)(nil).UnsetOwner), ctx, orgId, owner)
+}

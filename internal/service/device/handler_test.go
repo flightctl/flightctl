@@ -536,7 +536,7 @@ func TestResumeDevices(t *testing.T) {
 }
 
 // TestUpdateServerSideDeviceStatus_ManagedDevice verifies status computation for a managed
-// (fleet-owned) device, which requires looking up the owning fleet via fleetStore.
+// (fleet-owned) device, which requires looking up the owning fleet via fleet.Service.
 func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
@@ -560,7 +560,7 @@ func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 
 	err = svc.UpdateServerSideDeviceStatus(ctx, orgId, "foo")
 	require.NoError(t, err)
-	require.Equal(t, 1, st.fleet.getCalls, "expected common.UpdateServiceSideStatus to reach store.Store.Fleet().Get() for a managed device")
+	require.Equal(t, 1, st.fleet.getCalls, "expected UpdateServiceSideStatus to reach fleet.Service.GetFleet() for a managed device")
 }
 
 func TestUpdateServerSideDeviceStatus_UnmanagedDevice(t *testing.T) {

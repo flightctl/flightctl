@@ -23,6 +23,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -108,8 +109,9 @@ func (s *Server) Run(ctx context.Context) error {
 	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, s.log)
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, nil, "", s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, nil, "", s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
 	organizationSvc := organizationservice.WrapWithTracing(

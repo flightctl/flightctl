@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -86,7 +87,7 @@ type ImageExportDownload struct {
 type imageExportService struct {
 	imageExportStore store.ImageExportStore
 	imageBuildStore  store.ImageBuildStore
-	repositories     RepositoryLookup
+	repositories     repositoryservice.Service
 	eventSvc         events.Service
 	queueProducer    queues.QueueProducer
 	kvStore          kvstore.KVStore
@@ -95,7 +96,7 @@ type imageExportService struct {
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositories RepositoryLookup, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositories repositoryservice.Service, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,

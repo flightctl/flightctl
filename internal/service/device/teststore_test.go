@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -41,19 +42,18 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	return dst
 }
 
-// fakeStore is a plain test-only container grouping the fake deviceStore/fleetStore this
-// package's DeviceServiceHandler now takes as two separate narrow constructor params. It
-// implements no store interface itself - just a convenience holder so handler_test.go's many
-// call sites can keep referencing st.device/st.fleet unchanged.
+// fakeStore is a plain test-only container grouping the fake device store and fleet service
+// this package's DeviceServiceHandler takes. It implements no store interface itself - just a
+// convenience holder so handler_test.go's many call sites can keep referencing st.device/st.fleet.
 type fakeStore struct {
 	device *fakeDeviceStore
-	fleet  *fakeFleetStore
+	fleet  *fakeFleetService
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		device: &fakeDeviceStore{devices: map[string]*domain.Device{}, repoRefs: map[string][]string{}},
-		fleet:  &fakeFleetStore{fleets: map[string]*domain.Fleet{}},
+		fleet:  &fakeFleetService{fleets: map[string]*domain.Fleet{}},
 	}
 }
 
@@ -342,21 +342,21 @@ func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, or
 	return int64(len(ids)), ids, nil
 }
 
-// fakeFleetStore is a minimal stand-in for fleetstore.Store, implementing only Get - the single
-// call site common.UpdateServiceSideStatus reaches for managed-device status computation.
-type fakeFleetStore struct {
-	fleetstore.Store
+// fakeFleetService is a minimal stand-in for fleet.Service, implementing only GetFleet - the
+// single call site UpdateServiceSideStatus reaches for managed-device status computation.
+type fakeFleetService struct {
+	fleet.Service
 	fleets   map[string]*domain.Fleet
 	getCalls int
 }
 
-func (s *fakeFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, options ...fleetstore.GetOption) (*domain.Fleet, error) {
+func (s *fakeFleetService) GetFleet(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetParams) (*domain.Fleet, domain.Status) {
 	s.getCalls++
 	f, ok := s.fleets[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, domain.Status{Code: http.StatusNotFound, Message: "not found"}
 	}
-	return f, nil
+	return f, domain.StatusOK()
 }
 
 // fakeEvents is a minimal stand-in for events.Service, recording the CreateEvent calls this

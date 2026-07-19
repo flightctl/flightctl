@@ -24,4 +24,10 @@ type Service interface {
 	ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem, enforceOwnership bool) (*domain.CatalogItem, domain.Status)
 	PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest, enforceOwnership bool) (*domain.CatalogItem, domain.Status)
 	DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, enforceOwnership bool) domain.Status
+	// UnsetOwner clears catalog ownership for the given owner string. Joins an
+	// active store transaction from ctx when present (e.g. ResourceSync delete cascade).
+	UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error
+	// UnsetItemOwner clears catalog-item ownership for the given owner string.
+	// Joins an active store transaction from ctx when present.
+	UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error
 }

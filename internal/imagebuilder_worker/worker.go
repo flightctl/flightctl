@@ -15,9 +15,11 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -65,7 +67,8 @@ func New(
 	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log.WithField("component", "events"))
-	serviceHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl)
+	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, ca, kvStore, eventsSvc, log.WithField("component", "enrollmentrequest"), nil)
+	serviceHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), ca, eventsSvc, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl)
 
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))

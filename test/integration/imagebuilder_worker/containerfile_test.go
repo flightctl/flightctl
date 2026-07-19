@@ -15,8 +15,10 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -169,7 +171,8 @@ var _ = Describe("Containerfile Generation", func() {
 		// Create service handler for enrollment credential generation
 		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
 		enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
-		serviceHandler = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, caClient, eventsSvc, log, "https://api.example.com", "https://ui.example.com")
+		erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, caClient, nil, eventsSvc, log, nil)
+		serviceHandler = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), caClient, eventsSvc, log, "https://api.example.com", "https://ui.example.com")
 	})
 
 	AfterEach(func() {

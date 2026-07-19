@@ -16,9 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -32,7 +32,7 @@ import (
 // DeviceServiceHandler implements Service.
 type DeviceServiceHandler struct {
 	deviceStore   devicestore.Store
-	fleetStore    fleetstore.Store
+	fleets        fleet.Service
 	events        events.Service
 	kvStore       kvstore.KVStore
 	agentGate     *semaphore.Weighted
@@ -43,7 +43,7 @@ type DeviceServiceHandler struct {
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
 func NewDeviceServiceHandler(
 	deviceStore devicestore.Store,
-	fleetStore fleetstore.Store,
+	fleets fleet.Service,
 	events events.Service,
 	kvStore kvstore.KVStore,
 	agentEndpoint string,
@@ -51,7 +51,7 @@ func NewDeviceServiceHandler(
 ) Service {
 	return &DeviceServiceHandler{
 		deviceStore:   deviceStore,
-		fleetStore:    fleetStore,
+		fleets:        fleets,
 		events:        events,
 		kvStore:       kvStore,
 		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
@@ -94,7 +94,7 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
 
 	result, err := h.deviceStore.Create(ctx, orgId, &device)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), nil, result, true, err)
@@ -254,7 +254,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		}
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
 
 	result, oldDevice, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, err)
@@ -282,7 +282,7 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, err
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
 
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset)
@@ -357,7 +357,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleets, h.log)
 
 	result, oldDevice, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
@@ -403,7 +403,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, newObj, h.fleets, h.log)
 
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
@@ -516,7 +516,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		}
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
+	_ = UpdateServiceSideStatus(ctx, orgId, newObj, h.fleets, h.log)
 
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
@@ -532,7 +532,7 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
+	if changed := UpdateServiceSideStatus(ctx, orgId, device, h.fleets, h.log); changed {
 		result, oldDevice, err := h.deviceStore.UpdateStatus(ctx, orgId, device)
 		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 		if err != nil {
@@ -737,7 +737,7 @@ func (h *DeviceServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid
 }
 
 func (h *DeviceServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device domain.Device) bool {
-	anyChanged := common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
+	anyChanged := UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
 	return anyChanged
 }
 

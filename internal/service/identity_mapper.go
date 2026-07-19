@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -13,25 +14,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// OrganizationSync is the organization.Service surface IdentityMapper needs.
-// Defined here so package service does not import internal/service/organization.
-type OrganizationSync interface {
-	UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error)
-	ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error)
-	ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error)
-	List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error)
-}
-
 // IdentityMapper handles mapping from identity information to database entities
 type IdentityMapper struct {
-	organizations OrganizationSync
+	organizations organization.Service
 	provisioner   OrgProvisionerInterface
 	log           logrus.FieldLogger
 	cache         *ttlcache.Cache[string, *model.Organization]
 }
 
 // NewIdentityMapper creates a new IdentityMapper instance
-func NewIdentityMapper(organizations OrganizationSync, provisioner OrgProvisionerInterface, log logrus.FieldLogger) *IdentityMapper {
+func NewIdentityMapper(organizations organization.Service, provisioner OrgProvisionerInterface, log logrus.FieldLogger) *IdentityMapper {
 	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *model.Organization](10 * time.Minute),
 	)

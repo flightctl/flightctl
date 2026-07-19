@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -59,7 +60,8 @@ var _ = Describe("DeviceConnection", func() {
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc := deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetStore, eventsSvc, kvStore, "", log)
+		fleetSvc := fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
+		deviceSvc := deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		connectionTask = tasks.NewDeviceConnection(log, deviceSvc)
 	})
 

@@ -12,12 +12,11 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -27,20 +26,20 @@ import (
 var nowFunc = time.Now
 
 type ServiceHandler struct {
-	store                  certificatesigningrequeststore.Store
-	enrollmentRequestStore enrollmentrequeststore.Store
-	ca                     *crypto.CAClient
-	events                 events.Service
-	log                    logrus.FieldLogger
-	agentEndpoint          string
-	uiUrl                  string
+	store         certificatesigningrequeststore.Store
+	tpmVerifier   *tpmcsr.Verifier
+	ca            *crypto.CAClient
+	events        events.Service
+	log           logrus.FieldLogger
+	agentEndpoint string
+	uiUrl         string
 }
 
 // NewServiceHandler creates a new certificatesigningrequest ServiceHandler instance.
 // agentEndpoint/uiUrl are only used by GenerateEnrollmentCredential (they're embedded in the
 // returned crypto.EnrollmentCredential); pass "" if a caller never needs enrollment credentials.
-func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentRequestStore enrollmentrequeststore.Store, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
-	return &ServiceHandler{store: store, enrollmentRequestStore: enrollmentRequestStore, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
+func NewServiceHandler(store certificatesigningrequeststore.Store, tpmVerifier *tpmcsr.Verifier, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -131,72 +130,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, org
 }
 
 func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) error {
-	if csr.Status == nil {
-		csr.Status = &domain.CertificateSigningRequestStatus{}
-	}
-	csrBytes, isTPM := tpm.ParseTCGCSRBytes(string(csr.Spec.Request))
-	if !isTPM {
-		return fmt.Errorf("parsing TCG CSR")
-	}
-
-	// setTPMVerifiedFalse takes an already-formatted message rather than a format string + args
-	// so that `go vet`'s printf check does not flag call sites passing a non-constant message
-	// (e.g. notTPMBasedMessage below) as a "non-constant format string" error.
-	setTPMVerifiedFalse := func(message string) {
-		domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
-			Message: message,
-			Reason:  domain.TPMVerificationFailedReason,
-			Status:  domain.ConditionStatusFalse,
-			Type:    domain.ConditionTypeCertificateSigningRequestTPMVerified,
-		})
-	}
-
-	kind, owner, err := util.GetResourceOwner(csr.Metadata.Owner)
-	if err != nil {
-		setTPMVerifiedFalse("Failed to determine resource owner")
-		return nil
-	}
-	if kind != domain.DeviceKind {
-		setTPMVerifiedFalse(fmt.Sprintf("The CSR's owner is not a %s", domain.DeviceKind))
-		return nil
-	}
-	// TODO this should be retrieved from the device rather than from the ER
-	er, err := h.enrollmentRequestStore.Get(ctx, orgId, owner)
-	if err != nil {
-		setTPMVerifiedFalse(fmt.Sprintf("Unable to find CSR's owner: %s/%s", orgId, owner))
-		return nil
-	}
-
-	notTPMBasedMessage := fmt.Sprintf("The CSR's owner %s is not TPM based.", lo.FromPtr(csr.Metadata.Owner))
-	if er.Status == nil || !domain.IsStatusConditionTrue(er.Status.Conditions, domain.ConditionTypeEnrollmentRequestTPMVerified) {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	erBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
-	if !isTPM {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	parsed, err := tpm.ParseTCGCSR(erBytes)
-	if err != nil {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	if err = tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
-		setTPMVerifiedFalse(err.Error())
-		return nil
-	}
-	domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
-		Message: "TPM chain of trust verified",
-		Reason:  "TPMVerificationSucceeded",
-		Status:  domain.ConditionStatusTrue,
-		Type:    domain.ConditionTypeCertificateSigningRequestTPMVerified,
-	})
-
-	return nil
+	return h.tpmVerifier.VerifyTPMCSRRequest(ctx, orgId, csr)
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {

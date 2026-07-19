@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -68,7 +69,7 @@ type ImageBuildService interface {
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
 	store                 store.ImageBuildStore
-	repositories          RepositoryLookup
+	repositories          repositoryservice.Service
 	imageExportService    ImageExportService
 	imagePromotionService ImagePromotionService
 	eventSvc              events.Service
@@ -79,7 +80,7 @@ type imageBuildService struct {
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositories RepositoryLookup, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositories repositoryservice.Service, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
 		store:                 s,
 		repositories:          repositories,
