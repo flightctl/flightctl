@@ -94,11 +94,11 @@ func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
+	return s.genericStore.Update(ctx, orgId, resource, nil)
 }
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil)
 }
 
 func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {

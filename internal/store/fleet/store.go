@@ -109,11 +109,11 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *doma
 }
 
 func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string) (*domain.Fleet, *domain.Fleet, error) {
-	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, nil)
+	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset)
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string) (*domain.Fleet, *domain.Fleet, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, nil)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset)
 }
 
 type GetOption func(*getOptions)

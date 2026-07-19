@@ -96,11 +96,11 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 }
 
 func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
+	return s.genericStore.Update(ctx, orgId, resource, nil)
 }
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil)
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
