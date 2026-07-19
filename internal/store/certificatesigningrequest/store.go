@@ -139,16 +139,8 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 	if existingRecord.Status == nil {
 		existingRecord.Status = model.MakeJSONField(domain.CertificateSigningRequestStatus{})
 	}
-	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []domain.Condition{}
-	}
-	changed := false
-	for _, condition := range conditions {
-		changed = domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
-	}
-	if !changed {
-		return false, nil
-	}
+
+	existingRecord.Status.Data.Conditions = conditions
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,
@@ -159,7 +151,7 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
 }
