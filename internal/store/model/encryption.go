@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 )
 
@@ -48,7 +49,20 @@ func encryptRepository(ctx context.Context, v interface{}, encrypt encryption.En
 		return nil
 	}
 
-	return encryptJSONField(ctx, &repo.Spec.Data, repositoryEncryptPaths, encrypt)
+	updated, err := encryptJSONField(ctx, repo.Spec.Data, repositoryEncryptPaths, encrypt)
+	if err != nil {
+		return err
+	}
+	// Unmarshal into a new object — Spec.Data shares a pointer with the API
+	// resource, and mutating in-place corrupts its json.RawMessage on retry.
+	if updated != nil {
+		var newSpec domain.RepositorySpec
+		if err := json.Unmarshal(updated, &newSpec); err != nil {
+			return fmt.Errorf("unmarshal encrypted repo spec: %w", err)
+		}
+		repo.Spec.Data = newSpec
+	}
+	return nil
 }
 
 func encryptAuthProvider(ctx context.Context, v interface{}, encrypt encryption.EncryptFunc) error {
@@ -61,27 +75,41 @@ func encryptAuthProvider(ctx context.Context, v interface{}, encrypt encryption.
 		return nil
 	}
 
-	return encryptJSONField(ctx, &ap.Spec.Data, authProviderEncryptPaths, encrypt)
+	updated, err := encryptJSONField(ctx, ap.Spec.Data, authProviderEncryptPaths, encrypt)
+	if err != nil {
+		return err
+	}
+	// See comment in encryptRepository for why we unmarshal into a new object.
+	if updated != nil {
+		var newSpec domain.AuthProviderSpec
+		if err := json.Unmarshal(updated, &newSpec); err != nil {
+			return fmt.Errorf("unmarshal encrypted auth provider spec: %w", err)
+		}
+		ap.Spec.Data = newSpec
+	}
+	return nil
 }
 
 // encryptJSONField encrypts string values at the given paths within a JSONB field.
-// It marshals the data to a generic map, encrypts matching paths, and unmarshals back.
-func encryptJSONField(ctx context.Context, data any, paths [][]string, encrypt encryption.EncryptFunc) error {
+// It marshals the data to a generic map, encrypts matching paths, and returns the
+// updated JSON bytes. Returns nil if no fields were modified. The caller is
+// responsible for unmarshaling into a new object to avoid corrupting shared pointers.
+func encryptJSONField(ctx context.Context, data any, paths [][]string, encrypt encryption.EncryptFunc) ([]byte, error) {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("marshal spec: %w", err)
+		return nil, fmt.Errorf("marshal spec: %w", err)
 	}
 
 	var jsonData map[string]any
 	if err := json.Unmarshal(jsonBytes, &jsonData); err != nil {
-		return fmt.Errorf("unmarshal spec to map: %w", err)
+		return nil, fmt.Errorf("unmarshal spec to map: %w", err)
 	}
 
 	modified := false
 	for _, path := range paths {
 		encrypted, err := encryptJSONPath(ctx, jsonData, path, encrypt)
 		if err != nil {
-			return fmt.Errorf("encrypt field %v: %w", path, err)
+			return nil, fmt.Errorf("encrypt field %v: %w", path, err)
 		}
 		if encrypted {
 			modified = true
@@ -89,19 +117,15 @@ func encryptJSONField(ctx context.Context, data any, paths [][]string, encrypt e
 	}
 
 	if !modified {
-		return nil
+		return nil, nil
 	}
 
 	updatedJSON, err := json.Marshal(jsonData)
 	if err != nil {
-		return fmt.Errorf("marshal updated spec: %w", err)
+		return nil, fmt.Errorf("marshal updated spec: %w", err)
 	}
 
-	if err := json.Unmarshal(updatedJSON, data); err != nil {
-		return fmt.Errorf("unmarshal to spec: %w", err)
-	}
-
-	return nil
+	return updatedJSON, nil
 }
 
 // encryptJSONPath encrypts a string value at the given path segments in a JSON map.
