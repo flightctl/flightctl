@@ -103,8 +103,6 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.Devic
 			return err
 		}
 
-		// EDM-3605: write the enrollment banner only after the enrollment request
-		// has been successfully created on the server.
 		if err := m.writeEnrollmentBanner(ctx); err != nil {
 			return err
 		}
