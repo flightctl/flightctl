@@ -106,7 +106,6 @@ func (s *AgentServer) init(ctx context.Context) error {
 	s.catalogStore = catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	s.organizationStore = organizationstore.NewOrganizationStore(s.db)
 
-	healthchecker.HealthChecks.Initialize(ctx, deviceStore, s.log)
 	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 
 	if err != nil {
@@ -122,8 +121,9 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.deviceSvc, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 
