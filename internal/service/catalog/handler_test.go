@@ -364,10 +364,10 @@ func TestCreateCatalog(t *testing.T) {
 		_, status := CreateCatalogFromUntrusted(context.Background(), h, orgId, catalog)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Nil(t, fakeStore.catalogs[catalogKey(orgId, "c4")].Metadata.Owner)
-		require.Nil(t, fakeStore.catalogs[catalogKey(orgId, "c4")].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "c4")].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateCatalog (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateCatalog (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		orgId := uuid.New()
 		catalog := createTestCatalog("c4-trusted", nil)
@@ -377,7 +377,7 @@ func TestCreateCatalog(t *testing.T) {
 		_, status := h.CreateCatalog(context.Background(), orgId, catalog)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "c4-trusted")].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "c4-trusted")].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "c4-trusted")].Metadata.Generation))
 	})
 }
 
@@ -469,10 +469,10 @@ func TestReplaceCatalog(t *testing.T) {
 		_, status := ReplaceCatalogFromUntrusted(context.Background(), h, orgId, "replace-untrusted", catalog, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Nil(t, fakeStore.catalogs[catalogKey(orgId, "replace-untrusted")].Metadata.Owner)
-		require.Nil(t, fakeStore.catalogs[catalogKey(orgId, "replace-untrusted")].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "replace-untrusted")].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceCatalog (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceCatalog (trusted) should preserve owner and set generation to 1 on create", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		orgId := uuid.New()
 		catalog := createTestCatalog("replace-trusted", nil)
@@ -482,7 +482,36 @@ func TestReplaceCatalog(t *testing.T) {
 		_, status := h.ReplaceCatalog(context.Background(), orgId, "replace-trusted", catalog, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "replace-trusted")].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "replace-trusted")].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "replace-trusted")].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("gen-bump", nil)
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.catalogs[catalogKey(orgId, "gen-bump")] = &existing
+
+		updated := createTestCatalog("gen-bump", nil)
+		updated.Spec.DisplayName = lo.ToPtr("Changed Name")
+
+		_, status := h.ReplaceCatalog(context.Background(), orgId, "gen-bump", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "gen-bump")].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestCatalog("gen-same", nil)
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.catalogs[catalogKey(orgId, "gen-same")] = &existing
+
+		updated := createTestCatalog("gen-same", nil)
+
+		_, status := h.ReplaceCatalog(context.Background(), orgId, "gen-same", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(fakeStore.catalogs[catalogKey(orgId, "gen-same")].Metadata.Generation))
 	})
 }
 

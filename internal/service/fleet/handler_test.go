@@ -336,10 +336,10 @@ func TestCreateFleet(t *testing.T) {
 		_, status := CreateFleetFromUntrusted(context.Background(), h, uuid.New(), fleet)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.fleets["f2"].Metadata.Owner)
-		require.Nil(t, fakeStore.fleets["f2"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.fleets["f2"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateFleet (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateFleet (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		fleet := createTestFleet("f2-trusted", nil)
 		fleet.Metadata.Owner = lo.ToPtr("someone")
@@ -348,7 +348,16 @@ func TestCreateFleet(t *testing.T) {
 		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.fleets["f2-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.fleets["f2-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.fleets["f2-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When creating a fleet it should set generation to 1 on the store input", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fleet := createTestFleet("gen-create", nil)
+
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.fleets["gen-create"].Metadata.Generation))
 	})
 
 	t.Run("When the store errors it should return an internal-server-error status", func(t *testing.T) {
@@ -445,10 +454,10 @@ func TestReplaceFleet(t *testing.T) {
 		_, status := ReplaceFleetFromUntrusted(context.Background(), h, orgId, "replace-untrusted", fleet, true)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, fakeStore.fleets["replace-untrusted"].Metadata.Owner)
-		require.Nil(t, fakeStore.fleets["replace-untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.fleets["replace-untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceFleet (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceFleet (trusted) should preserve owner and set generation to 1 on create", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		orgId := uuid.New()
 		fleet := createTestFleet("replace-trusted", nil)
@@ -458,7 +467,36 @@ func TestReplaceFleet(t *testing.T) {
 		_, status := h.ReplaceFleet(context.Background(), orgId, "replace-trusted", fleet, true)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(fakeStore.fleets["replace-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.fleets["replace-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(fakeStore.fleets["replace-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("f1", nil)
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.fleets["f1"] = &existing
+
+		updated := createTestFleet("f1", nil)
+		updated.Spec.Template.Spec.Os.Image = "img-updated"
+
+		_, status := h.ReplaceFleet(context.Background(), orgId, "f1", updated, true)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(fakeStore.fleets["f1"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		existing := createTestFleet("f1", nil)
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		fakeStore.fleets["f1"] = &existing
+
+		updated := createTestFleet("f1", nil)
+
+		_, status := h.ReplaceFleet(context.Background(), orgId, "f1", updated, true)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(fakeStore.fleets["f1"].Metadata.Generation))
 	})
 }
 
@@ -751,6 +789,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	}
 	resp, orig, status := testFleetPatch(t, pr)
 	orig.Spec.Template.Spec.Os.Image = value
+	orig.Metadata.Generation = lo.ToPtr(int64(1))
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.Equal(t, orig, *resp)
 }
@@ -773,6 +812,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status := testFleetPatch(t, pr)
 	orig.Metadata.Labels = &addLabels
+	orig.Metadata.Generation = lo.ToPtr(int64(0))
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.Equal(t, orig, *resp)
 }

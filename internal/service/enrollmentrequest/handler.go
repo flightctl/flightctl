@@ -346,6 +346,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 		}
 	}
 
+	setGenerationOnCreate(&er.Metadata)
 	result, err := h.store.Create(ctx, orgId, &er)
 	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
@@ -409,8 +410,29 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldEnrollmentRequest, created, err := h.store.CreateOrUpdate(ctx, orgId, &er)
-	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, created, err)
+	var result, oldEnrollmentRequest *domain.EnrollmentRequest
+	var created bool
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
+		}
+
+		toWrite := er
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+
+		var writeErr error
+		result, oldEnrollmentRequest, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
 
@@ -450,8 +472,21 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 		}
 	}
 
-	result, oldEnrollmentRequest, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, err)
+	var result, oldEnrollmentRequest *domain.EnrollmentRequest
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+
+		var writeErr error
+		result, oldEnrollmentRequest, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 

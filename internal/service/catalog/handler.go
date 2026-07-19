@@ -90,6 +90,7 @@ func (h *ServiceHandler) CreateCatalog(ctx context.Context, orgId uuid.UUID, cat
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	setGenerationOnCreate(&catalog.Metadata)
 	result, err := h.store.Create(ctx, orgId, &catalog)
 	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, lo.FromPtr(catalog.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.CatalogKind, catalog.Metadata.Name)
@@ -129,20 +130,34 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
+	var result, oldCatalog *domain.Catalog
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
 		existing, getErr := h.store.Get(ctx, orgId, name)
 		if getErr != nil {
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogKind, &name)
+				return getErr
 			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
-			!domain.CatalogSpecsAreEqual(existing.Spec, catalog.Spec) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+			existing = nil
 		}
-	}
+		if existing != nil && enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+			if !catalogHasSameSpec(existing, &catalog) {
+				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			}
+		}
 
-	result, oldCatalog, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog)
-	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, err)
+		toWrite := catalog
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+
+		var writeErr error
+		result, oldCatalog, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -193,12 +208,30 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 
 	if enforceOwnership &&
 		len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 &&
-		!domain.CatalogSpecsAreEqual(currentObj.Spec, newObj.Spec) {
+		!catalogHasSameSpec(currentObj, newObj) {
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
 	}
 
-	result, oldCatalog, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
+	var result, oldCatalog *domain.Catalog
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+			if !catalogHasSameSpec(existing, newObj) {
+				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			}
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+
+		var writeErr error
+		result, oldCatalog, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 

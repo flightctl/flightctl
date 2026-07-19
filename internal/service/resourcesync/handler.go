@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -60,6 +61,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	setGenerationOnCreate(&rs.Metadata)
 	result, err := h.store.Create(ctx, orgId, &rs)
 	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(rs.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.ResourceSyncKind, rs.Metadata.Name)
@@ -99,8 +101,29 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, oldResourceSync, created, err := h.store.CreateOrUpdate(ctx, orgId, &rs)
-	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, err)
+	var result, oldResourceSync *domain.ResourceSync
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
+		}
+
+		toWrite := rs
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+
+		var writeErr error
+		result, oldResourceSync, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
 
@@ -155,8 +178,22 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, oldResourceSync, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
+
+	var result, oldResourceSync *domain.ResourceSync
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+
+		var writeErr error
+		result, oldResourceSync, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 

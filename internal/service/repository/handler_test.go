@@ -214,10 +214,10 @@ func TestCreateRepository(t *testing.T) {
 		_, status := CreateRepositoryFromUntrusted(context.Background(), h, uuid.New(), repo)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Owner)
-		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(repoStore.items["untrusted-repo"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateRepository (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateRepository (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		h, repoStore, _ := newTestHandler()
 		repo := newGitRepository("trusted-repo", "https://example.com/repo.git")
 		repo.Metadata.Owner = lo.ToPtr("someone")
@@ -226,7 +226,16 @@ func TestCreateRepository(t *testing.T) {
 		_, status := h.CreateRepository(context.Background(), uuid.New(), repo)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Generation))
+	})
+
+	t.Run("When creating a repository it should set generation to 1 on the store input", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		repo := newGitRepository("gen-create", "https://example.com/repo.git")
+
+		_, status := h.CreateRepository(context.Background(), uuid.New(), repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, int64(1), lo.FromPtr(repoStore.items["gen-create"].Metadata.Generation))
 	})
 }
 
@@ -280,11 +289,9 @@ func TestReplaceRepository(t *testing.T) {
 		spec, err := resp.Spec.AsGitRepoSpec()
 		require.NoError(t, err)
 		require.Equal(t, "https://example.com/2.git", spec.Url)
-		// Only the create produces a ResourceCreated event; replacing the URL alone
-		// doesn't touch generation/labels/owner, so ComputeResourceUpdatedDetails sees
-		// no change and no further event is emitted.
-		require.Len(t, ev.created, 1)
+		require.Len(t, ev.created, 2)
 		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
+		require.Equal(t, domain.EventReasonResourceUpdated, ev.created[1].Reason)
 	})
 
 	t.Run("When the name in metadata does not match the path it should return 400", func(t *testing.T) {
@@ -304,10 +311,10 @@ func TestReplaceRepository(t *testing.T) {
 		_, status := ReplaceRepositoryFromUntrusted(context.Background(), h, orgId, "replace-untrusted", repo)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Owner)
-		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(repoStore.items["replace-untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceRepository (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceRepository (trusted) should preserve owner and set generation to 1 on create", func(t *testing.T) {
 		h, repoStore, _ := newTestHandler()
 		orgId := uuid.New()
 		repo := newGitRepository("replace-trusted", "https://example.com/repo.git")
@@ -317,7 +324,35 @@ func TestReplaceRepository(t *testing.T) {
 		_, status := h.ReplaceRepository(context.Background(), orgId, "replace-trusted", repo)
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		existing := newGitRepository("repo1", "https://example.com/1.git")
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		repoStore.items["repo1"] = &existing
+
+		updated := newGitRepository("repo1", "https://example.com/2.git")
+		_, status := h.ReplaceRepository(ctx, orgId, "repo1", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(repoStore.items["repo1"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		existing := newGitRepository("repo1", "https://example.com/1.git")
+		existing.Metadata.Generation = lo.ToPtr(int64(2))
+		repoStore.items["repo1"] = &existing
+
+		updated := newGitRepository("repo1", "https://example.com/1.git")
+		_, status := h.ReplaceRepository(ctx, orgId, "repo1", updated)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(repoStore.items["repo1"].Metadata.Generation))
 	})
 }
 
@@ -411,6 +446,7 @@ func TestPatchRepositoryLabels(t *testing.T) {
 	}
 	resp, orig, status := testRepositoryPatch(t, pr)
 	orig.Metadata.Labels = &map[string]string{"labelKey": "labelValue1"}
+	orig.Metadata.Generation = lo.ToPtr(int64(1))
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.Equal(t, orig, *resp)
 }

@@ -65,6 +65,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, 
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	setGenerationOnCreate(&repository.Metadata)
 	result, err := h.store.Create(ctx, orgId, &repository)
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
@@ -104,16 +105,34 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// Preserve sensitive data from existing repository if the new one contains masked placeholders
-	existingRepo, err := h.store.Get(ctx, orgId, name)
-	if err == nil {
-		if preserveErr := repository.PreserveSensitiveData(existingRepo); preserveErr != nil {
-			return nil, domain.StatusInternalServerError(preserveErr.Error())
+	var result, oldRepo *domain.Repository
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
 		}
-	}
 
-	result, oldRepo, created, err := h.store.CreateOrUpdate(ctx, orgId, &repository)
-	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
+		toWrite := repository
+		if existing != nil {
+			if preserveErr := toWrite.PreserveSensitiveData(existing); preserveErr != nil {
+				return preserveErr
+			}
+		}
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+
+		var writeErr error
+		result, oldRepo, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
 
@@ -153,8 +172,19 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, oldRepo, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
+	var result, oldRepo *domain.Repository
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		var writeErr error
+		result, oldRepo, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
