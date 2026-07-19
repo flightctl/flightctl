@@ -564,10 +564,12 @@ if [ "$1" -eq 0 ]; then
     loginctl disable-linger flightctl || :
 fi
 
+%preun greenboot
+%systemd_preun flightctl-configure-greenboot.service flightctl-mask-bootc-timer.service
+
 %postun greenboot
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
-    systemctl disable flightctl-mask-bootc-timer.service 2>/dev/null || true
     systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
     systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
 fi
