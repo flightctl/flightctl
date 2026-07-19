@@ -750,7 +750,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
 			Expect(status.Code).To(Equal(int32(409)))
 			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
 
@@ -767,7 +767,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, false)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)

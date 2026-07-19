@@ -78,7 +78,7 @@ var _ = Describe("DeviceStore create", func() {
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil)
+		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
 
 	AfterEach(func() {
