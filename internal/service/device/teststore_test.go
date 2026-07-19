@@ -100,17 +100,12 @@ func preserveNilMetadata(device, existing *domain.Device, fieldsToUnset []string
 	}
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
 	if existed {
 		if old.Spec != nil && old.Spec.Decommissioning != nil {
 			return nil, false, flterrors.ErrDecommission
-		}
-		if validationCallback != nil {
-			if err := validationCallback(ctx, old, device); err != nil {
-				return nil, false, err
-			}
 		}
 	}
 	if existed {
@@ -125,7 +120,7 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	return deepCopyDevice(d), created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {
@@ -133,11 +128,6 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	if old.Spec != nil && old.Spec.Decommissioning != nil {
 		return nil, flterrors.ErrDecommission
-	}
-	if validationCallback != nil {
-		if err := validationCallback(ctx, old, device); err != nil {
-			return nil, err
-		}
 	}
 	preserveNilMetadata(device, old, fieldsToUnset)
 	d := deepCopyDevice(device)

@@ -254,7 +254,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, nil, h.callbackDeviceUpdated)
+	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -282,7 +282,7 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
-	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, nil, h.callbackDeviceUpdated)
+	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, h.callbackDeviceUpdated)
 }
 
 func (h *DeviceServiceHandler) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
@@ -396,7 +396,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, nil, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -507,7 +507,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, nil, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

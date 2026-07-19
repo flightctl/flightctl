@@ -151,14 +151,9 @@ func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	return device, nil
 }
 
-func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	existing := f.items[name]
-	if validationCallback != nil {
-		if err := validationCallback(ctx, existing, device); err != nil {
-			return nil, false, err
-		}
-	}
 	created := existing == nil
 	f.items[name] = device
 	if eventCallback != nil {
