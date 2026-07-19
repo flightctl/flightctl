@@ -120,9 +120,8 @@ func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uui
 	return req, nil
 }
 
-// fakeDeviceStore embeds devicestore.Store (nil) and overrides only Get and Create,
-// the methods this handler's allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest
-// call sites use.
+// fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
+// used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
 	devicestore.Store
 	items map[string]*domain.Device
@@ -147,6 +146,14 @@ func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	f.items[name] = device
 	return device, nil
+}
+
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	existing := f.items[name]
+	created := existing == nil
+	f.items[name] = device
+	return device, existing, created, nil
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method
@@ -607,4 +614,54 @@ func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, device.Metadata.Owner)
 	require.False(t, device.IsManaged())
+}
+
+func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
+	t.Run("When a device with the same name already exists it should refuse overwrite", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "existing-device"
+
+		existing := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}
+		existing.Status.Lifecycle.Status = "AlreadyEnrolled"
+		fakeDevices.items[name] = existing
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already exists and cannot be overwritten during enrollment request approval")
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.Equal(t, domain.DeviceLifecycleStatusType("AlreadyEnrolled"), stored.Status.Lifecycle.Status)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
+	})
+
+	t.Run("When the device does not exist it should create it and emit a created event", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "new-device"
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.NotNil(t, stored)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated), 1)
+	})
 }
