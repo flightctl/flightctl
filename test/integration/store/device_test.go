@@ -78,7 +78,7 @@ var _ = Describe("DeviceStore create", func() {
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
+		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil)
 	})
 
 	AfterEach(func() {
@@ -1175,7 +1175,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -1198,7 +1198,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1214,29 +1214,21 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedDevice.Version()).To(Equal("2"))
 		})
 
-		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil, nil)
+		It("UpdateRendered always persists when called", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-always-write", nil, nil, nil)
 
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())
 
-			// Establish an initial rendered version for a given specHash.
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-always-write", config, "", "samehash", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
-			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			// Skip-vs-write is owned by the caller; the store persists even when specHash is unchanged.
+			secondVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-always-write", config, "", "samehash", nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(noopVersion).To(BeEmpty())
-
-			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
-			// advance the rendered version, e.g. to reflect a device-level application lifecycle
-			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(forcedVersion).ToNot(BeEmpty())
-			Expect(forcedVersion).ToNot(Equal(firstVersion))
+			Expect(secondVersion).ToNot(BeEmpty())
+			Expect(secondVersion).ToNot(Equal(firstVersion))
 		})
 
 		It("OverwriteRepositoryRefs", func() {

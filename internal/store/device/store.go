@@ -70,7 +70,7 @@ type Store interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	// DecommissionDevice persists an already-prepared device under resourceVersion CAS.
 	// Persistence contract: if the stored row already has Spec.Decommissioning set, returns
@@ -1135,7 +1135,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -1153,31 +1153,15 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		return false, "", err
 	}
 
-	hash := specHash
-
 	existingAnnotations[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
 	}
 
-	specUnchanged := false
-	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
-		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
-			specUnchanged = true
-		}
-	}
-
 	// Build dependency sync status from fingerprints, preserving lastUpdatedAt for unchanged entries
 	updatedServiceConditions := buildDependencySyncStatus(existingRecord.ServiceConditions, configFingerprints)
 
-	// forceUpdate bypasses the specUnchanged short-circuit for callers that already determined
-	// (using fresher or additional context than specHash alone, e.g. a device-level application
-	// lifecycle annotation change) that this render must be persisted regardless of hash equality.
-	if specUnchanged && len(configFingerprints) == 0 && !forceUpdate {
-		return false, "", nil
-	}
-
-	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
+	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = specHash
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -1251,13 +1235,13 @@ func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions
 	return model.MakeJSONField(sc)
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 		return retry, err
 	}
 
