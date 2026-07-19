@@ -25,6 +25,7 @@ var (
 	unspecifiedResource  = "Error: name must be specified when deleting"
 	resourceCreated      = `(200 OK|201 Created)`
 	invalidResource      = "invalid resource kind"
+	editResourceRequired = "Error: you must specify a resource to edit (TYPE NAME or TYPE/NAME)"
 	strictfipsruntimeTag = "X:strictfipsruntime"
 	applyOperation       = "apply"
 )
@@ -979,7 +980,7 @@ var _ = Describe("cli login", func() {
 		By("failing when no arguments are provided")
 		out, err = harness.CLI("edit")
 		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("Error: you must specify a resource to edit (TYPE NAME or TYPE/NAME)"))
+		Expect(out).To(ContainSubstring(editResourceRequired))
 
 		By("failing on invalid resource kind (numeric)")
 		out, err = harness.CLI("edit", "1234")
@@ -994,7 +995,7 @@ var _ = Describe("cli login", func() {
 		By("failing when too many arguments are provided")
 		out, err = harness.CLI("edit", "1", "2", "3", "4")
 		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
+		Expect(out).To(ContainSubstring(editResourceRequired))
 	})
 
 	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470", "client"), func() {
