@@ -317,19 +317,15 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
-	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
-		// Prevent overwriting existing devices during enrollment request approval
-		if before != nil {
-			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
-		}
-		return nil
-	}, func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-		// Only invoke callback on success
-		if err == nil {
-			h.callbackDeviceUpdated(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
-		}
-	})
-	return err
+	created, err := h.deviceStore.Create(ctx, orgId, apiResource, nil)
+	if errors.Is(err, flterrors.ErrDuplicateName) {
+		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", name)
+	}
+	if err != nil {
+		return err
+	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, created, true, nil)
+	return nil
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
