@@ -118,7 +118,8 @@ func createOCIRepository(ctx context.Context, repoStore repositorystore.Store, o
 	}
 	resource := v1beta1.Repository{
 		Metadata: v1beta1.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: spec,
 	}
@@ -382,7 +383,8 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			gitRepo := v1beta1.Repository{
 				Metadata: v1beta1.ObjectMeta{
-					Name: lo.ToPtr("git-repo"),
+					Name:       lo.ToPtr("git-repo"),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: gitSpec,
 			}

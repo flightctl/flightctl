@@ -58,8 +58,9 @@ func createRepository(ctx context.Context, repostore repositorystore.Store, log 
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name:   lo.ToPtr(name),
-			Labels: labels,
+			Name:       lo.ToPtr(name),
+			Labels:     labels,
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: spec,
 	}
@@ -89,7 +90,8 @@ func createOciRepository(ctx context.Context, repostore repositorystore.Store, o
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: spec,
 	}
