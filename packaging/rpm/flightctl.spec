@@ -47,12 +47,23 @@ flightctl is the CLI for controlling the Flight Control service.
 Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
-Requires: greenboot
+Recommends: flightctl-greenboot
 Requires: jq
 Requires: sudo
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
+
+# greenboot sub-package
+%package greenboot
+Summary: Greenboot integration for the Flight Control agent
+Requires: greenboot
+Requires: flightctl-agent = %{version}
+
+%description greenboot
+The flightctl-greenboot package provides greenboot health checks, bootc timer
+masking, and greenboot configuration for the Flight Control agent on
+image-mode (bootc) systems.
 
 # selinux sub-package
 %package selinux
@@ -485,6 +496,11 @@ fi
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
     /usr/lib/tmpfiles.d/centos-buildinfo.conf
+    /usr/share/sosreport/flightctl.py
+    %{_sysusersdir}/flightctl.conf
+    /etc/sudoers.d/*
+
+%files greenboot
     /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
@@ -492,24 +508,8 @@ fi
     /usr/libexec/flightctl/mask-bootc-timer.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
-    /usr/share/sosreport/flightctl.py
-    %{_sysusersdir}/flightctl.conf
-    /etc/sudoers.d/*
 
 %post agent
-# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
-# Must be unconditional: greenboot's own %%systemd_post preset removes greenboot-success.target
-# (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
-# `systemctl enable` recreates it via the Also= directive.
-# See: https://github.com/fedora-iot/greenboot-rs/issues/171
-# See: https://github.com/openshift/microshift/pull/5530
-systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
-# Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
-# This ensures only flightctl health checks can trigger OS rollback
-systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
-# Mask bootc auto-update timer on first boot (bootc/composefs); also run from %post below.
-systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
-
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
 /usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/flightctl.conf || {
@@ -540,18 +540,38 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
+%post greenboot
+# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
+# Must be unconditional: greenboot's own %%systemd_post preset removes greenboot-success.target
+# (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
+# `systemctl enable` recreates it via the Also= directive.
+# See: https://github.com/fedora-iot/greenboot-rs/issues/171
+# See: https://github.com/openshift/microshift/pull/5530
+systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
+# Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
+# This ensures only flightctl health checks can trigger OS rollback
+systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Mask bootc auto-update timer on first boot (bootc/composefs); the script
+# is also run directly below for immediate effect during RPM install.
+systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
 # Disable bootc automatic updates on bootc systems (flightctl manages updates).
 # mask-bootc-timer.sh applies the mask; flightctl-mask-bootc-timer.service re-runs on
 # boot when image-build %post changes do not persist on bootc/composefs disks.
 /usr/libexec/flightctl/mask-bootc-timer.sh 2>/dev/null || true
 
 %postun agent
+if [ "$1" -eq 0 ]; then
+    loginctl disable-linger flightctl || :
+fi
+
+%preun greenboot
+%systemd_preun flightctl-configure-greenboot.service flightctl-mask-bootc-timer.service
+
+%postun greenboot
 # Restore bootc automatic-update timer only on full removal (not upgrade)
 if [ "$1" -eq 0 ]; then
-    systemctl disable flightctl-mask-bootc-timer.service 2>/dev/null || true
     systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
     systemctl start bootc-fetch-apply-updates.timer 2>/dev/null || true
-    loginctl disable-linger flightctl || :
 fi
 
 %files selinux
