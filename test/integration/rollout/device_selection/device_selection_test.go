@@ -161,7 +161,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 	}
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil, nil)
+		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 	setRolledOut := func(deviceName string) {

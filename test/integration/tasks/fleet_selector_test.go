@@ -496,7 +496,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device.Spec.Decommissioning = &api.DeviceDecommission{}
 			callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Change fleet selector so device no longer matches
