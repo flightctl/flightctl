@@ -437,7 +437,6 @@ linters:
             - "!**/internal/instrumentation/metrics/**"
             - "!**/internal/api_server/server.go"
             - "!**/internal/periodic_checker/server.go"
-            - "!**/internal/periodic_checker/task_definitions.go"
             - "!**/test/**"
           deny:
             - pkg: "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding$"

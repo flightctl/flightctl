@@ -313,3 +313,7 @@ func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind 
 func (h *ServiceHandler) callbackFleetDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
+
+func (h *ServiceHandler) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.UnsetOwner(ctx, store.DB(ctx, nil), orgId, owner)
+}

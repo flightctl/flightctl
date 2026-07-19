@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
-	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -76,7 +75,6 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
 		catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
 		repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
-		organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))

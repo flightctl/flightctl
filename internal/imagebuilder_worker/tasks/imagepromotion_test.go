@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	ibstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -242,8 +243,9 @@ func (d *dummyCatalogItemWriter) GetItem(catalogName, itemName string) *coredoma
 	return d.items[catalogName+"/"+itemName]
 }
 
-// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to CatalogItems.
+// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to catalogservice.Service.
 type dummyCatalogStoreAdapter struct {
+	catalogservice.Service
 	w *dummyCatalogItemWriter
 }
 
@@ -554,7 +556,7 @@ func (s *testIBStore) Close() error                                { return nil 
 
 func newTestConsumer(
 	svc *testIBService,
-	catalogs CatalogItems,
+	catalogs catalogservice.Service,
 ) *Consumer {
 	ibStore := &testIBStore{
 		builds:     svc.builds,
@@ -591,7 +593,7 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -622,7 +624,7 @@ func TestEvaluator_NewCatalogItemWithDisplayName(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -666,7 +668,7 @@ func TestEvaluator_ExportsPending(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -710,7 +712,7 @@ func TestEvaluator_ExportsReady(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-2", "sha256:ccdd")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -758,7 +760,7 @@ func TestEvaluator_FailPromotionsForBuild(t *testing.T) {
 
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	for i, name := range []string{"promo-a", "promo-b"} {
 		p := makeWaitingPromotion(name, "build-fail", "cat", "item"+string(rune('a'+i)), "1.0.0")
@@ -783,7 +785,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("cat")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	// Pre-populate the CatalogItem with version 1.0.0.
 	systemCategory := coredomain.CatalogItemCategorySystem
@@ -862,7 +864,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -880,7 +882,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -915,7 +917,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)

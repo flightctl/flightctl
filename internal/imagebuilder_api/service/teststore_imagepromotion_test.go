@@ -8,11 +8,11 @@ import (
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"gorm.io/gorm"
 )
 
 // DummyImagePromotionStore is an in-memory implementation of ibstore.ImagePromotionStore.
@@ -132,6 +132,7 @@ func (s *DummyImagePromotionStore) InitialMigration(ctx context.Context) error {
 // DummyCatalogStore is an in-memory implementation of catalogstore.Store.
 // It is used by both ImagePromotionService (for catalog reads) and DummyCatalogItemWriter (for writes).
 type DummyCatalogStore struct {
+	catalog.Service
 	catalogs map[string]bool
 	items    map[string]*coredomain.CatalogItem // key: "catalogName/itemName"
 }
@@ -265,10 +266,10 @@ func (s *DummyCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, r
 func (s *DummyCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (int64, error) {
 	return 0, nil
 }
-func (s *DummyCatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+func (s *DummyCatalogStore) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
 }
-func (s *DummyCatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+func (s *DummyCatalogStore) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
 }
 func (s *DummyCatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*coredomain.CatalogItemList, error) {
