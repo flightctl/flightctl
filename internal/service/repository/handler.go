@@ -66,9 +66,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, 
 	}
 
 	result, err := h.store.Create(ctx, orgId, &repository)
-	if err == nil {
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
 }
 
@@ -115,9 +113,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 	}
 
 	result, oldRepo, created, err := h.store.CreateOrUpdate(ctx, orgId, &repository)
-	if err == nil {
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, nil)
-	}
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
 
@@ -158,9 +154,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	newObj.Metadata.ResourceVersion = nil
 
 	result, oldRepo, err := h.store.Update(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, nil)
-	}
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
@@ -177,9 +171,7 @@ func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, org
 	}
 
 	result, oldRepo, err := h.store.UpdateStatus(ctx, orgId, &repository)
-	if err == nil {
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, nil)
-	}
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 

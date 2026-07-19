@@ -228,10 +228,10 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 	}
 
 	result, err := h.store.Create(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, true, domain.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
-	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, nil)
 
 	if result.Status == nil {
 		result.Status = &domain.CertificateSigningRequestStatus{}
@@ -329,10 +329,10 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	}
 
 	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
-	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, nil)
 
 	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
 		h.autoApprove(ctx, orgId, result)
@@ -378,10 +378,10 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 	}
 
 	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}
-	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, nil)
 
 	if result.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
 		h.autoApprove(ctx, orgId, result)

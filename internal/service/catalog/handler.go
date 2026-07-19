@@ -91,9 +91,7 @@ func (h *ServiceHandler) CreateCatalog(ctx context.Context, orgId uuid.UUID, cat
 	}
 
 	result, err := h.store.Create(ctx, orgId, &catalog)
-	if err == nil {
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, lo.FromPtr(catalog.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, lo.FromPtr(catalog.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.CatalogKind, catalog.Metadata.Name)
 }
 
@@ -144,9 +142,7 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 	}
 
 	result, oldCatalog, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog)
-	if err == nil {
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, nil)
-	}
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -202,9 +198,7 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	result, oldCatalog, err := h.store.Update(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
-	}
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -221,9 +215,7 @@ func (h *ServiceHandler) ReplaceCatalogStatus(ctx context.Context, orgId uuid.UU
 	}
 
 	result, oldCatalog, err := h.store.UpdateStatus(ctx, orgId, &catalog)
-	if err == nil {
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
-	}
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
@@ -244,9 +236,7 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	}
 
 	result, oldCatalog, err := h.store.UpdateStatus(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, nil)
-	}
+	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 

@@ -158,9 +158,7 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 	h.handleSuperAdminAnnotation(ctx, &authProvider)
 
 	result, err := h.store.Create(ctx, orgId, &authProvider)
-	if err == nil {
-		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, lo.FromPtr(authProvider.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, lo.FromPtr(authProvider.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 }
 
@@ -242,9 +240,7 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 	}
 
 	result, oldAuthProvider, created, err := h.store.CreateOrUpdate(ctx, orgId, &authProvider)
-	if err == nil {
-		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, nil)
-	}
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
 
@@ -280,9 +276,7 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	newObj.Metadata.ResourceVersion = nil
 
 	result, oldAuthProvider, err := h.store.Update(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, nil)
-	}
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 

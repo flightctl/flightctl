@@ -319,13 +319,13 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
 	created, err := h.deviceStore.Create(ctx, orgId, apiResource)
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, created, true, err)
 	if errors.Is(err, flterrors.ErrDuplicateName) {
 		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", name)
 	}
 	if err != nil {
 		return err
 	}
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, created, true, nil)
 	return nil
 }
 
@@ -363,9 +363,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 	}
 
 	result, err := h.store.Create(ctx, orgId, &er)
-	if err == nil {
-		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
 }
 
@@ -428,9 +426,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 	}
 
 	result, oldEnrollmentRequest, created, err := h.store.CreateOrUpdate(ctx, orgId, &er)
-	if err == nil {
-		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, created, nil)
-	}
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
 
@@ -471,9 +467,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 	}
 
 	result, oldEnrollmentRequest, err := h.store.Update(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, nil)
-	}
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -554,9 +548,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 
 	// Update the enrollment request status using the specific approval callback
 	_, oldEnrollmentRequest, err := h.store.UpdateStatus(ctx, orgId, enrollmentReq)
-	if err == nil {
-		h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, enrollmentReq, false, nil)
-	}
+	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, enrollmentReq, false, err)
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -564,9 +556,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, org
 	addStatusIfNeeded(&er)
 
 	result, oldEnrollmentRequest, err := h.store.UpdateStatus(ctx, orgId, &er)
-	if err == nil {
-		h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, nil)
-	}
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 

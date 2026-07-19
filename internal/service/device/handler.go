@@ -97,9 +97,7 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
 	result, err := h.deviceStore.Create(ctx, orgId, &device)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
 }
 
@@ -259,9 +257,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
 	result, oldDevice, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -290,9 +286,7 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, err
 }
 
@@ -366,9 +360,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
 	result, oldDevice, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -414,9 +406,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -529,9 +519,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
 	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-	}
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -546,11 +534,11 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	}
 	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
 		result, oldDevice, err := h.deviceStore.UpdateStatus(ctx, orgId, device)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 			return err
 		}
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
 	}
 	return nil
 }
@@ -592,9 +580,7 @@ func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uui
 
 	prepared := prepareDeviceForDecommission(existing, decom)
 	result, oldDevice, err := h.deviceStore.DecommissionDevice(ctx, orgId, prepared)
-	if err == nil {
-		h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-	}
+	h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

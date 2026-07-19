@@ -62,9 +62,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 	}
 
 	result, err := h.store.Create(ctx, orgId, &fleet)
-	if err == nil {
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
 }
 
@@ -114,9 +112,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	result, oldFleet, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil)
-	if err == nil {
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, nil)
-	}
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -191,9 +187,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	}
 
 	result, oldFleet, err := h.store.Update(ctx, orgId, newObj, nil)
-	if err == nil {
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, nil)
-	}
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -224,10 +218,10 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.U
 			return nil
 		}
 		oldFleet, newFleet, updateErr := h.store.UpdateConditions(ctx, orgId, name, merged)
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, updateErr)
 		if updateErr != nil {
 			return updateErr
 		}
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, nil)
 		return nil
 	})
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
@@ -235,9 +229,7 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.U
 
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	oldFleet, newFleet, err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
-	if err == nil {
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, nil)
-	}
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, err)
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

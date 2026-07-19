@@ -61,9 +61,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID
 	}
 
 	result, err := h.store.Create(ctx, orgId, &rs)
-	if err == nil {
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(rs.Metadata.Name), nil, result, true, nil)
-	}
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(rs.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.ResourceSyncKind, rs.Metadata.Name)
 }
 
@@ -102,9 +100,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 	}
 
 	result, oldResourceSync, created, err := h.store.CreateOrUpdate(ctx, orgId, &rs)
-	if err == nil {
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, nil)
-	}
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
 
@@ -161,9 +157,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 	result, oldResourceSync, err := h.store.Update(ctx, orgId, newObj)
-	if err == nil {
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, nil)
-	}
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 
@@ -176,9 +170,7 @@ func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, orgId uu
 	}
 
 	result, oldResourceSync, err := h.store.UpdateStatus(ctx, orgId, &resourceSync)
-	if err == nil {
-		h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, nil)
-	}
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 
