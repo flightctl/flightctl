@@ -23,7 +23,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
@@ -137,7 +137,7 @@ func (s *CatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams sto
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	existingRecord := model.Catalog{Resource: model.Resource{OrgID: orgId, Name: name}}
 	// Join caller TX when present so multi-store cascades stay atomic.
 	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
@@ -165,12 +165,12 @@ func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string)
 
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s *CatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {

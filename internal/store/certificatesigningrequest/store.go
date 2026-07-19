@@ -21,7 +21,7 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
@@ -109,9 +109,8 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	_, err := s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
-	return err
+func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 }
 
 func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {

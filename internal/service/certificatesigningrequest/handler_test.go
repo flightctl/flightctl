@@ -101,12 +101,12 @@ func (f *fakeCertificateSigningRequestStore) List(ctx context.Context, orgId uui
 	return &domain.CertificateSigningRequestList{Items: items}, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {

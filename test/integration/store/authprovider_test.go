@@ -217,7 +217,7 @@ var _ = Describe("AuthProviderStore", func() {
 			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = authStore.Delete(ctx, orgId, "delete-test-provider")
+			_, err = authStore.Delete(ctx, orgId, "delete-test-provider")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it's deleted
@@ -227,7 +227,7 @@ var _ = Describe("AuthProviderStore", func() {
 		})
 
 		It("DeleteAuthProvider - not found", func() {
-			err := authStore.Delete(ctx, orgId, "nonexistent")
+			_, err := authStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 

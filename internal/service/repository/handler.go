@@ -122,8 +122,8 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackRepositoryDeleted(ctx, domain.RepositoryKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)

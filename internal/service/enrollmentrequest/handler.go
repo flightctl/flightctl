@@ -487,8 +487,8 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 		return domain.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
 	}
 
-	err = h.store.Delete(ctx, orgId, name)
-	if err == nil {
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
 		h.callbackEnrollmentRequestDeleted(ctx, domain.EnrollmentRequestKind, orgId, name, nil, nil, false, nil)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)

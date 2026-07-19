@@ -91,12 +91,12 @@ func (f *fakeEnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, 
 	return &domain.EnrollmentRequestList{Items: items}, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	return nil
+	return true, nil
 }
 
 func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {

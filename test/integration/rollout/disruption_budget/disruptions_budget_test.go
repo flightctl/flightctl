@@ -123,7 +123,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)).ToNot(HaveOccurred())
+		_, _, err = fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{

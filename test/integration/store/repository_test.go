@@ -113,17 +113,17 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repository success", func() {
-			err := repositoryStore.Delete(ctx, orgId, "myrepository-1")
+			_, err := repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := repositoryStore.Delete(ctx, orgId, "nonexistent")
+			_, err := repositoryStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete repository success when nil spec", func() {
-			err := repositoryStore.Delete(ctx, orgId, "nilspec")
+			_, err := repositoryStore.Delete(ctx, orgId, "nilspec")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -272,7 +272,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
+			_, err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -286,7 +286,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
+			_, err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -814,7 +814,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
-			err = repositoryStore.Delete(ctx, orgId, "ssh-delete-test")
+			_, err = repositoryStore.Delete(ctx, orgId, "ssh-delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it no longer exists
@@ -1086,7 +1086,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
-			err = repositoryStore.Delete(ctx, orgId, "http-delete-test")
+			_, err = repositoryStore.Delete(ctx, orgId, "http-delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it no longer exists
