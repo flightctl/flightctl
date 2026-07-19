@@ -112,7 +112,7 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	ckey := catalogKey(orgId, name)
 	_, exists := f.catalogs[ckey]
 	if !exists {
@@ -125,9 +125,6 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 		}
 	}
 	delete(f.catalogs, ckey)
-	if callback != nil {
-		_ = callback(ctx, nil, orgId, name)
-	}
 	return nil
 }
 

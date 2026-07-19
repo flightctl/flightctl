@@ -235,7 +235,7 @@ func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 func (s *DummyCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*coredomain.CatalogList, error) {
 	return &coredomain.CatalogList{}, nil
 }
-func (s *DummyCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback flightctlstore.RemoveOwnerCallback) error {
+func (s *DummyCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	return nil
 }
 func (s *DummyCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
