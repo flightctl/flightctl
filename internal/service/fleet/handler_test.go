@@ -50,6 +50,7 @@ type fakeFleetStore struct {
 	lastOverwrittenRepoNames   []string
 
 	updateConditionsCalls int
+	lastUnsetOwner        string
 }
 
 func newFakeFleetStore() *fakeFleetStore {
@@ -165,6 +166,7 @@ func (f *fakeFleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId u
 }
 
 func (f *fakeFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	f.lastUnsetOwner = owner
 	return f.err
 }
 
@@ -929,5 +931,23 @@ func TestGetFleetRepositoryRefs(t *testing.T) {
 
 		_, status := h.GetFleetRepositoryRefs(context.Background(), uuid.New(), "f1")
 		require.Equal(t, statusInternalErrCode, status.Code)
+	})
+}
+
+func TestUnsetOwner(t *testing.T) {
+	t.Run("When the store succeeds it should clear ownership for the owner", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+
+		err := h.UnsetOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.NoError(t, err)
+		require.Equal(t, "ResourceSync/rs1", fakeStore.lastUnsetOwner)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.err = flterrors.ErrResourceNotFound
+
+		err := h.UnsetOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.ErrorIs(t, err, flterrors.ErrResourceNotFound)
 	})
 }

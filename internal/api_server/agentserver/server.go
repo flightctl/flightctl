@@ -27,7 +27,9 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -121,13 +123,14 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
 	s.deviceSvc = deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
 	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
-	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.deviceSvc, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
-	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.deviceSvc, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths)
+	csrHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl)
+	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(csrHandler)
+	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(erHandler)
 	s.catalogSvc = catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
 	s.organizationSvc = organizationservice.WrapWithTracing(

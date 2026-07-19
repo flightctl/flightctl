@@ -30,6 +30,7 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -402,10 +403,12 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, serverLog)
-	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", serverLog)
 	testHarness.Fleet = fleetservice.NewServiceHandler(fleetStore, eventsSvc, serverLog)
-	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, testHarness.Device, csrStore, ca, kvStore, eventsSvc, serverLog, []string{}, "", "")
-	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, serverLog, "", "")
+	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, testHarness.Fleet, eventsSvc, kvStore, "", serverLog)
+	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, testHarness.Device, ca, kvStore, eventsSvc, serverLog, []string{})
+	csrHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), ca, eventsSvc, serverLog, "", "")
+	testHarness.EnrollmentRequest = erHandler
+	testHarness.CertificateSigningRequest = csrHandler
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {

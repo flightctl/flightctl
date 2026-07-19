@@ -21,8 +21,8 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -110,7 +110,6 @@ func (s *RestoreTestSuite) Setup() {
 	s.EventStore = eventstore.NewEventStore(s.DB, s.Log.WithField("pkg", "event-store"))
 	s.EnrollmentRequestStore = enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
-	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"))
 
 	// Add a default admin mapped identity to the context
 	testOrg := &model.Organization{
@@ -141,9 +140,10 @@ func (s *RestoreTestSuite) Setup() {
 	Expect(err).ToNot(HaveOccurred())
 
 	eventsSvc := events.NewServiceHandler(s.EventStore, workerClient, s.Log)
-	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, fleetStore, eventsSvc, kvStore, "", s.Log)
+	fleetSvc := fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.Log)
+	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, fleetSvc, eventsSvc, kvStore, "", s.Log)
 	s.Event = eventservice.NewServiceHandler(s.EventStore, eventsSvc)
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.Device, csrStore, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.Device, caClient, kvStore, eventsSvc, s.Log, []string{})
 }
 
 // Teardown performs common cleanup for restore tests.

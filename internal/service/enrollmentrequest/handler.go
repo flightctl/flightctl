@@ -22,12 +22,10 @@ import (
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -37,32 +35,25 @@ import (
 type ServiceHandler struct {
 	store      enrollmentrequeststore.Store
 	deviceSvc  device.Service
-	csrStore   certificatesigningrequeststore.Store
 	ca         *crypto.CAClient
 	kvStore    kvstore.KVStore
 	events     events.Service
 	log        logrus.FieldLogger
 	tpmCAPaths []string
 	agentGate  *semaphore.Weighted
-
-	agentEndpoint string
-	uiUrl         string
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceSvc device.Service, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceSvc device.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string) *ServiceHandler {
 	return &ServiceHandler{
-		store:         store,
-		deviceSvc:     deviceSvc,
-		csrStore:      csrStore,
-		ca:            ca,
-		kvStore:       kvStore,
-		events:        events,
-		log:           log,
-		tpmCAPaths:    tpmCAPaths,
-		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint: agentEndpoint,
-		uiUrl:         uiUrl,
+		store:      store,
+		deviceSvc:  deviceSvc,
+		ca:         ca,
+		kvStore:    kvStore,
+		events:     events,
+		log:        log,
+		tpmCAPaths: tpmCAPaths,
+		agentGate:  semaphore.NewWeighted(common.MaxConcurrentAgents),
 	}
 }
 
@@ -647,41 +638,4 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 		}
 	})
-}
-
-func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	caCert, err := h.ca.GetCABundle()
-	if err != nil {
-		return nil, domain.StatusInternalServerError("failed to get CA certificate")
-	}
-
-	clientCert := []byte{}
-	if params.Csr != nil {
-		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-		}
-
-		csr, err := h.csrStore.Get(ctx, orgId, *params.Csr)
-		if err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, params.Csr)
-		}
-
-		if csr.Status != nil && csr.Status.Certificate != nil {
-			clientCert = *csr.Status.Certificate
-		}
-	}
-
-	return &domain.EnrollmentConfig{
-		EnrollmentService: domain.EnrollmentService{
-			Authentication: domain.EnrollmentServiceAuth{
-				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
-				ClientKeyData:         "",
-			},
-			Service: domain.EnrollmentServiceService{
-				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
-				Server:                   h.agentEndpoint,
-			},
-			EnrollmentUiEndpoint: h.uiUrl,
-		},
-	}, domain.StatusOK()
 }

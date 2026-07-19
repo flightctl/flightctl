@@ -10,14 +10,16 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
-// mockRepositoryStore is a mock implementation of RepositoryLookup for testing
+// mockRepositoryStore is a mock implementation of repository.Service for testing
 type mockRepositoryStore struct {
+	repository.Service
 	repositories map[string]*domain.Repository
 }
 

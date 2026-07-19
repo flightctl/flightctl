@@ -16,9 +16,10 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
-	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -131,23 +132,23 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 	return nil
 }
 
-// fakeEnrollmentRequestStore embeds enrollmentrequeststore.Store (nil) and overrides only Get,
-// the sole method verifyTPMCSRRequest calls.
-type fakeEnrollmentRequestStore struct {
-	enrollmentrequeststore.Store
+// fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
+// verification tests (GetEnrollmentRequest only).
+type fakeEnrollmentRequestService struct {
+	enrollmentrequest.Service
 	items map[string]*domain.EnrollmentRequest
 }
 
-func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
-	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}}
+func newFakeEnrollmentRequestService() *fakeEnrollmentRequestService {
+	return &fakeEnrollmentRequestService{items: map[string]*domain.EnrollmentRequest{}}
 }
 
-func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	er, ok := f.items[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, domain.Status{Code: statusNotFoundCode, Message: "not found"}
 	}
-	return er, nil
+	return er, domain.StatusOK()
 }
 
 // fakeEventsService is a recording fake for events.Service. CertificateSigningRequest's own
@@ -178,13 +179,14 @@ func newTestCA(t *testing.T) (*crypto.CAClient, *cacfg.Config) {
 	return caClient, cfg
 }
 
-func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestStore, *fakeEventsService, *cacfg.Config) {
+func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestService, *fakeEventsService, *cacfg.Config) {
 	csrStore := newFakeCertificateSigningRequestStore()
-	erStore := newFakeEnrollmentRequestStore()
+	erSvc := newFakeEnrollmentRequestService()
 	ev := &fakeEventsService{}
 	caClient, cfg := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(csrStore, erStore, caClient, ev, logger, "", ""), csrStore, erStore, ev, cfg
+	verifier := tpmcsr.NewVerifier(erSvc)
+	return NewServiceHandler(csrStore, verifier, caClient, ev, logger, "", ""), csrStore, erSvc, ev, cfg
 }
 
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.

@@ -19,9 +19,9 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -191,8 +191,8 @@ func (f *fakeEventsService) createdWithReason(reason domain.EventReason) []*doma
 	return matched
 }
 
-type fakeFleetStore struct {
-	fleetstore.Store
+type fakeFleetService struct {
+	fleet.Service
 }
 
 func newTestCA(t *testing.T) *crypto.CAClient {
@@ -204,7 +204,7 @@ func newTestCA(t *testing.T) *crypto.CAClient {
 
 func newTestDeviceService(ev events.Service) (device.Service, *fakeDeviceStore) {
 	devStore := newFakeDeviceStore()
-	return device.NewDeviceServiceHandler(devStore, &fakeFleetStore{}, ev, nil, "", logrus.New()), devStore
+	return device.NewDeviceServiceHandler(devStore, &fakeFleetService{}, ev, nil, "", logrus.New()), devStore
 }
 
 func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService) {
@@ -214,7 +214,7 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore,
 	caClient := newTestCA(t)
 	logger := logrus.New()
 	deviceSvc, devStore := newTestDeviceService(ev)
-	return NewServiceHandler(erStore, deviceSvc, nil, caClient, kv, ev, logger, nil, "", ""), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, deviceSvc, caClient, kv, ev, logger, nil), erStore, devStore, kv, ev
 }
 
 func adminContext() context.Context {
@@ -536,8 +536,8 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 // TestCreateDeviceFromEnrollmentRequestNeverManaged is a regression guard for the deviceOnlyStore
 // adapter's safety invariant: createDeviceFromEnrollmentRequest must never set Metadata.Owner on
 // the device it builds. deviceOnlyStore only overrides Device() on its embedded nil store.Store;
-// every other accessor (including Fleet()) panics if called. common.UpdateServiceSideStatus only
-// calls st.Fleet() when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
+// every other accessor panics if called. UpdateServiceSideStatus only calls fleet.Service.GetFleet
+// when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
 // were ever broken, this test would fail with a panic instead of a production nil-pointer panic.
 func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	h, _, fakeDevices, _, _ := newTestHandler(t)

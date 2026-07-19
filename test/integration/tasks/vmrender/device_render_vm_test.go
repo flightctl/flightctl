@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -101,7 +102,8 @@ var _ = Describe("VmApplicationRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		fleetSvc := fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStoreInst, "", log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		if queuesProvider == nil {
