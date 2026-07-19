@@ -143,7 +143,7 @@ func (s *RestoreTestSuite) Setup() {
 	eventsSvc := events.NewServiceHandler(s.EventStore, workerClient, s.Log)
 	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, fleetStore, eventsSvc, kvStore, "", s.Log)
 	s.Event = eventservice.NewServiceHandler(s.EventStore, eventsSvc)
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.DeviceStore, csrStore, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.Device, csrStore, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
 }
 
 // Teardown performs common cleanup for restore tests.

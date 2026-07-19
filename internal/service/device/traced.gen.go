@@ -143,6 +143,18 @@ func (_d *TracedDeviceService) GetRenderedDevice(ctx context.Context, orgId uuid
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) (err error) {
+	ctx, span := startSpan(ctx, "HealthcheckDevices")
+
+	err = _d.inner.HealthcheckDevices(ctx, orgId, names)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
 func (_d *TracedDeviceService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (dp1 *domain.DeviceList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListConnectivityChangedDevices")
 

@@ -223,6 +223,20 @@ func (mr *MockServiceMockRecorder) GetRenderedDevice(ctx, orgId, name, params an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockService)(nil).GetRenderedDevice), ctx, orgId, name, params)
 }
 
+// HealthcheckDevices mocks base method.
+func (m *MockService) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HealthcheckDevices", ctx, orgId, names)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HealthcheckDevices indicates an expected call of HealthcheckDevices.
+func (mr *MockServiceMockRecorder) HealthcheckDevices(ctx, orgId, names any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HealthcheckDevices", reflect.TypeOf((*MockService)(nil).HealthcheckDevices), ctx, orgId, names)
+}
+
 // ListConnectivityChangedDevices mocks base method.
 func (m *MockService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()

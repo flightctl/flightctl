@@ -64,6 +64,8 @@ type fakeDeviceStore struct {
 	devices                   map[string]*domain.Device
 	repoRefs                  map[string][]string
 	setServiceConditionsCalls int
+	healthcheckCalls          [][]string
+	healthcheckErr            error
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
@@ -271,6 +273,11 @@ func (s *fakeDeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name
 
 func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
+}
+
+func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	s.healthcheckCalls = append(s.healthcheckCalls, names)
+	return s.healthcheckErr
 }
 
 func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {

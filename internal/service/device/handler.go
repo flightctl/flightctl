@@ -888,3 +888,7 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 	h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
 	return false
 }
+
+func (h *DeviceServiceHandler) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return h.deviceStore.Healthcheck(ctx, orgId, names)
+}

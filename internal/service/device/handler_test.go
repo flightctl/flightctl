@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -111,6 +112,24 @@ func TestGetDevice(t *testing.T) {
 		result, status := svc.GetDevice(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
+	})
+}
+
+func TestHealthcheckDevices(t *testing.T) {
+	t.Run("When the store succeeds it should delegate names to the store", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		names := []string{"d1", "d2"}
+		require.NoError(t, svc.HealthcheckDevices(ctx, orgId, names))
+		require.Equal(t, [][]string{names}, st.device.healthcheckCalls)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.device.healthcheckErr = errors.New("db down")
+		err := svc.HealthcheckDevices(context.Background(), uuid.New(), []string{"d1"})
+		require.ErrorContains(t, err, "db down")
 	})
 }
 
