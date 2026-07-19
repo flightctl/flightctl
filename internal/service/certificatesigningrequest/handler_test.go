@@ -36,7 +36,8 @@ const (
 // fakeCertificateSigningRequestStore is a small in-memory implementation of
 // internal/store/certificatesigningrequest.Store.
 type fakeCertificateSigningRequestStore struct {
-	items map[string]*domain.CertificateSigningRequest
+	items                 map[string]*domain.CertificateSigningRequest
+	updateConditionsCalls int
 }
 
 func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore {
@@ -127,11 +128,15 @@ func (f *fakeCertificateSigningRequestStore) UpdateStatus(ctx context.Context, o
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
+	f.updateConditionsCalls++
 	csr, exists := f.items[name]
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
-	csr.Status.Conditions = conditions
+	if csr.Status == nil {
+		csr.Status = &domain.CertificateSigningRequestStatus{}
+	}
+	csr.Status.Conditions = append([]domain.Condition(nil), conditions...)
 	return nil
 }
 
@@ -640,5 +645,48 @@ func TestVerifyTPMCSRRequest(t *testing.T) {
 		cond := domain.FindStatusCondition(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestTPMVerified)
 		require.NotNil(t, cond)
 		require.Equal(t, domain.ConditionStatusFalse, cond.Status)
+	})
+}
+
+func TestUpdateCertificateSigningRequestConditions(t *testing.T) {
+	t.Run("When merge changes conditions it should persist the merged slice", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		fakeStore.items["csr1"] = &domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("csr1")},
+			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
+		}
+
+		status := h.UpdateCertificateSigningRequestConditions(context.Background(), uuid.New(), "csr1", []domain.Condition{
+			{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue, Reason: "Approved", Message: "ok"},
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, 1, fakeStore.updateConditionsCalls)
+		require.Equal(t, domain.ConditionStatusTrue, fakeStore.items["csr1"].Status.Conditions[0].Status)
+	})
+
+	t.Run("When merge changes nothing it should return OK without persisting", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cond := domain.Condition{
+			Type:    domain.ConditionTypeCertificateSigningRequestApproved,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "Approved",
+			Message: "ok",
+		}
+		fakeStore.items["csr1"] = &domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("csr1")},
+			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{cond}},
+		}
+
+		status := h.UpdateCertificateSigningRequestConditions(context.Background(), uuid.New(), "csr1", []domain.Condition{cond})
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, 0, fakeStore.updateConditionsCalls)
+	})
+
+	t.Run("When the CSR does not exist it should return a not-found status", func(t *testing.T) {
+		h, _, _, _, _ := newTestHandler(t)
+		status := h.UpdateCertificateSigningRequestConditions(context.Background(), uuid.New(), "missing", []domain.Condition{
+			{Type: domain.ConditionTypeCertificateSigningRequestApproved, Status: domain.ConditionStatusTrue},
+		})
+		require.Equal(t, statusNotFoundCode, status.Code)
 	})
 }

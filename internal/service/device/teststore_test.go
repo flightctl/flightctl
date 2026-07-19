@@ -61,8 +61,9 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices  map[string]*domain.Device
-	repoRefs map[string][]string
+	devices                   map[string]*domain.Device
+	repoRefs                  map[string][]string
+	setServiceConditionsCalls int
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
@@ -320,6 +321,7 @@ func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUI
 }
 
 func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
+	s.setServiceConditionsCalls++
 	d, ok := s.devices[name]
 	if !ok {
 		return flterrors.ErrResourceNotFound
@@ -327,10 +329,19 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	if d.Status == nil {
 		d.Status = lo.ToPtr(domain.NewDeviceStatus())
 	}
-	oldConditions := d.Status.Conditions
-	d.Status.Conditions = conditions
+	var oldServiceConditions []domain.Condition
+	var kept []domain.Condition
+	for _, c := range d.Status.Conditions {
+		if c.Type.IsServiceConditionType() {
+			oldServiceConditions = append(oldServiceConditions, c)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	prepared := append([]domain.Condition(nil), conditions...)
+	d.Status.Conditions = append(kept, prepared...)
 	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, conditions)
+		callback(ctx, orgId, d, oldServiceConditions, prepared)
 	}
 	return nil
 }
