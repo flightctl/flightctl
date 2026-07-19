@@ -360,7 +360,7 @@ var _ = Describe("cli events operation", func() {
 			}, "30s", "2s").Should(ContainSubstring("Device specification is valid"))
 		})
 
-		It("should show events for application workload validation", Label("83588", "sanity", "client"), func() {
+		It("should show events for application workload validation", Label("83588", "sanity", "client", needVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

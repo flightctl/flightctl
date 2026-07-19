@@ -64,6 +64,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,6 +97,8 @@ const (
 	cliRateLimitServerReturned      = "server returned 429"
 	cliRateLimitExceeded            = "rate limit exceeded"
 	cliLoginRateLimitExceededOutput = "Login rate limit exceeded, please try again later"
+	flightctlAgentStartAttempts     = 5
+	flightctlAgentStartRetryDelay   = 2 * time.Second
 )
 
 const (
@@ -790,7 +793,7 @@ func (h *Harness) SHWithStdin(stdin, command string, redactStdin bool, args ...s
 		cmd.Stdin = strings.NewReader(stdin)
 		h.setArgsInCmd(cmd, args...)
 
-		logrus.Infof("running: %s with stdin: %s", strings.Join(cmd.Args, " "), stdinLog)
+		logrus.Infof("running: %s with stdin: %s", strings.Join(redactCommandArgs(cmd.Args), " "), stdinLog)
 		output, err = cmd.CombinedOutput()
 		if err == nil || !isCLIRateLimitOutput(string(output)) || attempt == cliRateLimitRetryAttempts {
 			break
@@ -819,6 +822,51 @@ func isCLIRateLimitOutput(output string) bool {
 	return strings.Contains(output, cliRateLimitResponseStatus) ||
 		strings.Contains(output, cliRateLimitServerReturned) ||
 		strings.Contains(normalizedOutput, cliRateLimitExceeded)
+}
+
+// redactCommandArgs returns a copy of args with known credential-bearing values
+// replaced before command lines are written to logs.
+func redactCommandArgs(args []string) []string {
+	redactedArgs := slices.Clone(args)
+	redactNext := false
+	for i, arg := range redactedArgs {
+		if redactNext {
+			redactedArgs[i] = "<redacted>"
+			redactNext = false
+			continue
+		}
+		if isSensitiveArg(arg) {
+			if strings.Contains(arg, "=") {
+				redactedArgs[i] = redactInlineArgValue(arg)
+			} else {
+				redactNext = true
+			}
+		}
+	}
+	return redactedArgs
+}
+
+// isSensitiveArg reports whether an argument key carries a value that must not
+// be written to logs.
+func isSensitiveArg(arg string) bool {
+	switch arg {
+	case "--token", "-p", "--password", "--client-key", "--client-key-data":
+		return true
+	default:
+		return strings.HasPrefix(arg, "--token=") ||
+			strings.HasPrefix(arg, "--password=") ||
+			strings.HasPrefix(arg, "--client-key=") ||
+			strings.HasPrefix(arg, "--client-key-data=")
+	}
+}
+
+// redactInlineArgValue replaces the value in a --flag=value style argument.
+func redactInlineArgValue(arg string) string {
+	key, _, found := strings.Cut(arg, "=")
+	if !found {
+		return arg
+	}
+	return key + "=<redacted>"
 }
 
 func flightctlPath() string {
@@ -1889,22 +1937,32 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	if err := h.SetupVMFromPool(workerID); err != nil {
 		return err
 	}
-	testVM := h.VM
 
-	const flightctlAgentStartAttempts = 5
-	const flightctlAgentStartRetryDelay = 2 * time.Second
+	return h.StartAgentWithRetry()
+}
 
-	// Start the agent after snapshot revert (retry: systemd may report "Job ... canceled" right after QEMU resume).
+// StartAgentWithRetry starts flightctl-agent after snapshot restore and retries
+// transient systemd start failures caused by VM resume timing.
+func (h *Harness) StartAgentWithRetry() error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if h.VM == nil {
+		return fmt.Errorf("harness VM is nil")
+	}
+
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
-	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
+	if _, err := h.VM.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
 		logrus.Warnf("daemon-reload before starting flightctl-agent: %v", err)
 	}
 	time.Sleep(time.Second)
 
 	var lastErr error
 	for attempt := 1; attempt <= flightctlAgentStartAttempts; attempt++ {
-		_, _ = testVM.RunSSH([]string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil)
-		_, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+		if _, err := h.VM.RunSSH([]string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil); err != nil {
+			logrus.Warnf("systemctl reset-failed flightctl-agent before start attempt %d/%d failed: %v", attempt, flightctlAgentStartAttempts, err)
+		}
+		_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
 		if err == nil {
 			GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
 			return nil

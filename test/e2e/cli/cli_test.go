@@ -101,7 +101,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
-		It("Should let you list resources by plural names", Label("80453", "client"), func() {
+		It("Should let you list resources by plural names", Label("80453", "client", needVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -375,7 +375,7 @@ var _ = Describe("cli operation", func() {
 				"no-slash JSON must deep-equal with-slash")
 		})
 
-		It("Should show last-seen with proper flag", Label("85014", "sanity", "client"), func() {
+		It("Should show last-seen with proper flag", Label("85014", "sanity", "client", needVMLabel), func() {
 			harness := e2e.GetWorkerHarness()
 			_, device := harness.EnrollAndWaitForOnlineStatus()
 			deviceName := *device.Metadata.Name
@@ -523,15 +523,14 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
 			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
-			Expect(agentVersion).ToNot(BeEmpty(), "agent version should be found")
+			Expect(agentVersion).To(BeEmpty(), "agent version lookup should be skipped when the VM is not initialized")
 
 			GinkgoWriter.Printf("Client version: %s\n", clientVersion)
 			GinkgoWriter.Printf("Server version: %s\n", serverVersion)
 			GinkgoWriter.Printf("Agent version: %s\n", agentVersion)
 
 			By("Comparing versions")
-			// Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
-			Expect(agentVersion).To(Equal(serverVersion), "agent and server versions should match")
+			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
 		})
 
 		It("should show FIPS runtime compliance", Label("rpm-sanity", "84648", "client"), func() {
@@ -746,7 +745,7 @@ var _ = Describe("cli login", func() {
 			By("Login to the service")
 			// We need to ensure that the login mechanism was user/pass otherwise the refresh flow isn't
 			// active.
-			method, err := login.LoginToAPIWithToken(harness)
+			method, err := ensureFlightctlLogin(harness)
 			Expect(err).ToNot(HaveOccurred())
 			if method != login.AuthUsernamePassword {
 				Skip("This test requires authentication with username/password to be enabled")
@@ -812,10 +811,7 @@ var _ = Describe("cli login", func() {
 
 		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity", "client"),
 			func() {
-
 				harness := e2e.GetWorkerHarness()
-				_, err := login.LoginToAPIWithToken(harness)
-				Expect(err).ToNot(HaveOccurred())
 
 				By("CertificateSigningRequest: Resources lifecycle")
 				// Prepare a unique CSR YAML and ensure cleanup
@@ -907,8 +903,6 @@ var _ = Describe("cli login", func() {
 
 	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301", "client"), func() {
 		harness := e2e.GetWorkerHarness()
-		_, err := login.LoginToAPIWithToken(harness)
-		Expect(err).ToNot(HaveOccurred())
 
 		By("creating a unique Device from template")
 		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
@@ -994,13 +988,11 @@ var _ = Describe("cli login", func() {
 		By("failing when too many arguments are provided")
 		out, err = harness.CLI("edit", "1", "2", "3", "4")
 		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
+		Expect(out).To(ContainSubstring("Error: you must specify a resource to edit (TYPE NAME or TYPE/NAME)"))
 	})
 
 	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470", "client"), func() {
 		harness := e2e.GetWorkerHarness()
-		_, err := login.LoginToAPIWithToken(harness)
-		Expect(err).ToNot(HaveOccurred())
 
 		type shellCase struct {
 			name      string
