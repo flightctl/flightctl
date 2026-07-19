@@ -54,6 +54,7 @@ func startContainer(t *testing.T, name string, rpmDir string) *container {
 		containerImage, "sleep", "infinity")
 
 	mustExec(t, name, "bash", "-c", `
+		set -e
 		mkdir -p /rpms
 		cp /rpms-src/*.rpm /rpms/ 2>/dev/null || true
 		dnf install -y -q createrepo_c 2>/dev/null
@@ -209,6 +210,8 @@ func TestAgentUnitSmoke(t *testing.T) {
 	if err != nil {
 		if strings.Contains(strings.ToLower(out), "error") || strings.Contains(out, "Failed") {
 			t.Errorf("systemd-analyze verify reported errors: %s", out)
+		} else {
+			t.Errorf("systemd-analyze verify failed unexpectedly: %v\nOutput: %s", err, out)
 		}
 	}
 }
