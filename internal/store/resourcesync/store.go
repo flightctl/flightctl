@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -23,7 +22,8 @@ type Store interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]CountByResourceSyncOrgAndStatusResult, error)
@@ -116,20 +116,24 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (s *ResourceSyncStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return store.WithTransaction(ctx, s.dbHandler, fn)
+}
+
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
-	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
-		result := innerTx.Take(&existingRecord)
+	// Join caller TX when present so service-owned cascades stay atomic.
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		result := tx.Take(&existingRecord)
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
 
-		result = innerTx.Unscoped().Delete(&existingRecord)
+		result = tx.Unscoped().Delete(&existingRecord)
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
-		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
-		return callback(ctx, innerTx, orgId, *owner)
+		return nil
 	})
 
 	if err != nil {
