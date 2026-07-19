@@ -254,12 +254,13 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 
 		toWrite := authProvider
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 
 		var writeErr error
 		result, oldAuthProvider, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
-		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
 
@@ -303,12 +304,13 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 
 		var writeErr error
 		result, oldAuthProvider, writeErr = h.store.Update(ctx, orgId, &toWrite)
-		h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 

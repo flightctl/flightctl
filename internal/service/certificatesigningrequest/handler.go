@@ -273,12 +273,13 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 
 		var writeErr error
 		result, oldCSR, writeErr = h.store.Update(ctx, orgId, &toWrite)
-		h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -342,13 +343,14 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 
 		var writeErr error
 		result, oldCSR, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
-		h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}

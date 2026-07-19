@@ -265,14 +265,15 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
 
 		var writeErr error
 		result, oldDevice, created, writeErr = h.deviceStore.CreateOrUpdate(ctx, orgId, &toWrite, fieldsToUnset)
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -302,13 +303,14 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 
 		toWrite := device
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
 
 		var writeErr error
 		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, fieldsToUnset)
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, err
 }
 
@@ -436,12 +438,13 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		}
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
 		var writeErr error
 		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, nil)
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -567,12 +570,13 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		}
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
 		var writeErr error
 		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, nil)
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

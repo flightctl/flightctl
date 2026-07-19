@@ -120,13 +120,14 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 
 		var writeErr error
 		result, oldFleet, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite, nil)
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -211,11 +212,12 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		}
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		var writeErr error
 		result, oldFleet, writeErr = h.store.Update(ctx, orgId, &toWrite, nil)
-		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

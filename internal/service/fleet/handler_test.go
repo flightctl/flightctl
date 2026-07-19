@@ -812,7 +812,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status := testFleetPatch(t, pr)
 	orig.Metadata.Labels = &addLabels
-	orig.Metadata.Generation = lo.ToPtr(int64(0))
+	orig.Metadata.Generation = nil
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.Equal(t, orig, *resp)
 }

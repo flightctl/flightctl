@@ -45,6 +45,16 @@ func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
 	om.DeletionTimestamp = nil
 }
 
+// PinResourceVersionForCAS copies existingRV onto meta when the caller did not
+// supply a resourceVersion, so generation computed from the same Get is
+// conflict-checked against that snapshot on write.
+func PinResourceVersionForCAS(existingRV *string, meta *domain.ObjectMeta) {
+	if meta == nil || meta.ResourceVersion != nil {
+		return
+	}
+	meta.ResourceVersion = existingRV
+}
+
 // SwaggerGetter is a function that returns a parsed OpenAPI spec.
 type SwaggerGetter func() (*openapi3.T, error)
 

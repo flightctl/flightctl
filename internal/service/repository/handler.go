@@ -126,13 +126,14 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 			setGenerationOnCreate(&toWrite.Metadata)
 		} else {
 			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		}
 
 		var writeErr error
 		result, oldRepo, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, writeErr)
 		return writeErr
 	})
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
 
@@ -180,11 +181,12 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 		}
 		toWrite := *newObj
 		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
 		var writeErr error
 		result, oldRepo, writeErr = h.store.Update(ctx, orgId, &toWrite)
-		h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, writeErr)
 		return writeErr
 	})
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
