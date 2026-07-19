@@ -37,7 +37,9 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -236,6 +238,8 @@ func main() {
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, logger.WithField("pkg", "authprovider-store"))
 	eventStore := eventstore.NewEventStore(db, logger.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, logger)
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, logger))
+	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
 	// Create service handler for auth provider access
 	authProviderSvc := authproviderservice.WrapWithTracing(authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, logger))
@@ -266,8 +270,8 @@ func main() {
 	}
 
 	// Create identity mapper for mapping identities to database objects
-	orgProvisioner := service.NewOrgProvisioner(catalogStore, logger)
-	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, logger)
+	orgProvisioner := service.NewOrgProvisioner(catalogSvc, logger)
+	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, logger)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)

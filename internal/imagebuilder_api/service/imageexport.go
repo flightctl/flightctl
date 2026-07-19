@@ -23,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	mainstore "github.com/flightctl/flightctl/internal/store"
-	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -87,7 +86,7 @@ type ImageExportDownload struct {
 type imageExportService struct {
 	imageExportStore store.ImageExportStore
 	imageBuildStore  store.ImageBuildStore
-	repositoryStore  repositorystore.Store
+	repositories     RepositoryLookup
 	eventSvc         events.Service
 	queueProducer    queues.QueueProducer
 	kvStore          kvstore.KVStore
@@ -96,11 +95,11 @@ type imageExportService struct {
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore repositorystore.Store, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositories RepositoryLookup, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
-		repositoryStore:  repositoryStore,
+		repositories:     repositories,
 		eventSvc:         eventSvc,
 		queueProducer:    queueProducer,
 		kvStore:          kvStore,
@@ -454,13 +453,12 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	// Fetch destination repository from database
-	repo, err := s.repositoryStore.Get(ctx, orgId, imageBuild.Spec.Destination.Repository)
-	if err != nil {
+	repo, status := s.repositories.GetRepository(ctx, orgId, imageBuild.Spec.Destination.Repository)
+	if err := statusToErr(status); err != nil {
 		log.WithError(err).WithField("destinationRepo", imageBuild.Spec.Destination.Repository).Error("Failed to get destination repository")
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil, fmt.Errorf("%w: %w", ErrRepositoryNotFound, err)
 		}
-		// Return store error as-is (will be handled by transport layer)
 		return nil, err
 	}
 

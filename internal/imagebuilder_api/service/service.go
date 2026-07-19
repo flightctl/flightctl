@@ -7,8 +7,6 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/events"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
@@ -29,7 +27,7 @@ type service struct {
 }
 
 // NewService creates a new aggregate Service with all sub-services
-func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Store, catalogStore catalogstore.Store, repositoryStore repositorystore.Store, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
+func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Store, catalogs CatalogLookup, repositories RepositoryLookup, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
 	// Get ImageBuilderService config (nil-safe)
 	var imageBuilderServiceCfg *config.ImageBuilderServiceConfig
 	if cfg != nil {
@@ -37,16 +35,16 @@ func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Sto
 	}
 
 	// Create ImagePromotionService
-	imagePromotionSvc := NewImagePromotionService(s.ImagePromotion(), s.ImageBuild(), catalogStore, queueProducer, log)
+	imagePromotionSvc := NewImagePromotionService(s.ImagePromotion(), s.ImageBuild(), catalogs, queueProducer, log)
 
 	// Create ImageExportService first (ImageBuildService depends on it for delete flow)
-	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), repositoryStore, eventSvc, queueProducer, kvStore, imageBuilderServiceCfg, log)
+	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), repositories, eventSvc, queueProducer, kvStore, imageBuilderServiceCfg, log)
 
 	// Create ImageBuildService with ImageExportService and ImagePromotionService dependencies.
 	// eventSvc is constructed with a nil worker_client so events are stored in DB for
 	// audit/logging but are not pushed to TaskQueue - events are manually enqueued to
 	// ImageBuildTaskQueue instead.
-	imageBuildSvc := NewImageBuildService(s.ImageBuild(), repositoryStore, imageExportSvc, imagePromotionSvc, eventSvc, queueProducer, kvStore, imageBuilderServiceCfg, log)
+	imageBuildSvc := NewImageBuildService(s.ImageBuild(), repositories, imageExportSvc, imagePromotionSvc, eventSvc, queueProducer, kvStore, imageBuilderServiceCfg, log)
 
 	return &service{
 		imageBuild:     imageBuildSvc,
