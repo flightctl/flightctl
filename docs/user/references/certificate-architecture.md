@@ -27,6 +27,7 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 | [Device Management](../../../internal/crypto/signer/signer_device_management.go)             | Device operations        | 1 year   | Client-Signer CA         |
 | [Device Management Renewal](../../../internal/crypto/signer/signer_device_management_renewal.go)             | Device operations        | 1 year   | Client-Signer CA         |
 | [Device Services](../../../internal/crypto/signer/signer_device_svc_client.go)    | Device services    | 1 year   | Client-Signer CA |
+| Remote Access Server *        | Application console TLS  | 2 years  | Root CA                  |
 | UI Server *                   | UI TLS                   | 2 years  | Root CA                  |
 | CLI Artifacts Server *        | CLI Artifacts TLS        | 2 years  | Root CA                  |
 | PAM Issuer Token Signer CA *  | Signs JWT tokens         | 10 years | Root CA                  |
@@ -60,6 +61,8 @@ Generation controlled by `global.generateCertificates` in Helm `values.yaml`: `a
 | `/etc/flightctl/pki/flightctl-api/client-signer.key`    | Client-Signer CA key            |
 | `/etc/flightctl/pki/flightctl-api/server.crt`           | API server cert                 |
 | `/etc/flightctl/pki/flightctl-api/server.key`           | API server key                  |
+| `/etc/flightctl/pki/flightctl-remote-access/server.crt` | Remote access server cert       |
+| `/etc/flightctl/pki/flightctl-remote-access/server.key` | Remote access server key        |
 | `/etc/flightctl/pki/flightctl-ui/server.crt`            | UI server cert                  |
 | `/etc/flightctl/pki/flightctl-ui/server.key`            | UI server key                   |
 | `/etc/flightctl/pki/flightctl-cli-artifacts/server.crt` | CLI Artifacts server cert       |
