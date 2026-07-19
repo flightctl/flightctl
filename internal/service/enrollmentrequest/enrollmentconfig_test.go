@@ -40,7 +40,9 @@ func TestGetEnrollmentConfig(t *testing.T) {
 	t.Run("When no csr param is given it should return the CA bundle without a client certificate", func(t *testing.T) {
 		csrStore := newFakeCSRStore()
 		caClient := newTestCA(t)
-		h := NewServiceHandler(newFakeEnrollmentRequestStore(), newFakeDeviceStore(), csrStore, caClient, &fakeKVStore{}, &fakeEventsService{}, logrus.New(), nil, "agent.example.com", "https://ui.example.com")
+		ev := &fakeEventsService{}
+		deviceSvc, _ := newTestDeviceService(ev)
+		h := NewServiceHandler(newFakeEnrollmentRequestStore(), deviceSvc, csrStore, caClient, &fakeKVStore{}, ev, logrus.New(), nil, "agent.example.com", "https://ui.example.com")
 
 		result, status := h.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{})
 		require.Equal(t, statusSuccessCode, status.Code)
@@ -58,7 +60,9 @@ func TestGetEnrollmentConfig(t *testing.T) {
 			Status:   &domain.CertificateSigningRequestStatus{Certificate: &cert},
 		}
 		caClient := newTestCA(t)
-		h := NewServiceHandler(newFakeEnrollmentRequestStore(), newFakeDeviceStore(), csrStore, caClient, &fakeKVStore{}, &fakeEventsService{}, logrus.New(), nil, "agent.example.com", "")
+		ev := &fakeEventsService{}
+		deviceSvc, _ := newTestDeviceService(ev)
+		h := NewServiceHandler(newFakeEnrollmentRequestStore(), deviceSvc, csrStore, caClient, &fakeKVStore{}, ev, logrus.New(), nil, "agent.example.com", "")
 
 		result, status := h.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("csr1")})
 		require.Equal(t, statusSuccessCode, status.Code)
@@ -69,7 +73,9 @@ func TestGetEnrollmentConfig(t *testing.T) {
 	t.Run("When csr param references a missing CSR it should return not found", func(t *testing.T) {
 		csrStore := newFakeCSRStore()
 		caClient := newTestCA(t)
-		h := NewServiceHandler(newFakeEnrollmentRequestStore(), newFakeDeviceStore(), csrStore, caClient, &fakeKVStore{}, &fakeEventsService{}, logrus.New(), nil, "", "")
+		ev := &fakeEventsService{}
+		deviceSvc, _ := newTestDeviceService(ev)
+		h := NewServiceHandler(newFakeEnrollmentRequestStore(), deviceSvc, csrStore, caClient, &fakeKVStore{}, ev, logrus.New(), nil, "", "")
 
 		_, status := h.GetEnrollmentConfig(context.Background(), uuid.New(), domain.GetEnrollmentConfigParams{Csr: lo.ToPtr("missing")})
 		require.Equal(t, statusNotFoundCode, status.Code)
