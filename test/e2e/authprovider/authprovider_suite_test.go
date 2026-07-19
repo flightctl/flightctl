@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -21,8 +23,10 @@ import (
 )
 
 const (
-	keycloakAuthProviderName = "keycloak-e2e"
-	authProviderApplyTimeout = 15 * time.Second
+	keycloakAuthProviderName      = "keycloak-e2e"
+	authProviderKeycloakContainer = "e2e-keycloak"
+	authProviderApplyTimeout      = 15 * time.Second
+	loginRateLimitExceeded        = "Login rate limit exceeded"
 )
 
 func TestAuthprovider(t *testing.T) {
@@ -32,6 +36,7 @@ func TestAuthprovider(t *testing.T) {
 
 var auxSvcs *auxiliary.Services
 var originalClientConfig *clientConfigSnapshot
+var adminClientConfig *clientConfigSnapshot
 
 var _ = BeforeSuite(func() {
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
@@ -39,6 +44,7 @@ var _ = BeforeSuite(func() {
 	// Start only Keycloak (not all aux services)
 	ctx := context.Background()
 	var err error
+	removeStaleAuthProviderKeycloak()
 	auxSvcs, err = auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceKeycloak})
 	Expect(err).ToNot(HaveOccurred(), "failed to start Keycloak")
 	Expect(auxSvcs.Keycloak.URL).ToNot(BeEmpty())
@@ -53,8 +59,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred(), "failed to capture original client config")
 
 	// Bootstrap: login as admin (k8s or PAM) and apply AuthProvider CR
-	_, err = login.LoginToAPIWithToken(harness)
+	err = bootstrapLoginWithAuthRateRetry(harness)
 	Expect(err).ToNot(HaveOccurred(), "bootstrap login failed")
+	adminClientConfig, err = captureClientConfigSnapshot()
+	Expect(err).ToNot(HaveOccurred(), "failed to capture admin client config")
 
 	authProviderYAML := buildOIDCAuthProviderYAML(
 		keycloakAuthProviderName,
@@ -92,7 +100,7 @@ var _ = BeforeEach(func() {
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	_, err := login.LoginToAPIWithToken(harness)
+	err := restoreAdminClientConfig(harness)
 	Expect(err).ToNot(HaveOccurred(), "restore admin login before spec")
 })
 
@@ -111,9 +119,8 @@ var _ = AfterSuite(func() {
 	harness := e2e.GetWorkerHarness()
 
 	// Restore admin authentication before cleanup
-	_, err := login.LoginToAPIWithToken(harness)
-	adminLoginRestored := err == nil
-	if !adminLoginRestored {
+	err := restoreAdminClientConfig(harness)
+	if err != nil {
 		logrus.Warnf("Failed to restore admin login: %v", err)
 	} else {
 		// Clean up the Keycloak AuthProvider CR to prevent interfering with subsequent test suites
@@ -135,6 +142,81 @@ var _ = AfterSuite(func() {
 		auxSvcs.Cleanup(ctx)
 	}
 })
+
+// removeStaleAuthProviderKeycloak removes the suite-owned Keycloak container so each run imports a fresh realm.
+func removeStaleAuthProviderKeycloak() {
+	if !containers.ContainerExistsByName(authProviderKeycloakContainer) {
+		return
+	}
+	logrus.Infof("[authprovider] removing stale %s container before suite setup", authProviderKeycloakContainer)
+	if err := containers.RemoveContainerByName(authProviderKeycloakContainer); err != nil {
+		logrus.Warnf("[authprovider] failed to remove stale %s container: %v", authProviderKeycloakContainer, err)
+	}
+}
+
+// bootstrapLoginWithAuthRateRetry logs in as admin and retries once after resetting the API auth rate limiter.
+func bootstrapLoginWithAuthRateRetry(harness *e2e.Harness) error {
+	if existingErr := verifyExistingAdminClientConfig(harness); existingErr == nil {
+		logrus.Infof("[authprovider] using existing admin client config for suite bootstrap")
+		return nil
+	} else {
+		logrus.Infof("[authprovider] existing admin client config is not usable for suite bootstrap: %v", existingErr)
+	}
+
+	_, err := login.LoginToAPIWithToken(harness)
+	if err == nil {
+		return nil
+	}
+	logrus.Infof("[authprovider] bootstrap login failed; restarting API once before retry: %v", err)
+	if resetErr := restartAPIForAuthRateLimitReset(); resetErr != nil {
+		return fmt.Errorf("reset API after bootstrap login failure: %w; original error: %v", resetErr, err)
+	}
+	_, err = login.LoginToAPIWithToken(harness)
+	return err
+}
+
+// verifyExistingAdminClientConfig checks whether the current client config can already perform admin operations.
+func verifyExistingAdminClientConfig(harness *e2e.Harness) error {
+	if harness == nil {
+		return fmt.Errorf("worker harness is required")
+	}
+	if err := harness.RefreshClient(); err != nil {
+		return fmt.Errorf("refresh existing client config: %w", err)
+	}
+	out, err := harness.CLI("get", "authproviders")
+	if err != nil {
+		return fmt.Errorf("get authproviders with existing client config: %w: %s", err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// restoreAdminClientConfig restores the suite's saved admin login config and refreshes the harness client.
+func restoreAdminClientConfig(harness *e2e.Harness) error {
+	if adminClientConfig == nil {
+		return fmt.Errorf("admin client config snapshot is nil")
+	}
+	return restoreClientConfigSnapshot(harness, adminClientConfig)
+}
+
+// isLoginRateLimitError reports whether a login flow failed due to the API auth validation limiter.
+func isLoginRateLimitError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), loginRateLimitExceeded)
+}
+
+// restartAPIForAuthRateLimitReset restarts the API service to clear the in-memory auth rate limiter.
+func restartAPIForAuthRateLimitReset() error {
+	providers := setup.GetDefaultProviders()
+	if providers == nil || providers.Lifecycle == nil {
+		return fmt.Errorf("lifecycle provider is required to reset auth rate limit")
+	}
+	if err := providers.Lifecycle.Restart(infra.ServiceAPI); err != nil {
+		return fmt.Errorf("restart API for auth rate limit reset: %w", err)
+	}
+	if err := providers.Lifecycle.WaitForReady(infra.ServiceAPI, loginFlowTimeout); err != nil {
+		return fmt.Errorf("wait for API after auth rate limit reset: %w", err)
+	}
+	return nil
+}
 
 // clientConfigSnapshot stores the original local client config so the suite can restore it after bootstrap login.
 type clientConfigSnapshot struct {

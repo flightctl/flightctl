@@ -19,6 +19,7 @@ const (
 	keycloakPort           = "8080/tcp"
 	keycloakManagementPort = "9000/tcp" // health endpoints (Keycloak 25+)
 	keycloakRealmName      = "flightctl"
+	keycloakRealmTimeout   = 2 * time.Minute
 	// KeycloakE2EClientSecret is the client secret for flightctl-client in the e2e realm.
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
 	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
@@ -65,7 +66,7 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 			wait.ForHTTP("/realms/"+keycloakRealmName+"/.well-known/openid-configuration").
 				WithPort("8080/tcp").
 				WithAllowInsecure(true).
-				WithStartupTimeout(30*time.Second),
+				WithStartupTimeout(keycloakRealmTimeout),
 		),
 		SkipReaper: reuse,
 	}
@@ -86,7 +87,7 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 	// Wait until the realm is reachable from the host (same path the CLI will use).
 	// Handles reuse (no wait ran) and port-mapping delay.
 	discoveryURL := k.IssuerURL() + "/.well-known/openid-configuration"
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(keycloakRealmTimeout)
 	client := &http.Client{Timeout: 5 * time.Second}
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(discoveryURL)
@@ -102,7 +103,7 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	return fmt.Errorf("keycloak realm not reachable at %s after %s", discoveryURL, keycloakRealmTimeout)
 }
 
 func getKeycloakRealmPath() (string, error) {
