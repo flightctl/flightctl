@@ -6,11 +6,21 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
+
+type stubFleetStore struct {
+	fleetstore.Store
+	fleet *domain.Fleet
+}
+
+func (s *stubFleetStore) Get(_ context.Context, _ uuid.UUID, _ string, _ ...fleetstore.GetOption) (*domain.Fleet, error) {
+	return s.fleet, nil
+}
 
 func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	ctx := context.Background()
@@ -466,6 +476,102 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 			if tt.expectMismatch {
 				assert.Contains(t, *device.Status.Updated.Info, "OS image mismatch")
 			}
+		})
+	}
+}
+
+func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+	log := logrus.NewEntry(logrus.StandardLogger())
+
+	fleetName := "test-fleet"
+	fleetTV := "v2"
+	fleet := &domain.Fleet{
+		Metadata: domain.ObjectMeta{
+			Name:        &fleetName,
+			Annotations: &map[string]string{domain.FleetAnnotationTemplateVersion: fleetTV},
+		},
+	}
+	fs := &stubFleetStore{fleet: fleet}
+	owner := "Fleet/test-fleet"
+
+	tests := []struct {
+		name            string
+		annotations     map[string]string
+		conditions      []domain.Condition
+		expectedContain string
+	}{
+		{
+			name: "When only lastRolloutError is present it should show the rollout error",
+			annotations: map[string]string{
+				domain.DeviceAnnotationTemplateVersion: "v1",
+				domain.DeviceAnnotationLastRolloutError: "failed replacing parameters in env var DNS_SERVER_DOMAIN",
+			},
+			conditions:      nil,
+			expectedContain: "failed replacing parameters in env var DNS_SERVER_DOMAIN",
+		},
+		{
+			name: "When both lastRolloutError and DeviceUpdating error exist it should prefer rollout error",
+			annotations: map[string]string{
+				domain.DeviceAnnotationTemplateVersion: "v1",
+				domain.DeviceAnnotationLastRolloutError: "template rendering failure",
+			},
+			conditions: []domain.Condition{
+				{
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
+					Message: "old agent update error",
+				},
+			},
+			expectedContain: "template rendering failure",
+		},
+		{
+			name: "When only DeviceUpdating error is present it should show the agent error",
+			annotations: map[string]string{
+				domain.DeviceAnnotationTemplateVersion: "v1",
+			},
+			conditions: []domain.Condition{
+				{
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
+					Message: "agent update failed",
+				},
+			},
+			expectedContain: "agent update failed",
+		},
+		{
+			name: "When neither error source is present it should show generic out-of-sync message",
+			annotations: map[string]string{
+				domain.DeviceAnnotationTemplateVersion: "v1",
+			},
+			conditions:      nil,
+			expectedContain: domain.DeviceOutOfSyncWithFleetText,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name:        lo.ToPtr("test-device"),
+					Owner:       &owner,
+					Annotations: &tt.annotations,
+				},
+				Spec: &domain.DeviceSpec{},
+				Status: &domain.DeviceStatus{
+					LastSeen:   lo.ToPtr(time.Now()),
+					Updated:    domain.DeviceUpdatedStatus{Status: domain.DeviceUpdatedStatusOutOfDate},
+					Conditions: tt.conditions,
+				},
+			}
+
+			updateServerSideDeviceUpdatedStatus(device, ctx, fs, log, orgId)
+
+			assert.Equal(t, domain.DeviceUpdatedStatusOutOfDate, device.Status.Updated.Status)
+			assert.Contains(t, *device.Status.Updated.Info, tt.expectedContain)
 		})
 	}
 }

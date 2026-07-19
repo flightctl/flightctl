@@ -196,10 +196,11 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 
 func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
 	lastUpdateStatus := device.Status.Updated.Status
+	lastUpdateInfo := lo.FromPtr(device.Status.Updated.Info)
 	if device.IsDisconnected(domain.DeviceDisconnectedTimeout) && device.Status != nil && device.Status.LastSeen != nil && !device.Status.LastSeen.IsZero() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUnknown
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-domain.DeviceDisconnectedTimeout))))
-		return device.Status.Updated.Status != lastUpdateStatus
+		return device.Status.Updated.Status != lastUpdateStatus || lo.FromPtr(device.Status.Updated.Info) != lastUpdateInfo
 	}
 	if device.IsUpdating() {
 		var agentInfoMessage string
@@ -208,7 +209,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		}
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUpdating
 		device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "Device is updating to the latest device spec."))
-		return device.Status.Updated.Status != lastUpdateStatus
+		return device.Status.Updated.Status != lastUpdateStatus || lo.FromPtr(device.Status.Updated.Info) != lastUpdateInfo
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
@@ -228,7 +229,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		}
 
 		device.Status.Updated.Info = lo.ToPtr(errorMessage)
-		return device.Status.Updated.Status != lastUpdateStatus
+		return device.Status.Updated.Status != lastUpdateStatus || lo.FromPtr(device.Status.Updated.Info) != lastUpdateInfo
 	}
 	if device.IsManaged() {
 		_, fleetName, err := util.GetResourceOwner(device.Metadata.Owner)
@@ -249,13 +250,16 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 
 			var errorMessage string
 			baseMessage := "Device could not be updated to the fleet's latest device spec"
-			if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
-				if updateCondition.Reason == string(domain.UpdateStateError) {
-					errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
-				}
-			} else if device.Metadata.Annotations != nil {
+			if device.Metadata.Annotations != nil {
 				if lastRolloutError, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationLastRolloutError]; ok && lastRolloutError != "" {
 					errorMessage = fmt.Sprintf("%s: %s", baseMessage, lastRolloutError)
+				}
+			}
+			if errorMessage == "" {
+				if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+					if updateCondition.Reason == string(domain.UpdateStateError) {
+						errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
+					}
 				}
 			}
 			if errorMessage == "" {
@@ -276,7 +280,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
 	}
 
-	return device.Status.Updated.Status != lastUpdateStatus
+	return device.Status.Updated.Status != lastUpdateStatus || lo.FromPtr(device.Status.Updated.Info) != lastUpdateInfo
 }
 
 func updateServerSideApplicationStatus(device *domain.Device) bool {
