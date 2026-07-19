@@ -48,6 +48,8 @@ type fakeFleetStore struct {
 	getRepositoryRefsErr       error
 	overwriteRepositoryRefsErr error
 	lastOverwrittenRepoNames   []string
+
+	updateConditionsCalls int
 }
 
 func newFakeFleetStore() *fakeFleetStore {
@@ -180,6 +182,7 @@ func (f *fakeFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgI
 }
 
 func (f *fakeFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback store.EventCallback) error {
+	f.updateConditionsCalls++
 	fleet, ok := f.fleets[name]
 	if !ok {
 		return flterrors.ErrResourceNotFound
@@ -188,9 +191,7 @@ func (f *fakeFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, 
 		fleet.Status = &domain.FleetStatus{}
 	}
 	old := *fleet
-	for _, c := range conditions {
-		domain.SetStatusCondition(&fleet.Status.Conditions, c)
-	}
+	fleet.Status.Conditions = append([]domain.Condition(nil), conditions...)
 	if eventCallback != nil {
 		eventCallback(ctx, domain.FleetKind, orgId, name, &old, fleet, false, nil)
 	}
@@ -851,15 +852,37 @@ func TestUpdateFleetConditions(t *testing.T) {
 			{Type: "Approved", Status: "True"},
 		})
 		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, 1, fakeStore.updateConditionsCalls)
+		require.Equal(t, domain.ConditionStatusTrue, fakeStore.fleets["f1"].Status.Conditions[0].Status)
 		// A non-FleetValid condition change doesn't touch ObjectMeta and isn't the
 		// FleetValid condition emitFleetValidEvents watches, so no event is emitted.
+		require.Empty(t, fakeEvents.created)
+	})
+
+	t.Run("When merge changes nothing it should return OK without persisting", func(t *testing.T) {
+		h, fakeStore, fakeEvents := newTestHandler()
+		fl := createTestFleet("f1", nil)
+		fl.Status = &domain.FleetStatus{
+			Conditions: []domain.Condition{
+				{Type: "Approved", Status: domain.ConditionStatusTrue, Reason: "ok", Message: "ok"},
+			},
+		}
+		fakeStore.fleets["f1"] = &fl
+
+		status := h.UpdateFleetConditions(context.Background(), uuid.New(), "f1", []domain.Condition{
+			{Type: "Approved", Status: domain.ConditionStatusTrue, Reason: "ok", Message: "ok"},
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, 0, fakeStore.updateConditionsCalls)
 		require.Empty(t, fakeEvents.created)
 	})
 
 	t.Run("When the fleet does not exist it should return a not-found status", func(t *testing.T) {
 		h, _, _ := newTestHandler()
 
-		status := h.UpdateFleetConditions(context.Background(), uuid.New(), "missing", []domain.Condition{})
+		status := h.UpdateFleetConditions(context.Background(), uuid.New(), "missing", []domain.Condition{
+			{Type: "Approved", Status: domain.ConditionStatusTrue},
+		})
 		require.Equal(t, statusNotFoundCode, status.Code)
 	})
 }
