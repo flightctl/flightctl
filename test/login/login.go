@@ -21,6 +21,8 @@ const (
 	AuthUsernamePassword
 	// AuthPAM indicates authentication using PAM (for Quadlet deployments)
 	AuthPAM
+	// AuthAAP indicates authentication using an AAP bearer token (for Quadlet AAP deployments)
+	AuthAAP
 )
 
 const (
@@ -70,6 +72,9 @@ func getOpenShiftServer(harness *e2e.Harness) (string, error) {
 // serverURL is used only for OpenShift (oc login ... serverURL); empty for Quadlet/K8.
 func LoginToEnv(harness *e2e.Harness, username, password, serverURL string) (string, AuthMethod, error) {
 	if infra.IsQuadletEnvironment() {
+		if aapToken := os.Getenv("E2E_AAP_TOKEN"); aapToken != "" {
+			return aapToken, AuthAAP, nil
+		}
 		token, err := loginToEnvQuadlet(harness, username, password)
 		if err != nil {
 			return "", 0, err

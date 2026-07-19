@@ -6,7 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -21,16 +21,16 @@ type OrgProvisionerInterface interface {
 // It is called by IdentityMapper only when new organizations are created,
 // so each org is provisioned at most once per identity-mapper cache TTL.
 type OrgProvisioner struct {
-	store store.Store
-	log   logrus.FieldLogger
+	catalogStore catalogstore.Store
+	log          logrus.FieldLogger
 }
 
 // Ensure OrgProvisioner satisfies the interface.
 var _ OrgProvisionerInterface = (*OrgProvisioner)(nil)
 
 // NewOrgProvisioner creates a new OrgProvisioner.
-func NewOrgProvisioner(store store.Store, log logrus.FieldLogger) *OrgProvisioner {
-	return &OrgProvisioner{store: store, log: log}
+func NewOrgProvisioner(catalogStore catalogstore.Store, log logrus.FieldLogger) *OrgProvisioner {
+	return &OrgProvisioner{catalogStore: catalogStore, log: log}
 }
 
 // EnsureDefaults creates default resources for the given newly-created organizations.
@@ -44,7 +44,7 @@ func (p *OrgProvisioner) EnsureDefaults(ctx context.Context, orgs []*model.Organ
 
 // ensureDefaultCatalog creates the default catalog for the org if it does not yet exist.
 func (p *OrgProvisioner) ensureDefaultCatalog(ctx context.Context, orgID uuid.UUID) {
-	_, err := p.store.Catalog().Get(ctx, orgID, domain.DefaultCatalogName)
+	_, err := p.catalogStore.Get(ctx, orgID, domain.DefaultCatalogName)
 	if err == nil {
 		return
 	}
@@ -55,7 +55,7 @@ func (p *OrgProvisioner) ensureDefaultCatalog(ctx context.Context, orgID uuid.UU
 
 	displayName := domain.DefaultCatalogDisplayName
 	name := domain.DefaultCatalogName
-	_, err = p.store.Catalog().Create(ctx, orgID, &domain.Catalog{
+	_, err = p.catalogStore.Create(ctx, orgID, &domain.Catalog{
 		Metadata: domain.ObjectMeta{
 			Name: &name,
 		},

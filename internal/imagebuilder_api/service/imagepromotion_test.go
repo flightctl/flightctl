@@ -17,18 +17,16 @@ import (
 )
 
 // newTestImagePromotionService creates a thin ImagePromotionService backed by in-memory stores.
-// The mainStore is wired to the catalogStore so that target-catalog validation (Create) works.
 // No queueProducer is supplied; the service skips enqueueing silently.
 func newTestImagePromotionService(
 	promotionStore *DummyImagePromotionStore,
 	imageBuildStore *DummyImageBuildStore,
 	catalogStore *DummyCatalogStore,
 ) ImagePromotionService {
-	mainStore := NewDummyMainStore(catalogStore)
 	return NewImagePromotionService(
 		promotionStore,
 		imageBuildStore,
-		mainStore,
+		catalogStore,
 		nil, // no queue: enqueue is a no-op when queueProducer is nil
 		log.InitLogs(),
 	)

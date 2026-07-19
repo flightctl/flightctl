@@ -304,3 +304,111 @@ func TestPodmanDeployer_BackupConfig_DirectoryPermissions(t *testing.T) {
 	require.True(t, stat.IsDir(), "config should be a directory")
 	require.Equal(t, os.FileMode(0700), stat.Mode().Perm(), "config directory should have 0700 permissions")
 }
+
+func TestPodmanDeployer_BackupEncryptionKeys_MissingDirectory(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	nonExistentPath := filepath.Join(t.TempDir(), "does-not-exist")
+	deployer := NewPodmanDeployer(log, WithEncryptionPath(nonExistentPath))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+
+	require.NoError(t, err, "missing encryption directory should not be an error")
+
+	encDir := filepath.Join(outputDir, "encryption")
+	_, statErr := os.Stat(encDir)
+	require.True(t, os.IsNotExist(statErr), "encryption output directory should not be created when source is missing")
+}
+
+func TestPodmanDeployer_BackupEncryptionKeys_Success(t *testing.T) {
+	tmpRoot := t.TempDir()
+	encSrc := filepath.Join(tmpRoot, "encryption")
+	require.NoError(t, os.MkdirAll(encSrc, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(encSrc, "encryption.key"), []byte("secret-key"), 0600))
+
+	log, _ := test.NewNullLogger()
+	log.SetLevel(logrus.InfoLevel)
+
+	deployer := NewPodmanDeployer(log, WithEncryptionPath(encSrc))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+	require.NoError(t, err)
+
+	encDst := filepath.Join(outputDir, "encryption")
+	require.FileExists(t, filepath.Join(encDst, "encryption.key"))
+
+	data, err := os.ReadFile(filepath.Join(encDst, "encryption.key"))
+	require.NoError(t, err)
+	require.Equal(t, "secret-key", string(data))
+
+	info, err := os.Stat(filepath.Join(encDst, "encryption.key"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+}
+
+func TestPodmanDeployer_BackupEncryptionKeys_DirectoryPermissions(t *testing.T) {
+	tmpRoot := t.TempDir()
+	encSrc := filepath.Join(tmpRoot, "encryption")
+	require.NoError(t, os.MkdirAll(encSrc, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(encSrc, "key.dat"), []byte("k"), 0600))
+
+	log, _ := test.NewNullLogger()
+	deployer := NewPodmanDeployer(log, WithEncryptionPath(encSrc))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	require.NoError(t, deployer.BackupEncryptionKeys(ctx, outputDir))
+
+	encDst := filepath.Join(outputDir, "encryption")
+	stat, err := os.Stat(encDst)
+	require.NoError(t, err)
+	require.True(t, stat.IsDir())
+	require.Equal(t, os.FileMode(0700), stat.Mode().Perm(), "encryption directory should have 0700 permissions")
+}
+
+func TestPodmanDeployer_BackupEncryptionKeys_CleanupOnError(t *testing.T) {
+	tmpRoot := t.TempDir()
+	encSrc := filepath.Join(tmpRoot, "encryption")
+	require.NoError(t, os.MkdirAll(encSrc, 0755))
+	require.NoError(t, os.Symlink("/dev/null", filepath.Join(encSrc, "badlink")))
+
+	log, _ := test.NewNullLogger()
+	deployer := NewPodmanDeployer(log, WithEncryptionPath(encSrc))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+	require.Error(t, err, "should fail when encountering a symlink")
+
+	encDst := filepath.Join(outputDir, "encryption")
+	_, statErr := os.Stat(encDst)
+	require.True(t, os.IsNotExist(statErr), "encryption directory should be cleaned up on error")
+}
+
+func TestPodmanDeployer_BackupEncryptionKeys_PreservesPermissions(t *testing.T) {
+	tmpRoot := t.TempDir()
+	encSrc := filepath.Join(tmpRoot, "encryption")
+	subDir := filepath.Join(encSrc, "subdir")
+	require.NoError(t, os.MkdirAll(subDir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.key"), []byte("nested"), 0640))
+
+	log, _ := test.NewNullLogger()
+	deployer := NewPodmanDeployer(log, WithEncryptionPath(encSrc))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	require.NoError(t, deployer.BackupEncryptionKeys(ctx, outputDir))
+
+	encDst := filepath.Join(outputDir, "encryption")
+	dirInfo, err := os.Stat(filepath.Join(encDst, "subdir"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0750), dirInfo.Mode().Perm())
+
+	fileInfo, err := os.Stat(filepath.Join(encDst, "subdir", "nested.key"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0640), fileInfo.Mode().Perm())
+}

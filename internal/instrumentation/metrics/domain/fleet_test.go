@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -15,11 +16,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// MockFleetStore implements store.Fleet for testing
+// MockFleetStore implements fleetstore.Store for testing
 type MockFleetStore struct {
 	fleetList            *domain.FleetList
 	fleetListWithDevices *domain.FleetList
-	rolloutStatusCounts  []store.CountByRolloutStatusResult
+	rolloutStatusCounts  []fleetstore.CountByRolloutStatusResult
 	shouldError          bool
 }
 
@@ -42,11 +43,11 @@ func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fl
 	return nil, false, nil
 }
 
-func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*domain.Fleet, error) {
+func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...fleetstore.GetOption) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...store.ListOption) (*domain.FleetList, error) {
+func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...fleetstore.ListOption) (*domain.FleetList, error) {
 	if m.shouldError {
 		return nil, assert.AnError
 	}
@@ -114,93 +115,16 @@ func (m *MockFleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID,
 	return nil, nil
 }
 
-func (m *MockFleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]store.CountByRolloutStatusResult, error) {
+func (m *MockFleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]fleetstore.CountByRolloutStatusResult, error) {
 	if m.shouldError {
 		return nil, assert.AnError
 	}
 	return m.rolloutStatusCounts, nil
 }
 
-// MockFleetStoreWrapper wraps MockFleetStore to provide the store interface
-type MockFleetStoreWrapper struct {
-	fleetStore *MockFleetStore
-}
-
-func (m *MockFleetStoreWrapper) Device() store.Device {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Fleet() store.Fleet {
-	return m.fleetStore
-}
-
-func (m *MockFleetStoreWrapper) Repository() store.Repository {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) ResourceSync() store.ResourceSync {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) EnrollmentRequest() store.EnrollmentRequest {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) CertificateSigningRequest() store.CertificateSigningRequest {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Event() store.Event {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) TemplateVersion() store.TemplateVersion {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Checkpoint() store.Checkpoint {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Organization() store.Organization {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) AuthProvider() store.AuthProvider {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Catalog() store.Catalog {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) VulnerabilityFinding() store.VulnerabilityFinding {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) SyncState() store.SyncState {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) DependencyRef() store.DependencyRef {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) RunMigrations(context.Context) error {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) Close() error {
-	return nil
-}
-
-func (m *MockFleetStoreWrapper) CheckHealth(context.Context) error {
-	return nil
-}
-
 func TestFleetCollector(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation using RolloutInProgress condition reasons
-	mockResults := []store.CountByRolloutStatusResult{
+	mockResults := []fleetstore.CountByRolloutStatusResult{
 		{OrgID: "org1", Status: "Active", Count: 2},
 		{OrgID: "org1", Status: "Suspended", Count: 1},
 		{OrgID: "org2", Status: "Inactive", Count: 3},
@@ -209,10 +133,6 @@ func TestFleetCollector(t *testing.T) {
 	mockFleetStore := &MockFleetStore{
 		rolloutStatusCounts: mockResults,
 		shouldError:         false,
-	}
-
-	mockStore := &MockFleetStoreWrapper{
-		fleetStore: mockFleetStore,
 	}
 
 	log := logrus.New()
@@ -224,7 +144,7 @@ func TestFleetCollector(t *testing.T) {
 
 	// Create collector with 1ms interval for fast testing
 	config := config.NewDefault()
-	collector := NewFleetCollector(ctx, mockStore, log, config)
+	collector := NewFleetCollector(ctx, mockFleetStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -259,7 +179,7 @@ func TestFleetCollectorWithOrgFilter(t *testing.T) {
 
 	// Test that org filtering works correctly
 	mockFleetStore := &MockFleetStore{
-		rolloutStatusCounts: []store.CountByRolloutStatusResult{
+		rolloutStatusCounts: []fleetstore.CountByRolloutStatusResult{
 			{OrgID: "org1", Status: "Active", Count: 1},
 			{OrgID: "org1", Status: "Waiting", Count: 1},
 		},
@@ -293,12 +213,8 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 		shouldError: true,
 	}
 
-	mockStore := &MockFleetStoreWrapper{
-		fleetStore: mockFleetStore,
-	}
-
 	config := config.NewDefault()
-	collector := NewFleetCollector(ctx, mockStore, log, config)
+	collector := NewFleetCollector(ctx, mockFleetStore, log, config)
 
 	// Test Collect with errors - should not panic
 	metricCh := make(chan prometheus.Metric, 10)
@@ -316,12 +232,8 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 func TestFleetCollectorWithEmptyResults(t *testing.T) {
 	// Test the new behavior where empty results emit a default metric
 	mockFleetStore := &MockFleetStore{
-		rolloutStatusCounts: []store.CountByRolloutStatusResult{}, // Empty results
+		rolloutStatusCounts: []fleetstore.CountByRolloutStatusResult{}, // Empty results
 		shouldError:         false,
-	}
-
-	mockStore := &MockFleetStoreWrapper{
-		fleetStore: mockFleetStore,
 	}
 
 	log := logrus.New()
@@ -333,7 +245,7 @@ func TestFleetCollectorWithEmptyResults(t *testing.T) {
 
 	// Create collector
 	config := config.NewDefault()
-	collector := NewFleetCollector(ctx, mockStore, log, config)
+	collector := NewFleetCollector(ctx, mockFleetStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -361,12 +273,8 @@ func TestFleetCollectorWithEmptyResults(t *testing.T) {
 func TestFleetCollectorUpdateFleetMetricsWithEmptyResults(t *testing.T) {
 	// Test the updateFleetMetrics method directly with empty results
 	mockFleetStore := &MockFleetStore{
-		rolloutStatusCounts: []store.CountByRolloutStatusResult{}, // Empty results
+		rolloutStatusCounts: []fleetstore.CountByRolloutStatusResult{}, // Empty results
 		shouldError:         false,
-	}
-
-	mockStore := &MockFleetStoreWrapper{
-		fleetStore: mockFleetStore,
 	}
 
 	log := logrus.New()
@@ -378,7 +286,7 @@ func TestFleetCollectorUpdateFleetMetricsWithEmptyResults(t *testing.T) {
 
 	// Create collector
 	config := config.NewDefault()
-	collector := NewFleetCollector(ctx, mockStore, log, config)
+	collector := NewFleetCollector(ctx, mockFleetStore, log, config)
 
 	// Call updateFleetMetrics directly
 	collector.updateFleetMetrics()

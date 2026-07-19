@@ -119,6 +119,7 @@ RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
       else \
         echo "Installing local RPMs from ${RPM_DIR}"; \
         cp /build-context/${RPM_DIR}/flightctl-agent-*.rpm \
+           /build-context/${RPM_DIR}/flightctl-greenboot-*.rpm \
            /build-context/${RPM_DIR}/flightctl-selinux-*.rpm /tmp/rpms/; \
         ls -l /tmp/rpms; \
         dnf install -y /tmp/rpms/*.rpm; \

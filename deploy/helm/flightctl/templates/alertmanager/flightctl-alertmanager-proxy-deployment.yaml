@@ -95,6 +95,9 @@ spec:
               name: flightctl-alertmanager-proxy-server-tls
               subPath: tls.key
               readOnly: true
+            - mountPath: /root/.flightctl/encryption
+              name: flightctl-encryption-key
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
@@ -154,5 +157,9 @@ spec:
         - name: flightctl-alertmanager-proxy-server-tls
           secret:
             secretName: {{ default "flightctl-alertmanager-proxy-server-tls" .Values.alertmanagerProxy.baseDomainTlsSecretName }}
+        - name: flightctl-encryption-key
+          secret:
+            secretName: flightctl-encryption-key
+            defaultMode: 0400
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

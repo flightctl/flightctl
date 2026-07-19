@@ -13,8 +13,17 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
-	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
@@ -108,8 +117,8 @@ type PeriodicTaskExecutor interface {
 }
 
 type RepositoryTesterExecutor struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
+	log           logrus.FieldLogger
+	repositorySvc repositoryservice.Service
 }
 
 // createTaskContext creates a task context with request ID and event actor
@@ -124,14 +133,17 @@ func createTaskContext(ctx context.Context, taskType PeriodicTaskType) context.C
 
 func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester)
-	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler, nil)
+	repoTester := tasks.NewRepoTester(e.log, e.repositorySvc, nil)
 	repoTester.TestRepositories(taskCtx, orgId)
 }
 
 type ResourceSyncExecutor struct {
-	serviceHandler service.Service
-	log            logrus.FieldLogger
-	cfg            *config.Config
+	repositorySvc   repositoryservice.Service
+	fleetSvc        fleetservice.Service
+	resourcesyncSvc resourcesyncservice.Service
+	catalogSvc      catalogservice.Service
+	log             logrus.FieldLogger
+	cfg             *config.Config
 }
 
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -140,62 +152,68 @@ func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	if e.cfg != nil && e.cfg.GitOps != nil {
 		ignoreResourceUpdates = e.cfg.GitOps.IgnoreResourceUpdates
 	}
-	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.cfg, ignoreResourceUpdates)
+	resourceSync := tasks.NewResourceSync(e.repositorySvc, e.fleetSvc, e.resourcesyncSvc, e.catalogSvc, e.log, e.cfg, ignoreResourceUpdates)
 	resourceSync.Poll(taskCtx, orgId)
 }
 
 type DeviceConnectionExecutor struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
+	log       logrus.FieldLogger
+	deviceSvc deviceservice.Service
 }
 
 func (e *DeviceConnectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceConnection)
-	deviceConnection := tasks.NewDeviceConnection(e.log, e.serviceHandler)
+	deviceConnection := tasks.NewDeviceConnection(e.log, e.deviceSvc)
 	deviceConnection.Poll(taskCtx, orgId)
 }
 
 type RolloutDeviceSelectionExecutor struct {
-	serviceHandler service.Service
-	log            logrus.FieldLogger
+	deviceSvc deviceservice.Service
+	fleetSvc  fleetservice.Service
+	eventSvc  eventservice.Service
+	log       logrus.FieldLogger
 }
 
 func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection)
-	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
+	rolloutDeviceSelection := device_selection.NewReconciler(e.deviceSvc, e.fleetSvc, e.eventSvc, e.log)
 	rolloutDeviceSelection.Reconcile(taskCtx, orgId)
 }
 
 type DisruptionBudgetExecutor struct {
-	serviceHandler service.Service
-	log            logrus.FieldLogger
+	deviceSvc deviceservice.Service
+	fleetSvc  fleetservice.Service
+	eventSvc  eventservice.Service
+	log       logrus.FieldLogger
 }
 
 func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget)
-	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
+	disruptionBudget := disruption_budget.NewReconciler(e.deviceSvc, e.fleetSvc, e.eventSvc, e.log)
 	disruptionBudget.Reconcile(taskCtx, orgId)
 }
 
 type EventCleanupExecutor struct {
 	log                  logrus.FieldLogger
-	serviceHandler       service.Service
+	eventSvc             eventservice.Service
 	eventRetentionPeriod util.Duration
 }
 
 func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup)
 	// Note: Event cleanup is system-wide, orgId is not used
-	eventCleanup := tasks.NewEventCleanup(e.log, e.serviceHandler, e.eventRetentionPeriod)
+	eventCleanup := tasks.NewEventCleanup(e.log, e.eventSvc, e.eventRetentionPeriod)
 	eventCleanup.Poll(taskCtx)
 }
 
 type QueueMaintenanceExecutor struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	queuesProvider queues.Provider
-	workerClient   worker_client.WorkerClient
-	workerMetrics  *worker.WorkerCollector
+	log             logrus.FieldLogger
+	checkpointSvc   checkpointservice.Service
+	eventSvc        eventservice.Service
+	organizationSvc organizationservice.Service
+	queuesProvider  queues.Provider
+	workerClient    worker_client.WorkerClient
+	workerMetrics   *worker.WorkerCollector
 }
 
 func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
@@ -203,7 +221,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 	// Create and execute the queue maintenance task
 	// Note: Queue maintenance is system-wide, orgId is not used
-	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerClient, e.workerMetrics)
+	task := tasks.NewQueueMaintenanceTask(e.log, e.checkpointSvc, e.eventSvc, e.organizationSvc, e.queuesProvider, e.workerClient, e.workerMetrics)
 
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
@@ -211,22 +229,23 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 }
 
 type VulnerabilitySyncExecutor struct {
-	log            logrus.FieldLogger
-	vulnClient     trustifyv2.VulnerabilityClient
-	findingStore   store.VulnerabilityFinding
-	serviceHandler service.Service
+	log           logrus.FieldLogger
+	vulnClient    trustifyv2.VulnerabilityClient
+	findingStore  vulnerabilityfindingstore.Store
+	checkpointSvc checkpointservice.Service
+	eventSvc      eventservice.Service
 }
 
 func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
-	checkpoint := &serviceCheckpointAdapter{svc: e.serviceHandler}
-	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore, checkpoint, e.serviceHandler)
+	checkpoint := &serviceCheckpointAdapter{svc: e.checkpointSvc}
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore, checkpoint, e.eventSvc)
 	vulnSync.Poll(taskCtx)
 }
 
-// serviceCheckpointAdapter adapts service.Service to tasks.CheckpointStore interface.
+// serviceCheckpointAdapter adapts checkpoint.Service to tasks.CheckpointStore interface.
 type serviceCheckpointAdapter struct {
-	svc service.Service
+	svc checkpointservice.Service
 }
 
 func (a *serviceCheckpointAdapter) Set(ctx context.Context, consumer, key string, value []byte) error {
@@ -256,89 +275,126 @@ func statusToError(st domain.Status) error {
 }
 
 type DependencySyncGitExecutor struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	cfg            *config.Config
-	metrics        *periodicmetrics.DependencySyncCollector
+	log              logrus.FieldLogger
+	dependencyrefSvc dependencyrefservice.Service
+	eventSvc         eventservice.Service
+	syncstateSvc     syncstateservice.Service
+	cfg              *config.Config
+	metrics          *periodicmetrics.DependencySyncCollector
 }
 
 func (e *DependencySyncGitExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncGit)
-	depSync := tasks.NewDependencySyncGit(e.log, e.serviceHandler, e.cfg, e.metrics)
+	depSync := tasks.NewDependencySyncGit(e.log, e.dependencyrefSvc, e.eventSvc, e.syncstateSvc, e.cfg, e.metrics)
 	depSync.Poll(taskCtx, orgId)
 }
 
 type DependencySyncHttpExecutor struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	cfg            *config.Config
-	metrics        *periodicmetrics.DependencySyncCollector
+	log              logrus.FieldLogger
+	dependencyrefSvc dependencyrefservice.Service
+	eventSvc         eventservice.Service
+	syncstateSvc     syncstateservice.Service
+	cfg              *config.Config
+	metrics          *periodicmetrics.DependencySyncCollector
 }
 
 func (e *DependencySyncHttpExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDependencySyncHttp)
-	depSync := tasks.NewDependencySyncHttp(e.log, e.serviceHandler, e.cfg, e.metrics)
+	depSync := tasks.NewDependencySyncHttp(e.log, e.dependencyrefSvc, e.eventSvc, e.syncstateSvc, e.cfg, e.metrics)
 	depSync.Poll(taskCtx, orgId)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector, findingStore store.VulnerabilityFinding, vulnClient trustifyv2.VulnerabilityClient, depSyncMetrics *periodicmetrics.DependencySyncCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(
+	log logrus.FieldLogger,
+	repositorySvc repositoryservice.Service,
+	fleetSvc fleetservice.Service,
+	resourcesyncSvc resourcesyncservice.Service,
+	catalogSvc catalogservice.Service,
+	deviceSvc deviceservice.Service,
+	eventSvc eventservice.Service,
+	checkpointSvc checkpointservice.Service,
+	organizationSvc organizationservice.Service,
+	dependencyrefSvc dependencyrefservice.Service,
+	syncstateSvc syncstateservice.Service,
+	cfg *config.Config,
+	queuesProvider queues.Provider,
+	workerClient worker_client.WorkerClient,
+	workerMetrics *worker.WorkerCollector,
+	findingStore vulnerabilityfindingstore.Store,
+	vulnClient trustifyv2.VulnerabilityClient,
+	depSyncMetrics *periodicmetrics.DependencySyncCollector,
+) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
-			log:            log.WithField("pkg", "repository-tester"),
-			serviceHandler: serviceHandler,
+			log:           log.WithField("pkg", "repository-tester"),
+			repositorySvc: repositorySvc,
 		},
 		PeriodicTaskTypeResourceSync: &ResourceSyncExecutor{
-			serviceHandler: serviceHandler,
-			log:            log.WithField("pkg", "resource-sync"),
-			cfg:            cfg,
+			repositorySvc:   repositorySvc,
+			fleetSvc:        fleetSvc,
+			resourcesyncSvc: resourcesyncSvc,
+			catalogSvc:      catalogSvc,
+			log:             log.WithField("pkg", "resource-sync"),
+			cfg:             cfg,
 		},
 		PeriodicTaskTypeDeviceConnection: &DeviceConnectionExecutor{
-			log:            log.WithField("pkg", "device-connection"),
-			serviceHandler: serviceHandler,
+			log:       log.WithField("pkg", "device-connection"),
+			deviceSvc: deviceSvc,
 		},
 		PeriodicTaskTypeRolloutDeviceSelection: &RolloutDeviceSelectionExecutor{
-			serviceHandler: serviceHandler,
-			log:            log.WithField("pkg", "rollout-device-selection"),
+			deviceSvc: deviceSvc,
+			fleetSvc:  fleetSvc,
+			eventSvc:  eventSvc,
+			log:       log.WithField("pkg", "rollout-device-selection"),
 		},
 		PeriodicTaskTypeDisruptionBudget: &DisruptionBudgetExecutor{
-			serviceHandler: serviceHandler,
-			log:            log.WithField("pkg", "disruption-budget"),
+			deviceSvc: deviceSvc,
+			fleetSvc:  fleetSvc,
+			eventSvc:  eventSvc,
+			log:       log.WithField("pkg", "disruption-budget"),
 		},
 		PeriodicTaskTypeEventCleanup: &EventCleanupExecutor{
 			log:                  log.WithField("pkg", "event-cleanup"),
-			serviceHandler:       serviceHandler,
+			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
-			log:            log.WithField("pkg", "queue-maintenance"),
-			serviceHandler: serviceHandler,
-			queuesProvider: queuesProvider,
-			workerClient:   workerClient,
-			workerMetrics:  workerMetrics,
+			log:             log.WithField("pkg", "queue-maintenance"),
+			checkpointSvc:   checkpointSvc,
+			eventSvc:        eventSvc,
+			organizationSvc: organizationSvc,
+			queuesProvider:  queuesProvider,
+			workerClient:    workerClient,
+			workerMetrics:   workerMetrics,
 		},
 	}
 
 	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && vulnClient != nil && findingStore != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
-			log:            log.WithField("pkg", "vulnerability-sync"),
-			vulnClient:     vulnClient,
-			findingStore:   findingStore,
-			serviceHandler: serviceHandler,
+			log:           log.WithField("pkg", "vulnerability-sync"),
+			vulnClient:    vulnClient,
+			findingStore:  findingStore,
+			checkpointSvc: checkpointSvc,
+			eventSvc:      eventSvc,
 		}
 	}
 
 	executors[PeriodicTaskTypeDependencySyncGit] = &DependencySyncGitExecutor{
-		log:            log.WithField("pkg", "dependency-sync-git"),
-		serviceHandler: serviceHandler,
-		cfg:            cfg,
-		metrics:        depSyncMetrics,
+		log:              log.WithField("pkg", "dependency-sync-git"),
+		dependencyrefSvc: dependencyrefSvc,
+		eventSvc:         eventSvc,
+		syncstateSvc:     syncstateSvc,
+		cfg:              cfg,
+		metrics:          depSyncMetrics,
 	}
 
 	executors[PeriodicTaskTypeDependencySyncHttp] = &DependencySyncHttpExecutor{
-		log:            log.WithField("pkg", "dependency-sync-http"),
-		serviceHandler: serviceHandler,
-		cfg:            cfg,
-		metrics:        depSyncMetrics,
+		log:              log.WithField("pkg", "dependency-sync-http"),
+		dependencyrefSvc: dependencyrefSvc,
+		eventSvc:         eventSvc,
+		syncstateSvc:     syncstateSvc,
+		cfg:              cfg,
+		metrics:          depSyncMetrics,
 	}
 
 	return executors

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/gorilla/websocket"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -25,19 +23,16 @@ import (
 	api_remotecommand "k8s.io/apimachinery/pkg/util/remotecommand"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
-	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/exec"
 	k8sTerm "k8s.io/kubectl/pkg/util/term"
 )
 
 type ConsoleOptions struct {
 	GlobalOptions
-	tty        bool
-	noTTY      bool
-	remoteTTY  bool
-	protocols  []string
-	appName    string
-	remoteType string
+	tty       bool
+	noTTY     bool
+	remoteTTY bool
+	protocols []string
 }
 
 func DefaultConsoleOptions() *ConsoleOptions {
@@ -53,8 +48,8 @@ func NewConsoleCmd() *cobra.Command {
 	o := DefaultConsoleOptions()
 
 	cmd := &cobra.Command{
-		Use:   "console device/NAME [--app APP --remote-type TYPE] [-- COMMAND [ARG...]]",
-		Short: "Connect a console to the remote device or to a VM application through the server.",
+		Use:   "console device/NAME [-- COMMAND [ARG...]]",
+		Short: "Connect a console to the remote device through the server.",
 		Args:  cobra.MinimumNArgs(1),
 		ValidArgsFunction: KindNameAutocomplete{
 			Options:            o,
@@ -112,8 +107,6 @@ func (o *ConsoleOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 	fs.BoolVarP(&o.tty, "tty", "", o.tty, "Allocate remote pseudo terminal")
 	fs.BoolVarP(&o.noTTY, "notty", "", o.noTTY, "Don't allocate remote pseudo terminal")
-	fs.StringVar(&o.appName, "app", o.appName, "Application name to open a console for (VM serial console)")
-	fs.StringVar(&o.remoteType, "remote-type", o.remoteType, "Remote access type when --app is set (e.g. serial)")
 }
 
 func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -141,14 +134,6 @@ func (o *ConsoleOptions) Validate(args []string) error {
 		return fmt.Errorf("--tty and --notty are mutually exclusive")
 	}
 
-	if o.remoteType != "" && o.appName == "" {
-		return fmt.Errorf("--remote-type requires --app")
-	}
-
-	if o.appName != "" && o.remoteType == "" {
-		return fmt.Errorf("--remote-type is required when --app is set")
-	}
-
 	return nil
 }
 
@@ -167,14 +152,8 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 	refresher.Start(ctx)
 	accessToken := refresher.GetAccessToken()
 
-	if o.appName != "" {
-		o.analyzeResponseAndExit(ctx, name, o.connectAppViaWS(ctx, config, name, o.appName, accessToken))
-	} else {
-		o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, accessToken, passThroughArgs))
-	}
-
-	// unreachable
-	return nil
+	analyzeResponseAndExit(ctx, &o.GlobalOptions, name, o.connectViaWS(ctx, config, name, accessToken, passThroughArgs))
+	return nil // unreachable
 }
 
 // NewWebSocketExecClient creates a WebSocketExecutor
@@ -430,178 +409,11 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 	return wsClient.StreamWithContext(ctx, options)
 }
 
-// buildAppConsoleURL constructs the WebSocket URL for the VM application serial console.
-// The base URL's scheme is converted from https/http to wss/ws as required by gorilla/websocket.
-func (o *ConsoleOptions) buildAppConsoleURL(consoleServer, deviceName, appName string) (string, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/ws/v1/devices/%s/applications/%s/console", consoleServer, url.PathEscape(deviceName), url.PathEscape(appName)))
-	if err != nil {
-		return "", fmt.Errorf("parsing console URL: %w", err)
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	case "http":
-		u.Scheme = "ws"
-	}
-	q := url.Values{}
-	q.Set("consoleType", o.remoteType)
-	q.Set(api.OrganizationIDQueryKey, o.GetEffectiveOrganization())
-	u.RawQuery = q.Encode()
-	return u.String(), nil
-}
-
-// buildTLSConfigForConsole creates a tls.Config from the RemoteAccessService TLS settings.
-func buildTLSConfigForConsole(consoleSvc *client.Service, authInfo client.AuthInfo) (*tls.Config, error) {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: consoleSvc.InsecureSkipVerify, //nolint:gosec
-	}
-	if consoleSvc.TLSServerName != "" {
-		tlsCfg.ServerName = consoleSvc.TLSServerName
-	}
-	if len(consoleSvc.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(consoleSvc.CertificateAuthorityData)
-		if err != nil {
-			return nil, fmt.Errorf("parsing console service CA: %w", err)
-		}
-		tlsCfg.RootCAs = caPool
-	}
-	if len(authInfo.ClientCertificateData) > 0 {
-		clientCert, err := tls.X509KeyPair(authInfo.ClientCertificateData, authInfo.ClientKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("parsing client certificate: %w", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{clientCert}
-	}
-	return tlsCfg, nil
-}
-
-// connectAppViaWS opens a binary WebSocket connection to flightctl-remote-access and
-// bridges stdin/stdout, applying the same ~. escape sequence as the device console.
-func (o *ConsoleOptions) connectAppViaWS(ctx context.Context, config *client.Config, deviceName, appName, token string) error {
-	consoleServer := config.GetRemoteAccessServer()
-	if consoleServer == "" {
-		return fmt.Errorf("remote access service is not configured; run 'flightctl login' to update your client config or set 'remoteAccessService.server' manually")
-	}
-
-	connURL, err := o.buildAppConsoleURL(consoleServer, deviceName, appName)
-	if err != nil {
-		return err
-	}
-
-	tlsCfg, err := buildTLSConfigForConsole(config.RemoteAccessService, config.AuthInfo)
-	if err != nil {
-		return err
-	}
-
-	dialer := websocket.Dialer{
-		TLSClientConfig: tlsCfg,
-	}
-	headers := http.Header{}
-	if token != "" {
-		headers.Set("Authorization", "Bearer "+token)
-	}
-
-	conn, resp, err := dialer.DialContext(ctx, connURL, headers)
-	if err != nil {
-		if resp != nil {
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			msg := strings.TrimSpace(string(body))
-			return &httpstream.UpgradeFailureError{
-				Cause: fmt.Errorf("websocket: bad handshake (%d %s): %s", resp.StatusCode, http.StatusText(resp.StatusCode), msg),
-			}
-		}
-		return err
-	}
-	defer conn.Close()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	t := o.SetupTTY()
-	var oldState *term.State
-	var stdinReader io.Reader
-	if t.Raw {
-		stdinReader = newRawReader(cancel, &oldState)
-	} else if !t.IsTerminalIn() {
-		stdinReader = os.Stdin
-	}
-
-	if t.Raw {
-		defer func() {
-			if oldState != nil {
-				if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
-					fmt.Printf("error restoring terminal: %v", err)
-				}
-			}
-		}()
-	}
-
-	fmt.Fprintf(os.Stderr, "Connected to %s console. Use ~. to exit.\r\n", appName)
-
-	done := make(chan struct{})
-
-	// stdin → WebSocket
-	go func() {
-		defer func() {
-			conn.WriteMessage(websocket.CloseMessage, //nolint:errcheck
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			close(done)
-		}()
-		if stdinReader == nil {
-			// No stdin source; block until context is cancelled rather than
-			// immediately sending a close frame and ending the session.
-			<-ctx.Done()
-			return
-		}
-		buf := make([]byte, 4096)
-		for {
-			n, err := stdinReader.Read(buf)
-			if n > 0 {
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	// WebSocket → stdout
-	recvDone := make(chan struct{})
-	go func() {
-		defer close(recvDone)
-		for {
-			msgType, msg, err := conn.ReadMessage()
-			if err != nil {
-				// A normal close from the remote end is not an error; avoid
-				// cancelling the context so connectAppViaWS returns nil.
-				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					cancel()
-				}
-				return
-			}
-			if msgType == websocket.BinaryMessage || msgType == websocket.TextMessage {
-				if _, werr := os.Stdout.Write(msg); werr != nil {
-					cancel()
-					return
-				}
-			}
-		}
-	}()
-
-	select {
-	case <-done:
-	case <-recvDone:
-	case <-ctx.Done():
-	}
-
-	return ctx.Err()
-}
-
-func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
+// emitUpgradeFailureError prints a clean, user-facing error message for a console
+// WebSocket upgrade failure, using o (shared by the device console and app console
+// commands via their embedded GlobalOptions) to look up additional context when the
+// error message itself doesn't carry a recognizable status code.
+func emitUpgradeFailureError(ctx context.Context, o *GlobalOptions, name string, origErr error) {
 	// Try to parse error message for HTTP status code and message
 	// Format: "websocket: bad handshake (409 Conflict): Device is decommissioned"
 	errStr := origErr.Error()
@@ -659,7 +471,9 @@ func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name strin
 	fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 }
 
-func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string, err error) {
+// analyzeResponseAndExit inspects err and terminates the process with an appropriate exit
+// code. Shared by the device console and app console commands.
+func analyzeResponseAndExit(ctx context.Context, o *GlobalOptions, name string, err error) {
 	var exitCode int
 	if errors.Is(err, context.Canceled) {
 		// If the context was canceled, we exit with code 130 (SIGINT)
@@ -671,7 +485,13 @@ func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string
 			exitCode = concreteErr.Code
 		case *httpstream.UpgradeFailureError:
 			exitCode = 255
-			o.emitUpgradeFailureError(ctx, name, err)
+			emitUpgradeFailureError(ctx, o, name, err)
+		case *ConsoleSessionError:
+			exitCode = 255
+			// %q escapes control characters (e.g. terminal escape sequences) so a
+			// misbehaving or compromised device cannot inject terminal actions via
+			// this agent-controlled error text.
+			fmt.Fprintf(os.Stderr, "Error for device %s: %q\n", name, concreteErr.Message)
 		default:
 			exitCode = 255
 			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)

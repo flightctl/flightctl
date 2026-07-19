@@ -920,8 +920,9 @@ func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.
 		return nil, fmt.Errorf("app %q has type %q: only VM apps support console", appName, found.AppType())
 	}
 
-	if v1beta1.GetDeviceApplicationConsoleParamsConsoleType(consoleType) != v1beta1.ConsoleTypeSerial {
-		return nil, fmt.Errorf("app %q: unsupported console type %q for VM (supported: serial)", appName, consoleType)
+	ct := v1beta1.GetDeviceApplicationConsoleParamsConsoleType(consoleType)
+	if ct != v1beta1.ConsoleTypeSerial && ct != v1beta1.ConsoleTypeVnc {
+		return nil, fmt.Errorf("app %q: unsupported console type %q for VM (supported: serial, vnc)", appName, consoleType)
 	}
 
 	// The container name comes from podman events via workload tracking — it is the authoritative
@@ -943,11 +944,15 @@ func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.
 		return nil, fmt.Errorf("app %q: no active compute container found (workload with \"-compute\" suffix required)", appName)
 	}
 
-	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, consoleType)
+	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, ct)
 
 	podman, err := m.clientFactory("")
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for console: %w", err)
+	}
+
+	if ct == v1beta1.ConsoleTypeVnc {
+		return appconsole.NewVMVNCSession(containerName, podman, m.log), nil
 	}
 
 	return appconsole.NewVMSerialSession(containerName, podman, m.log), nil

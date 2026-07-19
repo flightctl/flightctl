@@ -53,6 +53,53 @@ func TestParseConfigFile(t *testing.T) {
 	require.Equal(logrus.InfoLevel.String(), cfg.LogLevel)
 }
 
+func TestDeriveRemoteAccessServer(t *testing.T) {
+	tests := []struct {
+		name             string
+		enrollmentServer string
+		want             string
+		wantErr          bool
+	}{
+		{
+			name:             "When enrollment uses agent-api route hostname with no port it should use agent-remote-access with no port",
+			enrollmentServer: "https://agent-api.example.com",
+			want:             "https://agent-remote-access.example.com",
+		},
+		{
+			name:             "When enrollment uses agent-api gateway hostname on a non-standard TLS port it should use agent-remote-access on the same port",
+			enrollmentServer: "https://agent-api.example.com:8443",
+			want:             "https://agent-remote-access.example.com:8443",
+		},
+		{
+			name:             "When enrollment uses agent-api nodePort hostname on port 7443 it should use agent-remote-access on port 7444",
+			enrollmentServer: "https://agent-api.127.0.0.1.nip.io:7443",
+			want:             "https://agent-remote-access.127.0.0.1.nip.io:7444",
+		},
+		{
+			name:             "When enrollment hostname does not have the agent-api prefix it should keep the hostname unchanged on port 7444",
+			enrollmentServer: "https://enrollment.example.com:7443",
+			want:             "https://enrollment.example.com:7444",
+		},
+		{
+			name:             "When enrollment URL is invalid it should return an error",
+			enrollmentServer: "://bad-url",
+			wantErr:          true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			got, err := deriveRemoteAccessServer(tt.enrollmentServer)
+			if tt.wantErr {
+				require.Error(err)
+				return
+			}
+			require.NoError(err)
+			require.Equal(tt.want, got)
+		})
+	}
+}
+
 func TestParseConfigFile_NoFile(t *testing.T) {
 	require := require.New(t)
 

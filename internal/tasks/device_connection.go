@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -18,14 +18,14 @@ const (
 )
 
 type DeviceConnection struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
+	log       logrus.FieldLogger
+	deviceSvc deviceservice.Service
 }
 
-func NewDeviceConnection(log logrus.FieldLogger, serviceHandler service.Service) *DeviceConnection {
+func NewDeviceConnection(log logrus.FieldLogger, deviceSvc deviceservice.Service) *DeviceConnection {
 	return &DeviceConnection{
-		log:            log,
-		serviceHandler: serviceHandler,
+		log:       log,
+		deviceSvc: deviceSvc,
 	}
 }
 
@@ -51,7 +51,7 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListConnectivityChangedDevices(ctx, orgID, listParams, cutoffTime)
+		devices, status := t.deviceSvc.ListConnectivityChangedDevices(ctx, orgID, listParams, cutoffTime)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
@@ -72,7 +72,7 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 			}
 
 			t.log.Debugf("Updating server-side device status for %s", *device.Metadata.Name)
-			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, orgID, *device.Metadata.Name)
+			err := t.deviceSvc.UpdateServerSideDeviceStatus(ctx, orgID, *device.Metadata.Name)
 			if err != nil {
 				t.log.Errorf("Failed to update server-side device status for %s: %s", *device.Metadata.Name, err.Error())
 				continue

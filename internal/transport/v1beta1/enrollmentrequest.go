@@ -17,7 +17,7 @@ func (h *TransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *htt
 	}
 
 	domainER := h.converter.EnrollmentRequest().ToDomain(er)
-	body, status := h.serviceHandler.CreateEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainER)
+	body, status := h.enrollmentrequest.CreateEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainER)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -25,14 +25,14 @@ func (h *TransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *htt
 // (GET /api/v1/enrollmentrequests)
 func (h *TransportHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListEnrollmentRequestsParams) {
 	domainParams := h.converter.EnrollmentRequest().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListEnrollmentRequests(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	body, status := h.enrollmentrequest.ListEnrollmentRequests(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.EnrollmentRequest().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *TransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.enrollmentrequest.GetEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +46,7 @@ func (h *TransportHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *ht
 	}
 
 	domainER := h.converter.EnrollmentRequest().ToDomain(er)
-	body, status := h.serviceHandler.ReplaceEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainER)
+	body, status := h.enrollmentrequest.ReplaceEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainER)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -60,20 +60,20 @@ func (h *TransportHandler) PatchEnrollmentRequest(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.enrollmentrequest.PatchEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *TransportHandler) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.enrollmentrequest.DeleteEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	h.SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *TransportHandler) GetEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetEnrollmentRequestStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.enrollmentrequest.GetEnrollmentRequestStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -87,7 +87,7 @@ func (h *TransportHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *ht
 	}
 
 	domainApproval := h.converter.EnrollmentRequest().ApprovalToDomain(approval)
-	body, status := h.serviceHandler.ApproveEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainApproval)
+	body, status := h.enrollmentrequest.ApproveEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainApproval)
 	apiResult := h.converter.EnrollmentRequest().ApprovalStatusFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -101,7 +101,7 @@ func (h *TransportHandler) ReplaceEnrollmentRequestStatus(w http.ResponseWriter,
 	}
 
 	domainER := h.converter.EnrollmentRequest().ToDomain(er)
-	body, status := h.serviceHandler.ReplaceEnrollmentRequestStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainER)
+	body, status := h.enrollmentrequest.ReplaceEnrollmentRequestStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainER)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

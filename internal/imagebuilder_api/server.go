@@ -25,13 +25,20 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/transport"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
+	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	"github.com/flightctl/flightctl/internal/service/events"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"gorm.io/gorm"
 )
 
 const (
@@ -43,7 +50,11 @@ type Server struct {
 	log               logrus.FieldLogger
 	cfg               *config.Config
 	imageBuilderStore imagebuilderstore.Store
-	mainStore         store.Store
+	db                *gorm.DB
+	catalogStore      catalogstore.Store
+	organizationStore organizationstore.Store
+	authProviderStore authproviderstore.Store
+	eventsSvc         events.Service
 	kvStore           kvstore.KVStore
 	queuesProvider    queues.Provider
 	service           service.Service
@@ -56,7 +67,7 @@ func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	imageBuilderStore imagebuilderstore.Store,
-	mainStore store.Store,
+	db *gorm.DB,
 	kvStore kvstore.KVStore,
 	queuesProvider queues.Provider,
 ) (*Server, error) {
@@ -72,12 +83,25 @@ func New(
 		}
 	}
 
-	svc := service.NewService(ctx, cfg, imageBuilderStore, mainStore, queueProducer, kvStore, log)
+	catalogStore := catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
+	repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+	eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+	// nil worker_client: events are stored in DB for audit/logging but are not pushed to
+	// TaskQueue - events are manually enqueued to ImageBuildTaskQueue instead.
+	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+	organizationStore := organizationstore.NewOrganizationStore(db)
+	authProviderStore := authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
+
+	svc := service.NewService(ctx, cfg, imageBuilderStore, catalogStore, repositoryStore, eventsSvc, queueProducer, kvStore, log)
 	return &Server{
 		log:               log,
 		cfg:               cfg,
 		imageBuilderStore: imageBuilderStore,
-		mainStore:         mainStore,
+		db:                db,
+		catalogStore:      catalogStore,
+		organizationStore: organizationStore,
+		authProviderStore: authProviderStore,
+		eventsSvc:         eventsSvc,
 		kvStore:           kvStore,
 		queuesProvider:    queuesProvider,
 		service:           svc,
@@ -122,7 +146,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Create auth provider service for dynamic provider loading
 	// Wrap with tracing to ensure GORM operations have proper tracing context
-	authProviderService := internalservice.WrapWithTracing(internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log))
+	authProviderService := authproviderservice.WrapWithTracing(authproviderservice.NewServiceHandler(s.authProviderStore, s.eventsSvc, s.log))
 
 	// Initialize auth (same as api_server)
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderService)
@@ -161,8 +185,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware (same as api_server)
-	orgProvisioner := internalservice.NewOrgProvisioner(s.mainStore, s.log)
-	identityMapper := internalservice.NewIdentityMapper(s.mainStore, orgProvisioner, s.log)
+	orgProvisioner := internalservice.NewOrgProvisioner(s.catalogStore, s.log)
+	identityMapper := internalservice.NewIdentityMapper(s.organizationStore, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)

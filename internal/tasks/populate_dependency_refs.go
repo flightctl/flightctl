@@ -7,15 +7,17 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
-func populateDependencyRefs(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
-	logic := NewPopulateDependencyRefsLogic(log, serviceHandler, orgId)
+func populateDependencyRefs(ctx context.Context, orgId uuid.UUID, event domain.Event, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, log logrus.FieldLogger) error {
+	logic := NewPopulateDependencyRefsLogic(log, fleetSvc, deviceSvc, dependencyrefSvc, orgId)
 
 	if event.Reason == domain.EventReasonResourceDeleted {
 		return logic.HandleDeletion(ctx, event)
@@ -32,30 +34,32 @@ func populateDependencyRefs(ctx context.Context, orgId uuid.UUID, event domain.E
 }
 
 type PopulateDependencyRefsLogic struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	orgId          uuid.UUID
+	log              logrus.FieldLogger
+	fleetSvc         fleetservice.Service
+	deviceSvc        deviceservice.Service
+	dependencyrefSvc dependencyrefservice.Service
+	orgId            uuid.UUID
 }
 
-func NewPopulateDependencyRefsLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID) PopulateDependencyRefsLogic {
-	return PopulateDependencyRefsLogic{log: log, serviceHandler: serviceHandler, orgId: orgId}
+func NewPopulateDependencyRefsLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, orgId uuid.UUID) PopulateDependencyRefsLogic {
+	return PopulateDependencyRefsLogic{log: log, fleetSvc: fleetSvc, deviceSvc: deviceSvc, dependencyrefSvc: dependencyrefSvc, orgId: orgId}
 }
 
 func (p PopulateDependencyRefsLogic) PopulateForFleet(ctx context.Context, fleetName string) error {
-	fleet, st := p.serviceHandler.GetFleet(ctx, p.orgId, fleetName, domain.GetFleetParams{})
+	fleet, st := p.fleetSvc.GetFleet(ctx, p.orgId, fleetName, domain.GetFleetParams{})
 	if st.Code != http.StatusOK {
 		return fmt.Errorf("failed getting fleet %s: %s", fleetName, st.Message)
 	}
 
 	refs := collectConfigRefs(p.log, fleet.Spec.Template.Spec.Config, fleetName, "")
-	if st := p.serviceHandler.ReplaceDependencyRefsByFleet(ctx, p.orgId, fleetName, refs); st.Code != http.StatusOK {
+	if st := p.dependencyrefSvc.ReplaceDependencyRefsByFleet(ctx, p.orgId, fleetName, refs); st.Code != http.StatusOK {
 		return fmt.Errorf("replacing dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
 	return nil
 }
 
 func (p PopulateDependencyRefsLogic) PopulateForDevice(ctx context.Context, deviceName string) error {
-	device, st := p.serviceHandler.GetDevice(ctx, p.orgId, deviceName)
+	device, st := p.deviceSvc.GetDevice(ctx, p.orgId, deviceName)
 	if st.Code != http.StatusOK {
 		return fmt.Errorf("failed getting device %s: %s", deviceName, st.Message)
 	}
@@ -64,7 +68,7 @@ func (p PopulateDependencyRefsLogic) PopulateForDevice(ctx context.Context, devi
 		// Clean up any leftover standalone refs from before the device was
 		// adopted by a fleet. Fleet-owned devices get their refs from
 		// fleet validation (non-parameterized) or fleet rollout (parameterized).
-		if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, nil); st.Code != http.StatusOK {
+		if st := p.dependencyrefSvc.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, nil); st.Code != http.StatusOK {
 			return fmt.Errorf("cleaning standalone refs for fleet-owned device %s: %s", deviceName, st.Message)
 		}
 		return nil
@@ -76,7 +80,7 @@ func (p PopulateDependencyRefsLogic) PopulateForDevice(ctx context.Context, devi
 	}
 
 	refs := collectConfigRefs(p.log, config, "", deviceName)
-	if st := p.serviceHandler.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, refs); st.Code != http.StatusOK {
+	if st := p.dependencyrefSvc.ReplaceStandaloneDeviceDependencyRefs(ctx, p.orgId, deviceName, refs); st.Code != http.StatusOK {
 		return fmt.Errorf("replacing dependency refs for standalone device %s: %s", deviceName, st.Message)
 	}
 	return nil
@@ -87,13 +91,13 @@ func (p PopulateDependencyRefsLogic) HandleDeletion(ctx context.Context, event d
 	name := event.InvolvedObject.Name
 	switch event.InvolvedObject.Kind {
 	case domain.FleetKind:
-		if st := p.serviceHandler.DeleteDependencyRefsByFleet(ctx, p.orgId, name); st.Code != http.StatusOK {
+		if st := p.dependencyrefSvc.DeleteDependencyRefsByFleet(ctx, p.orgId, name); st.Code != http.StatusOK {
 			return fmt.Errorf("deleting dependency refs for fleet %s: %s", name, st.Message)
 		}
 	case domain.DeviceKind:
 		// DeleteByDevice removes ALL refs for this device — both standalone
 		// (fleet_name='') and fleet-rollout refs (fleet_name='some-fleet').
-		if st := p.serviceHandler.DeleteDependencyRefsByDevice(ctx, p.orgId, name); st.Code != http.StatusOK {
+		if st := p.dependencyrefSvc.DeleteDependencyRefsByDevice(ctx, p.orgId, name); st.Code != http.StatusOK {
 			return fmt.Errorf("deleting dependency refs for device %s: %s", name, st.Message)
 		}
 	}

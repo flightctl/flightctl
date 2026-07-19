@@ -12,8 +12,10 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -27,23 +29,27 @@ type httpConditionalHeadFunc func(ctx context.Context, client *http.Client, repo
 	httpSpec domain.HttpRepoSpec, storedFingerprint string) (fingerprint string, statusCode int, err error)
 
 type DependencySyncHttp struct {
-	log             logrus.FieldLogger
-	serviceHandler  service.Service
-	cfg             *config.Config
-	conditionalHead httpConditionalHeadFunc
-	maxConcurrent   int
-	metrics         *periodic.DependencySyncCollector
+	log              logrus.FieldLogger
+	dependencyrefSvc dependencyrefservice.Service
+	eventSvc         eventservice.Service
+	syncstateSvc     syncstateservice.Service
+	cfg              *config.Config
+	conditionalHead  httpConditionalHeadFunc
+	maxConcurrent    int
+	metrics          *periodic.DependencySyncCollector
 }
 
-func NewDependencySyncHttp(log logrus.FieldLogger, serviceHandler service.Service,
+func NewDependencySyncHttp(log logrus.FieldLogger, dependencyrefSvc dependencyrefservice.Service, eventSvc eventservice.Service, syncstateSvc syncstateservice.Service,
 	cfg *config.Config, metrics *periodic.DependencySyncCollector) *DependencySyncHttp {
 	return &DependencySyncHttp{
-		log:             log,
-		serviceHandler:  serviceHandler,
-		cfg:             cfg,
-		conditionalHead: httpConditionalHead,
-		maxConcurrent:   10,
-		metrics:         metrics,
+		log:              log,
+		dependencyrefSvc: dependencyrefSvc,
+		eventSvc:         eventSvc,
+		syncstateSvc:     syncstateSvc,
+		cfg:              cfg,
+		conditionalHead:  httpConditionalHead,
+		maxConcurrent:    10,
+		metrics:          metrics,
 	}
 }
 
@@ -65,7 +71,7 @@ func (d *DependencySyncHttp) Poll(ctx context.Context, orgId uuid.UUID) {
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
 	probeStart := time.Now()
 
-	probes, status := d.serviceHandler.ListDueHttpDependencies(ctx, orgId, pollInterval)
+	probes, status := d.dependencyrefSvc.ListDueHttpDependencies(ctx, orgId, pollInterval)
 	if status.Code != http.StatusOK {
 		d.log.Errorf("failed listing due HTTP dependencies: %s", status.Message)
 		return
@@ -203,13 +209,13 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 			for _, fleetName := range r.probe.FleetNames {
 				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.probeErr)
 				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
+					d.eventSvc.CreateEvent(ctx, orgId, event)
 				}
 			}
 			for _, deviceName := range r.probe.DeviceNames {
 				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.probeErr)
 				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
+					d.eventSvc.CreateEvent(ctx, orgId, event)
 				}
 			}
 			continue
@@ -223,13 +229,13 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.fingerprint)
 			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
+				d.eventSvc.CreateEvent(ctx, orgId, event)
 			}
 		}
 		for _, deviceName := range r.probe.DeviceNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.fingerprint)
 			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
+				d.eventSvc.CreateEvent(ctx, orgId, event)
 			}
 		}
 	}
@@ -268,14 +274,14 @@ func (d *DependencySyncHttp) reconcile(ctx context.Context, orgId uuid.UUID, res
 	}
 
 	if len(upsertStates) > 0 {
-		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
+		if st := d.syncstateSvc.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
 			return
 		}
 	}
 
 	if len(unchangedKeys) > 0 {
-		if st := d.serviceHandler.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
+		if st := d.syncstateSvc.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
 		}
 	}

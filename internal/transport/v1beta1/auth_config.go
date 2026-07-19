@@ -12,7 +12,7 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	authConfig := h.authN.GetAuthConfig()
-	body, status := h.serviceHandler.GetAuthConfig(r.Context(), authConfig)
+	body, status := h.authprovider.GetAuthConfig(r.Context(), authConfig)
 	h.SetResponse(w, body, status)
 }
 

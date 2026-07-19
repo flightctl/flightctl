@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -482,19 +483,30 @@ type pipeConn struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (c *pipeConn) Read(p []byte) (int, error)  { return c.stdout.Read(p) }
 func (c *pipeConn) Write(p []byte) (int, error) { return c.stdin.Write(p) }
+
+// Close is idempotent and safe to call concurrently: callers (e.g. console session
+// bridging) may close the connection both explicitly and via a ctx-cancellation watcher.
+// exec.Cmd.Wait is not safe to call more than once, so the underlying close/kill/wait
+// sequence only ever runs once; later callers block on and receive the same result.
 func (c *pipeConn) Close() error {
-	stdinErr := c.stdin.Close()
-	stdoutErr := c.stdout.Close()
-	var killErr error
-	if c.cmd.Process != nil {
-		killErr = c.cmd.Process.Kill()
-	}
-	waitErr := c.cmd.Wait()
-	return errors.Join(stdinErr, stdoutErr, killErr, waitErr)
+	c.closeOnce.Do(func() {
+		stdinErr := c.stdin.Close()
+		stdoutErr := c.stdout.Close()
+		var killErr error
+		if c.cmd.Process != nil {
+			killErr = c.cmd.Process.Kill()
+		}
+		waitErr := c.cmd.Wait()
+		c.closeErr = errors.Join(stdinErr, stdoutErr, killErr, waitErr)
+	})
+	return c.closeErr
 }
 
 // ExecStream starts `podman exec -i <containerName> <cmd...>` and returns the

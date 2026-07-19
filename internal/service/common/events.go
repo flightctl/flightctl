@@ -3,9 +3,11 @@ package common
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -687,4 +689,60 @@ func GetSystemRestoredEvent(ctx context.Context, devicesUpdated int64) *domain.E
 		message:      fmt.Sprintf("System restored successfully. Updated %d devices for post-restoration preparation.", devicesUpdated),
 		details:      nil,
 	})
+}
+
+// ComputeResourceUpdatedDetails determines which fields were updated by comparing old and new ObjectMeta.
+// Generic across all resource kinds; resource-specific event handlers use this to build
+// domain.ResourceUpdatedDetails before emitting a ResourceUpdated event.
+func ComputeResourceUpdatedDetails(oldMetadata, newMetadata domain.ObjectMeta) *domain.ResourceUpdatedDetails {
+	updateDetails := &domain.ResourceUpdatedDetails{
+		UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{},
+	}
+
+	// Check if spec changed (Generation field)
+	if oldMetadata.Generation != nil && newMetadata.Generation != nil &&
+		*oldMetadata.Generation != *newMetadata.Generation {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.Spec)
+	}
+
+	// Check if labels changed
+	if !reflect.DeepEqual(oldMetadata.Labels, newMetadata.Labels) {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.Labels)
+	}
+
+	// Check if owner changed
+	if !util.StringsAreEqual(oldMetadata.Owner, newMetadata.Owner) {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.Owner)
+		if oldMetadata.Owner != nil {
+			updateDetails.PreviousOwner = oldMetadata.Owner
+		}
+		if newMetadata.Owner != nil {
+			updateDetails.NewOwner = newMetadata.Owner
+		}
+	}
+
+	// Only return details if there were actual updates
+	if len(updateDetails.UpdatedFields) == 0 {
+		return nil
+	}
+
+	return updateDetails
+}
+
+// CastResources safely casts both old and new interface{} resources to the specified type T.
+// Returns ok=true only if both resources are either nil or successfully cast to *T.
+func CastResources[T any](oldResource, newResource interface{}) (oldTyped, newTyped *T, ok bool) {
+	if oldResource != nil {
+		if oldTyped, ok = oldResource.(*T); !ok {
+			return nil, nil, false
+		}
+	}
+
+	if newResource != nil {
+		if newTyped, ok = newResource.(*T); !ok {
+			return nil, nil, false
+		}
+	}
+
+	return oldTyped, newTyped, true
 }

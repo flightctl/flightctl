@@ -2,25 +2,42 @@ package encryption
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// setupTestKey sets FLIGHTCTL_ENCRYPTION_KEY for tests (auto-cleanup via t.Setenv)
-func setupTestKey(t *testing.T) {
+// setupTestKey writes a random AES-256 key to a temp file and returns a Config.
+func setupTestKey(t *testing.T) *config.Config {
 	t.Helper()
 	key, err := crypto.GenerateAES256Key()
 	require.NoError(t, err)
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", key)
+	return writeTestKey(t, key, "default")
+}
+
+// writeTestKey writes a key string to a temp file and returns a Config.
+func writeTestKey(t *testing.T, key, keyID string) *config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(keyPath, []byte(key), 0600))
+	return &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: keyID, Path: keyPath}},
+			ActiveKeyID: keyID,
+		},
+	}
 }
 
 func TestInitGlobalEncryption_WithoutCanaryStore(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -31,7 +48,7 @@ func TestInitGlobalEncryption_WithoutCanaryStore(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	// Manager initialized, canary disabled
@@ -40,7 +57,7 @@ func TestInitGlobalEncryption_WithoutCanaryStore(t *testing.T) {
 }
 
 func TestInitGlobalEncryption_WithCanaryStore(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -53,7 +70,7 @@ func TestInitGlobalEncryption_WithCanaryStore(t *testing.T) {
 
 	// Init WITH canary store
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	// Both managers initialized
@@ -71,7 +88,7 @@ func TestGlobalCanaryManager_ReturnsNilIfNotInitialized(t *testing.T) {
 }
 
 func TestGlobalCanaryManager_ReturnsNilIfDisabled(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -83,7 +100,7 @@ func TestGlobalCanaryManager_ReturnsNilIfDisabled(t *testing.T) {
 	logger.SetLevel(logrus.FatalLevel)
 
 	// Init WITHOUT canary store
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	canaryMgr := GlobalCanaryManager()
@@ -99,7 +116,7 @@ func TestGlobalManager_ReturnsNilIfNotInitialized(t *testing.T) {
 }
 
 func TestEncrypt_CreatesCanaryOnFirstUse(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -112,7 +129,7 @@ func TestEncrypt_CreatesCanaryOnFirstUse(t *testing.T) {
 
 	// Init WITH canary store
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -138,7 +155,7 @@ func TestEncrypt_CreatesCanaryOnFirstUse(t *testing.T) {
 }
 
 func TestEncrypt_CanaryDoOnce(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -151,7 +168,7 @@ func TestEncrypt_CanaryDoOnce(t *testing.T) {
 
 	// Init WITH canary store
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -175,7 +192,7 @@ func TestEncrypt_CanaryDoOnce(t *testing.T) {
 }
 
 func TestInitGlobalEncryption_ValidatesExistingCanaries(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -188,7 +205,7 @@ func TestInitGlobalEncryption_ValidatesExistingCanaries(t *testing.T) {
 
 	// Init WITH canary store
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	// Create a canary
@@ -210,7 +227,7 @@ func TestInitGlobalEncryption_ValidatesExistingCanaries(t *testing.T) {
 	globalInitErr = nil
 
 	// Re-init should validate the existing canary in the store
-	err = InitGlobalEncryptionWithCanary(logger, store)
+	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err, "Should successfully validate existing canary on restart")
 
 	// Verify validation actually happened and succeeded
@@ -221,7 +238,7 @@ func TestInitGlobalEncryption_ValidatesExistingCanaries(t *testing.T) {
 }
 
 func TestInitGlobalEncryption_ActiveKeyCannotDecryptCanary_FailsInit(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -234,7 +251,7 @@ func TestInitGlobalEncryption_ActiveKeyCannotDecryptCanary_FailsInit(t *testing.
 
 	// Init WITH canary store
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	// Create a canary with the current key
@@ -256,16 +273,15 @@ func TestInitGlobalEncryption_ActiveKeyCannotDecryptCanary_FailsInit(t *testing.
 	// Generate a different key
 	newKey, err := crypto.GenerateAES256Key()
 	require.NoError(t, err)
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", newKey)
+	newEncCfg := writeTestKey(t, newKey, "default")
 
 	// Re-init should FAIL because active key cannot decrypt existing canary
-	err = InitGlobalEncryptionWithCanary(logger, store)
+	err = InitGlobalEncryptionWithCanary(logger, newEncCfg, store)
 	require.Error(t, err, "Should fail when active key cannot decrypt canary")
 	assert.Contains(t, err.Error(), "active encryption key v1/default is broken")
 }
 
 func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T) {
-	setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -282,10 +298,10 @@ func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T)
 	key2, err := crypto.GenerateAES256Key()
 	require.NoError(t, err)
 
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", key1)
+	encCfg := writeTestKey(t, key1, "default")
 
 	store := newMemoryCanaryStore()
-	err = InitGlobalEncryptionWithCanary(logger, store)
+	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	// Create canary for the default key (key1)
@@ -315,7 +331,7 @@ func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T)
 	globalInitErr = nil
 
 	// Re-init should SUCCEED (only old key is broken, not active key)
-	err = InitGlobalEncryptionWithCanary(logger, store)
+	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err, "Should succeed even when old key cannot decrypt")
 
 	// Verify: active key's canary is ok, old key's canary failed
@@ -326,9 +342,10 @@ func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T)
 	// Find results by keyID
 	var defaultResult, oldkeyResult *ValidationResult
 	for i := range results {
-		if results[i].KeyID == "default" {
+		switch results[i].KeyID {
+		case "default":
 			defaultResult = &results[i]
-		} else if results[i].KeyID == "oldkey" {
+		case "oldkey":
 			oldkeyResult = &results[i]
 		}
 	}
@@ -340,7 +357,7 @@ func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T)
 }
 
 func TestDecrypt_EncryptedData(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -351,7 +368,7 @@ func TestDecrypt_EncryptedData(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -369,7 +386,7 @@ func TestDecrypt_EncryptedData(t *testing.T) {
 }
 
 func TestDecrypt_PlaintextData_BackwardCompatibility(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -380,7 +397,7 @@ func TestDecrypt_PlaintextData_BackwardCompatibility(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -411,7 +428,7 @@ func TestDecrypt_NotInitialized(t *testing.T) {
 }
 
 func TestDecrypt_InvalidFormat(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -422,7 +439,7 @@ func TestDecrypt_InvalidFormat(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -446,18 +463,88 @@ func TestInitGlobalEncryption_CachesErrorAcrossCalls(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	// Do NOT set FLIGHTCTL_ENCRYPTION_KEY - init should fail
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", "")
+	// Config with nonexistent key path - init should fail
+	badCfg := &config.Config{
+		Encryption: &config.EncryptionConfig{
+			Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: filepath.Join(t.TempDir(), "missing-key")}},
+			ActiveKeyID: "default",
+		},
+	}
 
 	// First call - should fail
-	err1 := InitGlobalEncryption(logger)
+	err1 := InitGlobalEncryption(logger, badCfg)
 	require.Error(t, err1, "First init should fail when key is missing")
 
 	// Second call - should return the SAME error, not nil
-	err2 := InitGlobalEncryption(logger)
+	err2 := InitGlobalEncryption(logger, badCfg)
 	require.Error(t, err2, "Second init should also fail with cached error")
 	assert.Equal(t, err1.Error(), err2.Error(), "Both calls should return same error")
 
 	// Manager should still be nil
 	assert.Nil(t, GlobalManager(), "Manager should remain nil after failed init")
+}
+
+func TestKeyRotation_AddNewKeyAndReencrypt(t *testing.T) {
+	encCfg := setupTestKey(t)
+	// Reset global state
+	globalManager = nil
+	globalCanaryManager = nil
+	globalLogger = nil
+	globalManagerOnce = *new(sync.Once)
+	globalInitErr = nil
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	err := InitGlobalEncryption(logger, encCfg)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	mgr := GlobalManager()
+
+	// Encrypt data with the original key
+	plaintext := []byte("rotate-me-secret")
+	ciphertext, err := Encrypt(ctx, Plaintext(plaintext))
+	require.NoError(t, err)
+	assert.Contains(t, string(ciphertext), "enc:v1:default:")
+
+	// Add a new key and make it active (simulating key rotation)
+	_, v1Strat := mgr.GetActiveStrategy()
+	v1 := v1Strat.(*V1Strategy)
+
+	newKey, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	newKeyBytes, err := crypto.DecodeAES256Key(newKey)
+	require.NoError(t, err)
+	require.NoError(t, v1.AddKey("2025-07", newKeyBytes, true))
+
+	assert.Equal(t, "2025-07", v1.ActiveKeyID())
+
+	// Old ciphertext still decrypts (old key is retained)
+	decrypted, wasEncrypted, err := Decrypt(ctx, ciphertext)
+	require.NoError(t, err)
+	assert.True(t, wasEncrypted)
+	assert.Equal(t, plaintext, decrypted.Bytes())
+
+	// ProcessEncryption re-encrypts with the new active key
+	reencrypted, err := mgr.ProcessEncryption(ctx, ciphertext.Bytes())
+	require.NoError(t, err)
+	assert.Contains(t, string(reencrypted), "enc:v1:2025-07:", "Should be re-encrypted with new key")
+	assert.NotEqual(t, ciphertext.Bytes(), reencrypted, "Re-encrypted ciphertext should differ")
+
+	// Re-encrypted data decrypts to the same plaintext
+	decrypted2, wasEncrypted2, err := Decrypt(ctx, Ciphertext(reencrypted))
+	require.NoError(t, err)
+	assert.True(t, wasEncrypted2)
+	assert.Equal(t, plaintext, decrypted2.Bytes())
+
+	// ProcessEncryption on already-rotated data is idempotent
+	reencrypted2, err := mgr.ProcessEncryption(ctx, reencrypted)
+	require.NoError(t, err)
+	assert.Equal(t, reencrypted, reencrypted2, "Same key should not re-encrypt again")
+
+	// New encryptions use the new key
+	newCiphertext, err := Encrypt(ctx, Plaintext([]byte("new-secret")))
+	require.NoError(t, err)
+	assert.Contains(t, string(newCiphertext), "enc:v1:2025-07:")
 }

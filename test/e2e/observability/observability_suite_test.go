@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -28,9 +29,29 @@ func TestObservability(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	ctx := context.Background()
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+
+	providers := setup.GetDefaultProviders()
+	infra.SkipIfObservabilityNotConfigured(ctx, providers)
+
+	var auxFuture *e2e.AuxServicesFuture
+	if providers.Infra.GetEnvironmentType() == infra.EnvironmentKind {
+		auxFuture = e2e.StartAuxServicesAsync(ctx)
+	}
+
 	e2e.SetupWorkerHarnessOrAbort()
+
+	if auxFuture != nil {
+		auxSvcs = auxFuture.Wait()
+	} else {
+		var err error
+		auxSvcs, err = auxiliary.StartServices(ctx, []auxiliary.Service{
+			auxiliary.ServiceRegistry,
+			auxiliary.ServiceGitServer,
+		})
+		Expect(err).ToNot(HaveOccurred())
+	}
 })
 
 var _ = AfterSuite(func() {

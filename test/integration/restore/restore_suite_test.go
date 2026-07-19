@@ -17,8 +17,16 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/restore"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -69,10 +77,18 @@ type RestoreTestSuite struct {
 	Log          *logrus.Logger
 	Ctx          context.Context
 	DB           *gorm.DB
-	Store        store.Store
 	RestoreStore *restore.RestoreStore
-	Handler      service.Service
 	OrgID        uuid.UUID
+
+	// Focused stores/services consumed directly by specs. Only the resources
+	// actually exercised by this suite's consumer test files are exposed here.
+	DeviceStore            devicestore.Store
+	EventStore             eventstore.Store
+	EnrollmentRequestStore enrollmentrequeststore.Store
+
+	Device            deviceservice.Service
+	Event             eventservice.Service
+	EnrollmentRequest enrollmentrequestservice.Service
 
 	cfg    *config.Config
 	dbName string
@@ -87,9 +103,14 @@ func (s *RestoreTestSuite) Setup() {
 	var err error
 	s.cfg, s.dbName, s.DB, err = testdb.CreateTestDB(s.Ctx, s.Log, "", store.InitDB)
 	Expect(err).NotTo(HaveOccurred())
-	s.Store = store.NewStore(s.DB, s.Log.WithField("pkg", "store"))
 	s.RestoreStore = restore.NewRestoreStore(s.DB)
 	s.OrgID = store.NullOrgId
+
+	s.DeviceStore = devicestore.NewDeviceStore(s.DB, s.Log.WithField("pkg", "device-store"))
+	s.EventStore = eventstore.NewEventStore(s.DB, s.Log.WithField("pkg", "event-store"))
+	s.EnrollmentRequestStore = enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
+	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
+	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.DB, s.Log.WithField("pkg", "csr-store"))
 
 	// Add a default admin mapped identity to the context
 	testOrg := &model.Organization{
@@ -119,12 +140,14 @@ func (s *RestoreTestSuite) Setup() {
 	caClient, _, err := icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, workerClient, kvStore, caClient, s.Log, "", "", []string{}, false)
+	eventsSvc := events.NewServiceHandler(s.EventStore, workerClient, s.Log)
+	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, fleetStore, eventsSvc, kvStore, "", s.Log)
+	s.Event = eventservice.NewServiceHandler(s.EventStore, eventsSvc)
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(s.EnrollmentRequestStore, s.DeviceStore, csrStore, caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
 }
 
 // Teardown performs common cleanup for restore tests.
 func (s *RestoreTestSuite) Teardown() {
-	_ = s.Store.Close()
 	Expect(testdb.DeleteTestDB(s.Ctx, s.Log, s.cfg, s.DB, s.dbName)).To(Succeed())
 	if s.ctrl != nil {
 		s.ctrl.Finish()

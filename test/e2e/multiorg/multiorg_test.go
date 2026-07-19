@@ -213,30 +213,17 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			err = loginAndSetOrg(harness, users.operator.name, users.operator.password)
 			Expect(err).ToNot(HaveOccurred())
 
-			if infra.IsQuadletEnvironment() {
-				By("Testing that operator can list events")
-				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
-				Expect(err).ToNot(HaveOccurred())
+			By("Testing that operator can list events")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
+			Expect(err).ToNot(HaveOccurred())
 
-				By("Testing that operator can list enrollment requests")
-				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
-				Expect(err).ToNot(HaveOccurred())
+			By("Testing that operator can list enrollment requests")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
+			Expect(err).ToNot(HaveOccurred())
 
-				By("Testing that operator can get a specific enrollment request")
-				_, getErr := harness.GetResourcesByName("enrollmentrequests", erName)
-				Expect(getErr).ToNot(HaveOccurred(), "Operator should be able to get an enrollment request on quadlet")
-			} else {
-				By("Testing that operator cannot list events on OCP")
-				expectReadOnlyListForbidden(harness, "events")
-
-				By("Testing that operator cannot list enrollment requests on OCP")
-				expectReadOnlyListForbidden(harness, "enrollmentrequests")
-
-				By("Testing that operator cannot get a specific enrollment request on OCP")
-				out, getErr := harness.GetResourcesByName("enrollmentrequests", erName)
-				Expect(getErr).To(HaveOccurred(), "Operator should not be able to get an enrollment request on OCP")
-				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for operator enrollment request get")
-			}
+			By("Testing that operator can get a specific enrollment request")
+			_, getErr := harness.GetResourcesByName("enrollmentrequests", erName)
+			Expect(getErr).ToNot(HaveOccurred(), "Operator should be able to get an enrollment request")
 
 			By("Testing that operator cannot approve an enrollment request")
 			status, approveErr := harness.ApproveEnrollmentRequestWithLabels(erName, nil)
@@ -346,38 +333,21 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				false, viewerLabels, flightCtlNs, []string{e2e.OperationCreate})
 			Expect(err).ToNot(HaveOccurred())
 
-			if infra.IsQuadletEnvironment() {
-				By("Testing that viewer can list and get repositories")
-				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"repositories"}, true)
-				Expect(err).ToNot(HaveOccurred())
-				_, getErr := harness.GetResourcesByName("repositories", repoName)
-				Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get a repository on quadlet")
+			By("Testing that viewer can list and get repositories")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"repositories"}, true)
+			Expect(err).ToNot(HaveOccurred())
+			_, getErr := harness.GetResourcesByName("repositories", repoName)
+			Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get a repository")
 
-				By("Testing that viewer can list and get enrollment requests")
-				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
-				Expect(err).ToNot(HaveOccurred())
-				_, getErr = harness.GetResourcesByName("enrollmentrequests", erName)
-				Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get an enrollment request on quadlet")
+			By("Testing that viewer can list and get enrollment requests")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
+			Expect(err).ToNot(HaveOccurred())
+			_, getErr = harness.GetResourcesByName("enrollmentrequests", erName)
+			Expect(getErr).ToNot(HaveOccurred(), "Viewer should be able to get an enrollment request")
 
-				By("Testing that viewer can list events")
-				err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
-				Expect(err).ToNot(HaveOccurred())
-			} else {
-				By("Testing that viewer cannot list or get repositories on OCP")
-				expectReadOnlyListForbidden(harness, "repositories")
-				out, getErr := harness.GetResourcesByName("repositories", repoName)
-				Expect(getErr).To(HaveOccurred(), "Viewer should not be able to get a repository on OCP")
-				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer repository get")
-
-				By("Testing that viewer cannot list or get enrollment requests on OCP")
-				expectReadOnlyListForbidden(harness, "enrollmentrequests")
-				out, getErr = harness.GetResourcesByName("enrollmentrequests", erName)
-				Expect(getErr).To(HaveOccurred(), "Viewer should not be able to get an enrollment request on OCP")
-				Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer enrollment request get")
-
-				By("Testing that viewer cannot list events on OCP")
-				expectReadOnlyListForbidden(harness, "events")
-			}
+			By("Testing that viewer can list events")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"events"}, true)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that viewer cannot approve an enrollment request")
 			status, approveErr := harness.ApproveEnrollmentRequestWithLabels(erName, nil)

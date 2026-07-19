@@ -132,10 +132,22 @@ dialog.lpt-debug::backdrop{background:rgba(0,0,0,.5)}
   </div>
 </div>
 
+{{if gt .NoOpRunCount 0}}
+<div class="warn-box" style="border-color:var(--blue)">
+  <span class="warn-icon" style="color:var(--blue)">&#9432;</span>
+  <div class="warn-body">
+    <div class="warn-title">{{.NoOpRunCount}} run(s) skipped the e2e suite entirely (no matching file changes) — excluded from timing averages</div>
+    <div class="warn-links">
+      {{range .NoOpRunRefs}}<a href="{{.RunURL}}" target="_blank" style="border-color:var(--blue);color:var(--blue)">{{.Date}}</a>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}
+
 <section id="pipeline">
 <div class="card">
   <h2>Pipeline Timing</h2>
-  <div class="meta">Average wall-clock durations over {{.AnalyzedRuns}} analyzed runs (±1σ shown next to each value)</div>
+  <div class="meta">Average wall-clock durations over {{.PipelineSampleCount}} analyzed runs (±1σ shown next to each value)</div>
   {{if .PipelinePhases}}
   <div class="chart-wrap" style="max-height:420px;overflow-y:auto">{{.PipelineChartSVG}}</div>
   <p class="meta" style="margin-top:4px">* slowest shard across parallel matrix jobs</p>

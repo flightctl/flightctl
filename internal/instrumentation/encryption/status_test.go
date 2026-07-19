@@ -27,7 +27,7 @@ func TestStatus_EncryptionNotInitialized(t *testing.T) {
 }
 
 func TestStatus_CanariesDisabled(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -39,7 +39,7 @@ func TestStatus_CanariesDisabled(t *testing.T) {
 	logger.SetLevel(logrus.FatalLevel)
 
 	// Init WITHOUT canaries
-	err := InitGlobalEncryption(logger)
+	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
 	// Add a second key
@@ -93,7 +93,7 @@ func TestStatus_CanariesDisabled(t *testing.T) {
 }
 
 func TestStatus_CanariesEnabled_BeforeFirstEncryption(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -106,7 +106,7 @@ func TestStatus_CanariesEnabled_BeforeFirstEncryption(t *testing.T) {
 
 	// Init WITH canaries
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -126,7 +126,7 @@ func TestStatus_CanariesEnabled_BeforeFirstEncryption(t *testing.T) {
 }
 
 func TestStatus_CanariesEnabled_AfterFirstEncryption(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -139,7 +139,7 @@ func TestStatus_CanariesEnabled_AfterFirstEncryption(t *testing.T) {
 
 	// Init WITH canaries
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -164,7 +164,7 @@ func TestStatus_CanariesEnabled_AfterFirstEncryption(t *testing.T) {
 }
 
 func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -177,7 +177,7 @@ func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
 
 	// Init WITH canaries
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -235,7 +235,7 @@ func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
 }
 
 func TestStatus_HistoricalCanary_KeyStillConfigured(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -248,7 +248,7 @@ func TestStatus_HistoricalCanary_KeyStillConfigured(t *testing.T) {
 
 	// Init WITH canaries
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -305,7 +305,7 @@ func TestStatus_HistoricalCanary_KeyStillConfigured(t *testing.T) {
 }
 
 func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
-	setupTestKey(t)
+	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -318,7 +318,7 @@ func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
 
 	// Init WITH canaries
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -354,7 +354,6 @@ func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
 }
 
 func TestStatus_DeterministicOrdering(t *testing.T) {
-	setupTestKey(t)
 	// Reset global state
 	globalManager = nil
 	globalCanaryManager = nil
@@ -370,10 +369,10 @@ func TestStatus_DeterministicOrdering(t *testing.T) {
 	key2, _ := crypto.GenerateAES256Key()
 	key3, _ := crypto.GenerateAES256Key()
 
-	t.Setenv("FLIGHTCTL_ENCRYPTION_KEY", key1)
+	encCfg := writeTestKey(t, key1, "default")
 
 	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, store)
+	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
 	require.NoError(t, err)
 
 	// Add more keys in random order

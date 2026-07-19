@@ -3,7 +3,11 @@ set -euo pipefail
 
 CONFIG_FILE="/etc/flightctl/service-config.yaml"
 CERT_DIR="/etc/flightctl/pki"
+ENCRYPTION_DIR="/etc/flightctl/encryption"
 YAML_HELPER="/usr/share/flightctl/yaml_helpers.py"
+
+# Generate encryption key unconditionally (independent of certificate method)
+/usr/share/flightctl/generate-encryption-key.sh --encryption-dir "$ENCRYPTION_DIR"
 
 CERT_METHOD=$(python3 "$YAML_HELPER" extract .global.generateCertificates "$CONFIG_FILE")
 if [ "$CERT_METHOD" = "builtin" ]; then

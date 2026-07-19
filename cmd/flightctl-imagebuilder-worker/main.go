@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	imagebuilderworker "github.com/flightctl/flightctl/internal/imagebuilder_worker"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
@@ -41,6 +42,10 @@ func main() {
 		}
 	}()
 
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -50,10 +55,6 @@ func main() {
 	// ImageBuilder-specific store
 	imageBuilderStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 	defer imageBuilderStore.Close()
-
-	// Main store for accessing Repository and EnrollmentRequest resources
-	mainStore := store.NewStore(db, log.WithField("pkg", "store"))
-	defer mainStore.Close()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
@@ -82,7 +83,7 @@ func main() {
 	}
 	caClient := crypto.NewCAClient(cfg.CA, ca)
 
-	server := imagebuilderworker.New(cfg, log, imageBuilderStore, mainStore, kvStore, provider, caClient)
+	server := imagebuilderworker.New(cfg, log, imageBuilderStore, db, kvStore, provider, caClient)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -26,6 +28,11 @@ type AppConsoleSession struct {
 	SendCh     chan []byte
 	RecvCh     chan []byte
 	ProtocolCh chan string
+	// ErrCh carries a session-level failure reported by the agent (e.g. the requested
+	// application does not exist). The WebSocket handler must close the client
+	// connection with a distinguishable close code/reason instead of relaying this as
+	// console payload data.
+	ErrCh chan string
 }
 
 // AppConsoleDeviceService is the narrow interface AppConsoleSessionManager needs,
@@ -41,10 +48,11 @@ type AppConsoleSessionRegistration interface {
 	CloseSession(session *AppConsoleSession) error
 }
 
-// RenderedVersionPublisher stores and broadcasts rendered version change notifications so that
-// waiting GetRenderedDevice long-polls on the API server see the change immediately.
-type RenderedVersionPublisher interface {
-	StoreAndNotify(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error
+// ConsoleEventNotifier signals the device agent that a console session needs handling.
+// It is deliberately decoupled from rendered-spec versioning.
+type ConsoleEventNotifier interface {
+	NotifyConsole(ctx context.Context, orgId uuid.UUID, name string) error
+	ClearConsoleNotification(ctx context.Context, orgId uuid.UUID, name string) error
 }
 
 // AppConsoleSessionManager manages application console sessions using device annotations.
@@ -54,20 +62,20 @@ type AppConsoleSessionManager struct {
 	svc                 AppConsoleDeviceService
 	log                 logrus.FieldLogger
 	sessionRegistration AppConsoleSessionRegistration
-	publisher           RenderedVersionPublisher
+	notifier            ConsoleEventNotifier
 }
 
 func NewAppConsoleSessionManager(
 	svc AppConsoleDeviceService,
 	log logrus.FieldLogger,
 	reg AppConsoleSessionRegistration,
-	publisher RenderedVersionPublisher,
+	notifier ConsoleEventNotifier,
 ) *AppConsoleSessionManager {
 	return &AppConsoleSessionManager{
 		svc:                 svc,
 		log:                 log,
 		sessionRegistration: reg,
-		publisher:           publisher,
+		notifier:            notifier,
 	}
 }
 
@@ -77,9 +85,8 @@ func NewAppConsoleSessionManager(
 // for cleanup/rollback paths so they are never blocked by device state changes.
 func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, enforceSessionStartGuards bool, updater func(string) (string, error)) domain.Status {
 	var (
-		err                 error
-		newValue            string
-		nextRenderedVersion string
+		err      error
+		newValue string
 	)
 	for i := 0; i != 10; i++ {
 		device, status := m.svc.GetDevice(ctx, orgId, deviceName)
@@ -118,20 +125,10 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 		} else {
 			(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = newValue
 		}
-		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
-		if err != nil {
-			return domain.StatusInternalServerError(err.Error())
-		}
-		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Debugf("updating remote-session annotations for device %s", deviceName)
 		_, err = m.svc.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
-		}
-	}
-	if err == nil {
-		if pubErr := m.publisher.StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion); pubErr != nil {
-			m.log.WithError(pubErr).Errorf("annotation for device %s persisted but rendered-version notification failed", deviceName)
 		}
 	}
 	if err != nil {
@@ -161,6 +158,51 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 			ConsoleType: consoleType,
 		})
 		b, err := json.Marshal(&sessions)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+}
+
+// replaceAppSession returns an updater closure that atomically removes any existing session
+// entry for appName and adds a new one in its place, recording the removed entry's SessionID
+// (if any) via ReplacesSessionID. That field is what lets the agent distinguish an explicit
+// takeover from an unrelated close-then-reopen of the same app: it only cancels a running
+// session when a new entry explicitly names it as replaced, never just because it vanished.
+// If no existing entry is found, this behaves exactly like addAppSession.
+//
+// The updater may run more than once (modifyAnnotations retries on conflict), so
+// replacedSessionID is overwritten on every call; only the value from the call that actually
+// commits reflects the session that was really evicted. If non-nil, it is set to the removed
+// entry's SessionID, or "" if there was none.
+func replaceAppSession(sessionID, appName, consoleType string, replacedSessionID *string) func(string) (string, error) {
+	return func(existing string) (string, error) {
+		var sessions []domain.DeviceRemoteSession
+		if existing != "" {
+			if err := json.Unmarshal([]byte(existing), &sessions); err != nil {
+				return "", err
+			}
+		}
+		var replacesSessionID string
+		filtered := sessions[:0]
+		for _, s := range sessions {
+			if s.AppName == appName {
+				replacesSessionID = s.SessionID
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		if replacedSessionID != nil {
+			*replacedSessionID = replacesSessionID
+		}
+		filtered = append(filtered, domain.DeviceRemoteSession{
+			SessionID:         sessionID,
+			AppName:           appName,
+			ConsoleType:       consoleType,
+			ReplacesSessionID: replacesSessionID,
+		})
+		b, err := json.Marshal(&filtered)
 		if err != nil {
 			return "", err
 		}
@@ -211,15 +253,18 @@ func (e *duplicateAppSessionError) Error() string {
 }
 
 // StartSession validates inputs, guards against duplicates via annotation, and registers the session.
-func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, appName, consoleType string) (*AppConsoleSession, domain.Status) {
+// When force is true and a session already exists for appName, that session's annotation entry
+// is atomically replaced (see replaceAppSession) instead of returning a 409 conflict; the agent
+// is responsible for noticing the takeover and tearing down the replaced session itself.
+func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, appName, consoleType string, force bool) (*AppConsoleSession, domain.Status) {
 	if appName == "" {
 		return nil, domain.StatusBadRequest("appName is required")
 	}
 	if consoleType == "" {
 		return nil, domain.StatusBadRequest("consoleType is required")
 	}
-	if consoleType != "serial" {
-		return nil, domain.StatusBadRequest("invalid consoleType: must be \"serial\"")
+	if consoleType != string(api.ConsoleTypeSerial) && consoleType != string(api.ConsoleTypeVnc) {
+		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid consoleType: must be %q or %q", api.ConsoleTypeSerial, api.ConsoleTypeVnc))
 	}
 
 	device, status := m.svc.GetDevice(ctx, orgId, deviceName)
@@ -238,12 +283,15 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 	}
 
 	// Check for duplicate session for this appName in the current annotation value (fast path).
-	if val, ok := annotations[domain.DeviceAnnotationRemoteSession]; ok && val != "" {
-		var sessions []domain.DeviceRemoteSession
-		if err := json.Unmarshal([]byte(val), &sessions); err == nil {
-			for _, s := range sessions {
-				if s.AppName == appName {
-					return nil, domain.StatusConflict("console session already active for application " + appName)
+	// Skipped when force is set: the atomic updater below replaces any existing entry instead.
+	if !force {
+		if val, ok := annotations[domain.DeviceAnnotationRemoteSession]; ok && val != "" {
+			var sessions []domain.DeviceRemoteSession
+			if err := json.Unmarshal([]byte(val), &sessions); err == nil {
+				for _, s := range sessions {
+					if s.AppName == appName {
+						return nil, domain.StatusConflict("console session already active for application " + appName)
+					}
 				}
 			}
 		}
@@ -257,29 +305,46 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		SendCh:     make(chan []byte, ChannelSize),
 		RecvCh:     make(chan []byte, ChannelSize),
 		ProtocolCh: make(chan string, 1),
+		ErrCh:      make(chan string, 1),
 	}
 
-	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, addAppSession(session.UUID, appName, consoleType)); status.Code != http.StatusOK {
+	var replacedSessionID string
+	updater := addAppSession(session.UUID, appName, consoleType)
+	if force {
+		updater = replaceAppSession(session.UUID, appName, consoleType, &replacedSessionID)
+	}
+	if status := m.modifyAnnotations(ctx, orgId, deviceName, true, updater); status.Code != http.StatusOK {
 		// Attempt rollback in case the DB write succeeded but the Redis publish failed,
 		// which would leave a stale annotation entry that permanently blocks future sessions.
-		// Use a background context so a client disconnect does not cancel the rollback.
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from ctx via WithoutCancel (not context.Background()) so the rollback keeps the
+		// request's tracing span and other values but isn't cancelled by a client disconnect.
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer rollbackCancel()
 		if annStatus := m.modifyAnnotations(rollbackCtx, orgId, deviceName, false, removeAppSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to roll back annotation for device %s after failed session start: %v", deviceName, annStatus)
 		}
 		return nil, status
 	}
+	if force && replacedSessionID != "" {
+		m.log.Infof("app console session %s for device %s app %s forcibly replaced active session %s", session.UUID, deviceName, appName, replacedSessionID)
+	}
 
 	if err := m.sessionRegistration.StartSession(session); err != nil {
 		m.log.Errorf("Failed to start app console session %s for device %s app %s: %v, rolling back annotation", session.UUID, deviceName, appName, err)
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive from ctx via WithoutCancel (not context.Background()) so the rollback keeps the
+		// request's tracing span and other values but isn't cancelled by a client disconnect.
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer rollbackCancel()
 		if annStatus := m.modifyAnnotations(rollbackCtx, orgId, deviceName, false, removeAppSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annStatus)
 		}
 		return nil, domain.StatusInternalServerError(err.Error())
 	}
+
+	if err := m.notifier.NotifyConsole(ctx, orgId, deviceName); err != nil {
+		m.log.Warnf("StartSession: failed to notify device %s: %v", deviceName, err)
+	}
+
 	return session, domain.StatusOK()
 }
 

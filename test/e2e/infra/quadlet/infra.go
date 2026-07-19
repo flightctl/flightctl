@@ -48,6 +48,7 @@ var ServiceRegistry = map[infra.ServiceName]ServiceInfo{
 	infra.ServiceImageBuilderAPI:    {ContainerName: "flightctl-imagebuilder-api", SystemdUnit: "flightctl-imagebuilder-api.service", Port: 8445},
 	infra.ServiceImageBuilderWorker: {ContainerName: "flightctl-imagebuilder-worker", SystemdUnit: "flightctl-imagebuilder-worker.service", Port: 8080},
 	infra.ServiceAlertExporter:      {ContainerName: "flightctl-alert-exporter", SystemdUnit: "flightctl-alert-exporter.service", Port: 0},
+	infra.ServicePrometheus:         {ContainerName: "flightctl-prometheus", SystemdUnit: "flightctl-prometheus.service", Port: 9090},
 }
 
 // InfraProvider implements infra.InfraProvider for Quadlet environments.
@@ -634,6 +635,19 @@ func (p *InfraProvider) GetInternalNamespace() string {
 // GetExternalNamespace returns empty for Quadlet (no K8s release namespace).
 func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
+}
+
+// ServiceExists reports whether the backing Quadlet service is active.
+func (p *InfraProvider) ServiceExists(ctx context.Context, service infra.ServiceName) (bool, error) {
+	info := GetServiceInfo(service)
+	if info.SystemdUnit == "" {
+		return false, fmt.Errorf("unknown service %q", service)
+	}
+	out, err := p.runCommandWithOptionalStdinContext(ctx, nil, "systemctl", "is-active", info.SystemdUnit)
+	if err != nil {
+		return false, nil
+	}
+	return strings.TrimSpace(out) == "active", nil
 }
 
 // BuiltinDatabaseWorkloadAvailable reports whether service-config uses the built-in DB container.

@@ -23,6 +23,11 @@ type DeviceRemoteSession struct {
 	SessionID   string `json:"sessionID"`
 	AppName     string `json:"appName"`
 	ConsoleType string `json:"consoleType"`
+	// ReplacesSessionID is set only when this session was created with --force to take
+	// over from a still-active session for the same application. It lets the agent tell
+	// an explicit takeover apart from an unrelated close-then-reopen of the same app, so
+	// it knows to cancel exactly that session and report the reason to its client.
+	ReplacesSessionID string `json:"replacesSessionID,omitempty"`
 }
 
 type DeviceConsoleSessionMetadata struct {

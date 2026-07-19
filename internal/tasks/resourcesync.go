@@ -13,7 +13,11 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	"github.com/flightctl/flightctl/internal/service/common"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-billy/v5"
@@ -27,7 +31,10 @@ const ResourceSyncTaskName = "resourcesync"
 
 type ResourceSync struct {
 	log                   logrus.FieldLogger
-	serviceHandler        service.Service
+	repositorySvc         repositoryservice.Service
+	fleetSvc              fleetservice.Service
+	resourcesyncSvc       resourcesyncservice.Service
+	catalogSvc            catalogservice.Service
 	cfg                   *config.Config
 	ignoreResourceUpdates []string
 }
@@ -37,10 +44,13 @@ type GenericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{domain.FleetKind, domain.CatalogKind, domain.CatalogItemKind}
 
-func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, cfg *config.Config, ignoreResourceUpdates []string) *ResourceSync {
+func NewResourceSync(repositorySvc repositoryservice.Service, fleetSvc fleetservice.Service, resourcesyncSvc resourcesyncservice.Service, catalogSvc catalogservice.Service, log logrus.FieldLogger, cfg *config.Config, ignoreResourceUpdates []string) *ResourceSync {
 	return &ResourceSync{
 		log:                   log,
-		serviceHandler:        serviceHandler,
+		repositorySvc:         repositorySvc,
+		fleetSvc:              fleetSvc,
+		resourcesyncSvc:       resourcesyncSvc,
+		catalogSvc:            catalogSvc,
 		cfg:                   cfg,
 		ignoreResourceUpdates: ignoreResourceUpdates,
 	}
@@ -55,7 +65,7 @@ func (r *ResourceSync) Poll(ctx context.Context, orgId uuid.UUID) {
 	continueToken := (*string)(nil)
 
 	for {
-		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, orgId, domain.ListResourceSyncsParams{
+		resourcesyncs, status := r.resourcesyncSvc.ListResourceSyncs(ctx, orgId, domain.ListResourceSyncsParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -217,8 +227,8 @@ func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId
 	}
 
 	repoName := rs.Spec.Repository
-	repo, status := r.serviceHandler.GetRepository(ctx, orgId, repoName)
-	err := service.ApiStatusToErr(status)
+	repo, status := r.repositorySvc.GetRepository(ctx, orgId, repoName)
+	err := common.ApiStatusToErr(status)
 
 	// Ensure Status and Conditions are initialized
 	if rs.Status == nil {
@@ -279,7 +289,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 	for {
 		var listRes *domain.FleetList
 		var status domain.Status
-		listRes, status = r.serviceHandler.ListFleets(ctx, orgId, listParams)
+		listRes, status = r.fleetSvc.ListFleets(ctx, orgId, listParams)
 		if status.Code != http.StatusOK {
 			listErr := fmt.Errorf("resource %s: failed to list owned fleets. error: %s", resourceName, status.Message)
 			log.Error(listErr)
@@ -305,12 +315,12 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 		// Set ResourceSyncRequestCtxKey to allow resource sync to delete resources it owns
 		deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 		for _, fleetToRemove := range fleetsToRemove {
-			status := r.serviceHandler.DeleteFleet(deleteCtx, orgId, fleetToRemove)
+			status := r.fleetSvc.DeleteFleet(deleteCtx, orgId, fleetToRemove)
 			if status.Code != http.StatusOK {
 				err := fmt.Errorf("resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
 				log.Error(err)
 				domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
-				return service.ApiStatusToErr(status)
+				return common.ApiStatusToErr(status)
 			}
 		}
 	}
@@ -334,21 +344,21 @@ func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UU
 		// Set ResourceSyncRequestCtxKey to allow resource sync to update resources it owns.
 		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
 		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedFleet, status := r.serviceHandler.ReplaceFleet(externalCtx, orgId, *resource.Metadata.Name, *resource)
+		updatedFleet, status := r.fleetSvc.ReplaceFleet(externalCtx, orgId, *resource.Metadata.Name, *resource)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more fleets are managed by a different resource"))
 			} else {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
 
 		// Update the owner of the fleet if not already set
 		if updatedFleet != nil && util.DefaultIfNil(updatedFleet.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
 			updatedFleet.Metadata.Owner = owner
-			_, status := r.serviceHandler.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *updatedFleet)
+			_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *updatedFleet)
 			if status.Code != http.StatusOK {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
 	}
@@ -577,7 +587,7 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap) ([]*domain.Fle
 }
 
 func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) {
-	_, status := r.serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
+	_, status := r.resourcesyncSvc.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 	if status.Code != http.StatusOK {
 		r.log.Errorf("Failed to update resourcesync status for %s: %s", *rs.Metadata.Name, status.Message)
 	}
@@ -603,7 +613,7 @@ func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, orgId uui
 	for _, fleet := range fleets {
 		fleetName := *fleet.Metadata.Name
 		// Check if a fleet with this name already exists
-		existingFleet, status := r.serviceHandler.GetFleet(ctx, orgId, fleetName, domain.GetFleetParams{})
+		existingFleet, status := r.fleetSvc.GetFleet(ctx, orgId, fleetName, domain.GetFleetParams{})
 		if status.Code == http.StatusOK {
 			// Fleet exists - check if it's owned by a different ResourceSync
 			if existingFleet.Metadata.Owner != nil && *existingFleet.Metadata.Owner != owner {
@@ -730,7 +740,7 @@ func (r *ResourceSync) SyncCatalogs(ctx context.Context, log logrus.FieldLogger,
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *owner)),
 	}
 	for {
-		listRes, status := r.serviceHandler.ListCatalogs(ctx, orgId, listParams)
+		listRes, status := r.catalogSvc.ListCatalogs(ctx, orgId, listParams)
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to list owned catalogs: %s", resourceName, status.Message)
 			log.Error(err)
@@ -768,21 +778,21 @@ func (r *ResourceSync) createOrUpdateCatalogs(ctx context.Context, orgId uuid.UU
 	for _, resource := range resources {
 		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
 		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedCatalog, status := r.serviceHandler.ReplaceCatalog(externalCtx, orgId, *resource.Metadata.Name, *resource)
+		updatedCatalog, status := r.catalogSvc.ReplaceCatalog(externalCtx, orgId, *resource.Metadata.Name, *resource)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalogs are managed by a different resource"))
 			} else {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
 
 		// Set owner if not already set
 		if updatedCatalog != nil && util.DefaultIfNil(updatedCatalog.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
 			updatedCatalog.Metadata.Owner = owner
-			_, status := r.serviceHandler.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, *updatedCatalog)
+			_, status := r.catalogSvc.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, *updatedCatalog)
 			if status.Code != http.StatusOK {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
 	}
@@ -811,7 +821,7 @@ func (r *ResourceSync) validateCatalogNameConflicts(ctx context.Context, orgId u
 	var conflicts []string
 	for _, catalog := range catalogs {
 		name := *catalog.Metadata.Name
-		existing, status := r.serviceHandler.GetCatalog(ctx, orgId, name)
+		existing, status := r.catalogSvc.GetCatalog(ctx, orgId, name)
 		if status.Code == http.StatusOK {
 			if existing.Metadata.Owner != nil && *existing.Metadata.Owner != owner {
 				conflicts = append(conflicts, name)
@@ -857,7 +867,7 @@ func (r *ResourceSync) SyncCatalogItems(ctx context.Context, log logrus.FieldLog
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *owner)),
 	}
 	for {
-		listRes, status := r.serviceHandler.ListAllCatalogItems(ctx, orgId, listParams)
+		listRes, status := r.catalogSvc.ListAllCatalogItems(ctx, orgId, listParams)
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to list owned catalog items: %s", resourceName, status.Message)
 			log.Error(err)
@@ -895,12 +905,12 @@ func (r *ResourceSync) createOrUpdateCatalogItems(ctx context.Context, orgId uui
 	for _, item := range items {
 		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
 		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedItem, status := r.serviceHandler.ReplaceCatalogItem(externalCtx, orgId, item.Metadata.Catalog, *item.Metadata.Name, *item)
+		updatedItem, status := r.catalogSvc.ReplaceCatalogItem(externalCtx, orgId, item.Metadata.Catalog, *item.Metadata.Name, *item)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalog items are managed by a different resource"))
 			} else {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 			continue
 		}
@@ -908,9 +918,9 @@ func (r *ResourceSync) createOrUpdateCatalogItems(ctx context.Context, orgId uui
 		// Set owner if not already set
 		if updatedItem != nil && util.DefaultIfNil(updatedItem.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
 			updatedItem.Metadata.Owner = owner
-			_, status := r.serviceHandler.ReplaceCatalogItem(ctx, orgId, updatedItem.Metadata.Catalog, *updatedItem.Metadata.Name, *updatedItem)
+			_, status := r.catalogSvc.ReplaceCatalogItem(ctx, orgId, updatedItem.Metadata.Catalog, *updatedItem.Metadata.Name, *updatedItem)
 			if status.Code != http.StatusOK {
-				errs = append(errs, service.ApiStatusToErr(status))
+				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
 	}
@@ -925,12 +935,12 @@ func (r *ResourceSync) deleteStaleCatalogs(ctx context.Context, log logrus.Field
 	log.Infof("Resource %s: found #%d catalogs to remove. removing", resourceName, len(toRemove))
 	deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 	for _, catalogName := range toRemove {
-		status := r.serviceHandler.DeleteCatalog(deleteCtx, orgId, catalogName)
+		status := r.catalogSvc.DeleteCatalog(deleteCtx, orgId, catalogName)
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to remove old catalog %s: %s", resourceName, catalogName, status.Message)
 			log.Error(err)
 			domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
-			return service.ApiStatusToErr(status)
+			return common.ApiStatusToErr(status)
 		}
 	}
 	return nil
@@ -948,12 +958,12 @@ func (r *ResourceSync) deleteStaleCatalogItems(ctx context.Context, log logrus.F
 		if len(parts) != 2 {
 			continue
 		}
-		status := r.serviceHandler.DeleteCatalogItem(deleteCtx, orgId, parts[0], parts[1])
+		status := r.catalogSvc.DeleteCatalogItem(deleteCtx, orgId, parts[0], parts[1])
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to remove old catalog item %s: %s", resourceName, key, status.Message)
 			log.Error(err)
 			domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
-			return service.ApiStatusToErr(status)
+			return common.ApiStatusToErr(status)
 		}
 	}
 	return nil
@@ -988,7 +998,7 @@ func (r *ResourceSync) validateCatalogItemConflicts(ctx context.Context, orgId u
 
 	for _, item := range items {
 		// Check item-level ownership conflict
-		existing, status := r.serviceHandler.GetCatalogItem(ctx, orgId, item.Metadata.Catalog, *item.Metadata.Name)
+		existing, status := r.catalogSvc.GetCatalogItem(ctx, orgId, item.Metadata.Catalog, *item.Metadata.Name)
 		if status.Code == http.StatusOK {
 			if existing.Metadata.Owner != nil && *existing.Metadata.Owner != owner {
 				conflicts = append(conflicts, fmt.Sprintf("%s/%s", item.Metadata.Catalog, *item.Metadata.Name))
@@ -1001,7 +1011,7 @@ func (r *ResourceSync) validateCatalogItemConflicts(ctx context.Context, orgId u
 		catalogName := item.Metadata.Catalog
 		if !catalogOwnerChecked[catalogName] {
 			catalogOwnerChecked[catalogName] = true
-			catalog, catStatus := r.serviceHandler.GetCatalog(ctx, orgId, catalogName)
+			catalog, catStatus := r.catalogSvc.GetCatalog(ctx, orgId, catalogName)
 			if catStatus.Code == http.StatusOK {
 				catalogOwners[catalogName] = catalog.Metadata.Owner
 			} else if catStatus.Code != http.StatusNotFound {

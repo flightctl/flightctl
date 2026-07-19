@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -15,10 +14,9 @@ import (
 
 func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
+	resourceSync := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	// Test with nil ResourceSync
 	testOrgId := uuid.New()
@@ -31,10 +29,9 @@ func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.
 
 func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
+	resourceSync := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	// Create valid resources
 	resources := []GenericResourceMap{
@@ -71,10 +68,9 @@ func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 
 func TestResourceSync_ParseFleetsFromResources_SkipsNonFleetKinds(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
+	resourceSync := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	// Create resources with non-Fleet kinds -- these should be silently skipped
 	resources := []GenericResourceMap{
@@ -342,11 +338,10 @@ func TestRemoveIgnoredFields_WithLeadingSlash(t *testing.T) {
 
 func TestResourceSync_WithIgnoredFields(t *testing.T) {
 	// Test ResourceSync with ignored fields configuration
-	var serviceHandler service.Service
 	log := logrus.New()
 
 	ignorePaths := []string{"metadata/labels/environment", "status"}
-	resourceSync := NewResourceSync(serviceHandler, log, nil, ignorePaths)
+	resourceSync := NewResourceSync(nil, nil, nil, nil, log, nil, ignorePaths)
 
 	// Create resources with fields that should be ignored
 	resources := []GenericResourceMap{
@@ -414,9 +409,8 @@ func TestFilterByKind(t *testing.T) {
 }
 
 func TestParseCatalogs_Valid(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -436,9 +430,8 @@ func TestParseCatalogs_Valid(t *testing.T) {
 }
 
 func TestParseCatalogs_DuplicateNames(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -461,9 +454,8 @@ func TestParseCatalogs_DuplicateNames(t *testing.T) {
 }
 
 func TestParseCatalogs_SkipsNonCatalogKinds(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -478,9 +470,8 @@ func TestParseCatalogs_SkipsNonCatalogKinds(t *testing.T) {
 }
 
 func TestParseCatalogItems_Valid(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -510,9 +501,8 @@ func TestParseCatalogItems_Valid(t *testing.T) {
 }
 
 func TestParseCatalogItems_MissingCatalog(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -532,9 +522,8 @@ func TestParseCatalogItems_MissingCatalog(t *testing.T) {
 }
 
 func TestParseCatalogItems_DuplicateKey(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{
@@ -557,9 +546,8 @@ func TestParseCatalogItems_DuplicateKey(t *testing.T) {
 }
 
 func TestParseCatalogItems_SameNameDifferentCatalog(t *testing.T) {
-	var serviceHandler service.Service
 	log := logrus.New()
-	rs := NewResourceSync(serviceHandler, log, nil, nil)
+	rs := NewResourceSync(nil, nil, nil, nil, log, nil, nil)
 
 	resources := []GenericResourceMap{
 		{

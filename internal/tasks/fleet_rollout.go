@@ -13,7 +13,11 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/rollout"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -66,8 +70,8 @@ func fleetRolloutIterationContext(parent context.Context, timeout time.Duration)
 //
 // This design ensures the task can be run repeatedly without side effects.
 
-func fleetRollout(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
-	logic := NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+func fleetRollout(ctx context.Context, orgId uuid.UUID, event domain.Event, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, log logrus.FieldLogger) error {
+	logic := NewFleetRolloutsLogic(log, fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, orgId, event)
 	switch event.InvolvedObject.Kind {
 	case domain.FleetKind:
 		err := logic.RolloutFleet(ctx)
@@ -87,21 +91,27 @@ func fleetRollout(ctx context.Context, orgId uuid.UUID, event domain.Event, serv
 }
 
 type FleetRolloutsLogic struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	orgId          uuid.UUID
-	event          domain.Event
-	itemsPerPage   int
-	owner          string
+	log                logrus.FieldLogger
+	fleetSvc           fleetservice.Service
+	templateversionSvc templateversionservice.Service
+	deviceSvc          deviceservice.Service
+	dependencyrefSvc   dependencyrefservice.Service
+	orgId              uuid.UUID
+	event              domain.Event
+	itemsPerPage       int
+	owner              string
 }
 
-func NewFleetRolloutsLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event domain.Event) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, orgId uuid.UUID, event domain.Event) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
-		log:            log,
-		serviceHandler: serviceHandler,
-		orgId:          orgId,
-		event:          event,
-		itemsPerPage:   ItemsPerPage,
+		log:                log,
+		fleetSvc:           fleetSvc,
+		templateversionSvc: templateversionSvc,
+		deviceSvc:          deviceSvc,
+		dependencyrefSvc:   dependencyrefSvc,
+		orgId:              orgId,
+		event:              event,
+		itemsPerPage:       ItemsPerPage,
 	}
 }
 
@@ -110,13 +120,13 @@ func (f *FleetRolloutsLogic) SetItemsPerPage(items int) {
 }
 
 func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, f.event.InvolvedObject.Name, domain.GetFleetParams{})
+	fleet, status := f.fleetSvc.GetFleet(ctx, f.orgId, f.event.InvolvedObject.Name, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet %s/%s: %s", f.orgId, f.event.InvolvedObject.Name, status.Message)
 	}
 	f.log.Infof("Rolling out fleet %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, f.orgId, f.event.InvolvedObject.Name)
+	templateVersion, status := f.templateversionSvc.GetLatestTemplateVersion(ctx, f.orgId, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get templateVersion: %s", status.Message)
 	}
@@ -162,7 +172,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	// Transactionally replace all device-level dependency refs for this fleet
 	// so readers never see a partially empty set.
 	fleetName := f.event.InvolvedObject.Name
-	if st := f.serviceHandler.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
+	if st := f.dependencyrefSvc.ReplaceDeviceDependencyRefsByFleet(ctx, f.orgId, fleetName, allDeviceRefs); st.Code != http.StatusOK {
 		f.log.Errorf("failed to replace device dependency refs for fleet %s: %s", fleetName, st.Message)
 	}
 
@@ -186,7 +196,7 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 	iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
 	defer cancel()
 
-	devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)
+	devices, status := f.deviceSvc.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)
 	if status.Code != http.StatusOK {
 		// TODO: Retry when we have a mechanism that allows it
 		return 0, nil, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
@@ -209,7 +219,7 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	f.log.Infof("Rolling out device %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	device, status := f.serviceHandler.GetDevice(ctx, f.orgId, f.event.InvolvedObject.Name)
+	device, status := f.deviceSvc.GetDevice(ctx, f.orgId, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get device: %s", status.Message)
 	}
@@ -232,12 +242,12 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	}
 	f.owner = *device.Metadata.Owner
 
-	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, f.orgId, ownerName)
+	templateVersion, status := f.templateversionSvc.GetLatestTemplateVersion(ctx, f.orgId, ownerName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get templateVersion: %s", status.Message)
 	}
 
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, ownerName, domain.GetFleetParams{})
+	fleet, status := f.fleetSvc.GetFleet(ctx, f.orgId, ownerName, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet: %s", status.Message)
 	}
@@ -261,7 +271,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return err
 	}
 	deviceName := f.event.InvolvedObject.Name
-	if st := f.serviceHandler.ReplaceFleetScopedDeviceDependencyRefs(ctx, f.orgId, deviceName, refs); st.Code != http.StatusOK {
+	if st := f.dependencyrefSvc.ReplaceFleetScopedDeviceDependencyRefs(ctx, f.orgId, deviceName, refs); st.Code != http.StatusOK {
 		f.log.Errorf("failed to replace dependency refs for device %s: %s", deviceName, st.Message)
 	}
 	return nil
@@ -282,8 +292,8 @@ func (f FleetRolloutsLogic) syncFleetApplicationLifecycleDefault(ctx context.Con
 	}
 
 	deviceName := lo.FromPtr(device.Metadata.Name)
-	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: fleetRaw}, nil)
-	return service.ApiStatusToErr(status)
+	status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, deviceName, map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: fleetRaw}, nil)
+	return common.ApiStatusToErr(status)
 }
 
 func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) ([]model.DependencyRef, error) {
@@ -319,9 +329,9 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		annotations := map[string]string{
 			domain.DeviceAnnotationLastRolloutError: errors.Join(errs...).Error(),
 		}
-		status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, nil)
+		status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, nil)
 		if status.Code != http.StatusOK {
-			errs = append(errs, service.ApiStatusToErr(status))
+			errs = append(errs, common.ApiStatusToErr(status))
 		}
 		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
@@ -354,7 +364,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	annotations := map[string]string{
 		domain.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
-	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
+	status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
 	if status.Code != http.StatusOK {
 		return nil, fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
 	}
@@ -1062,22 +1072,22 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 		}
 		device.Spec = newDeviceSpec
 		newCtx := context.WithValue(ctx, consts.DelayDeviceRenderCtxKey, delayDeviceRender)
-		_, status = f.serviceHandler.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil)
+		_, status = f.deviceSvc.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil)
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {
-				device, status = f.serviceHandler.GetDevice(ctx, f.orgId, *device.Metadata.Name)
+				device, status = f.deviceSvc.GetDevice(ctx, f.orgId, *device.Metadata.Name)
 				if status.Code != http.StatusOK {
 					return fmt.Errorf("the device changed before we could update it, and we failed to fetch it again: %s", status.Message)
 				}
 			} else {
-				return service.ApiStatusToErr(status)
+				return common.ApiStatusToErr(status)
 			}
 		} else {
 			break
 		}
 	}
 
-	return service.ApiStatusToErr(status)
+	return common.ApiStatusToErr(status)
 }
 
 func ReplaceParametersInString(s string, device *domain.Device) (string, error) {

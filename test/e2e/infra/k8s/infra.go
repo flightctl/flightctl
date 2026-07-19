@@ -17,6 +17,7 @@ import (
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -25,6 +26,10 @@ import (
 const (
 	envInternalNS = "FLIGHTCTL_INTERNAL_NS" // override for internal namespace (worker, redis)
 	envExternalNS = "FLIGHTCTL_EXTERNAL_NS" // override for external namespace (API, DB, UI, alertmanager, telemetry-gateway, etc.)
+
+	// COO MonitoringStack Prometheus on OCP (not a flightctl Helm service).
+	monitoringStackPrometheusService = "flightctl-monitoring-stack-prometheus"
+	monitoringStackPrometheusPort    = 9090
 )
 
 // Only two namespace types: internal (worker, redis) and external (everything else).
@@ -171,6 +176,21 @@ func (p *InfraProvider) GetServiceConfig(service infra.ServiceName) (string, err
 
 // getServiceInfo returns service metadata and resolved namespace.
 func (p *InfraProvider) getServiceInfo(service infra.ServiceName) (k8sServiceInfo, string, error) {
+	if service == infra.ServicePrometheus {
+		switch p.envType {
+		case infra.EnvironmentOCP:
+			info := k8sServiceInfo{
+				ServiceName: monitoringStackPrometheusService,
+				Port:        monitoringStackPrometheusPort,
+				NSType:      nsExternal,
+			}
+			ns, err := p.resolveNamespace(info.NSType)
+			return info, ns, err
+		default:
+			return k8sServiceInfo{}, "", fmt.Errorf("prometheus not configured for %s deployment", p.envType)
+		}
+	}
+
 	info, ok := k8sServiceRegistry[service]
 	if !ok {
 		info = k8sServiceInfo{
@@ -514,6 +534,25 @@ func (p *InfraProvider) GetInternalNamespace() string {
 // GetExternalNamespace returns the namespace where external services (API, UI, etc.) run (release namespace).
 func (p *InfraProvider) GetExternalNamespace() string {
 	return p.externalNamespace
+}
+
+// ServiceExists reports whether the backing Kubernetes Service for a logical service is present.
+func (p *InfraProvider) ServiceExists(ctx context.Context, service infra.ServiceName) (bool, error) {
+	info, ns, err := p.getServiceInfo(service)
+	if err != nil {
+		if service == infra.ServicePrometheus {
+			return false, nil
+		}
+		return false, err
+	}
+	_, err = p.client.CoreV1().Services(ns).Get(ctx, info.ServiceName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // BuiltinDatabaseWorkloadAvailable reports whether a flightctl-db pod exists in the internal namespace.

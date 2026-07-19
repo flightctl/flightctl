@@ -29,10 +29,17 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
+	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -192,14 +199,21 @@ func main() {
 		}
 	}()
 
+	if err := encryption.InitGlobalEncryption(logger, cfg); err != nil {
+		logger.Fatalf("initializing encryption: %v", err)
+	}
+
 	// Initialize data store
 	db, err := store.InitDB(cfg, logger)
 	if err != nil {
 		logger.Fatalf("Initializing data store: %v", err)
 	}
 
-	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
-	defer dataStore.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	// Handle graceful shutdown
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
@@ -209,12 +223,17 @@ func main() {
 	orgCache.Start()
 	defer orgCache.Stop()
 
+	catalogStore := catalogstore.NewCatalogStore(db, logger.WithField("pkg", "catalog-store"))
+	organizationStore := organizationstore.NewOrganizationStore(db)
+	authProviderStore := authproviderstore.NewAuthProviderStore(db, logger.WithField("pkg", "authprovider-store"))
+	eventStore := eventstore.NewEventStore(db, logger.WithField("pkg", "event-store"))
+	eventsSvc := events.NewServiceHandler(eventStore, nil, logger)
+
 	// Create service handler for auth provider access
-	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil, false)
-	serviceHandler := service.WrapWithTracing(baseServiceHandler)
+	authProviderSvc := authproviderservice.WrapWithTracing(authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, logger))
 
 	// Initialize auth system
-	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
+	authN, err := auth.InitMultiAuth(cfg, logger, authProviderSvc)
 	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
@@ -239,8 +258,8 @@ func main() {
 	}
 
 	// Create identity mapper for mapping identities to database objects
-	orgProvisioner := service.NewOrgProvisioner(dataStore, logger)
-	identityMapper := service.NewIdentityMapper(dataStore, orgProvisioner, logger)
+	orgProvisioner := service.NewOrgProvisioner(catalogStore, logger)
+	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, logger)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)

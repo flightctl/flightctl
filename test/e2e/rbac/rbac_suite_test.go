@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -24,9 +23,11 @@ var (
 )
 
 var _ = BeforeSuite(func() {
-	auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
+	auxFuture.Wait()
 
 	// Check if ACM is installed before running any tests
 	isAcmInstalled, _, err := util.IsAcmInstalled()
@@ -40,20 +41,12 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = BeforeEach(func() {
-	flightCtlNs = os.Getenv("FLIGHTCTL_NS")
-	if flightCtlNs == "" {
-		Skip("FLIGHTCTL_NS environment variable should be set")
-	}
-
 	// Get the harness and context directly - no package-level variables
 	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	_, err := login.LoginToAPIWithToken(harness)
-	Expect(err).ToNot(HaveOccurred())
-
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
@@ -61,8 +54,12 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	flightCtlNs = os.Getenv("FLIGHTCTL_NS")
+	if flightCtlNs == "" {
+		Skip("FLIGHTCTL_NS environment variable should be set")
+	}
+
+	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

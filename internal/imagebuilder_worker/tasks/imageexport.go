@@ -961,7 +961,7 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 	}
 
 	// Get repository and extract OCI spec (common for both source types)
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, repoName)
+	repo, err := c.repositoryStore.Get(ctx, orgID, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get repository %q: %w", repoName, err)
 	}
@@ -1084,7 +1084,7 @@ func (c *Consumer) pushArtifact(
 	}
 
 	// Get destination repository for authentication and to get registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
+	repo, err := c.repositoryStore.Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
 	if err != nil {
 		return fmt.Errorf("failed to load destination repository: %w", err)
 	}

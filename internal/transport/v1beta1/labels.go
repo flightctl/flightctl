@@ -10,7 +10,7 @@ import (
 // (GET /api/v1/labels)
 func (h *TransportHandler) ListLabels(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListLabelsParams) {
 	domainParams := h.converter.Common().ListLabelsParamsToDomain(params)
-	body, status := h.serviceHandler.ListLabels(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	body, status := h.device.ListLabels(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.Common().LabelListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -15,16 +16,16 @@ import (
 type RepositoryCollector struct {
 	repositoriesGauge *prometheus.GaugeVec
 
-	store          store.Store
-	log            logrus.FieldLogger
-	mu             sync.RWMutex
-	ctx            context.Context
-	tickerInterval time.Duration
-	cfg            *config.Config
+	repositoryStore repositorystore.Store
+	log             logrus.FieldLogger
+	mu              sync.RWMutex
+	ctx             context.Context
+	tickerInterval  time.Duration
+	cfg             *config.Config
 }
 
 // NewRepositoryCollector creates a RepositoryCollector.
-func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *RepositoryCollector {
+func NewRepositoryCollector(ctx context.Context, repositoryStore repositorystore.Store, log logrus.FieldLogger, cfg *config.Config) *RepositoryCollector {
 	interval := cfg.Metrics.RepositoryCollector.TickerInterval
 
 	collector := &RepositoryCollector{
@@ -32,11 +33,11 @@ func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.F
 			Name: "flightctl_repositories_total",
 			Help: "Total number of repositories managed",
 		}, []string{"organization_id"}),
-		store:          store,
-		log:            log,
-		ctx:            ctx,
-		tickerInterval: time.Duration(interval),
-		cfg:            cfg,
+		repositoryStore: repositoryStore,
+		log:             log,
+		ctx:             ctx,
+		tickerInterval:  time.Duration(interval),
+		cfg:             cfg,
 	}
 
 	collector.log.Info("Starting repository metrics collector with interval", "interval", interval)
@@ -81,7 +82,7 @@ func (c *RepositoryCollector) updateRepositoryMetrics() {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	// Get repository counts grouped by org
-	repoCounts, err := c.store.Repository().CountByOrg(ctx, nil)
+	repoCounts, err := c.repositoryStore.CountByOrg(ctx, nil)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get repository counts for metrics")
 		return

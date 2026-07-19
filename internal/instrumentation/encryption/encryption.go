@@ -2,11 +2,40 @@ package encryption
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/stoewer/go-strcase"
 )
+
+// Operation names
+const (
+	OpEncrypt = "encrypt"
+	OpDecrypt = "decrypt"
+)
+
+// Sentinel errors for categorization
+var (
+	ErrNoActiveStrategy = errors.New("no active encryption strategy set")
+	ErrStrategyNotFound = errors.New("strategy not found")
+	ErrKeyNotFound      = errors.New("key not found")
+	ErrEncryptionFailed = errors.New("encryption failed")
+	ErrDecryptionFailed = errors.New("decryption failed")
+	ErrParseFailed      = errors.New("parse failed")
+	ErrInvalidFormat    = errors.New("invalid format")
+	ErrInvalidKey       = errors.New("invalid key")
+	ErrCanaryMismatch   = errors.New("canary mismatch")
+)
+
+// MetricsRecorder is an interface for recording encryption metrics.
+// This allows the encryption package to record metrics without depending on the metrics package.
+type MetricsRecorder interface {
+	RecordOperation(operation, strategy, keyID, status string, duration time.Duration)
+	RecordError(operation, strategy, keyID, errorType string)
+	RecordCanaryValidation(strategy, keyID, status string)
+}
 
 // Manager orchestrates multiple encryption strategies and routes operations
 // based on version prefixes in encrypted data.
@@ -16,6 +45,7 @@ type Manager struct {
 	mu             sync.RWMutex
 	strategies     map[string]Strategy
 	activeStrategy string // Which strategy to use for new encryptions
+	metrics        MetricsRecorder
 }
 
 // ParsedEncrypted contains the parsed components of a strategy-specific
@@ -110,6 +140,38 @@ type Strategy interface {
 func IsEncrypted(data []byte) bool {
 	_, _, ok := parseEncryptedFormat(data)
 	return ok
+}
+
+// CategorizeError returns a safe error category without sensitive data.
+// Returns standardized error types for metrics and tracing.
+func CategorizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	// Use errors.Is for proper error type checking
+	switch {
+	case errors.Is(err, ErrInvalidFormat):
+		return "invalid_format"
+	case errors.Is(err, ErrStrategyNotFound):
+		return "unsupported_strategy"
+	case errors.Is(err, ErrKeyNotFound):
+		return "missing_key"
+	case errors.Is(err, ErrDecryptionFailed):
+		return "decrypt_failed"
+	case errors.Is(err, ErrEncryptionFailed):
+		return "encrypt_failed"
+	case errors.Is(err, ErrCanaryMismatch):
+		return "canary_mismatch"
+	case errors.Is(err, ErrNoActiveStrategy):
+		return "unsupported_strategy"
+	case errors.Is(err, ErrParseFailed):
+		return "invalid_format"
+	case errors.Is(err, ErrInvalidKey):
+		return "missing_key"
+	default:
+		return "operation_failed"
+	}
 }
 
 // parseEncryptedFormat parses "enc:<version>:<payload>" format.

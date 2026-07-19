@@ -9,7 +9,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -94,7 +96,9 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		provider             queues.Provider
 		processID            string
 		mockCtrl             *gomock.Controller
-		mockService          *service.MockService
+		mockCheckpointSvc    *checkpointservice.MockService
+		mockEventSvc         *eventservice.MockService
+		mockOrganizationSvc  *organizationservice.MockService
 		queueMaintenanceTask *tasks.QueueMaintenanceTask
 		testOrg1ID           uuid.UUID
 		testOrg2ID           uuid.UUID
@@ -111,7 +115,9 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		// Initialize mock controller and service
 		mockCtrl = gomock.NewController(GinkgoT())
-		mockService = service.NewMockService(mockCtrl)
+		mockCheckpointSvc = checkpointservice.NewMockService(mockCtrl)
+		mockEventSvc = eventservice.NewMockService(mockCtrl)
+		mockOrganizationSvc = organizationservice.NewMockService(mockCtrl)
 
 		// Generate test organization IDs
 		testOrg1ID = uuid.New()
@@ -178,7 +184,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		workerClient := worker_client.NewWorkerClient(queuePublisher, log)
 
 		// Create queue maintenance task
-		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider, workerClient, nil)
+		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockCheckpointSvc, mockEventSvc, mockOrganizationSvc, provider, workerClient, nil)
 	})
 
 	AfterEach(func() {
@@ -195,18 +201,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Basic Queue Maintenance Operations", func() {
 		It("should execute queue maintenance without errors", func() {
 			// Setup expectations for basic execution - recovery may or may not happen depending on Redis state
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -215,18 +221,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should handle empty system gracefully", func() {
 			// Setup expectations for empty organization list - recovery may or may not happen
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -241,18 +247,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				orgs := createTestOrganizations([]uuid.UUID{testOrg1ID, testOrg2ID})
 
 				// Setup mock expectations
-				mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
+				mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
 
 				// Setup database checkpoint to trigger republishing
 				baseTime := time.Now().Add(-1 * time.Hour)
 				checkpointTime := baseTime.Format(time.RFC3339Nano)
 				checkpoints["task_queue-global_checkpoint"] = []byte(checkpointTime)
 
-				mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+				mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 					[]byte(checkpointTime), api.Status{Code: 200})
 
 				// Setup expectations for ListEvents calls
-				mockService.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				mockEventSvc.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {
 						// Use the orgId parameter directly
 						if orgId == testOrg1ID {
@@ -265,10 +271,10 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 					}).AnyTimes() // Allow multiple calls for debugging
 
 				// Mock CreateEvent calls for any internal task events that might be emitted
-				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+				mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 				// Mock SetCheckpoint calls for checkpoint synchronization
-				mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+				mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 					api.Status{Code: 200}).AnyTimes()
 
 				// Execute queue maintenance to trigger republishing
@@ -319,21 +325,21 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				emptyOrgID := uuid.New()
 				orgs := createTestOrganizations([]uuid.UUID{emptyOrgID})
 
-				mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
+				mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
 
 				// Mock ListEvents for the organization (returns empty list)
-				mockService.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+				mockEventSvc.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return(
 					&api.EventList{Items: []api.Event{}}, api.Status{Code: 200}).AnyTimes()
 
 				// The queue maintenance will try to get checkpoint during recovery process
-				mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+				mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 					nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 				// Mock CreateEvent calls for any internal task events that might be emitted
-				mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+				mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 				// Mock SetCheckpoint calls for checkpoint synchronization
-				mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+				mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 					api.Status{Code: 200}).AnyTimes()
 
 				err := queueMaintenanceTask.Execute(ctx)
@@ -346,23 +352,23 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		It("should recover when Redis checkpoint is missing but database checkpoint exists", func() {
 			// Setup organizations
 			orgs := createTestOrganizations([]uuid.UUID{testOrg1ID})
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
 
 			// Set only database checkpoint (simulate Redis failure)
 			checkpointTime := time.Now().Add(-30 * time.Minute)
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				[]byte(checkpointTime.Format(time.RFC3339Nano)), api.Status{Code: 200})
 
 			// Setup ListEvents expectation for recovery
-			mockService.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockEventSvc.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				&api.EventList{Items: []api.Event{createTestEvent("recent-event", time.Now().Add(-15*time.Minute))}},
 				api.Status{Code: 200})
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -374,18 +380,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should handle fresh system with no checkpoints", func() {
 			// Setup empty organizations - recovery may or may not happen
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -396,19 +402,19 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Error Handling", func() {
 		It("should handle service errors gracefully", func() {
 			// Setup service to return an error - may or may not be called depending on Redis state
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				nil, api.Status{Code: 500, Message: "internal server error"}).AnyTimes()
 
 			// Even when ListOrganizations fails, other queue maintenance operations may still run
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -427,17 +433,17 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 			}
 			orgs := &api.OrganizationList{Items: []api.Organization{invalidOrg}}
 
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			err := queueMaintenanceTask.Execute(ctx)
@@ -448,18 +454,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Timeout and Retry Scenarios", func() {
 		It("should handle message timeouts and retries", func() {
 			// Setup basic organizations for queue operations - recovery may or may not happen
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			// Simulate queue operations (processTimedOutMessages, retryFailedMessages, etc.)
@@ -472,18 +478,18 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should advance checkpoint after processing", func() {
 			// Setup basic organizations - recovery may or may not happen
-			mockService.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
-			mockService.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
+			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
 				nil, api.Status{Code: 404, Message: "checkpoint not found"}).AnyTimes()
 
 			// Mock CreateEvent calls for any internal task events that might be emitted
-			mockService.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockEventSvc.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			// Mock SetCheckpoint calls for checkpoint synchronization
-			mockService.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
+			mockCheckpointSvc.EXPECT().SetCheckpoint(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
 				api.Status{Code: 200}).AnyTimes()
 
 			// Test checkpoint advancement (requires Redis operations)

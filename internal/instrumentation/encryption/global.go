@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,21 +44,24 @@ func (p Plaintext) Bytes() []byte {
 	return []byte(p)
 }
 
-// InitGlobalEncryption initializes the global encryption manager.
-// This MUST be called once during application startup, before any concurrent access.
-// It loads the v1 encryption strategy from FLIGHTCTL_ENCRYPTION_KEY environment variable or the provided keyPath.
-//
-// Thread safety: This function uses sync.Once to ensure single initialization.
-// After initialization completes, concurrent Encrypt/Decrypt calls are safe.
-func InitGlobalEncryption(log logrus.FieldLogger) error {
-	return InitGlobalEncryptionWithCanary(log, nil)
+// InitGlobalEncryption initializes the global encryption manager from the
+// application config (cfg.Encryption). Must be called once at startup before
+// any concurrent access. Uses sync.Once internally.
+func InitGlobalEncryption(log logrus.FieldLogger, cfg *config.Config) error {
+	return InitGlobalEncryptionFull(log, cfg, nil, nil)
 }
 
-// InitGlobalEncryptionWithCanary initializes encryption with optional canary store.
-// If canaryStore is nil, canary functionality is disabled.
-func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanaryStore) error {
+// InitGlobalEncryptionWithCanary initializes encryption from the application
+// config with an optional canary store for key-health verification.
+func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, cfg *config.Config, canaryStore CanaryStore) error {
+	return InitGlobalEncryptionFull(log, cfg, canaryStore, nil)
+}
+
+// InitGlobalEncryptionFull initializes encryption from the application config
+// with optional canary store and metrics recorder.
+func InitGlobalEncryptionFull(log logrus.FieldLogger, cfg *config.Config, canaryStore CanaryStore, metrics MetricsRecorder) error {
 	globalManagerOnce.Do(func() {
-		v1Strategy, err := NewV1Strategy()
+		v1Strategy, err := NewV1Strategy(cfg)
 		if err != nil {
 			globalInitErr = fmt.Errorf("load encryption key: %w", err)
 			return
@@ -65,6 +69,11 @@ func InitGlobalEncryptionWithCanary(log logrus.FieldLogger, canaryStore CanarySt
 
 		manager := NewManager()
 		manager.RegisterStrategy(v1Strategy, true)
+
+		// Set metrics recorder if provided
+		if metrics != nil {
+			manager.SetMetricsRecorder(metrics)
+		}
 
 		// Determine active strategy info for logging
 		activeVersion, activeStrategy := manager.GetActiveStrategy()

@@ -7,7 +7,10 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -23,14 +26,16 @@ import (
 
 var _ = Describe("ResourceSyncStore create", func() {
 	var (
-		log              *logrus.Logger
-		ctx              context.Context
-		orgId            uuid.UUID
-		storeInst        store.Store
-		cfg              *config.Config
-		dbName           string
-		db               *gorm.DB
-		numResourceSyncs int
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		resourceSyncStore resourcesyncstore.Store
+		fleetStore        fleetstore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
+		numResourceSyncs  int
 	)
 
 	BeforeEach(func() {
@@ -40,17 +45,18 @@ var _ = Describe("ResourceSyncStore create", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		resourceSyncStore = resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		testutil.CreateTestResourceSyncs(ctx, 3, storeInst, orgId)
+		testutil.CreateTestResourceSyncs(ctx, 3, resourceSyncStore, orgId)
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -67,32 +73,32 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       "my/path",
 				},
 			}
-			resp, err := storeInst.ResourceSync().Create(ctx, orgId, &rs, nil)
+			resp, err := resourceSyncStore.Create(ctx, orgId, &rs, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Metadata.Generation).ToNot(BeNil())
 			Expect(*resp.Metadata.Generation).To(Equal(gen))
 
 			// name already exisis
-			_, err = storeInst.ResourceSync().Create(ctx, orgId, &rs, nil)
+			_, err = resourceSyncStore.Create(ctx, orgId, &rs, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})
 
 		It("Get resourcesync success", func() {
-			dev, err := storeInst.ResourceSync().Get(ctx, orgId, "myresourcesync-1")
+			dev, err := resourceSyncStore.Get(ctx, orgId, "myresourcesync-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*dev.Metadata.Name).To(Equal("myresourcesync-1"))
 		})
 
 		It("Get resourcesync - not found error", func() {
-			_, err := storeInst.ResourceSync().Get(ctx, orgId, "nonexistent")
+			_, err := resourceSyncStore.Get(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("Get resourcesync - wrong org - not found error", func() {
 			badOrgId, _ := uuid.NewUUID()
-			_, err := storeInst.ResourceSync().Get(ctx, badOrgId, "myresourcesync-1")
+			_, err := resourceSyncStore.Get(ctx, badOrgId, "myresourcesync-1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
@@ -105,27 +111,27 @@ var _ = Describe("ResourceSyncStore create", func() {
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
 					map[string]string{"metadata.owner": *fleetowner}, selector.WithPrivateSelectors()),
 			}
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, fleetowner)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, fleetowner)
 			callbackCalled := false
-			err := storeInst.ResourceSync().Delete(ctx, orgId, rsName, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+			err := resourceSyncStore.Delete(ctx, orgId, rsName, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 				Expect(owner).To(Equal(*fleetowner))
-				f, err := storeInst.Fleet().List(ctx, orgId, listParams)
+				f, err := fleetStore.List(ctx, orgId, listParams)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(len(f.Items)).To(Equal(1))
-				err = storeInst.Fleet().UnsetOwner(ctx, tx, orgId, owner)
+				err = fleetStore.UnsetOwner(ctx, tx, orgId, owner)
 				callbackCalled = true
 				return err
 			}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
-			f, err := storeInst.Fleet().List(ctx, orgId, listParams)
+			f, err := fleetStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(f.Items)).To(Equal(0))
 		})
 
 		It("Delete resourcesync fail when not found", func() {
 			callbackCalled := false
-			err := storeInst.ResourceSync().Delete(ctx, orgId, "nonexistent", func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+			err := resourceSyncStore.Delete(ctx, orgId, "nonexistent", func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 				callbackCalled = true
 				return nil
 			}, nil)
@@ -135,7 +141,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
-			allResourceSyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
+			allResourceSyncs, err := resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allResourceSyncs.Items)).To(Equal(numResourceSyncs))
 			allNames := make([]string, len(allResourceSyncs.Items))
@@ -145,7 +151,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 			foundNames := make([]string, len(allResourceSyncs.Items))
 			listParams.Limit = 1
-			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
+			resourcesyncs, err := resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Metadata.RemainingItemCount).To(Equal(int64(2)))
@@ -154,7 +160,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			cont, err := store.ParseContinueString(resourcesyncs.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			resourcesyncs, err = storeInst.ResourceSync().List(ctx, orgId, listParams)
+			resourcesyncs, err = resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -163,7 +169,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			cont, err = store.ParseContinueString(resourcesyncs.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			resourcesyncs, err = storeInst.ResourceSync().List(ctx, orgId, listParams)
+			resourcesyncs, err = resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(resourcesyncs.Metadata.RemainingItemCount).To(BeNil())
@@ -179,7 +185,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
 				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
-			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
+			resourcesyncs, err := resourceSyncStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
 			Expect(*resourcesyncs.Items[0].Metadata.Name).To(Equal("myresourcesync-1"))
@@ -196,7 +202,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync, nil)
+			rs, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
@@ -218,7 +224,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync, nil)
+			rs, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))

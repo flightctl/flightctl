@@ -42,6 +42,7 @@ tags:
     description: Operations for receiving service version.
 paths:
   /version:
+    x-resource: version
     get:
       tags:
         - version
@@ -2277,13 +2278,22 @@ paths:
         - name: consoleType
           in: query
           required: true
-          description: The type of console session to open. Currently only "serial" is supported.
+          description: The type of console session to open. "serial" opens a text terminal; "vnc" opens a VNC proxy tunnel.
           schema:
             type: string
             enum:
               - serial
+              - vnc
             x-enum-varnames:
               - ConsoleTypeSerial
+              - ConsoleTypeVnc
+        - name: force
+          in: query
+          required: false
+          description: If true, take over an already-active console session for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
+          schema:
+            type: boolean
+            default: false
       responses:
         "101":
           description: Switching Protocols
@@ -2357,6 +2367,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /enrollmentconfig:
+    x-resource: enrollmentconfig
     get:
       tags:
         - enrollmentrequest
@@ -6326,6 +6337,8 @@ components:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
         dependencySync:
           $ref: '#/components/schemas/DependencySyncStatus'
+        capabilities:
+          $ref: '#/components/schemas/DeviceCapabilities'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -6577,6 +6590,25 @@ components:
         - "ApplicationStatusCompleted"
         - "ApplicationStatusStopped"
         - "ApplicationStatusStopping"
+    OsModeType:
+      type: string
+      description: >-
+        OS management mode. "image" indicates the OS is managed via
+        bootc or rpm-ostree image updates. "package" indicates no
+        image-based OS management is available.
+      enum:
+        - image
+        - package
+      x-enum-varnames:
+        - OsModeImage
+        - OsModePackage
+    DeviceCapabilities:
+      type: object
+      description: Capabilities reported by the device agent.
+      properties:
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
+      additionalProperties: false
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -6922,6 +6954,8 @@ components:
         knownRenderedVersion:
           type: string
           description: 'The rendered version of the device from desired.json (optional).'
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object

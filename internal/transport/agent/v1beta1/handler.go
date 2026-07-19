@@ -13,23 +13,47 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
+	"github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 )
 
+// AgentTransportHandler is not split into per-resource files the way v1beta1/v1alpha1 are -
+// every method lives in this one handler.go. CreateCertificateSigningRequest is the one
+// genuinely cross-resource method: it looks up the requesting device (to check decommission
+// status) before creating/auto-approving the CSR, so it needs both the device and
+// certificatesigningrequest fields.
 type AgentTransportHandler struct {
-	serviceHandler service.Service
-	converter      convertv1beta1.Converter
-	ca             *crypto.CAClient
-	log            logrus.FieldLogger
+	device                    device.Service
+	enrollmentrequest         enrollmentrequest.Service
+	certificatesigningrequest certificatesigningrequest.Service
+	converter                 convertv1beta1.Converter
+	ca                        *crypto.CAClient
+	log                       logrus.FieldLogger
 }
 
 // Make sure we conform to servers Service interface
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
-func NewAgentTransportHandler(serviceHandler service.Service, converter convertv1beta1.Converter, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
-	return &AgentTransportHandler{serviceHandler: serviceHandler, converter: converter, ca: ca, log: log}
+func NewAgentTransportHandler(
+	deviceSvc device.Service,
+	enrollmentrequestSvc enrollmentrequest.Service,
+	certificatesigningrequestSvc certificatesigningrequest.Service,
+	converter convertv1beta1.Converter,
+	ca *crypto.CAClient,
+	log logrus.FieldLogger,
+) *AgentTransportHandler {
+	return &AgentTransportHandler{
+		device:                    deviceSvc,
+		enrollmentrequest:         enrollmentrequestSvc,
+		certificatesigningrequest: certificatesigningrequestSvc,
+		converter:                 converter,
+		ca:                        ca,
+		log:                       log,
+	}
 }
 
 // (GET /api/v1/devices/{name}/rendered)
@@ -62,7 +86,7 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 	}
 
 	domainParams := s.converter.Device().GetRenderedParamsToDomain(params)
-	body, status := s.serviceHandler.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainParams)
+	body, status := s.device.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainParams)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -103,7 +127,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 	}
 
 	domainDevice := s.converter.Device().ToDomain(device)
-	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice)
+	body, status := s.device.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -144,7 +168,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
-	body, status := s.serviceHandler.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	body, status := s.device.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -177,7 +201,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 	}
 
 	domainER := s.converter.EnrollmentRequest().ToDomain(er)
-	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), domainER)
+	body, status := s.enrollmentrequest.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), domainER)
 	apiResult := s.converter.EnrollmentRequest().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -203,7 +227,7 @@ func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *h
 		return
 	}
 
-	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), name)
+	body, status := s.enrollmentrequest.GetEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	apiResult := s.converter.EnrollmentRequest().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -229,7 +253,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	}
 	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
 
-	device, st := s.serviceHandler.GetDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint)
+	device, st := s.device.GetDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint)
 	if st.Code != http.StatusOK {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		s.SetResponse(w, status, status)
@@ -255,7 +279,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	service.NilOutManagedObjectMetaProperties(&request.Metadata)
 	request.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, fingerprint)
 	domainCSR := s.converter.CertificateSigningRequest().ToDomain(request)
-	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), domainCSR)
+	csr, status := s.certificatesigningrequest.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), domainCSR)
 	if status.Code != http.StatusCreated && status.Code != http.StatusOK {
 		s.SetResponse(w, status, status)
 		return
@@ -298,7 +322,7 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 	}
 	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
 
-	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), name)
+	csr, status := s.certificatesigningrequest.GetCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	if status.Code != http.StatusOK {
 		apiResult := s.converter.CertificateSigningRequest().FromDomain(csr)
 		s.SetResponse(w, apiResult, status)
@@ -331,5 +355,5 @@ func (s *AgentTransportHandler) autoApprove(ctx context.Context, csr *api.Certif
 	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
 	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 
-	return s.serviceHandler.UpdateCertificateSigningRequestApproval(ctx, transport.OrgIDFromContext(ctx), *csr.Metadata.Name, *csr)
+	return s.certificatesigningrequest.UpdateCertificateSigningRequestApproval(ctx, transport.OrgIDFromContext(ctx), *csr.Metadata.Name, *csr)
 }

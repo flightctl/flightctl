@@ -1,0 +1,25 @@
+{{- if and .Values.cliArtifacts .Values.cliArtifacts.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flightctl-cli-artifacts-from-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          policy-group.network.openshift.io/ingress: ""
+  podSelector:
+    matchLabels:
+      flightctl.service: flightctl-cli-artifacts
+  policyTypes:
+  - Ingress
+{{ end }}
+{{- end }}

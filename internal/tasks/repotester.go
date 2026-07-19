@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -35,17 +36,17 @@ type RepoTesterMapping func(repository *domain.Repository) TypeSpecificRepoTeste
 
 type RepoTester struct {
 	log              logrus.FieldLogger
-	serviceHandler   service.Service
+	repositorySvc    repositoryservice.Service
 	RepoTesterMapper RepoTesterMapping
 }
 
-func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service, repoTesterMapper RepoTesterMapping) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, repositorySvc repositoryservice.Service, repoTesterMapper RepoTesterMapping) *RepoTester {
 	if repoTesterMapper == nil {
 		repoTesterMapper = DefaultRepoTesterMapping
 	}
 	return &RepoTester{
 		log:              log,
-		serviceHandler:   serviceHandler,
+		repositorySvc:    repositorySvc,
 		RepoTesterMapper: repoTesterMapper,
 	}
 }
@@ -85,7 +86,7 @@ func (r *RepoTester) TestRepositories(ctx context.Context, orgId uuid.UUID) {
 	continueToken := (*string)(nil)
 
 	for {
-		repositories, status := r.serviceHandler.ListRepositories(ctx, orgId, domain.ListRepositoriesParams{
+		repositories, status := r.repositorySvc.ListRepositories(ctx, orgId, domain.ListRepositoriesParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -121,9 +122,9 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, orgId uuid.UUID, re
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []domain.Condition{}
 	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	_, status := r.repositorySvc.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
-	return service.ApiStatusToErr(status)
+	return common.ApiStatusToErr(status)
 }
 
 func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository, tester TypeSpecificRepoTester) {

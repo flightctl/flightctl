@@ -43,6 +43,13 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER_EXTERNAL
+          {{- if .Values.remoteAccess.enabled }}
+          - name: FLIGHTCTL_REMOTE_ACCESS_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_REMOTE_ACCESS_SERVER
+          {{- end }}
           {{- if .Values.cliArtifacts.enabled }}
           - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
             valueFrom:

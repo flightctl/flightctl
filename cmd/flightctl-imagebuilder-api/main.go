@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
@@ -39,6 +40,10 @@ func main() {
 		}
 	}()
 
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -49,9 +54,11 @@ func main() {
 	imageBuilderStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 	defer imageBuilderStore.Close()
 
-	// Main store for identity mapping (shared with api_server)
-	mainStore := store.NewStore(db, log.WithField("pkg", "store"))
-	defer mainStore.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
@@ -67,7 +74,7 @@ func main() {
 		log.Fatalf("creating kvstore: %v", err)
 	}
 
-	server, err := imagebuilderapi.New(log, cfg, imageBuilderStore, mainStore, kvStore, provider)
+	server, err := imagebuilderapi.New(log, cfg, imageBuilderStore, db, kvStore, provider)
 	if err != nil {
 		log.Fatalf("Error creating server: %s", err)
 	}

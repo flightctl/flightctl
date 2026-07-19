@@ -30,7 +30,19 @@ const (
 	portForwardDialTimeout   = 200 * time.Millisecond
 	portForwardPollInterval  = 100 * time.Millisecond
 	portForwardStopTimeout   = time.Second
+
+	// Legacy Prometheus-style name from the OTel Prometheus exporter.
+	HTTPServerRequestDurationBucketQueryLegacy = "http_server_request_duration_seconds_bucket"
+	// OTel semantic convention name (dots require {__name__="..."} in PromQL).
+	HTTPServerRequestDurationBucketQueryOTel = `{__name__="http.server.request.duration_seconds_bucket"}`
 )
+
+// HTTPServerRequestDurationBucketQueries lists PromQL queries that match HTTP server
+// request duration histogram buckets across OTel Prometheus exporter naming schemes.
+var HTTPServerRequestDurationBucketQueries = []string{
+	HTTPServerRequestDurationBucketQueryLegacy,
+	HTTPServerRequestDurationBucketQueryOTel,
+}
 
 type ServiceAccessBackend struct {
 	ServiceName string
@@ -273,6 +285,23 @@ func (h *Harness) PromQueryResultCount(promURL, query string) func() int {
 			return 0
 		}
 		return len(resp.Data.Result)
+	}
+}
+
+// PromQueryResultCountAny returns a closure that succeeds when any query returns results.
+func (h *Harness) PromQueryResultCountAny(promURL string, queries ...string) func() int {
+	return func() int {
+		maxCount := 0
+		for _, query := range queries {
+			resp, err := h.PromQuery(promURL, query)
+			if err != nil {
+				continue
+			}
+			if n := len(resp.Data.Result); n > maxCount {
+				maxCount = n
+			}
+		}
+		return maxCount
 	}
 }
 

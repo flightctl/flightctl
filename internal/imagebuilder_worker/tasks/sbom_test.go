@@ -16,7 +16,7 @@ import (
 func testConsumer(t *testing.T, cfg *config.Config) *Consumer {
 	t.Helper()
 	log := flightlog.InitLogs()
-	return NewConsumer(nil, nil, nil, nil, nil, nil, cfg, log)
+	return NewConsumer(nil, nil, nil, nil, nil, nil, nil, nil, cfg, log)
 }
 
 func TestConsumer_transformSBOM(t *testing.T) {

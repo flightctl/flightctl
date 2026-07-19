@@ -13,10 +13,10 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
-	"github.com/flightctl/flightctl/internal/service"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/worker_client"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -110,12 +110,11 @@ var _ = Describe("Periodic", func() {
 		kvStore                  kvstore.KVStore
 		log                      *logrus.Logger
 		queuesProvider           queues.Provider
-		serviceHandler           service.Service
-		storeInst                store.Store
+		organizationSvc          organizationservice.Service
+		organizationStore        organizationstore.Store
 		cfg                      *config.Config
 		dbName                   string
 		db                       *gorm.DB
-		workerClient             worker_client.WorkerClient
 		orgId                    uuid.UUID
 		publisherConfig          periodic.PeriodicTaskPublisherConfig
 		consumerConfig           periodic.PeriodicTaskConsumerConfig
@@ -138,10 +137,10 @@ var _ = Describe("Periodic", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		// Grab default org id from the database
-		orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+		orgs, err := organizationStore.List(ctx, store.ListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		if len(orgs) > 0 {
 			orgId = orgs[0].ID
@@ -157,12 +156,7 @@ var _ = Describe("Periodic", func() {
 		kvStore, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 
-		queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
-		Expect(err).ToNot(HaveOccurred())
-
-		// Setup worker client and service handler
-		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, false)
+		organizationSvc = organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
@@ -171,7 +165,7 @@ var _ = Describe("Periodic", func() {
 
 		publisherConfig = periodic.PeriodicTaskPublisherConfig{
 			Log:            log,
-			OrgService:     serviceHandler,
+			OrgService:     organizationSvc,
 			TasksMetadata:  testPeriodicTasks,
 			ChannelManager: channelManager,
 			TaskBackoff: &poll.Config{
@@ -207,7 +201,6 @@ var _ = Describe("Periodic", func() {
 		}
 
 		// Clean up database
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 
 		// Clean up channel manager
@@ -254,7 +247,7 @@ var _ = Describe("Periodic", func() {
 				DisplayName: "test-org-2",
 				ExternalID:  externalID2,
 			}
-			_, err := storeInst.Organization().Create(ctx, org)
+			_, err := organizationStore.Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Start consumer and publisher together

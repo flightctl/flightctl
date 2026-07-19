@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,6 +19,12 @@ import (
 const (
 	agentBundlePattern = "agent-images-bundle-*.tar"
 	appBundleName      = "app-images-bundle.tar"
+
+	// uploadConcurrency bounds how many images are copied out of a bundle at once.
+	// This is I/O-bound work (reading tar offsets, pushing to a local registry), so
+	// running several in parallel overlaps their I/O wait without oversubscribing the
+	// runner's CPU.
+	uploadConcurrency = 4
 )
 
 // UploadImages uploads all image bundles to the registry.
@@ -57,28 +64,17 @@ func (s *Services) findImageBundles(projectRoot string) []string {
 	return bundles
 }
 
-func getImageDigest(imageRef string, tlsVerify bool) string {
-	tlsArg := fmt.Sprintf("--tls-verify=%v", tlsVerify)
-	cmd := exec.Command("skopeo", "inspect", tlsArg, "--format", "{{.Digest}}", imageRef)
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func (s *Services) imageNeedsPush(localRef, registryRef string) bool {
-	localDigest := getImageDigest("containers-storage:"+localRef, false)
-	if localDigest == "" {
-		return true
-	}
-	registryDigest := getImageDigest("docker://"+registryRef, false)
-	if registryDigest == "" {
-		return true
-	}
-	return localDigest != registryDigest
-}
-
+// uploadBundle copies every image in the bundle straight from the archive to the
+// registry via "skopeo copy docker-archive:...", in parallel across images. This is
+// only called when the registry container was just created (see StartServices), so
+// the registry is always empty here - there's no digest check to skip redundant
+// pushes because every image needs pushing.
+//
+// This intentionally skips "podman load": loading a bundle of bootc images means
+// extracting a full OS root filesystem (many small files) into local containers
+// storage just to immediately read it back out for push. skopeo streams the already
+// packaged layer blobs directly from the tar to the registry without ever touching
+// local storage.
 func (s *Services) uploadBundle(bundlePath string) error {
 	refs, err := extractImageRefs(bundlePath)
 	if err != nil {
@@ -87,34 +83,42 @@ func (s *Services) uploadBundle(bundlePath string) error {
 	if len(refs) == 0 {
 		return nil
 	}
-	loadCmd := exec.Command("podman", "load", "-i", bundlePath)
-	if output, err := loadCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("podman load -i %s failed: %w, output: %s", bundlePath, err, string(output))
-	}
-	var needsPush []string
+
+	sem := make(chan struct{}, uploadConcurrency)
+	errCh := make(chan error, len(refs))
+	var wg sync.WaitGroup
 	for _, ref := range refs {
-		path := ref
-		if idx := strings.Index(ref, "/"); idx != -1 {
-			path = ref[idx+1:]
-		}
-		registryRef := fmt.Sprintf("%s/%s", s.Registry.URL, path)
-		if s.imageNeedsPush(ref, registryRef) {
-			needsPush = append(needsPush, ref)
+		wg.Add(1)
+		go func(ref string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			errCh <- s.copyImageFromBundle(bundlePath, ref)
+		}(ref)
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return err
 		}
 	}
-	if len(needsPush) == 0 {
-		return nil
+	return nil
+}
+
+// copyImageFromBundle copies a single image reference out of a multi-image
+// docker-archive bundle directly to the registry.
+func (s *Services) copyImageFromBundle(bundlePath, ref string) error {
+	path := ref
+	if idx := strings.Index(ref, "/"); idx != -1 {
+		path = ref[idx+1:]
 	}
-	for _, ref := range needsPush {
-		path := ref
-		if idx := strings.Index(ref, "/"); idx != -1 {
-			path = ref[idx+1:]
-		}
-		dst := fmt.Sprintf("%s/%s", s.Registry.URL, path)
-		pushCmd := exec.Command("podman", "push", "--tls-verify=false", ref, dst)
-		if output, err := pushCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("podman push failed for %s: %w, output: %s", ref, err, string(output))
-		}
+	src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, ref)
+	dst := fmt.Sprintf("docker://%s/%s", s.Registry.URL, path)
+	copyCmd := exec.Command("skopeo", "copy", "--dest-tls-verify=false", src, dst)
+	if output, err := copyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
 	}
 	return nil
 }

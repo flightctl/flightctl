@@ -551,4 +551,9 @@ func (f fakeInfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
 	return false
 }
 
+// ServiceExists is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) ServiceExists(context.Context, infra.ServiceName) (bool, error) {
+	return false, nil
+}
+
 var _ infra.InfraProvider = fakeInfraProvider{}

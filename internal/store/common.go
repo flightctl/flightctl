@@ -310,18 +310,6 @@ func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, error)) (*A, *A, 
 	return a, b, created, err
 }
 
-func retryUpdate(fn func() (bool, error)) error {
-	var (
-		retry bool
-		err   error
-	)
-	i := 0
-	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
-		i++
-	}
-	return err
-}
-
 // Call callback if provided (but don't fail the operation if callback fails)
 // with panic recovery to prevent callback failures from affecting the main operation
 func SafeEventCallback(log logrus.FieldLogger, callback func()) {

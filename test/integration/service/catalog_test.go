@@ -35,7 +35,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -49,7 +49,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -63,7 +63,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -76,7 +76,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("references: required"))
 		})
@@ -91,7 +91,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("references: required"))
 		})
@@ -110,7 +110,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("references: required"))
 		})
@@ -125,7 +125,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("does not match any artifact type"))
 		})
@@ -147,7 +147,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -164,7 +164,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0"}, Channels: []string{"stable"}},
 			}
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 	})
@@ -182,7 +182,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Types"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -191,7 +191,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategorySystem)
 			item.Spec.Type = api.CatalogItemTypeOS
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -200,7 +200,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategorySystem)
 			item.Spec.Type = api.CatalogItemTypeContainer
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("not valid for category"))
 		})
@@ -210,7 +210,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategoryApplication)
 			item.Spec.Type = api.CatalogItemTypeContainer
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -219,7 +219,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategoryApplication)
 			item.Spec.Type = api.CatalogItemTypeOS
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("not valid for category"))
 		})
@@ -229,7 +229,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategoryApplication)
 			item.Spec.Type = api.CatalogItemTypeData
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -238,7 +238,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Category = lo.ToPtr(api.CatalogItemCategorySystem)
 			item.Spec.Type = api.CatalogItemTypeData
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("not valid for category"))
 		})
@@ -257,7 +257,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Required"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -277,7 +277,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					},
 				},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("uri is required"))
 		})
@@ -296,7 +296,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					Versions: []api.CatalogItemVersion{},
 				},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("at least one entry"))
 		})
@@ -306,7 +306,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("channels"))
 		})
@@ -314,14 +314,14 @@ var _ = Describe("Catalog Integration Tests", func() {
 		It("should use default category when not specified", func() {
 			item := createValidCatalogItem("default-category")
 			item.Spec.Category = nil
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
 		It("should reject empty type", func() {
 			item := createValidCatalogItem("empty-type")
 			item.Spec.Type = ""
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("spec.type"))
 		})
@@ -340,7 +340,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Semver"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -351,7 +351,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "2.0.0-beta.1", References: map[string]string{"container": "v2.0.0-beta.1"}, Channels: []string{"fast"}},
 				{Version: "3.0.0+build.123", References: map[string]string{"container": "v3.0.0"}, Channels: []string{"fast"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -360,7 +360,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "not-semver", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("semver"))
 		})
@@ -370,7 +370,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "v1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("must not have 'v' prefix"))
 		})
@@ -389,7 +389,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Duplicates"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -399,7 +399,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0-alt"}, Channels: []string{"fast"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("duplicate"))
 		})
@@ -418,7 +418,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Edges"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -428,7 +428,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("1.0.0")},
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -438,7 +438,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Replaces: lo.ToPtr("0.9.0")},
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -449,7 +449,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"fast"}},
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -459,7 +459,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				{Version: "2.0.0", References: map[string]string{"container": "v2.0.0"}, Channels: []string{"stable"}, Skips: &[]string{"0.9.0"}},
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 	})
@@ -477,7 +477,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Invalid Type"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -485,7 +485,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item := createValidCatalogItem("invalid-type")
 			item.Spec.Type = api.CatalogItemType("invalid")
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("spec.type must be one of"))
 		})
@@ -495,7 +495,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			invalidCategory := api.CatalogItemCategory("invalid")
 			item.Spec.Category = &invalidCategory
 
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("spec.category must be"))
 		})
@@ -514,7 +514,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Test Catalog Artifacts"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -530,7 +530,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "9.4.0", References: map[string]string{"container": "9.4", "qcow2": "9.4", "iso": "9.4"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 
@@ -543,7 +543,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("uri is required"))
 		})
@@ -557,7 +557,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			item.Spec.Versions = []api.CatalogItemVersion{
 				{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 			}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
 			Expect(status.Message).To(ContainSubstring("type is required"))
 		})
@@ -575,7 +575,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 						DisplayName: lo.ToPtr(name),
 					},
 				}
-				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			}
 
@@ -583,13 +583,13 @@ var _ = Describe("Catalog Integration Tests", func() {
 			for _, catalogName := range []string{"alpha-catalog", "beta-catalog"} {
 				for _, itemName := range []string{"app-one", "app-two"} {
 					item := createValidCatalogItem(itemName)
-					_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+					_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 					Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				}
 			}
 
 			// List all items across catalogs
-			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
+			result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(4))
 
@@ -615,17 +615,17 @@ var _ = Describe("Catalog Integration Tests", func() {
 						DisplayName: lo.ToPtr(name),
 					},
 				}
-				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 				item := createValidCatalogItem("item-1")
-				_, status = suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, name, item)
+				_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, name, item)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			}
 
 			// Page 1: limit=1
 			limit := int32(1)
-			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+			result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
 				Limit: &limit,
 			})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
@@ -635,7 +635,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			Expect(result.Metadata.RemainingItemCount).NotTo(BeNil())
 
 			// Page 2: use continue token
-			result, status = suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+			result, status = suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
 				Limit:    &limit,
 				Continue: result.Metadata.Continue,
 			})
@@ -656,23 +656,23 @@ var _ = Describe("Catalog Integration Tests", func() {
 						DisplayName: lo.ToPtr(name),
 					},
 				}
-				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			}
 
 			// Create items with different labels
 			itemWithLabel := createValidCatalogItem("labeled-app")
 			itemWithLabel.Metadata.Labels = &map[string]string{"env": "prod"}
-			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-a", itemWithLabel)
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-a", itemWithLabel)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			itemWithoutLabel := createValidCatalogItem("unlabeled-app")
-			_, status = suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-b", itemWithoutLabel)
+			_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-b", itemWithoutLabel)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			// Filter by label
 			labelSelector := "env=prod"
-			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+			result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
 				LabelSelector: &labelSelector,
 			})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
@@ -682,7 +682,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		})
 
 		It("should return empty list when no catalogs exist", func() {
-			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
+			result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(0))
 		})
@@ -699,14 +699,14 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Catalog With Items"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			item := createValidCatalogItem("test-item")
-			_, status = suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			status = suite.Handler.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
+			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
 		})
 
@@ -720,10 +720,10 @@ var _ = Describe("Catalog Integration Tests", func() {
 					DisplayName: lo.ToPtr("Empty Catalog"),
 				},
 			}
-			_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			status = suite.Handler.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
+			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		})
 	})

@@ -14,6 +14,28 @@ runs:
         with:
           go-version: '1.25.9'
 
+      - name: Prepare apt cache directory
+        shell: bash
+        run: |
+          echo "APT_CACHE_DIR=${HOME}/.cache/apt-archives" >> "$GITHUB_ENV"
+          mkdir -p "${HOME}/.cache/apt-archives"
+
+      # apt's default archive dir (/var/cache/apt/archives) is root-owned, so
+      # actions/cache — which runs as the unprivileged runner user — can't
+      # write restored .deb files back into it. Redirecting to a
+      # runner-owned directory via Dir::Cache::Archives sidesteps that: apt
+      # itself still runs via sudo so it can write there regardless of
+      # ownership, but actions/cache can too.
+      - name: Restore apt cache
+        id: restore-apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-
+            ${{ runner.os }}-apt-
+
       - name: Enable KVM group perms
         shell: bash
         if: inputs.setup_kvm != ''
@@ -23,7 +45,7 @@ runs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo apt update -y 
-          sudo apt install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
+          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
                               swtpm apparmor-utils
           sudo usermod -a -G kvm,libvirt,swtpm $USER
@@ -34,7 +56,7 @@ runs:
         run: |
           echo "::group::Installing general dependencies"
           sudo apt update -y # fix broken repo cache
-          sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
+          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           # Prime rootless Podman API socket before Go testcontainers init() probes paths (otherwise
           # /var/run/docker.sock can win on runners that ship both Docker and Podman).
@@ -54,7 +76,7 @@ runs:
         shell: bash
         if: ${{ inputs.unit_tests == 'true' }}
         run: |
-          sudo apt install -y bubblewrap apparmor-profiles
+          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
           sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap || true
           sudo apparmor_parser /etc/apparmor.d/bwrap
 
@@ -65,3 +87,10 @@ runs:
           sudo rm -rf /var/lib/containers/storage
           sudo mkdir -p /etc/containers
           echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
+
+      - name: Save apt cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.restore-apt-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}

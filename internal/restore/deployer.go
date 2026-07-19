@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -161,6 +162,14 @@ type Deployer interface {
 	// Returns an error if the pki/ subdirectory is absent from the archive.
 	// StopServices must be called before RestorePKI.
 	RestorePKI(ctx context.Context, extractDir string) error
+	// RestoreEncryptionKeys restores data-at-rest encryption keys from the archive.
+	// For Podman, copies <extractDir>/encryption/ to the configured encryption
+	// destination (default: /etc/flightctl/encryption/), preserving file permissions.
+	// For Kubernetes, applies <extractDir>/encryption/flightctl-encryption-key.yaml
+	// as a Secret and duplicates it to the internal namespace if different.
+	// Silently skips if the encryption directory is absent from the archive
+	// (backwards compatible with pre-encryption backups).
+	RestoreEncryptionKeys(ctx context.Context, extractDir string) error
 	// RestoreConfig restores service configuration from the extracted archive directory.
 	// For Podman: copies <extractDir>/config/service-config.yaml to the configured service
 	// config path and imports the PAM Issuer volume from <extractDir>/volumes/pam-issuer-etc.tar
@@ -187,6 +196,7 @@ type PodmanRestoreDeployer struct {
 	dbName              string
 	kvContainerName     string
 	pkiDestPath         string
+	encryptionDestPath  string
 	pamIssuerVolumeName string
 	keepOldDB           bool
 	cachedCfg           *config.Config
@@ -256,6 +266,14 @@ func WithPKIDestPath(path string) PodmanRestoreOption {
 	}
 }
 
+// WithEncryptionDestPath sets the destination directory for encryption keys restoration.
+// Defaults to /etc/flightctl/encryption.
+func WithEncryptionDestPath(path string) PodmanRestoreOption {
+	return func(d *PodmanRestoreDeployer) {
+		d.encryptionDestPath = path
+	}
+}
+
 // WithPodmanKeepOldDB controls whether the pre-restore database is dropped after
 // a successful swap (false, default) or preserved under <dbname>_old_<timestamp> (true).
 func WithPodmanKeepOldDB(keep bool) PodmanRestoreOption {
@@ -320,6 +338,9 @@ func NewPodmanRestoreDeployer(
 	}
 	if d.pkiDestPath == "" {
 		d.pkiDestPath = "/etc/flightctl/pki"
+	}
+	if d.encryptionDestPath == "" {
+		d.encryptionDestPath = "/etc/flightctl/encryption"
 	}
 	if d.pamIssuerVolumeName == "" {
 		d.pamIssuerVolumeName = "flightctl-pam-issuer-etc"
@@ -714,6 +735,50 @@ func parseContainerHostPort(output string) (host string, port int, ok bool) {
 	return hostRaw, int(p64), true
 }
 
+// copyDirSecure recursively copies srcDir to dstDir, preserving file permissions.
+// It rejects symlinks and any non-regular, non-directory entries to prevent path
+// traversal attacks. Returns the number of regular files copied.
+func copyDirSecure(ctx context.Context, srcDir, dstDir string, log logrus.FieldLogger) (int, error) {
+	count := 0
+	err := filepath.Walk(srcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("error walking source directory: %w", walkErr)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		relPath, err := filepath.Rel(srcDir, srcPath)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
+		}
+		dstPath := filepath.Join(dstDir, relPath)
+
+		if info.IsDir() {
+			if relPath == "." {
+				return nil
+			}
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing non-regular entry %s (mode %s)", relPath, info.Mode())
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", relPath, err)
+		}
+		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", relPath, err)
+		}
+		log.Debugf("Restored file: %s", relPath)
+		count++
+		return nil
+	})
+	return count, err
+}
+
 // RestorePKI copies the pki/ directory from the extracted archive into the configured
 // PKI destination, preserving each file's mode. Returns an error if pki/ is absent.
 func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir string) error {
@@ -728,48 +793,81 @@ func (p *PodmanRestoreDeployer) RestorePKI(ctx context.Context, extractDir strin
 		return fmt.Errorf("failed to create PKI destination directory %s: %w", p.pkiDestPath, err)
 	}
 
-	count := 0
-	err := filepath.Walk(pkiSrcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("error walking PKI source directory: %w", walkErr)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		relPath, err := filepath.Rel(pkiSrcDir, srcPath)
-		if err != nil {
-			return fmt.Errorf("computing relative path for %s: %w", srcPath, err)
-		}
-		dstPath := filepath.Join(p.pkiDestPath, relPath)
-
-		if info.IsDir() {
-			if relPath == "." {
-				return nil
-			}
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing non-regular PKI entry %s (mode %s)", relPath, info.Mode())
-		}
-
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read PKI file %s: %w", relPath, err)
-		}
-		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
-			return fmt.Errorf("failed to write PKI file %s: %w", relPath, err)
-		}
-		p.log.Debugf("Restored PKI file: %s", relPath)
-		count++
-		return nil
-	})
+	count, err := copyDirSecure(ctx, pkiSrcDir, p.pkiDestPath, p.log)
 	if err != nil {
 		return fmt.Errorf("PKI restore failed: %w", err)
 	}
 
 	p.log.Infof("PKI restore completed. Restored %d files to %s", count, p.pkiDestPath)
+	return nil
+}
+
+// RestoreEncryptionKeys restores the data-at-rest encryption key directory from the archive.
+// Copies <extractDir>/encryption/ to <encryptionDestPath>, preserving file permissions.
+// Logs a warning and skips if the encryption directory is absent from the archive
+// (backwards compatible with pre-encryption backups).
+func (p *PodmanRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extractDir string) (retErr error) {
+	encSrcDir := filepath.Join(extractDir, "encryption")
+
+	if _, err := os.Stat(encSrcDir); os.IsNotExist(err) {
+		p.log.Warnf("No encryption key directory in archive, skipping encryption key restore. If this deployment uses data-at-rest encryption, encrypted database fields will be unrecoverable.")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to access encryption directory in archive: %w", err)
+	}
+
+	p.log.Infof("Starting encryption key restore to %s...", p.encryptionDestPath)
+
+	// Stage into a temp directory next to the destination so that a failure
+	// mid-walk (e.g. symlink rejection) does not leave a partially written
+	// destination. On success the staging dir is renamed atomically.
+	stagingDir, err := os.MkdirTemp(filepath.Dir(p.encryptionDestPath), ".enc-restore-*")
+	if err != nil {
+		return fmt.Errorf("failed to create staging directory: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(stagingDir); cleanupErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("failed to clean up staging directory %s: %w", stagingDir, cleanupErr))
+		}
+	}()
+
+	count, err := copyDirSecure(ctx, encSrcDir, stagingDir, p.log)
+	if err != nil {
+		return fmt.Errorf("encryption key restore failed: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("encryption archive directory is empty — refusing to overwrite live key material")
+	}
+
+	// Atomic swap: rename the existing destination aside, then rename staging
+	// into place. If the final rename fails, roll back by restoring the backup
+	// so live key material is never lost.
+	backupDir := p.encryptionDestPath + ".bak"
+	if _, statErr := os.Stat(p.encryptionDestPath); statErr == nil {
+		if err := os.RemoveAll(backupDir); err != nil {
+			p.log.Warnf("Failed to clean up stale encryption key backup at %s: %v", backupDir, err)
+		}
+		if err := os.Rename(p.encryptionDestPath, backupDir); err != nil {
+			return fmt.Errorf("failed to move existing encryption directory aside: %w", err)
+		}
+	} else if _, bakErr := os.Stat(backupDir); bakErr == nil {
+		p.log.Warnf("Destination %s is missing but backup %s exists — likely an interrupted prior restore; preserving it for recovery", p.encryptionDestPath, backupDir)
+	}
+	if err := os.Rename(stagingDir, p.encryptionDestPath); err != nil {
+		// Roll back: restore the original directory so keys are not lost.
+		if rbErr := os.Rename(backupDir, p.encryptionDestPath); rbErr != nil {
+			return errors.Join(
+				fmt.Errorf("failed to move staged encryption keys to destination: %w", err),
+				fmt.Errorf("rollback also failed: %w", rbErr),
+			)
+		}
+		return fmt.Errorf("failed to move staged encryption keys to destination: %w", err)
+	}
+	if err := os.RemoveAll(backupDir); err != nil {
+		p.log.Warnf("Failed to clean up old encryption key backup at %s: %v", backupDir, err)
+	}
+
+	p.log.Infof("Encryption key restore completed. Restored %d files to %s", count, p.encryptionDestPath)
 	return nil
 }
 
@@ -1403,11 +1501,63 @@ func (k *KubernetesRestoreDeployer) RestorePKI(ctx context.Context, extractDir s
 	return nil
 }
 
+// RestoreEncryptionKeys restores the data-at-rest encryption key Secret from the archive.
+// Applies <extractDir>/encryption/flightctl-encryption-key.yaml to the release namespace,
+// and duplicates it to the internal namespace if different.
+// Logs a warning and skips if the encryption directory is absent (backwards compatible
+// with pre-encryption backups).
+func (k *KubernetesRestoreDeployer) RestoreEncryptionKeys(ctx context.Context, extractDir string) error {
+	const expectedSecretName = "flightctl-encryption-key"
+
+	encKeyPath := filepath.Join(extractDir, "encryption", expectedSecretName+".yaml")
+
+	if _, err := os.Stat(encKeyPath); os.IsNotExist(err) {
+		k.log.Warnf("No encryption key in archive, skipping encryption key restore. If this deployment uses data-at-rest encryption, encrypted database fields will be unrecoverable.")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to access encryption key in archive: %w", err)
+	}
+
+	data, err := os.ReadFile(encKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read encryption key Secret: %w", err)
+	}
+	var secret corev1.Secret
+	if err := yaml.Unmarshal(data, &secret); err != nil {
+		return fmt.Errorf("failed to unmarshal encryption key Secret: %w", err)
+	}
+	if secret.Name != expectedSecretName {
+		return fmt.Errorf("unexpected Secret name %q in encryption key archive (expected %q)", secret.Name, expectedSecretName)
+	}
+	if len(secret.Data) == 0 {
+		return fmt.Errorf("encryption key Secret %q has no data — refusing to overwrite live key material", expectedSecretName)
+	}
+
+	clientset, err := k.resolveClientset()
+	if err != nil {
+		return fmt.Errorf("failed to resolve Kubernetes clientset for encryption key restore: %w", err)
+	}
+
+	if err := k.applySecret(ctx, clientset, &secret, k.namespace); err != nil {
+		return fmt.Errorf("failed to apply encryption key Secret: %w", err)
+	}
+	k.log.Infof("Restored encryption key Secret to namespace %s", k.namespace)
+
+	// Duplicate to internal namespace if it differs from release namespace.
+	// The Helm hook creates the encryption key in both namespaces; restore must do the same.
+	if k.internalNamespace != "" && k.internalNamespace != k.namespace {
+		if err := k.applySecret(ctx, clientset, &secret, k.internalNamespace); err != nil {
+			return fmt.Errorf("failed to apply encryption key Secret to internal namespace %s: %w", k.internalNamespace, err)
+		}
+		k.log.Infof("Duplicated encryption key Secret to internal namespace %s", k.internalNamespace)
+	}
+
+	return nil
+}
+
 // applySecretFromFile reads a Secret YAML file, unmarshals it, and creates or
 // updates the Secret in the cluster. The namespace is taken from the YAML
 // metadata; if absent it falls back to k.namespace.
-// Server-assigned fields (ResourceVersion, UID, ManagedFields) are cleared so
-// that create and update both work regardless of prior cluster state.
 func (k *KubernetesRestoreDeployer) applySecretFromFile(ctx context.Context, clientset kubernetes.Interface, yamlPath string) error {
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
@@ -1424,14 +1574,20 @@ func (k *KubernetesRestoreDeployer) applySecretFromFile(ctx context.Context, cli
 		ns = k.namespace
 	}
 
-	// Clear server-assigned fields so the object can be created or updated
-	// without conflicts from stale metadata recorded at backup time.
+	return k.applySecret(ctx, clientset, &secret, ns)
+}
+
+// applySecret creates or updates a Secret in the given namespace.
+// Server-assigned fields (ResourceVersion, UID, ManagedFields) are cleared so
+// that create and update both work regardless of prior cluster state.
+func (k *KubernetesRestoreDeployer) applySecret(ctx context.Context, clientset kubernetes.Interface, secret *corev1.Secret, ns string) error {
+	secret.Namespace = ns
 	secret.ResourceVersion = ""
 	secret.UID = ""
 	secret.Generation = 0
 	secret.ManagedFields = nil
 
-	_, err = clientset.CoreV1().Secrets(ns).Create(ctx, &secret, metav1.CreateOptions{})
+	_, err := clientset.CoreV1().Secrets(ns).Create(ctx, secret, metav1.CreateOptions{})
 	if err == nil {
 		return nil
 	}
@@ -1445,7 +1601,7 @@ func (k *KubernetesRestoreDeployer) applySecretFromFile(ctx context.Context, cli
 		return fmt.Errorf("failed to get existing Secret %s/%s: %w", ns, secret.Name, err)
 	}
 	secret.ResourceVersion = existing.ResourceVersion
-	if _, err := clientset.CoreV1().Secrets(ns).Update(ctx, &secret, metav1.UpdateOptions{}); err != nil {
+	if _, err := clientset.CoreV1().Secrets(ns).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update Secret %s/%s: %w", ns, secret.Name, err)
 	}
 	return nil
@@ -1651,8 +1807,9 @@ func getFreePort() (int, error) {
 // the temp file paths. Returns a cleanup function to delete the temp files when done.
 //
 // Based on Helm values structure:
-//   db.external.tlsConfigMapName: postgres-ca-cert (CA certificate in ca-cert.pem key)
-//   db.external.tlsSecretName: postgres-client-certs (client cert/key in tls.crt and tls.key)
+//
+//	db.external.tlsConfigMapName: postgres-ca-cert (CA certificate in ca-cert.pem key)
+//	db.external.tlsSecretName: postgres-client-certs (client cert/key in tls.crt and tls.key)
 //
 // This is a Kubernetes-specific implementation detail, not part of the Deployer interface.
 func (k *KubernetesRestoreDeployer) SetupExternalDBCerts(ctx context.Context, cfg *config.Config) (cleanup func(), err error) {

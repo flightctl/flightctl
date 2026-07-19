@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	remoteaccessserver "github.com/flightctl/flightctl/internal/remote_access_server"
@@ -57,13 +58,20 @@ func main() {
 		}
 	}()
 
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-	dataStore := store.NewStore(db, log.WithField("pkg", "store"))
-	defer dataStore.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
@@ -89,7 +97,7 @@ func main() {
 		log.Fatalf("starting rendered version bus: %v", err)
 	}
 
-	server, err := remoteaccessserver.New(log, cfg, caBundleCerts, serverCerts, dataStore, rendered.Bus.Instance())
+	server, err := remoteaccessserver.New(log, cfg, caBundleCerts, serverCerts, db, rendered.Bus.Instance())
 	if err != nil {
 		log.Fatalf("initializing remote-access server: %v", err)
 	}

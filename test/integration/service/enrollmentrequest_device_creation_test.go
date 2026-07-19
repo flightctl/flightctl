@@ -43,7 +43,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				By("creating enrollment request")
 				// Use internal request context to preserve annotations
 				internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-				created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				Expect(created).ToNot(BeNil())
 
@@ -61,11 +61,11 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 					Labels:   &map[string]string{"approved": "true"},
 				}
 
-				_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+				_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 				By("verifying device creation with expected annotations and status")
-				device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
+				device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 				Expect(device).ToNot(BeNil())
 				Expect(device.Metadata.Annotations).To(expectedDeviceAnnotations)
@@ -113,7 +113,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			By("creating enrollment request")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -131,11 +131,11 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				Labels:   &map[string]string{"approved": "true", "environment": "test"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created with awaitingReconnect annotation and approval labels")
-			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -160,7 +160,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			By("creating enrollment request with nil status")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -178,11 +178,11 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created with awaitingReconnect annotation and status")
-			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -207,7 +207,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				er.Spec.Labels = &agentLabels
 
 				By("creating enrollment request")
-				created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				Expect(created).ToNot(BeNil())
 
@@ -226,11 +226,11 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 					ReplaceLabels: replaceLabels,
 				}
 
-				_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+				_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 				By("verifying device was created with expected labels")
-				device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
+				device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 				Expect(device).ToNot(BeNil())
 				Expect(device.Metadata.Labels).ToNot(BeNil())
