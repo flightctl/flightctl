@@ -18,13 +18,13 @@ import (
 type Store interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error)
-	Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, error)
+	Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]CountByResourceSyncOrgAndStatusResult, error)
 }
@@ -37,10 +37,9 @@ type CountByResourceSyncOrgAndStatusResult struct {
 }
 
 type ResourceSyncStore struct {
-	dbHandler           *gorm.DB
-	log                 logrus.FieldLogger
-	genericStore        *store.GenericStore[*model.ResourceSync, model.ResourceSync, domain.ResourceSync, domain.ResourceSyncList]
-	eventCallbackCaller store.EventCallbackCaller
+	dbHandler    *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *store.GenericStore[*model.ResourceSync, model.ResourceSync, domain.ResourceSync, domain.ResourceSyncList]
 }
 
 // Make sure we conform to the Store interface
@@ -54,7 +53,7 @@ func NewResourceSyncStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.ResourceSync).ToApiResource,
 		model.ResourceSyncsToApiResource,
 	)
-	return &ResourceSyncStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: store.CallEventCallback(domain.ResourceSyncKind, log)}
+	return &ResourceSyncStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
 func (s *ResourceSyncStore) getDB(ctx context.Context) *gorm.DB {
@@ -97,22 +96,16 @@ func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
-	rs, err := s.genericStore.Create(ctx, orgId, resource)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, rs, true, err)
-	return rs, err
+func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, error) {
+	return s.genericStore.Create(ctx, orgId, resource)
 }
 
-func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
-	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, err)
-	return newRs, err
+func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
+	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
 }
 
-func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, bool, error) {
-	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, err)
-	return newRs, created, err
+func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
@@ -123,7 +116,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
 	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.Take(&existingRecord)
@@ -139,9 +132,6 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
-	if err == nil && callbackEvent != nil {
-		s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, err)
-	}
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil
@@ -152,24 +142,18 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	return nil
 }
 
-func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
-	// Get the old resource to compare conditions
+func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
 	var oldResourceSync *domain.ResourceSync
 	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
 	if err == nil && existingResource != nil {
 		oldResourceSync = existingResource
 	}
 
-	// Update the status
 	newResourceSync, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	if err != nil {
-		return newResourceSync, err
+		return nil, oldResourceSync, err
 	}
-
-	// Call the event callback to emit condition-specific events
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldResourceSync, newResourceSync, false, err)
-
-	return newResourceSync, err
+	return newResourceSync, oldResourceSync, nil
 }
 
 func (s *ResourceSyncStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
