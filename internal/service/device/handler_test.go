@@ -71,10 +71,10 @@ func TestCreateDevice(t *testing.T) {
 		_, status := CreateDeviceFromUntrusted(ctx, svc, orgId, device)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Nil(t, st.device.devices["untrusted"].Metadata.Owner)
-		require.Nil(t, st.device.devices["untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(st.device.devices["untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller CreateDevice (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateDevice (trusted) should preserve owner and set generation to 1", func(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
@@ -90,7 +90,18 @@ func TestCreateDevice(t *testing.T) {
 		_, status := svc.CreateDevice(ctx, orgId, device)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Equal(t, "Fleet/f1", lo.FromPtr(st.device.devices["trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(st.device.devices["trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(st.device.devices["trusted"].Metadata.Generation))
+	})
+
+	t.Run("When creating a device it should set generation to 1 on the store input", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("gen-create")},
+			Spec:     &domain.DeviceSpec{},
+		}
+		_, status := svc.CreateDevice(context.Background(), uuid.New(), device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+		require.Equal(t, int64(1), lo.FromPtr(st.device.devices["gen-create"].Metadata.Generation))
 	})
 }
 
@@ -175,10 +186,10 @@ func TestReplaceDevice(t *testing.T) {
 		_, status := ReplaceDeviceFromUntrusted(ctx, svc, orgId, "replace-untrusted", device, nil, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Nil(t, st.device.devices["replace-untrusted"].Metadata.Owner)
-		require.Nil(t, st.device.devices["replace-untrusted"].Metadata.Generation)
+		require.Equal(t, int64(1), lo.FromPtr(st.device.devices["replace-untrusted"].Metadata.Generation))
 	})
 
-	t.Run("When managed metadata fields are set by the caller ReplaceDevice (trusted) should preserve them", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller ReplaceDevice (trusted) should preserve owner and set generation to 1 on create", func(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
@@ -194,7 +205,41 @@ func TestReplaceDevice(t *testing.T) {
 		_, status := svc.ReplaceDevice(ctx, orgId, "replace-trusted", device, nil, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.Equal(t, "Fleet/f1", lo.FromPtr(st.device.devices["replace-trusted"].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(st.device.devices["replace-trusted"].Metadata.Generation))
+		require.Equal(t, int64(1), lo.FromPtr(st.device.devices["replace-trusted"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with a changed spec it should bump generation", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		st.device.devices["foo"] = &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo"), Generation: lo.ToPtr(int64(2))},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img:1"}},
+		}
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img:2"}},
+		}
+		_, status := svc.ReplaceDevice(ctx, orgId, "foo", device, nil, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, int64(3), lo.FromPtr(st.device.devices["foo"].Metadata.Generation))
+	})
+
+	t.Run("When replacing with the same spec it should keep generation", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		st.device.devices["foo"] = &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo"), Generation: lo.ToPtr(int64(2))},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img:1"}},
+		}
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img:1"}},
+		}
+		_, status := svc.ReplaceDevice(ctx, orgId, "foo", device, nil, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, int64(2), lo.FromPtr(st.device.devices["foo"].Metadata.Generation))
 	})
 
 	t.Run("When replacing an already-decommissioning device it should return conflict", func(t *testing.T) {

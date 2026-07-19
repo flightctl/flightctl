@@ -96,6 +96,7 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 
 	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
 
+	setGenerationOnCreate(&device.Metadata)
 	result, err := h.deviceStore.Create(ctx, orgId, &device)
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
@@ -238,26 +239,40 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	existing, getErr := h.deviceStore.Get(ctx, orgId, name)
-	if getErr != nil {
-		if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-			return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
+	var result, oldDevice *domain.Device
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
 		}
-	} else {
-		if err := rejectIfAlreadyDecommissioning(existing); err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-		}
-		if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
-			if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		if existing != nil {
+			if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+				return err
+			}
+			if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+				if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
+					return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+				}
 			}
 		}
-	}
 
-	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
+		toWrite := device
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+		}
+		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
 
-	result, oldDevice, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, err)
+		var writeErr error
+		result, oldDevice, created, writeErr = h.deviceStore.CreateOrUpdate(ctx, orgId, &toWrite, fieldsToUnset)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, created, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -274,19 +289,26 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	existing, err := h.deviceStore.Get(ctx, orgId, name)
-	if err != nil {
-		return nil, err
-	}
-	if err := rejectIfAlreadyDecommissioning(existing); err != nil {
-		return nil, err
-	}
-
-	_ = UpdateServiceSideStatus(ctx, orgId, &device, h.fleets, h.log)
-
+	var result, oldDevice *domain.Device
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
-	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+			return err
+		}
+
+		toWrite := device
+		setGenerationOnUpdate(existing, &toWrite)
+		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
+
+		var writeErr error
+		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, fieldsToUnset)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
+		return writeErr
+	})
 	return result, err
 }
 
@@ -403,10 +425,23 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	_ = UpdateServiceSideStatus(ctx, orgId, newObj, h.fleets, h.log)
-
-	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
+	var result, oldDevice *domain.Device
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+			return err
+		}
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
+		var writeErr error
+		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, nil)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -516,10 +551,28 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		}
 	}
 
-	_ = UpdateServiceSideStatus(ctx, orgId, newObj, h.fleets, h.log)
-
-	result, oldDevice, err := h.deviceStore.Update(ctx, orgId, newObj, nil)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
+	var result, oldDevice *domain.Device
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+			return err
+		}
+		if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+			if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(newObj.Spec)) {
+				return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+			}
+		}
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		_ = UpdateServiceSideStatus(ctx, orgId, &toWrite, h.fleets, h.log)
+		var writeErr error
+		result, oldDevice, writeErr = h.deviceStore.Update(ctx, orgId, &toWrite, nil)
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, writeErr)
+		return writeErr
+	})
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
