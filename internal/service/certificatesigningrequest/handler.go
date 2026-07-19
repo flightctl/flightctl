@@ -256,6 +256,27 @@ func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, orgId
 	return result, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 }
 
+// UpdateCertificateSigningRequestConditions merges condition updates into the
+// CSR status. When nothing changes, the update is skipped.
+func (h *ServiceHandler) UpdateCertificateSigningRequestConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
+	err := common.RetryOnNoRowsUpdated(func() error {
+		csr, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		var existing []domain.Condition
+		if csr.Status != nil {
+			existing = csr.Status.Conditions
+		}
+		merged, changed := common.MergeStatusConditions(existing, conditions)
+		if !changed {
+			return nil
+		}
+		return h.store.UpdateConditions(ctx, orgId, name, merged)
+	})
+	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+}
+
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err != nil {

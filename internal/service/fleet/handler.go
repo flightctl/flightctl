@@ -194,8 +194,24 @@ func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context, orgId u
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, nil)
 }
 
+// UpdateFleetConditions merges condition updates into the fleet status. When
+// nothing changes, the update is skipped.
 func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	err := h.store.UpdateConditions(ctx, orgId, name, conditions, h.callbackFleetUpdated)
+	err := common.RetryOnNoRowsUpdated(func() error {
+		fleet, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		var existing []domain.Condition
+		if fleet.Status != nil {
+			existing = fleet.Status.Conditions
+		}
+		merged, changed := common.MergeStatusConditions(existing, conditions)
+		if !changed {
+			return nil
+		}
+		return h.store.UpdateConditions(ctx, orgId, name, merged, h.callbackFleetUpdated)
+	})
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

@@ -600,12 +600,38 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
+// serviceConditionsFromDevice returns SpecValid / MultipleOwners conditions from
+// Status.Conditions (agent and service conditions are stored separately but
+// exposed together by Get).
+func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	var out []domain.Condition
+	for _, c := range device.Status.Conditions {
+		if c.Type.IsServiceConditionType() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// SetDeviceServiceConditions merges condition updates into the device's service
+// conditions and persists the result (including when the merge is a no-op).
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
 		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
 	}
 
-	err := h.deviceStore.SetServiceConditions(ctx, orgId, name, conditions, callback)
+	err := common.RetryOnNoRowsUpdated(func() error {
+		device, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		existing := serviceConditionsFromDevice(device)
+		merged, _ := common.MergeStatusConditions(existing, conditions)
+		return h.deviceStore.SetServiceConditions(ctx, orgId, name, merged, callback)
+	})
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
