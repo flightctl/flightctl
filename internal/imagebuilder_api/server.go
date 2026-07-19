@@ -26,7 +26,10 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -51,8 +54,8 @@ type Server struct {
 	cfg               *config.Config
 	imageBuilderStore imagebuilderstore.Store
 	db                *gorm.DB
-	catalogStore      catalogstore.Store
-	organizationStore organizationstore.Store
+	catalogSvc        catalogservice.Service
+	organizationSvc   organizationservice.Service
 	authProviderStore authproviderstore.Store
 	eventsSvc         events.Service
 	kvStore           kvstore.KVStore
@@ -91,15 +94,18 @@ func New(
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
 	organizationStore := organizationstore.NewOrganizationStore(db)
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
+	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
+	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
-	svc := service.NewService(ctx, cfg, imageBuilderStore, catalogStore, repositoryStore, eventsSvc, queueProducer, kvStore, log)
+	svc := service.NewService(ctx, cfg, imageBuilderStore, catalogSvc, repositorySvc, eventsSvc, queueProducer, kvStore, log)
 	return &Server{
 		log:               log,
 		cfg:               cfg,
 		imageBuilderStore: imageBuilderStore,
 		db:                db,
-		catalogStore:      catalogStore,
-		organizationStore: organizationStore,
+		catalogSvc:        catalogSvc,
+		organizationSvc:   organizationSvc,
 		authProviderStore: authProviderStore,
 		eventsSvc:         eventsSvc,
 		kvStore:           kvStore,
@@ -185,8 +191,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware (same as api_server)
-	orgProvisioner := internalservice.NewOrgProvisioner(s.catalogStore, s.log)
-	identityMapper := internalservice.NewIdentityMapper(s.organizationStore, orgProvisioner, s.log)
+	orgProvisioner := internalservice.NewOrgProvisioner(s.catalogSvc, s.log)
+	identityMapper := internalservice.NewIdentityMapper(s.organizationSvc, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)

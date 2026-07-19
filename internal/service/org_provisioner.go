@@ -2,11 +2,10 @@ package service
 
 import (
 	"context"
-	"errors"
+	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -17,20 +16,27 @@ type OrgProvisionerInterface interface {
 	EnsureDefaults(ctx context.Context, orgs []*model.Organization)
 }
 
+// CatalogDefaults is the catalog.Service surface OrgProvisioner needs.
+// Defined here so package service does not import internal/service/catalog.
+type CatalogDefaults interface {
+	GetCatalog(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status)
+	CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status)
+}
+
 // OrgProvisioner ensures that default resources exist for every organization.
 // It is called by IdentityMapper only when new organizations are created,
 // so each org is provisioned at most once per identity-mapper cache TTL.
 type OrgProvisioner struct {
-	catalogStore catalogstore.Store
-	log          logrus.FieldLogger
+	catalogs CatalogDefaults
+	log      logrus.FieldLogger
 }
 
 // Ensure OrgProvisioner satisfies the interface.
 var _ OrgProvisionerInterface = (*OrgProvisioner)(nil)
 
 // NewOrgProvisioner creates a new OrgProvisioner.
-func NewOrgProvisioner(catalogStore catalogstore.Store, log logrus.FieldLogger) *OrgProvisioner {
-	return &OrgProvisioner{catalogStore: catalogStore, log: log}
+func NewOrgProvisioner(catalogs CatalogDefaults, log logrus.FieldLogger) *OrgProvisioner {
+	return &OrgProvisioner{catalogs: catalogs, log: log}
 }
 
 // EnsureDefaults creates default resources for the given newly-created organizations.
@@ -44,18 +50,18 @@ func (p *OrgProvisioner) EnsureDefaults(ctx context.Context, orgs []*model.Organ
 
 // ensureDefaultCatalog creates the default catalog for the org if it does not yet exist.
 func (p *OrgProvisioner) ensureDefaultCatalog(ctx context.Context, orgID uuid.UUID) {
-	_, err := p.catalogStore.Get(ctx, orgID, domain.DefaultCatalogName)
-	if err == nil {
+	_, status := p.catalogs.GetCatalog(ctx, orgID, domain.DefaultCatalogName)
+	if status.Code == http.StatusOK {
 		return
 	}
-	if !errors.Is(err, flterrors.ErrResourceNotFound) {
-		p.log.WithError(err).Errorf("Failed to check default catalog for org %s", orgID)
+	if status.Code != http.StatusNotFound {
+		p.log.WithError(common.ApiStatusToErr(status)).Errorf("Failed to check default catalog for org %s", orgID)
 		return
 	}
 
 	displayName := domain.DefaultCatalogDisplayName
 	name := domain.DefaultCatalogName
-	_, err = p.catalogStore.Create(ctx, orgID, &domain.Catalog{
+	_, status = p.catalogs.CreateCatalog(ctx, orgID, domain.Catalog{
 		Metadata: domain.ObjectMeta{
 			Name: &name,
 		},
@@ -63,7 +69,7 @@ func (p *OrgProvisioner) ensureDefaultCatalog(ctx context.Context, orgID uuid.UU
 			DisplayName: &displayName,
 		},
 	})
-	if err != nil {
+	if err := common.ApiStatusToErr(status); err != nil {
 		p.log.WithError(err).Errorf("Failed to create default catalog for org %s", orgID)
 	}
 }

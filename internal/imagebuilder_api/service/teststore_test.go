@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -432,6 +433,11 @@ func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name st
 	var result domain.Repository
 	deepCopy(repo, &result)
 	return &result, nil
+}
+
+func (s *DummyRepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
+	result, err := s.Get(ctx, orgId, name)
+	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
 func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.RepositoryList, error) {
