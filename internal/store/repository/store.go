@@ -15,13 +15,13 @@ import (
 type Store interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error)
-	Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error)
+	Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.RepositoryList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error)
 
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error)
 	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, error)
@@ -32,10 +32,9 @@ type Store interface {
 }
 
 type RepositoryStore struct {
-	dbHandler           *gorm.DB
-	log                 logrus.FieldLogger
-	genericStore        *store.GenericStore[*model.Repository, model.Repository, domain.Repository, domain.RepositoryList]
-	eventCallbackCaller store.EventCallbackCaller
+	dbHandler    *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *store.GenericStore[*model.Repository, model.Repository, domain.Repository, domain.RepositoryList]
 }
 
 // Make sure we conform to the Store interface
@@ -49,7 +48,7 @@ func NewRepositoryStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.Repository).ToApiResource,
 		model.RepositoriesToApiResource,
 	)
-	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: store.CallEventCallback(domain.RepositoryKind, log)}
+	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
 func (s *RepositoryStore) getDB(ctx context.Context) *gorm.DB {
@@ -92,23 +91,16 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
-	repo, err := s.genericStore.Create(ctx, orgId, resource)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, repo, true, err)
-	return repo, err
+func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, error) {
+	return s.genericStore.Create(ctx, orgId, resource)
 }
 
-func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
-	newRepo, oldRepo, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, false, err)
-	return newRepo, err
+func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
+	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, bool, error) {
-	newRepo, oldRepo, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, created, err)
-
-	return newRepo, created, err
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
@@ -129,11 +121,8 @@ func (s *RepositoryStore) ListIgnoreOrg(ctx context.Context) ([]model.Repository
 	return repositories, nil
 }
 
-func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
-	deleted, err := s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}})
-	if deleted && eventCallback != nil {
-		s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, nil)
-	}
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+	_, err := s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}})
 	return err
 }
 
@@ -148,24 +137,18 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	return &repository, nil
 }
 
-func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
-	// Get the old resource to compare conditions
+func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	var oldRepository *domain.Repository
 	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
 	if err == nil && existingResource != nil {
 		oldRepository = existingResource
 	}
 
-	// Update the status
 	newRepo, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	if err != nil {
-		return newRepo, err
+		return nil, oldRepository, err
 	}
-
-	// Call the event callback to emit condition-specific events
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepository, newRepo, false, err)
-
-	return newRepo, err
+	return newRepo, oldRepository, nil
 }
 
 func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {
