@@ -62,12 +62,6 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
-	decryptedSecret, _, err := encryption.Decrypt(context.Background(), encryption.Ciphertext(spec.ClientSecret))
-	if err != nil {
-		return nil, fmt.Errorf("decrypt clientSecret: %w", err)
-	}
-	spec.ClientSecret = string(decryptedSecret)
-
 	// Convert organization assignment to org config
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
@@ -136,6 +130,14 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	}
 
 	return oauth2Auth, nil
+}
+
+func (o *OAuth2Auth) decryptClientSecret(ctx context.Context) (string, error) {
+	plaintext, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(o.spec.ClientSecret))
+	if err != nil {
+		return "", fmt.Errorf("decrypt clientSecret: %w", err)
+	}
+	return string(plaintext), nil
 }
 
 func (o *OAuth2Auth) IsEnabled() bool {
@@ -431,7 +433,11 @@ func (o *OAuth2Auth) introspectRFC7662(ctx context.Context, token string, spec a
 	}
 
 	// RFC 7662 requires client authentication via Basic Auth
-	req.SetBasicAuth(o.spec.ClientId, o.spec.ClientSecret)
+	plainSecret, err := o.decryptClientSecret(ctx)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(o.spec.ClientId, plainSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
@@ -485,7 +491,11 @@ func (o *OAuth2Auth) introspectGitHub(ctx context.Context, token string, spec ap
 	}
 
 	// GitHub requires Basic Auth with client ID and secret
-	req.SetBasicAuth(o.spec.ClientId, o.spec.ClientSecret)
+	plainSecret, err := o.decryptClientSecret(ctx)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(o.spec.ClientId, plainSecret)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 

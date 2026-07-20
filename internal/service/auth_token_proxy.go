@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 )
 
 // cacheEntry holds a cached token endpoint with its expiration time
@@ -284,6 +285,14 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 
 // proxyTokenRequest makes an HTTP request to the provider's token endpoint
 func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *ProviderConfig, clientId string, clientSecret string, tokenReq *domain.TokenRequest) (*ProxyResult, error) {
+	if clientSecret != "" {
+		plaintext, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(clientSecret))
+		if err != nil {
+			return nil, fmt.Errorf("decrypt clientSecret: %w", err)
+		}
+		clientSecret = string(plaintext)
+	}
+
 	// Prepare form data
 	formData := url.Values{}
 	formData.Set("grant_type", string(tokenReq.GrantType))

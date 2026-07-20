@@ -14,7 +14,6 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/samber/lo"
@@ -51,13 +50,6 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
-
-	decryptedSecret, _, err := encryption.Decrypt(context.Background(), encryption.Ciphertext(*spec.ClientSecret))
-	if err != nil {
-		return nil, fmt.Errorf("decrypt clientSecret: %w", err)
-	}
-	decryptedStr := string(decryptedSecret)
-	spec.ClientSecret = &decryptedStr
 
 	if spec.ClusterControlPlaneUrl == nil || *spec.ClusterControlPlaneUrl == "" {
 		return nil, fmt.Errorf("clusterControlPlaneUrl is required")

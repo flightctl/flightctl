@@ -13,14 +13,13 @@ import (
 // This registry is used by the GORM encryption plugin to know how to encrypt each model.
 func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 	return map[string]encryption.ModelEncryptHandler{
-		"Repository":   encryptRepository,
-		"AuthProvider": encryptAuthProvider,
+		domain.RepositoryKind:   encryptRepository,
+		domain.AuthProviderKind: encryptAuthProvider,
 	}
 }
 
 // repositoryEncryptPaths lists the sensitive fields in the Repository Spec JSONB
-// that must be encrypted at rest. These match the fields redacted by HideSensitiveData
-// in api/core/v1beta1/util.go.
+// that must be encrypted at rest.
 // Each entry is a slice of JSON key segments (e.g. {"httpConfig", "tls.key"}).
 var repositoryEncryptPaths = [][]string{
 	{"httpConfig", "password"},
