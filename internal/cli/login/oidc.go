@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/openshift/osincli"
 )
 
@@ -49,7 +50,10 @@ func (o *OIDC) SetInsecureSkipVerify(insecureSkipVerify bool) {
 }
 
 func (o *OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
-	discoveryUrl := fmt.Sprintf("%s/.well-known/openid-configuration", o.Spec.Issuer)
+	discoveryUrl, err := authprovider.DiscoveryURL(o.Spec.Issuer)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OIDC issuer URL: %w", err)
+	}
 	oidcDiscovery, err := getOIDCDiscoveryConfig(discoveryUrl, o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
 		return nil, err
@@ -63,7 +67,10 @@ func (o *OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
 	if o.Metadata.Name == nil {
 		return nil, fmt.Errorf("provider name is required")
 	}
-	tokenProxyURL := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	tokenProxyURL, err := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	config := &osincli.ClientConfig{
 		ClientId:                 o.Spec.ClientId,
@@ -114,7 +121,10 @@ func (o *OIDC) Auth() (AuthInfo, error) {
 }
 
 func (o *OIDC) authPasswordFlow() (AuthInfo, error) {
-	discoveryUrl := fmt.Sprintf("%s/.well-known/openid-configuration", o.Spec.Issuer)
+	discoveryUrl, err := authprovider.DiscoveryURL(o.Spec.Issuer)
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("invalid OIDC issuer URL: %w", err)
+	}
 	oidcDiscovery, err := getOIDCDiscoveryConfig(discoveryUrl, o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
 		return AuthInfo{}, err

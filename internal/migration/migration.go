@@ -137,7 +137,10 @@ func customizeMigration(ctx context.Context, tx *gorm.DB) error {
 		}
 	}
 
-	return backfillDefaultCatalogs(ctx, tx)
+	if err := backfillDefaultCatalogs(ctx, tx); err != nil {
+		return err
+	}
+	return normalizeAuthProviderURLs(ctx, tx)
 }
 
 // backfillDefaultCatalogs creates a default catalog for every organization that has no
