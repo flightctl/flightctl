@@ -36,6 +36,15 @@ const (
 	// DefaultEnrollmentVerifyInterval is the default initial interval between checks for
 	// enrollment approval while the agent waits to be enrolled.
 	DefaultEnrollmentVerifyInterval = util.Duration(10 * time.Second)
+	// DefaultEnrollmentVerifyCap is the default maximum interval the enrollment-verify
+	// backoff can grow to (see agent.go's enrollment backoff).
+	DefaultEnrollmentVerifyCap = util.Duration(90 * time.Second)
+	// DefaultEnrollmentVerifySteps is the default number of enrollment-verify backoff
+	// steps attempted before the agent gives up waiting for enrollment approval and
+	// lets systemd restart it (see agent.go's enrollment backoff). Sized together
+	// with DefaultEnrollmentVerifyCap so the total wait comfortably exceeds realistic
+	// enrollment-approval latency regardless of EnrollmentVerifyInterval.
+	DefaultEnrollmentVerifySteps = 11
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
@@ -102,6 +111,13 @@ type Config struct {
 	// EnrollmentVerifyInterval is the initial interval between checks for enrollment
 	// approval. Retries back off from this value (see agent.go's enrollment backoff).
 	EnrollmentVerifyInterval util.Duration `json:"enrollment-verify-interval,omitempty"`
+	// EnrollmentVerifyCap is the maximum interval the enrollment-verify backoff can
+	// grow to (see agent.go's enrollment backoff).
+	EnrollmentVerifyCap util.Duration `json:"enrollment-verify-cap,omitempty"`
+	// EnrollmentVerifySteps is the number of enrollment-verify backoff steps
+	// attempted before the agent gives up waiting for enrollment approval and lets
+	// systemd restart it (see agent.go's enrollment backoff).
+	EnrollmentVerifySteps int `json:"enrollment-verify-steps,omitempty"`
 
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
@@ -213,6 +229,8 @@ func NewDefault() *Config {
 		StatusUpdateInterval:     DefaultStatusUpdateInterval,
 		SpecFetchInterval:        DefaultSpecFetchInterval,
 		EnrollmentVerifyInterval: DefaultEnrollmentVerifyInterval,
+		EnrollmentVerifyCap:      DefaultEnrollmentVerifyCap,
+		EnrollmentVerifySteps:    DefaultEnrollmentVerifySteps,
 		readWriter:               fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
 		LogLevel:                 logrus.InfoLevel.String(),
 		DefaultLabels:            make(map[string]string),
@@ -477,6 +495,12 @@ func (cfg *Config) validateSyncIntervals() error {
 	}
 	if cfg.EnrollmentVerifyInterval < MinSyncInterval {
 		return fmt.Errorf("minimum enrollment verify interval is %s have %s", MinSyncInterval, cfg.EnrollmentVerifyInterval)
+	}
+	if cfg.EnrollmentVerifyCap < MinSyncInterval {
+		return fmt.Errorf("minimum enrollment verify cap is %s have %s", MinSyncInterval, cfg.EnrollmentVerifyCap)
+	}
+	if cfg.EnrollmentVerifySteps < 1 {
+		return fmt.Errorf("minimum enrollment verify steps is 1 have %d", cfg.EnrollmentVerifySteps)
 	}
 	return nil
 }

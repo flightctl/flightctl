@@ -154,17 +154,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Cap/Steps are sized so the total wait before giving up (and letting systemd's
 	// Restart=always respawn the whole bootstrap, including a fresh CSR) comfortably
 	// exceeds any realistic enrollment-approval latency, regardless of
-	// EnrollmentVerifyInterval. With the old Cap=1m/Steps=6, a short interval (e.g.
-	// e2e's 2s) exhausts the whole backoff in ~41s: on a freshly booted device that
-	// nothing has approved yet, that's fast enough to trigger 1-2 extra full agent
-	// restarts within the device's first couple of boot-minutes, needlessly repeating
-	// CSR/identity/TPM setup while the device is also busy with other first-boot work
-	// (e.g. an SSH daemon completing its own startup).
+	// EnrollmentVerifyInterval. With too small a Cap/Steps, a short interval (e.g.
+	// e2e's 2s) can exhaust the whole backoff in under a minute: on a freshly booted
+	// device that nothing has approved yet, that's fast enough to trigger extra full
+	// agent restarts within the device's first couple of boot-minutes, needlessly
+	// repeating CSR/identity/TPM setup while the device is also busy with other
+	// first-boot work (e.g. an SSH daemon completing its own startup).
 	backoff := wait.Backoff{
-		Cap:      90 * time.Second,
+		Cap:      time.Duration(a.config.EnrollmentVerifyCap),
 		Duration: time.Duration(a.config.EnrollmentVerifyInterval),
 		Factor:   1.5,
-		Steps:    11,
+		Steps:    a.config.EnrollmentVerifySteps,
 	}
 
 	pollBackoff := poll.Config{
