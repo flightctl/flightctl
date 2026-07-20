@@ -958,7 +958,7 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 			if applyErr := h.deviceStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, outcome); applyErr != nil {
 				return applyErr
 			}
-			wasConflictPaused = outcome.WasConflictPaused
+			wasConflictPaused = outcome.ConflictPaused
 			return nil
 		})
 		if err != nil {

@@ -56,8 +56,7 @@ func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *strin
 	}
 
 	return true, devicestore.AwaitingReconnectOutcome{
-		WasConflictPaused:     willBeConflictPaused,
-		SetConflictPaused:     willBeConflictPaused,
+		ConflictPaused:        willBeConflictPaused,
 		SummaryStatus:         summaryStatus,
 		SummaryInfo:           infoMessage,
 		UpdatedStatus:         updatedStatus,
