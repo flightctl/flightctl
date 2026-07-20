@@ -4,10 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -16,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chromedp/chromedp"
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -26,34 +31,39 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/net/html"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	keycloakTestUser             = "testuser"
-	keycloakTestPass             = "testpass"
-	keycloakDuplicateName        = "keycloak-e2e-duplicate"
-	keycloakLifecycleName        = "keycloak-e2e-lifecycle"
-	keycloakLifecycleClientID    = "flightctl-client-lifecycle"
-	keycloakOAuth2ProviderName   = "keycloak-oauth2-e2e"
-	keycloakOAuth2ClientID       = "flightctl-oauth2-client"
-	defaultOrganizationName      = "default"
-	defaultAdminRole             = "flightctl-admin"
-	openshiftDefaultUsername     = "kubeadmin"
-	pamDefaultUsername           = "admin"
-	pamDefaultPassword           = "flightctl-e2e"
-	defaultCypressLoginScript    = "cypress/run-provider-login-cypress.sh"
-	providerVisibilityArg        = "--show-providers"
-	loginInsecureTLSArg          = "--insecure-skip-tls-verify"
-	aapConfigSkipMessage         = "AAP quadlet tests require AAP_API_URL and either AAP_CLIENT_ID or AAP_TOKEN"
-	aapCredentialSkipMessage     = "AAP browser login requires AAP_USERNAME and AAP_PASSWORD"
-	openshiftPasswordMessage     = "OPENSHIFT_PASSWORD or KUBEADMIN_PASS must be set for OpenShift browser login"
-	duplicateOIDCErrorSubstring  = "same issuer and clientId already exists"
-	loginURLTimeout              = 30 * time.Second
-	chromedpTimeout              = 60 * time.Second
-	loginFlowTimeout             = 2 * time.Minute
-	authProviderLifecycleTimeout = 30 * time.Second
-	authProviderPollingInterval  = 2 * time.Second
+	keycloakTestUser               = "testuser"
+	keycloakTestPass               = "testpass"
+	keycloakDuplicateName          = "keycloak-e2e-duplicate"
+	keycloakLifecycleName          = "keycloak-e2e-lifecycle"
+	keycloakLifecycleClientID      = "flightctl-client-lifecycle"
+	keycloakOAuth2ProviderName     = "keycloak-oauth2-e2e"
+	keycloakOAuth2ClientID         = "flightctl-oauth2-client"
+	keycloakAccountAudience        = "account"
+	defaultOrganizationName        = "default"
+	defaultAdminRole               = "flightctl-admin"
+	openshiftDefaultUsername       = "kubeadmin"
+	pamDefaultUsername             = "admin"
+	pamDefaultPassword             = "flightctl-e2e"
+	defaultCypressLoginScript      = "cypress/run-provider-login-cypress.sh"
+	providerVisibilityArg          = "--show-providers"
+	loginInsecureTLSArg            = "--insecure-skip-tls-verify"
+	aapConfigSkipMessage           = "AAP quadlet tests require AAP_API_URL and either AAP_CLIENT_ID or AAP_TOKEN"
+	aapCredentialSkipMessage       = "AAP browser login requires AAP_USERNAME and AAP_PASSWORD"
+	openshiftPasswordMessage       = "OPENSHIFT_PASSWORD or KUBEADMIN_PASS must be set for OpenShift browser login"
+	duplicateOIDCErrorSubstring    = "same issuer and clientId already exists"
+	cypressMissingSubstring        = "Cypress is not installed"
+	cypressInstallMissingSubstring = "Cypress install completed, but"
+	npmMissingSubstring            = "npm is not available"
+	npmErrorSubstring              = "npm error"
+	loginFlowTimeout               = 5 * time.Minute
+	loginFormHTTPTimeout           = loginFlowTimeout
+	authProviderLifecycleTimeout   = 30 * time.Second
+	authProviderPollingInterval    = 2 * time.Second
 )
 
 var loginURLRe = regexp.MustCompile(`(?:Opening login URL in default browser|Please open this URL in your browser):\s*(.+)`)
@@ -96,21 +106,8 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("starting a Keycloak-backed browser login flow from the CLI")
 			apiEndpoint := harness.ApiEndpoint()
-			authURL, done, err := runLoginCLIWithURL(ctx, harness, apiEndpoint)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(authURL).ToNot(BeEmpty())
-
-			By("completing the Keycloak login form in a headless browser")
-			err = fillKeycloakLoginForm(ctx, authURL, keycloakTestUser, keycloakTestPass)
-			Expect(err).ToNot(HaveOccurred(), "chromedp Keycloak login form fill failed")
-
-			By("waiting for the CLI callback to complete the login")
-			select {
-			case waitErr := <-done:
-				Expect(waitErr).ToNot(HaveOccurred(), "CLI login process should exit successfully")
-			case <-ctx.Done():
-				Fail("CLI login did not complete within timeout")
-			}
+			err := runProviderBrowserLoginFlowWithAuthRateRetry(ctx, harness, apiEndpoint, keycloakAuthProviderName, keycloakTestUser, keycloakTestPass)
+			Expect(err).ToNot(HaveOccurred(), "Keycloak browser login should complete successfully")
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -214,21 +211,8 @@ var _ = Describe("Auth provider browser login", func() {
 				Should(BeTrue(), "OAuth2 provider must appear in login --show-providers")
 
 			By("starting an OAuth2 browser login flow from the CLI")
-			authURL, done, err := runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(authURL).ToNot(BeEmpty())
-
-			By("completing the Keycloak login form for the OAuth2 provider")
-			err = fillKeycloakLoginForm(ctx, authURL, keycloakTestUser, keycloakTestPass)
-			Expect(err).ToNot(HaveOccurred(), "chromedp Keycloak login form fill failed for OAuth2 provider")
-
-			By("waiting for the CLI callback to complete the OAuth2 login")
-			select {
-			case waitErr := <-done:
-				Expect(waitErr).ToNot(HaveOccurred(), "CLI OAuth2 login process should exit successfully")
-			case <-ctx.Done():
-				Fail("CLI OAuth2 login did not complete within timeout")
-			}
+			err = runProviderBrowserLoginFlowWithAuthRateRetry(ctx, harness, apiEndpoint, keycloakOAuth2ProviderName, keycloakTestUser, keycloakTestPass)
+			Expect(err).ToNot(HaveOccurred(), "Keycloak OAuth2 browser login should complete successfully")
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err = harness.RunGetDevices()
@@ -263,7 +247,7 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the OpenShift browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)).To(Succeed())
+			Expect(runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, scenario)).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -281,7 +265,7 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the bundled PAM browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, pamBrowserScenario())).To(Succeed())
+			Expect(runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, pamBrowserScenario())).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -317,7 +301,7 @@ var _ = Describe("Auth provider browser login", func() {
 
 			By("logging in through the AAP browser flow")
 			apiEndpoint := harness.ApiEndpoint()
-			Expect(runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)).To(Succeed())
+			Expect(runLoginWithCypressHarnessOrSkip(ctx, harness, apiEndpoint, scenario)).To(Succeed())
 
 			By("calling the devices API through the logged-in CLI session")
 			out, err := harness.RunGetDevices()
@@ -719,9 +703,33 @@ func runLoginWithCypressHarness(ctx context.Context, harness *e2e.Harness, apiEn
 		logrus.Infof("[authprovider] cypress login output:\n%s", string(out))
 	}
 	if err != nil {
+		if len(out) > 0 {
+			return fmt.Errorf("run cypress login helper %q for %s: %w\n%s", scriptPath, scenario.name, err, string(out))
+		}
 		return fmt.Errorf("run cypress login helper %q for %s: %w", scriptPath, scenario.name, err)
 	}
 	return nil
+}
+
+// runLoginWithCypressHarnessOrSkip runs the Cypress harness and skips when browser test dependencies are unavailable.
+func runLoginWithCypressHarnessOrSkip(ctx context.Context, harness *e2e.Harness, apiEndpoint string, scenario browserLoginScenario) error {
+	err := runLoginWithCypressHarness(ctx, harness, apiEndpoint, scenario)
+	if isCypressUnavailableError(err) {
+		Skip(err.Error())
+	}
+	return err
+}
+
+// isCypressUnavailableError reports whether the suite-local browser helper cannot run because Cypress and npm are unavailable.
+func isCypressUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, cypressMissingSubstring) &&
+		(strings.Contains(errText, npmMissingSubstring) ||
+			strings.Contains(errText, cypressInstallMissingSubstring) ||
+			strings.Contains(errText, npmErrorSubstring))
 }
 
 // runProviderLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the given provider.
@@ -737,12 +745,17 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 	if strings.TrimSpace(providerName) == "" {
 		return "", nil, fmt.Errorf("provider name is required")
 	}
+	callbackPort, err := harness.GetFreeLocalPort()
+	if err != nil {
+		return "", nil, fmt.Errorf("reserve callback port for provider %s: %w", providerName, err)
+	}
 
 	args := []string{
 		"login", apiEndpoint,
 		"--insecure-skip-tls-verify",
 		"--provider", providerName,
 		"--web", "--no-browser",
+		"--callback-port", strconv.Itoa(callbackPort),
 	}
 	flightctlPath := harness.GetFlightctlPath()
 	logrus.Infof("[authprovider] provider login command for %s: %s %s (env: API_ENDPOINT=%s)", providerName, flightctlPath, strings.Join(args, " "), apiEndpoint)
@@ -755,48 +768,66 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 	}
 	stderrPipe, pipeErr := cmd.StderrPipe()
 	if pipeErr != nil {
+		_ = stdoutPipe.Close()
+		if stdoutWriter, ok := cmd.Stdout.(io.Closer); ok {
+			_ = stdoutWriter.Close()
+		}
+		cmd.Stdout = nil
 		return "", nil, pipeErr
 	}
 
 	if err = cmd.Start(); err != nil {
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
 		return "", nil, err
 	}
-
-	doneCh := make(chan error, 1)
-	go func() {
-		doneCh <- cmd.Wait()
-		close(doneCh)
-	}()
 
 	var copyWg sync.WaitGroup
 	copyWg.Add(2)
 	var stderrBuf bytes.Buffer
 	go func() {
 		defer copyWg.Done()
-		_, _ = io.Copy(&stderrBuf, stderrPipe)
+		if _, copyErr := io.Copy(&stderrBuf, stderrPipe); copyErr != nil {
+			logrus.Warnf("[authprovider] failed to capture login command stderr: %v", copyErr)
+		}
 	}()
 
 	var stdoutBuf bytes.Buffer
 	urlCh := make(chan string, 1)
 	go func() {
 		defer copyWg.Done()
+		urlSent := false
 		scanner := bufio.NewScanner(io.TeeReader(stdoutPipe, &stdoutBuf))
 		for scanner.Scan() {
 			line := scanner.Text()
-			if match := loginURLRe.FindStringSubmatch(line); len(match) > 1 {
+			if match := loginURLRe.FindStringSubmatch(line); !urlSent && len(match) > 1 {
 				urlCh <- strings.TrimSpace(match[1])
-				return
+				urlSent = true
 			}
 		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			logrus.Warnf("[authprovider] failed to scan login command stdout: %v", scanErr)
+		}
+	}()
+
+	doneCh := make(chan error, 1)
+	go func() {
+		waitErr := cmd.Wait()
+		copyWg.Wait()
+		if waitErr != nil {
+			waitErr = loginCommandErrorWithOutput(waitErr, stdoutBuf.String(), stderrBuf.String())
+		}
+		doneCh <- waitErr
+		close(doneCh)
 	}()
 
 	logCommandError := func(what string, err error) {
 		logrus.Errorf("[authprovider] %s: %v", what, err)
 		if stderrBuf.Len() > 0 {
-			logrus.Errorf("[authprovider] login command stderr:\n%s", stderrBuf.String())
+			logrus.Errorf("[authprovider] login command stderr:\n%s", redactAuthProviderCredentials(stderrBuf.String()))
 		}
 		if stdoutBuf.Len() > 0 {
-			logrus.Errorf("[authprovider] login command stdout:\n%s", stdoutBuf.String())
+			logrus.Errorf("[authprovider] login command stdout:\n%s", redactAuthProviderCredentials(stdoutBuf.String()))
 		}
 	}
 
@@ -820,16 +851,60 @@ func runProviderLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEn
 		_ = cmd.Process.Kill()
 		_, _, e := waitPipesThenLog("login command failed (context cancelled)", ctx.Err())
 		return "", nil, e
-	case <-time.After(loginURLTimeout):
+	case <-time.After(loginFlowTimeout):
 		_ = cmd.Process.Kill()
 		_, _, e := waitPipesThenLog("timeout waiting for login URL", fmt.Errorf("timeout waiting for login URL"))
 		return "", nil, e
 	}
 }
 
-// runLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the bootstrap Keycloak OIDC provider.
-func runLoginCLIWithURL(ctx context.Context, harness *e2e.Harness, apiEndpoint string) (authURL string, done <-chan error, err error) {
-	return runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, keycloakAuthProviderName)
+// loginCommandErrorWithOutput wraps a login command error with sanitized captured output.
+func loginCommandErrorWithOutput(err error, stdout, stderr string) error {
+	return fmt.Errorf("login command failed: %w\nstdout:\n%s\nstderr:\n%s", err, redactAuthProviderCredentials(stdout), redactAuthProviderCredentials(stderr))
+}
+
+// runProviderBrowserLoginFlowWithAuthRateRetry completes a browser login and retries once after an auth rate-limit reset.
+func runProviderBrowserLoginFlowWithAuthRateRetry(ctx context.Context, harness *e2e.Harness, apiEndpoint, providerName, username, password string) error {
+	err := runProviderBrowserLoginFlow(ctx, harness, apiEndpoint, providerName, username, password)
+	if !isLoginRateLimitError(err) {
+		return err
+	}
+	logrus.Infof("[authprovider] login hit API auth rate limit; restarting API once before retry")
+	if resetErr := restartAPIForAuthRateLimitReset(); resetErr != nil {
+		return fmt.Errorf("reset auth rate limit after browser login failure: %w; original error: %v", resetErr, err)
+	}
+	return runProviderBrowserLoginFlow(ctx, harness, apiEndpoint, providerName, username, password)
+}
+
+// runProviderBrowserLoginFlow starts the CLI web flow, submits the auth form, and waits for callback completion.
+func runProviderBrowserLoginFlow(ctx context.Context, harness *e2e.Harness, apiEndpoint, providerName, username, password string) error {
+	authURL, done, err := runProviderLoginCLIWithURL(ctx, harness, apiEndpoint, providerName)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(authURL) == "" {
+		return fmt.Errorf("provider %s login did not print an auth URL", providerName)
+	}
+	if err := submitAuthLoginForm(ctx, authURL, username, password); err != nil {
+		return fmt.Errorf("submit auth login form for provider %s: %w", providerName, err)
+	}
+	return waitForProviderLoginDone(ctx, done, providerName)
+}
+
+// waitForProviderLoginDone waits for the CLI login process to finish.
+func waitForProviderLoginDone(ctx context.Context, done <-chan error, providerName string) error {
+	if done == nil {
+		return fmt.Errorf("provider %s login completion channel is nil", providerName)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("provider %s login command did not complete successfully: %w", providerName, err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("provider %s login did not complete within timeout: %w", providerName, ctx.Err())
+	}
 }
 
 func sanitizeCommandArgsForLog(args []string, password string) []string {
@@ -859,50 +934,390 @@ func sanitizeCommandArgsForLog(args []string, password string) []string {
 	return sanitizedArgs
 }
 
-// fillKeycloakLoginForm uses chromedp to navigate to the auth URL, fill username/password, and submit.
-func fillKeycloakLoginForm(ctx context.Context, authURL, username, password string) error {
-	headless := os.Getenv("E2E_HEADED") == ""
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", headless),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-	)
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
-	defer cancelAlloc()
+type loginForm struct {
+	action string
+	method string
+	values url.Values
+}
 
-	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
-	defer cancelBrowser()
+// submitAuthLoginForm submits a username/password login form and follows the OAuth redirect to the CLI callback.
+func submitAuthLoginForm(ctx context.Context, authURL, username, password string) error {
+	if strings.TrimSpace(authURL) == "" {
+		return fmt.Errorf("auth URL is required")
+	}
+	if strings.TrimSpace(username) == "" {
+		return fmt.Errorf("username is required")
+	}
+	if password == "" {
+		return fmt.Errorf("password is required")
+	}
 
-	browserCtx, cancelTimeout := context.WithTimeout(browserCtx, chromedpTimeout)
-	defer cancelTimeout()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return fmt.Errorf("create login form cookie jar: %w", err)
+	}
+	transport := &http.Transport{
+		Proxy: nil,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // E2E follows self-signed local auth endpoints.
+			MinVersion:         tls.VersionTLS12,
+		},
+	}
+	configureLocalBrowserDial(authURL, transport)
+	httpClient := &http.Client{
+		Jar:       jar,
+		Transport: transport,
+		Timeout:   loginFormHTTPTimeout,
+	}
 
-	logrus.Infof("[authprovider] chromedp navigating to Keycloak login (headless=%v): %s", headless, authURL)
-	return chromedp.Run(browserCtx,
-		chromedp.Navigate(authURL),
-		chromedp.WaitReady("body", chromedp.ByQuery),
-		chromedp.WaitVisible(`#username`, chromedp.ByQuery),
-		chromedp.SendKeys(`#username`, username, chromedp.ByQuery),
-		chromedp.SendKeys(`#password`, password, chromedp.ByQuery),
-		chromedp.Click(`#kc-login`, chromedp.ByQuery),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			tick := time.NewTicker(100 * time.Millisecond)
-			defer tick.Stop()
-			for {
-				var loc string
-				if err := chromedp.Location(&loc).Do(ctx); err != nil {
-					return err
-				}
-				if strings.Contains(loc, "/callback") {
-					return nil
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-tick.C:
-				}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
+	if err != nil {
+		return fmt.Errorf("create login form request: %w", err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("get login form %s: %w", sanitizedAuthURLForLog(authURL), err)
+	}
+	defer resp.Body.Close()
+	if strings.Contains(resp.Request.URL.Path, "/callback") {
+		return nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read login form response: %w", err)
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("login form request returned %d from %s: %s", resp.StatusCode, sanitizedAuthURLForLog(resp.Request.URL.String()), loginFormResponseSnippet(body, username, password))
+	}
+
+	form, err := parseLoginForm(bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("parse login form from %s: %w; response snippet: %s", sanitizedAuthURLForLog(resp.Request.URL.String()), err, loginFormResponseSnippet(body, username, password))
+	}
+
+	formURL, err := resolveLoginFormAction(resp.Request.URL, form.action)
+	if err != nil {
+		return fmt.Errorf("resolve login form action: %w", err)
+	}
+	if err := validateLoginFormTarget(resp.Request.URL, formURL); err != nil {
+		return err
+	}
+	form.values.Set("username", username)
+	form.values.Set("password", password)
+
+	method := strings.ToUpper(strings.TrimSpace(form.method))
+	if method == "" {
+		method = http.MethodPost
+	}
+	if method != http.MethodPost {
+		return fmt.Errorf("unsupported login form method %q", method)
+	}
+
+	logrus.Infof("[authprovider] submitting auth login form: %s", sanitizedAuthURLForLog(formURL.String()))
+	postReq, err := http.NewRequestWithContext(ctx, method, formURL.String(), strings.NewReader(form.values.Encode()))
+	if err != nil {
+		return fmt.Errorf("create login form submit request: %w", err)
+	}
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.Header.Set("Referer", resp.Request.URL.String())
+
+	submitResp, err := httpClient.Do(postReq)
+	if err != nil {
+		return fmt.Errorf("submit login form %s: %w", sanitizedAuthURLForLog(formURL.String()), err)
+	}
+	defer submitResp.Body.Close()
+
+	body, err = io.ReadAll(submitResp.Body)
+	if err != nil {
+		return fmt.Errorf("read login form submit response: %w", err)
+	}
+	if submitResp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("login form submit returned %d: %s", submitResp.StatusCode, redactAuthProviderCredentials(string(body), username, password))
+	}
+	if !strings.Contains(submitResp.Request.URL.Path, "/callback") {
+		redirectURL, ok, err := loginRedirectFromBody(formURL, body)
+		if err != nil {
+			return fmt.Errorf("parse login redirect response: %w", err)
+		}
+		if ok {
+			if err := validateLoginFormTarget(formURL, redirectURL); err != nil {
+				return err
 			}
-		}),
-	)
+			redirectReq, err := http.NewRequestWithContext(ctx, http.MethodGet, redirectURL.String(), nil)
+			if err != nil {
+				return fmt.Errorf("create post-login redirect request: %w", err)
+			}
+			redirectResp, err := httpClient.Do(redirectReq)
+			if err != nil {
+				return fmt.Errorf("follow post-login redirect %s: %w", sanitizedAuthURLForLog(redirectURL.String()), err)
+			}
+			defer redirectResp.Body.Close()
+			if redirectResp.StatusCode >= http.StatusBadRequest {
+				body, readErr := io.ReadAll(redirectResp.Body)
+				if readErr != nil {
+					return fmt.Errorf("read post-login redirect response: %w", readErr)
+				}
+				return fmt.Errorf("post-login redirect returned %d: %s", redirectResp.StatusCode, redactAuthProviderCredentials(string(body), username, password))
+			}
+			if !strings.Contains(redirectResp.Request.URL.Path, "/callback") {
+				return fmt.Errorf("post-login redirect did not reach callback; final URL %s", sanitizedAuthURLForLog(redirectResp.Request.URL.String()))
+			}
+			return nil
+		}
+		if looksLikeLoginForm(body) {
+			return fmt.Errorf("login form submit did not reach callback; final URL %s still looks like a login page", sanitizedAuthURLForLog(submitResp.Request.URL.String()))
+		}
+	}
+	return nil
+}
+
+// configureLocalBrowserDial reaches host-mapped Keycloak ports locally without changing the browser URL origin.
+func configureLocalBrowserDial(authURL string, transport *http.Transport) {
+	if transport == nil {
+		return
+	}
+	parsed, err := url.Parse(strings.TrimSpace(authURL))
+	if err != nil {
+		return
+	}
+	if parsed.Port() == "" || isLoopbackHost(parsed.Hostname()) {
+		return
+	}
+	providerHost := parsed.Hostname()
+	providerPort := parsed.Port()
+	dialer := &net.Dialer{}
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err == nil && strings.EqualFold(host, providerHost) && port == providerPort {
+			return dialer.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", port))
+		}
+		return dialer.DialContext(ctx, network, address)
+	}
+	logrus.Infof("[authprovider] dialing provider auth host %s through local mapped port", sanitizedAuthURLForLog(authURL))
+}
+
+// isLoopbackHost reports whether host already points at the local test process.
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "", "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+// parseLoginForm returns the first form with username and password fields from an HTML document.
+func parseLoginForm(reader io.Reader) (*loginForm, error) {
+	doc, err := html.Parse(reader)
+	if err != nil {
+		return nil, fmt.Errorf("parse HTML: %w", err)
+	}
+	form := findLoginForm(doc)
+	if form == nil {
+		return nil, fmt.Errorf("login form with username and password fields was not found")
+	}
+	return form, nil
+}
+
+// findLoginForm walks an HTML tree and returns the first username/password form.
+func findLoginForm(node *html.Node) *loginForm {
+	if node == nil {
+		return nil
+	}
+	if node.Type == html.ElementNode && node.Data == "form" {
+		form := loginForm{
+			method: "POST",
+			values: url.Values{},
+		}
+		for _, attr := range node.Attr {
+			switch strings.ToLower(attr.Key) {
+			case "action":
+				form.action = attr.Val
+			case "method":
+				form.method = attr.Val
+			}
+		}
+		collectFormInputs(node, form.values)
+		usernameField := firstExistingFormField(form.values, "username", "user", "login", "email")
+		passwordField := firstExistingFormField(form.values, "password", "passwd")
+		if usernameField != "" && passwordField != "" {
+			normalizeLoginFormField(form.values, usernameField, "username")
+			normalizeLoginFormField(form.values, passwordField, "password")
+			return &form
+		}
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if form := findLoginForm(child); form != nil {
+			return form
+		}
+	}
+	return nil
+}
+
+// collectFormInputs adds named input default values to the form submission payload.
+func collectFormInputs(node *html.Node, values url.Values) {
+	if node == nil {
+		return
+	}
+	if node.Type == html.ElementNode && node.Data == "input" {
+		var name, id, value string
+		for _, attr := range node.Attr {
+			switch strings.ToLower(attr.Key) {
+			case "name":
+				name = attr.Val
+			case "id":
+				id = attr.Val
+			case "value":
+				value = attr.Val
+			}
+		}
+		if strings.TrimSpace(name) == "" {
+			name = id
+		}
+		if strings.TrimSpace(name) != "" {
+			values.Set(name, value)
+		}
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		collectFormInputs(child, values)
+	}
+}
+
+// resolveLoginFormAction resolves a form action URL relative to the page that served it.
+func resolveLoginFormAction(baseURL *url.URL, action string) (*url.URL, error) {
+	if baseURL == nil {
+		return nil, fmt.Errorf("base login URL is required")
+	}
+	if strings.TrimSpace(action) == "" {
+		if path.Base(baseURL.Path) == "authorize" {
+			parsedAction, err := url.Parse("login")
+			if err != nil {
+				return nil, fmt.Errorf("parse default PAM login action: %w", err)
+			}
+			return baseURL.ResolveReference(parsedAction), nil
+		}
+		return baseURL, nil
+	}
+	parsedAction, err := url.Parse(action)
+	if err != nil {
+		return nil, fmt.Errorf("parse action %q: %w", action, err)
+	}
+	return baseURL.ResolveReference(parsedAction), nil
+}
+
+// validateLoginFormTarget prevents the test helper from submitting credentials to a different origin than the provider page.
+func validateLoginFormTarget(pageURL, targetURL *url.URL) error {
+	if pageURL == nil {
+		return fmt.Errorf("login page URL is required")
+	}
+	if targetURL == nil {
+		return fmt.Errorf("login form target URL is required")
+	}
+	if !sameOrigin(pageURL, targetURL) {
+		return fmt.Errorf("login form target %s does not match provider origin %s", sanitizedAuthURLForLog(targetURL.String()), sanitizedAuthURLForLog(pageURL.String()))
+	}
+	return nil
+}
+
+// sameOrigin reports whether two URLs share scheme and host.
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
+}
+
+// loginRedirectFromBody returns the JavaScript-driven redirect URL emitted by the PAM login endpoint.
+func loginRedirectFromBody(baseURL *url.URL, body []byte) (*url.URL, bool, error) {
+	if baseURL == nil {
+		return nil, false, fmt.Errorf("base login URL is required")
+	}
+	redirectText := strings.TrimSpace(string(body))
+	if redirectText == "" {
+		return nil, false, nil
+	}
+	if !strings.HasPrefix(redirectText, "http://") &&
+		!strings.HasPrefix(redirectText, "https://") &&
+		!strings.HasPrefix(redirectText, "/") &&
+		!strings.HasPrefix(redirectText, "authorize?") {
+		return nil, false, nil
+	}
+	redirectURL, err := url.Parse(redirectText)
+	if err != nil {
+		return nil, false, fmt.Errorf("parse redirect URL %q: %w", sanitizedAuthURLForLog(redirectText), err)
+	}
+	return baseURL.ResolveReference(redirectURL), true, nil
+}
+
+// looksLikeLoginForm reports whether an HTML response still contains username and password fields.
+func looksLikeLoginForm(body []byte) bool {
+	return strings.Contains(string(body), `name="username"`) && strings.Contains(string(body), `name="password"`)
+}
+
+// firstExistingFormField returns the first requested form key present in values.
+func firstExistingFormField(values url.Values, candidates ...string) string {
+	for _, candidate := range candidates {
+		if _, ok := values[candidate]; ok {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// normalizeLoginFormField copies a provider-specific field name to the expected generic field name.
+func normalizeLoginFormField(values url.Values, from, to string) {
+	if from == to {
+		return
+	}
+	current := values.Get(from)
+	values.Del(from)
+	values.Set(to, current)
+}
+
+// loginFormResponseSnippet returns a short sanitized response body snippet for form parsing diagnostics.
+func loginFormResponseSnippet(body []byte, sensitiveValues ...string) string {
+	snippet := strings.TrimSpace(redactAuthProviderCredentials(string(body), sensitiveValues...))
+	snippet = strings.Join(strings.Fields(snippet), " ")
+	if len(snippet) > 500 {
+		return snippet[:500] + "..."
+	}
+	return snippet
+}
+
+// sanitizedAuthURLForLog returns the auth URL origin/path without OAuth query or fragment session data.
+func sanitizedAuthURLForLog(authURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(authURL))
+	if err != nil {
+		return "<invalid auth URL>"
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+// redactAuthProviderCredentials redacts credential-looking values from captured command output.
+func redactAuthProviderCredentials(output string, exactValues ...string) string {
+	if output == "" {
+		return ""
+	}
+
+	redacted := output
+	for _, value := range exactValues {
+		if strings.TrimSpace(value) != "" {
+			redacted = strings.ReplaceAll(redacted, value, "<REDACTED>")
+		}
+	}
+
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\b((?:[A-Z_]*USERNAME|[A-Z_]*PASSWORD|authProviderUsername|authProviderPassword)\b[[:space:]]*[:=][[:space:]]*)("[^"]*"|'[^']*'|[^[:space:]]+)`),
+		regexp.MustCompile(`(?i)([[:space:]]-[up][[:space:]]+)([^[:space:]]+)`),
+		regexp.MustCompile(`(?i)(--(?:username|password)(?:=|[[:space:]]+))([^[:space:]]+)`),
+		regexp.MustCompile(`(?i)([?&](?:access_token|code|id_token|nonce|refresh_token|session_state|state|token)=)([^&#[:space:]]+)`),
+	}
+	for _, pattern := range patterns {
+		redacted = pattern.ReplaceAllString(redacted, `${1}<REDACTED>`)
+	}
+	return redacted
 }
 
 // resolveCypressScriptPath resolves the configured Cypress harness path to an executable file.
@@ -972,6 +1387,7 @@ func buildKeycloakOAuth2AuthProviderYAML(name, issuerURL, clientID, clientSecret
 	authorizationURL := issuerURL + "/protocol/openid-connect/auth"
 	tokenURL := issuerURL + "/protocol/openid-connect/token"
 	userinfoURL := issuerURL + "/protocol/openid-connect/userinfo"
+	jwksURL := issuerURL + "/protocol/openid-connect/certs"
 
 	return fmt.Sprintf(`apiVersion: flightctl.io/v1beta1
 kind: AuthProvider
@@ -993,6 +1409,12 @@ spec:
     - email
   usernameClaim:
     - preferred_username
+  introspection:
+    type: jwt
+    jwksUrl: %s
+    audience:
+      - %s
+      - %s
   organizationAssignment:
     type: static
     organizationName: %s
@@ -1000,5 +1422,5 @@ spec:
     type: static
     roles:
       - %s
-`, name, name, issuerURL, authorizationURL, tokenURL, userinfoURL, clientID, clientSecret, defaultOrganizationName, defaultAdminRole)
+`, name, name, issuerURL, authorizationURL, tokenURL, userinfoURL, clientID, clientSecret, jwksURL, clientID, keycloakAccountAudience, defaultOrganizationName, defaultAdminRole)
 }
