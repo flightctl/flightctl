@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -828,6 +829,60 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(409)))
 			Expect(status.Message).To(Equal(flterrors.ErrResourceVersionConflict.Error()))
+		})
+
+		// Regression guard for the removed store-side decommission precondition (formerly
+		// SetPrePersistValidate + an inline check inside DecommissionDevice): concurrent
+		// decommission requests must still converge on exactly one winner, whether the loser
+		// is caught by the upfront check or only on a CAS-miss retry.
+		It("under concurrent decommission requests exactly one succeeds and the rest observe conflict", func() {
+			deviceName := "decom-device-race"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName), Owner: lo.ToPtr("Fleet/f1")},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			const numRacers = 5
+			statuses := make(chan domain.Status, numRacers)
+			var ready, start sync.WaitGroup
+			ready.Add(numRacers)
+			start.Add(1)
+			for i := 0; i < numRacers; i++ {
+				go func() {
+					ready.Done()
+					start.Wait()
+					_, st := suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+						Target: api.DeviceDecommissionTargetTypeUnenroll,
+					})
+					statuses <- st
+				}()
+			}
+			ready.Wait()
+			start.Done()
+
+			var successCount, conflictCount int
+			for i := 0; i < numRacers; i++ {
+				st := <-statuses
+				switch st.Code {
+				case int32(200):
+					successCount++
+				case int32(409):
+					conflictCount++
+					Expect(st.Message).To(Equal(flterrors.ErrResourceVersionConflict.Error()))
+				default:
+					Fail(fmt.Sprintf("unexpected status code %d from concurrent DecommissionDevice", st.Code))
+				}
+			}
+			Expect(successCount).To(Equal(1), "exactly one concurrent decommission should succeed")
+			Expect(conflictCount).To(Equal(numRacers-1), "every other concurrent decommission should observe a conflict")
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Decommissioning).ToNot(BeNil())
+			Expect(stored.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
+			Expect(stored.Metadata.Owner).To(BeNil())
 		})
 	})
 
