@@ -3,6 +3,7 @@ package restore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	orgmodel "github.com/flightctl/flightctl/internal/org/model"
@@ -31,43 +32,46 @@ func (s *RestoreStore) getDB(ctx context.Context) *gorm.DB {
 // PrepareDevicesAfterRestore persists awaiting-reconnect preparation for eligible
 // devices using caller-supplied product params. Clears lastSeen timestamps.
 func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params DeviceAwaitingReconnectPrepareParams) (int64, error) {
-	if len(params.ExcludedLifecycleStatuses) < 2 {
-		return 0, fmt.Errorf("excluded lifecycle statuses require at least two values")
+	if len(params.ExcludedLifecycleStatuses) == 0 {
+		return 0, fmt.Errorf("excluded lifecycle statuses must not be empty")
 	}
 
-	db := s.getDB(ctx)
+	args := []any{
+		params.AnnotationKey,
+		params.SummaryStatus,
+		params.SummaryInfo,
+	}
+	exclusionPlaceholders := make([]string, len(params.ExcludedLifecycleStatuses))
+	for i, status := range params.ExcludedLifecycleStatuses {
+		exclusionPlaceholders[i] = fmt.Sprintf("$%d", i+4)
+		args = append(args, status)
+	}
+	updatedStatusPlaceholder := fmt.Sprintf("$%d", len(params.ExcludedLifecycleStatuses)+4)
+	args = append(args, params.UpdatedStatus)
 
-	sql := `
+	sql := fmt.Sprintf(`
         WITH updated_devices AS (
 		UPDATE devices 
 		SET 
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
 			status = CASE 
 				WHEN status IS NOT NULL THEN 
-					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
+					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', %s::text))
 				ELSE 
-					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', %s::text))
 			END,
 			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE deleted_at IS NULL 
-			AND COALESCE(status->'lifecycle'->>'status', '') NOT IN ($4, $5)
+			AND COALESCE(status->'lifecycle'->>'status', '') NOT IN (%s)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
         RETURNING name, org_id)
         UPDATE device_timestamps dt
         SET last_seen = NULL
 		FROM updated_devices ud
 		WHERE dt.org_id = ud.org_id AND dt.name = ud.name
-	`
+	`, updatedStatusPlaceholder, updatedStatusPlaceholder, strings.Join(exclusionPlaceholders, ", "))
 
-	result := db.Exec(sql,
-		params.AnnotationKey,
-		params.SummaryStatus,
-		params.SummaryInfo,
-		params.ExcludedLifecycleStatuses[0],
-		params.ExcludedLifecycleStatuses[1],
-		params.UpdatedStatus,
-	)
-
+	result := s.getDB(ctx).Exec(sql, args...)
 	if result.Error != nil {
 		return 0, storeutil.ErrorFromGormError(result.Error)
 	}
