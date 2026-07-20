@@ -505,7 +505,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 		{
 			name: "When only lastRolloutError is present it should show the rollout error",
 			annotations: map[string]string{
-				domain.DeviceAnnotationTemplateVersion: "v1",
+				domain.DeviceAnnotationTemplateVersion:  "v1",
 				domain.DeviceAnnotationLastRolloutError: "failed replacing parameters in env var DNS_SERVER_DOMAIN",
 			},
 			conditions:      nil,
@@ -514,7 +514,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 		{
 			name: "When both lastRolloutError and DeviceUpdating error exist it should prefer rollout error",
 			annotations: map[string]string{
-				domain.DeviceAnnotationTemplateVersion: "v1",
+				domain.DeviceAnnotationTemplateVersion:  "v1",
 				domain.DeviceAnnotationLastRolloutError: "template rendering failure",
 			},
 			conditions: []domain.Condition{

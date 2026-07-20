@@ -247,25 +247,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			device.Status.Updated.Info = lo.ToPtr("Device was updated to the fleet's latest device spec.")
 		} else {
 			device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-
-			var errorMessage string
-			baseMessage := "Device could not be updated to the fleet's latest device spec"
-			if device.Metadata.Annotations != nil {
-				if lastRolloutError, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationLastRolloutError]; ok && lastRolloutError != "" {
-					errorMessage = fmt.Sprintf("%s: %s", baseMessage, lastRolloutError)
-				}
-			}
-			if errorMessage == "" {
-				if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
-					if updateCondition.Reason == string(domain.UpdateStateError) {
-						errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
-					}
-				}
-			}
-			if errorMessage == "" {
-				errorMessage = domain.DeviceOutOfSyncWithFleetText
-			}
-			device.Status.Updated.Info = lo.ToPtr(errorMessage)
+			device.Status.Updated.Info = lo.ToPtr(managedDeviceOutOfDateMessage(device))
 		}
 	} else {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUpToDate
@@ -281,6 +263,21 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 	}
 
 	return device.Status.Updated.Status != lastUpdateStatus || lo.FromPtr(device.Status.Updated.Info) != lastUpdateInfo
+}
+
+func managedDeviceOutOfDateMessage(device *domain.Device) string {
+	baseMessage := "Device could not be updated to the fleet's latest device spec"
+	if device.Metadata.Annotations != nil {
+		if lastRolloutError, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationLastRolloutError]; ok && lastRolloutError != "" {
+			return fmt.Sprintf("%s: %s", baseMessage, lastRolloutError)
+		}
+	}
+	if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+		if updateCondition.Reason == string(domain.UpdateStateError) {
+			return fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
+		}
+	}
+	return domain.DeviceOutOfSyncWithFleetText
 }
 
 func updateServerSideApplicationStatus(device *domain.Device) bool {
