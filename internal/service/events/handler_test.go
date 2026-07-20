@@ -78,6 +78,16 @@ func TestCreateEvent(t *testing.T) {
 		require.Len(t, fakeWorker.emitted, 1)
 	})
 
+	t.Run("When the event is created it should set generation to 1", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+		event := domain.GetBaseEvent(context.Background(), domain.DeviceKind, "dev1", domain.EventReasonResourceCreated, "created", nil)
+		h.CreateEvent(context.Background(), orgId, event)
+		require.Len(t, fakeStore.events, 1)
+		require.NotNil(t, fakeStore.events[0].Metadata.Generation)
+		require.Equal(t, int64(1), *fakeStore.events[0].Metadata.Generation)
+	})
+
 	t.Run("When the store fails it should not notify the worker client", func(t *testing.T) {
 		h, fakeStore, fakeWorker := newTestHandler()
 		fakeStore.createErr = errors.New("db down")

@@ -38,6 +38,7 @@ func NewEventFromApiResource(resource *domain.Event) (*Event, error) {
 		Resource: Resource{
 			Name:        *resource.Metadata.Name,
 			Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Generation:  resource.Metadata.Generation,
 		},
 		Reason:             string(resource.Reason),
 		SourceComponent:    resource.Source.Component,
@@ -71,6 +72,7 @@ func (e *Event) ToApiResource(opts ...APIResourceOption) (*domain.Event, error) 
 			Name:              lo.ToPtr(e.Name),
 			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			CreationTimestamp: lo.ToPtr(e.CreatedAt.UTC()),
+			Generation:        e.Generation,
 		},
 		InvolvedObject: domain.ObjectReference{
 			Kind: e.InvolvedObjectKind,

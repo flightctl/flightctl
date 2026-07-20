@@ -8,6 +8,7 @@ import (
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,6 +34,10 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 	if event == nil {
 		return
 	}
+
+	// Events are immutable and append-only, so generation is always 1 — no
+	// increment path exists, unlike resources with an update lifecycle.
+	event.Metadata.Generation = lo.ToPtr(int64(1))
 
 	err := h.store.Create(ctx, orgId, event)
 	if err != nil {
