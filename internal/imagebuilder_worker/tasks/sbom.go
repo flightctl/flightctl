@@ -213,7 +213,7 @@ func (c *Consumer) pushSBOMAsReferrer(
 	}
 	report([]byte("Starting SBOM push to destination registry\n"))
 
-	repoRef, err := oci.BuildOciRepoRef(ociSpec, destRef)
+	repoRef, err := oci.BuildOciRepoRef(ctx, ociSpec, destRef)
 	if err != nil {
 		return fmt.Errorf("failed to configure OCI repository reference: %w", err)
 	}

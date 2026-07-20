@@ -324,7 +324,7 @@ func (h *ServiceHandler) resolveOciRepoRef(ctx context.Context, orgId uuid.UUID,
 	ociSpec := &ociSpecVal
 
 	fullRef := strings.TrimRight(ociSpec.Registry, "/") + "/" + strings.TrimLeft(imageName, "/")
-	repoRef, err := oci.BuildOciRepoRef(ociSpec, fullRef)
+	repoRef, err := oci.BuildOciRepoRef(ctx, ociSpec, fullRef)
 	if err != nil {
 		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid repository reference %q: %v", fullRef, err))
 	}

@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -16,13 +18,13 @@ import (
 // and a full reference string (e.g. "registry.example.com/my-image").
 // It sets up TLS, credentials, and HTTP scheme based on the spec.
 // Callers that push artifacts should also set repoRef.SkipReferrersGC = true.
-func BuildOciRepoRef(ociSpec *domain.OciRepoSpec, ref string) (*remote.Repository, error) {
+func BuildOciRepoRef(ctx context.Context, ociSpec *domain.OciRepoSpec, ref string) (*remote.Repository, error) {
 	repoRef, err := remote.NewRepository(ref)
 	if err != nil {
 		return nil, fmt.Errorf("create repository reference: %w", err)
 	}
 
-	authClient, err := newOCIAuthClient(ociSpec)
+	authClient, err := newOCIAuthClient(ctx, ociSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +67,7 @@ func BuildOciTLSConfig(ociSpec *domain.OciRepoSpec) (*tls.Config, error) {
 // newOCIAuthClient builds an auth.Client from an OciRepoSpec.
 // A custom HTTP transport is only attached when TLS settings are non-default,
 // so callers that do not configure TLS options get the default transport.
-func newOCIAuthClient(ociSpec *domain.OciRepoSpec) (*auth.Client, error) {
+func newOCIAuthClient(ctx context.Context, ociSpec *domain.OciRepoSpec) (*auth.Client, error) {
 	authClient := &auth.Client{}
 
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
@@ -104,9 +106,13 @@ func newOCIAuthClient(ociSpec *domain.OciRepoSpec) (*auth.Client, error) {
 			return nil, fmt.Errorf("failed to parse OCI authentication: %w", err)
 		}
 		if dockerAuth.Username != "" && dockerAuth.Password != "" {
+			decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrypt OCI password: %w", err)
+			}
 			authClient.Credential = auth.StaticCredential(ociSpec.Registry, auth.Credential{
 				Username: dockerAuth.Username,
-				Password: dockerAuth.Password,
+				Password: string(decryptedPassword),
 			})
 		}
 	}

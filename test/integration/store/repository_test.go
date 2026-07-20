@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -24,6 +25,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
+
+// decryptString decrypts an encrypted string field value and asserts it was actually encrypted.
+func decryptString(val string) string {
+	plaintext, wasEncrypted, err := encryption.Decrypt(context.Background(), encryption.Ciphertext(val))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(wasEncrypted).To(BeTrue(), "expected value to be encrypted but got plaintext: %s", val)
+	return string(plaintext)
+}
 
 func newOciAuth(username, password string) *api.OciAuth {
 	auth := &api.OciAuth{}
@@ -390,7 +399,7 @@ var _ = Describe("RepositoryStore create", func() {
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dockerAuth.Username).To(Equal("myuser"))
-			Expect(dockerAuth.Password).To(Equal("mypassword"))
+			Expect(decryptString(dockerAuth.Password)).To(Equal("mypassword"))
 		})
 
 		It("Create OCI repository without credentials (public registry)", func() {
@@ -530,7 +539,7 @@ var _ = Describe("RepositoryStore create", func() {
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dockerAuth.Username).To(Equal("testuser"))
-			Expect(dockerAuth.Password).To(Equal("testpass"))
+			Expect(decryptString(dockerAuth.Password)).To(Equal("testpass"))
 		})
 
 		It("List OCI repositories with combined type and accessMode FieldSelector", func() {
@@ -667,9 +676,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(gitSpec.Url).To(Equal("git@github.com:flightctl/flightctl.git"))
 			Expect(gitSpec.Type).To(Equal(api.GitRepoSpecTypeGit))
 			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(decryptString(*gitSpec.SshConfig.SshPrivateKey)).To(Equal(privateKey))
 			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+			Expect(decryptString(*gitSpec.SshConfig.PrivateKeyPassphrase)).To(Equal(passphrase))
 		})
 
 		It("Create SSH repository without passphrase", func() {
@@ -702,7 +711,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gitSpec.Url).To(Equal("git@gitlab.com:myorg/myrepo.git"))
 			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(decryptString(*gitSpec.SshConfig.SshPrivateKey)).To(Equal(privateKey))
 			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).To(BeNil())
 		})
 
@@ -740,9 +749,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(gitSpec.Url).To(Equal("git@github.com:testorg/testrepo.git"))
 			Expect(gitSpec.Type).To(Equal(api.GitRepoSpecTypeGit))
 			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(decryptString(*gitSpec.SshConfig.SshPrivateKey)).To(Equal(privateKey))
 			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+			Expect(decryptString(*gitSpec.SshConfig.PrivateKeyPassphrase)).To(Equal(passphrase))
 		})
 
 		It("Update SSH repository", func() {
@@ -791,9 +800,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gitSpec.Url).To(Equal("git@github.com:updated/repo.git"))
 			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(newPrivateKey))
+			Expect(decryptString(*gitSpec.SshConfig.SshPrivateKey)).To(Equal(newPrivateKey))
 			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(newPassphrase))
+			Expect(decryptString(*gitSpec.SshConfig.PrivateKeyPassphrase)).To(Equal(newPassphrase))
 		})
 
 		It("Delete SSH repository", func() {
@@ -872,7 +881,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
 			Expect(*httpSpec.HttpConfig.Username).To(Equal(username))
 			Expect(httpSpec.HttpConfig.Password).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.Password).To(Equal(password))
+			Expect(decryptString(*httpSpec.HttpConfig.Password)).To(Equal(password))
 		})
 
 		It("Create HTTP repository with token", func() {
@@ -905,7 +914,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/flightctl/flightctl.git"))
 			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.Token).To(Equal(token))
+			Expect(decryptString(*httpSpec.HttpConfig.Token)).To(Equal(token))
 			Expect(httpSpec.HttpConfig.Username).To(BeNil())
 			Expect(httpSpec.HttpConfig.Password).To(BeNil())
 		})
@@ -946,9 +955,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(httpSpec.HttpConfig.CaCrt).ToNot(BeNil())
 			Expect(*httpSpec.HttpConfig.CaCrt).To(Equal(caCrt))
 			Expect(httpSpec.HttpConfig.TlsCrt).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.TlsCrt).To(Equal(tlsCrt))
+			Expect(decryptString(*httpSpec.HttpConfig.TlsCrt)).To(Equal(tlsCrt))
 			Expect(httpSpec.HttpConfig.TlsKey).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.TlsKey).To(Equal(tlsKey))
+			Expect(decryptString(*httpSpec.HttpConfig.TlsKey)).To(Equal(tlsKey))
 		})
 
 		It("Create HTTP repository with skipServerVerification", func() {
@@ -1024,7 +1033,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
 			Expect(*httpSpec.HttpConfig.Username).To(Equal(username))
 			Expect(httpSpec.HttpConfig.Password).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.Password).To(Equal(password))
+			Expect(decryptString(*httpSpec.HttpConfig.Password)).To(Equal(password))
 		})
 
 		It("Update HTTP repository", func() {
@@ -1071,7 +1080,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/updated/repo.git"))
 			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
-			Expect(*httpSpec.HttpConfig.Token).To(Equal(newToken))
+			Expect(decryptString(*httpSpec.HttpConfig.Token)).To(Equal(newToken))
 		})
 
 		It("Delete HTTP repository", func() {

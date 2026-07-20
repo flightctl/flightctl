@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,15 +12,50 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
+
+func TestMain(m *testing.M) {
+	log := logrus.StandardLogger()
+	dir, err := os.MkdirTemp("", "oci-test-encryption-*")
+	if err != nil {
+		log.Fatalf("creating temp encryption dir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	keyPath := filepath.Join(dir, "key")
+	key, err := crypto.GenerateAES256Key()
+	if err != nil {
+		log.Fatalf("generating test encryption key: %v", err)
+	}
+	if err := os.WriteFile(keyPath, []byte(key), 0600); err != nil {
+		log.Fatalf("writing test encryption key: %v", err)
+	}
+
+	cfg := config.NewDefault()
+	cfg.Encryption = &config.EncryptionConfig{
+		Keys:        []config.EncryptionKeyConfig{{ID: "default", Path: keyPath}},
+		ActiveKeyID: "default",
+	}
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing test encryption: %v", err)
+	}
+
+	os.Exit(m.Run())
+}
 
 func generateTestCACertPEM(t *testing.T) string {
 	t.Helper()
@@ -44,7 +80,7 @@ func generateTestCACertPEM(t *testing.T) string {
 // authClientFrom extracts the *auth.Client from a BuildOciRepoRef result.
 func authClientFrom(t *testing.T, ociSpec *coredomain.OciRepoSpec) *auth.Client {
 	t.Helper()
-	repoRef, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
+	repoRef, err := BuildOciRepoRef(context.Background(), ociSpec, ociSpec.Registry+"/test-image")
 	require.NoError(t, err)
 	client, ok := repoRef.Client.(*auth.Client)
 	require.True(t, ok, "repoRef.Client must be *auth.Client")
@@ -148,7 +184,7 @@ func TestBuildOciRepoRef_InvalidBase64CaCrt(t *testing.T) {
 		CaCrt:    &invalid,
 	}
 
-	_, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
+	_, err := BuildOciRepoRef(context.Background(), ociSpec, ociSpec.Registry+"/test-image")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode CA certificate")
 }
@@ -171,7 +207,7 @@ func TestBuildOciRepoRef_PlainHTTP(t *testing.T) {
 		Scheme:   lo.ToPtr(coredomain.OciRepoSchemeHttp),
 	}
 
-	repoRef, err := BuildOciRepoRef(ociSpec, ociSpec.Registry+"/test-image")
+	repoRef, err := BuildOciRepoRef(context.Background(), ociSpec, ociSpec.Registry+"/test-image")
 	require.NoError(t, err)
 	require.True(t, repoRef.PlainHTTP)
 }

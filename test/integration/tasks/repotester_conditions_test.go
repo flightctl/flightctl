@@ -34,7 +34,7 @@ import (
 type MockRepoTester struct {
 }
 
-func (r *MockRepoTester) TestAccess(repository *api.Repository) error {
+func (r *MockRepoTester) TestAccess(_ context.Context, repository *api.Repository) error {
 	if repository.Metadata.Labels == nil {
 		return errors.New("fail")
 	}
