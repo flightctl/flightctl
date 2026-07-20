@@ -920,23 +920,15 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 			if getErr != nil {
 				return getErr
 			}
-			decision := decideAwaitingReconnect(device, deviceReportedVersion)
-			if !decision.Apply {
+			apply, outcome := decideAwaitingReconnect(device, deviceReportedVersion)
+			if !apply {
 				wasConflictPaused = false
 				return nil
 			}
-			applyErr := h.deviceStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     decision.WasConflictPaused,
-				SummaryStatus:         decision.SummaryStatus,
-				SummaryInfo:           decision.SummaryInfo,
-				UpdatedStatus:         decision.UpdatedStatus,
-				ConfigRenderedVersion: decision.ConfigRenderedVersion,
-				SetConflictPaused:     decision.SetConflictPaused,
-			})
-			if applyErr != nil {
+			if applyErr := h.deviceStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, outcome); applyErr != nil {
 				return applyErr
 			}
-			wasConflictPaused = decision.WasConflictPaused
+			wasConflictPaused = outcome.WasConflictPaused
 			return nil
 		})
 		if err != nil {

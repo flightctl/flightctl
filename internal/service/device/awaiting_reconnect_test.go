@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -15,19 +16,20 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 		name                  string
 		annotations           map[string]string
 		deviceReportedVersion *string
-		want                  awaitingReconnectDecision
+		wantApply             bool
+		wantOutcome           devicestore.AwaitingReconnectOutcome
 	}{
 		{
 			name:        "When the device has no awaiting reconnect annotation it should not apply",
 			annotations: map[string]string{},
-			want:        awaitingReconnectDecision{Apply: false},
+			wantApply:   false,
 		},
 		{
 			name: "When awaiting reconnect annotation is false it should not apply",
 			annotations: map[string]string{
 				domain.DeviceAnnotationAwaitingReconnect: "false",
 			},
-			want: awaitingReconnectDecision{Apply: false},
+			wantApply: false,
 		},
 		{
 			name: "When device version is less than or equal to service version it should clear awaiting reconnect as online",
@@ -36,8 +38,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "5",
 			},
 			deviceReportedVersion: lo.ToPtr("3"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     false,
 				SetConflictPaused:     false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
@@ -53,8 +55,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "5",
 			},
 			deviceReportedVersion: lo.ToPtr("5"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     false,
 				SetConflictPaused:     false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
@@ -70,8 +72,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "3",
 			},
 			deviceReportedVersion: lo.ToPtr("5"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     true,
 				SetConflictPaused:     true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
@@ -87,8 +89,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "5",
 			},
 			deviceReportedVersion: nil,
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     false,
 				SetConflictPaused:     false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
@@ -104,8 +106,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "5",
 			},
 			deviceReportedVersion: lo.ToPtr(""),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     false,
 				SetConflictPaused:     false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
@@ -121,8 +123,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "5",
 			},
 			deviceReportedVersion: lo.ToPtr("invalid"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     false,
 				SetConflictPaused:     false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
@@ -138,8 +140,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "invalid",
 			},
 			deviceReportedVersion: lo.ToPtr("1"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     true,
 				SetConflictPaused:     true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
@@ -154,8 +156,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationAwaitingReconnect: "true",
 			},
 			deviceReportedVersion: lo.ToPtr("1"),
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     true,
 				SetConflictPaused:     true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
@@ -171,8 +173,8 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 				domain.DeviceAnnotationRenderedVersion:   "-1",
 			},
 			deviceReportedVersion: nil,
-			want: awaitingReconnectDecision{
-				Apply:                 true,
+			wantApply:             true,
+			wantOutcome: devicestore.AwaitingReconnectOutcome{
 				WasConflictPaused:     true,
 				SetConflictPaused:     true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
@@ -191,8 +193,9 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 					Annotations: lo.ToPtr(tt.annotations),
 				},
 			}
-			got := decideAwaitingReconnect(device, tt.deviceReportedVersion)
-			require.Equal(t, tt.want, got)
+			gotApply, gotOutcome := decideAwaitingReconnect(device, tt.deviceReportedVersion)
+			require.Equal(t, tt.wantApply, gotApply)
+			require.Equal(t, tt.wantOutcome, gotOutcome)
 		})
 	}
 }

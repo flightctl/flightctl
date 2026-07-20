@@ -5,30 +5,20 @@ import (
 	"strconv"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
 
-// awaitingReconnectDecision is the pure product outcome of processing
-// AwaitingReconnect for one device and an agent-reported rendered version.
-type awaitingReconnectDecision struct {
-	Apply                 bool
-	WasConflictPaused     bool
-	SummaryStatus         string
-	SummaryInfo           string
-	UpdatedStatus         string
-	ConfigRenderedVersion string
-	SetConflictPaused     bool
-}
-
 // decideAwaitingReconnect computes whether and how to clear AwaitingReconnect
 // based on the device's annotations and the agent-reported rendered version.
 // Parse failures are treated as version 0 to preserve historical behavior.
-func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *string) awaitingReconnectDecision {
+// When apply is false, outcome is zero-valued and must not be persisted.
+func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *string) (apply bool, outcome devicestore.AwaitingReconnectOutcome) {
 	annotations := util.EnsureMap(lo.FromPtr(device.Metadata.Annotations))
 	waitingAnnotation, hasWaitingAnnotation := annotations[domain.DeviceAnnotationAwaitingReconnect]
 	if !hasWaitingAnnotation || waitingAnnotation != "true" {
-		return awaitingReconnectDecision{Apply: false}
+		return false, devicestore.AwaitingReconnectOutcome{}
 	}
 
 	deviceVersion := parseVersionOrZero(deviceReportedVersion)
@@ -64,8 +54,7 @@ func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *strin
 		configRenderedVersion = *deviceReportedVersion
 	}
 
-	return awaitingReconnectDecision{
-		Apply:                 true,
+	return true, devicestore.AwaitingReconnectOutcome{
 		WasConflictPaused:     willBeConflictPaused,
 		SetConflictPaused:     willBeConflictPaused,
 		SummaryStatus:         summaryStatus,
