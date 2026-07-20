@@ -145,7 +145,7 @@ var _ = Describe("VmApplicationRender", func() {
 			WithVmConverter(vmConverter)
 		Expect(logic.RenderDevice(ctx)).To(Succeed())
 
-		rendered, err := deviceStore.GetRendered(ctx, orgId, deviceName, nil, "")
+		rendered, err := deviceStore.GetRendered(ctx, orgId, deviceName, "")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(rendered.Spec).ToNot(BeNil())
 		Expect(rendered.Spec.Applications).ToNot(BeNil())
