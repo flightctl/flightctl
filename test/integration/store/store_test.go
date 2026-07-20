@@ -280,5 +280,44 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("would share issuer"))
 		})
+
+		It("When two providers differ only by host case, migration should fail on collision", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			for _, nameIssuer := range []struct {
+				name   string
+				issuer string
+			}{
+				{name: "oidc-lower", issuer: "https://idp.example.com"},
+				{name: "oidc-upper", issuer: "https://IdP.Example.COM"},
+			} {
+				spec := domain.AuthProviderSpec{}
+				Expect(spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+					ProviderType: domain.Oidc,
+					Issuer:       nameIssuer.issuer,
+					ClientId:     "same-client",
+				})).To(Succeed())
+				Expect(db.Create(&model.AuthProvider{
+					Resource: model.Resource{OrgID: orgID, Name: nameIssuer.name},
+					Spec:     model.MakeJSONField(spec),
+				}).Error).To(Succeed())
+			}
+
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("would share issuer"))
+		})
 	})
 })

@@ -46,6 +46,7 @@ func TestDiscoveryURL(t *testing.T) {
 		{"no trailing slash", "https://example.com", "https://example.com/.well-known/openid-configuration", false},
 		{"trailing slash no double slash", "https://example.com/", "https://example.com/.well-known/openid-configuration", false},
 		{"with path", "https://example.com/oidc", "https://example.com/oidc/.well-known/openid-configuration", false},
+		{"mixed case issuer", "HTTPS://IdP.Example.COM/OIDC/", "https://idp.example.com/oidc/.well-known/openid-configuration", false},
 		{"empty", "", "", true},
 	}
 	for _, tt := range tests {
