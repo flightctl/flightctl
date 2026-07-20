@@ -98,6 +98,7 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	// Don't set fields that are managed by the service
 	imageBuild.Status = nil
 	NilOutManagedObjectMetaProperties(&imageBuild.Metadata)
+	setGenerationOnCreate(&imageBuild.Metadata)
 	if annotations, ok := preservedAnnotations(ctx); ok {
 		imageBuild.Metadata.Annotations = &annotations
 	}

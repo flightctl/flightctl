@@ -45,6 +45,9 @@ func newTestImageBuild(name string) *api.ImageBuild {
 		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
+			// Generation is service-assigned; these store-level tests call the
+			// store directly, so simulate what the service now sets.
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: api.ImageBuildSpec{
 			Source: api.ImageBuildSource{
