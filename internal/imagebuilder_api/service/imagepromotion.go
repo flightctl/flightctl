@@ -73,6 +73,7 @@ func NewImagePromotionService(
 func (s *imagePromotionService) Create(ctx context.Context, orgId uuid.UUID, promotion domain.ImagePromotion) (*domain.ImagePromotion, domain.Status) {
 	NilOutManagedObjectMetaProperties(&promotion.Metadata)
 	promotion.Status = nil
+	setGenerationOnCreate(&promotion.Metadata)
 
 	errs, internalErr := s.validateCreate(ctx, orgId, &promotion)
 	if internalErr != nil {
@@ -188,6 +189,10 @@ func (s *imagePromotionService) Replace(ctx context.Context, orgId uuid.UUID, na
 		setPromotionReadyCondition(current, domain.ImagePromotionConditionReasonWaitingForArtifacts,
 			conditionMessageForReason(domain.ImagePromotionConditionReasonWaitingForArtifacts))
 	}
+
+	// Adding an export format is the only spec change Replace allows (labels are not part of
+	// spec); everything else was already locked by validateImmutableSpecFields above.
+	current.Metadata.Generation = incrementGenerationOnSpecChange(current.Metadata.Generation, len(newFormats) > 0)
 
 	updated, err := s.store.Update(ctx, orgId, current)
 	if err != nil {
