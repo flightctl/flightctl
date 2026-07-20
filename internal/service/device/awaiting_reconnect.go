@@ -32,16 +32,13 @@ func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *strin
 	willBeConflictPaused := deviceVersion > serviceVersion
 
 	infoMessage := "Device is up to date"
+	summaryStatus := string(domain.DeviceSummaryStatusOnline)
 	if willBeConflictPaused {
 		deviceVersionDisplay := "unknown"
 		if deviceReportedVersion != nil && *deviceReportedVersion != "" {
 			deviceVersionDisplay = *deviceReportedVersion
 		}
 		infoMessage = fmt.Sprintf("%s (device reported version %s > device version known to service %d)", common.DeviceStatusInfoConflictPaused, deviceVersionDisplay, serviceVersion)
-	}
-
-	summaryStatus := string(domain.DeviceSummaryStatusOnline)
-	if willBeConflictPaused {
 		summaryStatus = string(domain.DeviceSummaryStatusConflictPaused)
 	}
 
