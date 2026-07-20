@@ -267,7 +267,7 @@ func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, n
 	return "", nil
 }
 
-func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
+func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return s.Get(ctx, orgId, name)
 }
 

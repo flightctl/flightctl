@@ -493,7 +493,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		}
 	}
 
-	result, err := h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	result, err := h.deviceStore.GetRendered(ctx, orgId, name, h.agentEndpoint)
 	if err != nil {
 		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)

@@ -263,7 +263,7 @@ var _ = Describe("Device Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 				st := h.Device.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil)
 				Expect(st.Code).To(BeEquivalentTo(200))
-				renderedDev, getErr := h.DeviceStore.GetRendered(h.Context, orgID, deviceName, nil, "")
+				renderedDev, getErr := h.DeviceStore.GetRendered(h.Context, orgID, deviceName, "")
 				Expect(getErr).ToNot(HaveOccurred())
 				renderedVersion := renderedDev.Version()
 				Expect(renderedVersion).ToNot(BeEmpty())

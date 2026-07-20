@@ -72,7 +72,7 @@ func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string) (
 func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
-func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
+func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
 }
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
