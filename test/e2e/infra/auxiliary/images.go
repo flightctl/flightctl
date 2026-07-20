@@ -35,6 +35,84 @@ const (
 	perCopyTimeout = 5 * time.Minute
 )
 
+// externalTestImages are quay.io/flightctl-tests fixture images that e2e specs
+// reference directly (not built locally, so they never appear in an app/agent
+// bundle - see UploadImages). Without mirroring, every fresh VM pulls each of these
+// straight from the real quay.io the first time a spec needs it, which is slow and
+// adds a hard external dependency to the test run. Mirroring them into the local
+// registry once here lets the device-side registry remap
+// (quay.io/flightctl-tests -> local registry, see inject_agent_files_into_qcow.sh)
+// serve them locally instead. Keep this list in sync with the literal
+// "quay.io/flightctl-tests/..." refs used under test/. Deliberately excludes
+// quay.io/flightctl-tests/does-not-exist:never, which tests rely on staying absent.
+var externalTestImages = []string{
+	"quay.io/flightctl-tests/alpine:v1",
+	"quay.io/flightctl-tests/nginx:v1",
+	"quay.io/flightctl-tests/nginx:1.28-alpine-slim",
+	"quay.io/flightctl-tests/nginx-config-artifact:latest",
+	"quay.io/flightctl-tests/nginx-html-artifact-image:latest",
+	"quay.io/flightctl-tests/quadlet-app-artifact:latest",
+	"quay.io/flightctl-tests/quadlet-app-artifact:with-image-ref",
+	"quay.io/flightctl-tests/quadlet-test/quadlet-app-artifact:with-image-ref",
+	"quay.io/flightctl-tests/model-artifact:latest",
+	"quay.io/flightctl-tests/busybox-dummy-artifact:latest",
+}
+
+// MirrorExternalTestImages copies each image in externalTestImages from the real
+// quay.io straight into the local registry, in parallel across images. Only called
+// when the registry container was just created (see StartServices) - a reused
+// registry already has these from a previous run.
+func (s *Services) MirrorExternalTestImages(ctx context.Context) error {
+	logrus.Infof("Mirroring %d external test image(s) into registry %s", len(externalTestImages), s.Registry.URL)
+
+	sem := make(chan struct{}, uploadConcurrency)
+	errCh := make(chan error, len(externalTestImages))
+	var wg sync.WaitGroup
+	for _, ref := range externalTestImages {
+		wg.Add(1)
+		go func(ref string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			errCh <- s.copyExternalImage(ctx, ref)
+		}(ref)
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	logrus.Info("External test image mirroring completed")
+	return nil
+}
+
+// copyExternalImage copies a single image reference directly from quay.io to the
+// registry. Bounded by perCopyTimeout so a hung skopeo process can't block the
+// uploadConcurrency semaphore indefinitely.
+func (s *Services) copyExternalImage(ctx context.Context, ref string) error {
+	path := ref
+	if idx := strings.Index(ref, "/"); idx != -1 {
+		path = ref[idx+1:]
+	}
+	src := fmt.Sprintf("docker://%s", ref)
+	dst := fmt.Sprintf("docker://%s/%s", s.Registry.URL, path)
+
+	copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
+	defer cancel()
+	copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
+	output, err := copyCmd.CombinedOutput()
+	if copyCtx.Err() != nil {
+		return fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+	}
+	if err != nil {
+		return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
+	}
+	return nil
+}
+
 // UploadImages uploads all image bundles to the registry.
 func (s *Services) UploadImages(ctx context.Context) error {
 	projectRoot, err := getProjectRoot()
