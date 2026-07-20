@@ -26,7 +26,10 @@ global:
   baseDomain: ""
   # -- Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
   baseDomainTlsSecretName: ""
-  # -- Storage class name for the PVCs. Keep empty to use the default storage class.
+  # -- Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component
+  # that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the
+  # chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName
+  # comments below.
   storageClassName: ""
   # -- Name of the secret that holds image pull secret for accessing private container registries
   imagePullSecretName: ""
@@ -187,6 +190,11 @@ db:
     fsGroup: ""
     # -- Additional labels for DB PVCs.
     additionalPVCLabels: null
+    # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= `storage.size` above, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: "" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV.
+    volumeName: ""
+    selector:
+      # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.
+      matchLabels: {}
   external:
     # -- External database hostname
     hostname: ""
@@ -239,6 +247,11 @@ alertmanager:
   additionalRouteLabels: null
   # -- Additional labels for Alert Manager PVCs.
   additionalPVCLabels: null
+  # -- Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= the fixed `2Gi` this PVC requests, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: "" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV.
+  volumeName: ""
+  selector:
+    # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.
+    matchLabels: {}
 
 
 # -- API Server Configuration

@@ -16,8 +16,32 @@ metadata:
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  {{- with .Values.global.storageClassName }}
-  storageClassName: {{ . }}
+  {{- $dbHasStaticBinding := false }}
+  {{- if .Values.db.builtin.volumeName }}
+  {{- $dbHasStaticBinding = true }}
+  {{- end }}
+  {{- with .Values.db.builtin.selector }}
+  {{- with .matchLabels }}
+  {{- $dbHasStaticBinding = true }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.global.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
+  {{- else if $dbHasStaticBinding }}
+  {{- /* Explicit "" prevents the DefaultStorageClass admission controller from injecting a mismatched
+  default class onto a PVC that's meant to bind to a specific pre-provisioned PV. See:
+  https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reserving-a-persistentvolume */}}
+  storageClassName: ""
+  {{- end }}
+  {{- with .Values.db.builtin.volumeName }}
+  volumeName: {{ . }}
+  {{- end }}
+  {{- with .Values.db.builtin.selector }}
+  {{- with .matchLabels }}
+  selector:
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   {{- end }}
   accessModes:
     - ReadWriteOnce

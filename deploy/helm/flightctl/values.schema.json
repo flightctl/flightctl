@@ -48,7 +48,7 @@
         },
         "storageClassName": {
           "type": "string",
-          "description": "Storage class name for PVCs. Empty to use default."
+          "description": "Storage class name for PVCs. Empty to use default. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: \"\" for that PVC instead of omitting the field."
         },
         "imagePullSecretName": {
           "type": "string",
@@ -302,6 +302,18 @@
               "type": ["object", "null"],
               "description": "Additional labels for DB PVCs.",
               "additionalProperties": { "type": "string" }
+            },
+            "volumeName": { "type": "string", "description": "Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= `storage.size` above, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: \"\" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV." },
+            "selector": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "matchLabels": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" },
+                  "description": "Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection."
+                }
+              }
             }
           }
         },
@@ -374,6 +386,18 @@
           "type": ["object", "null"],
           "description": "Additional labels for Alert Manager PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "volumeName": { "type": "string", "description": "Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= the fixed `2Gi` this PVC requests, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: \"\" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV." },
+        "selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "matchLabels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection."
+            }
+          }
         }
       }
     },

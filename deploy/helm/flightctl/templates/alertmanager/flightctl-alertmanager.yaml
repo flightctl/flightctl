@@ -89,8 +89,32 @@ spec:
           {{- toYaml . | nindent 10 }}
           {{- end }}
       spec:
-        {{- with .Values.global.storageClassName }}
-        storageClassName: {{ . }}
+        {{- $amHasStaticBinding := false }}
+        {{- if .Values.alertmanager.volumeName }}
+        {{- $amHasStaticBinding = true }}
+        {{- end }}
+        {{- with .Values.alertmanager.selector }}
+        {{- with .matchLabels }}
+        {{- $amHasStaticBinding = true }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.global.storageClassName }}
+        storageClassName: {{ .Values.global.storageClassName }}
+        {{- else if $amHasStaticBinding }}
+        {{- /* Explicit "" prevents the DefaultStorageClass admission controller from injecting a mismatched
+        default class onto a PVC that's meant to bind to a specific pre-provisioned PV. See:
+        https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reserving-a-persistentvolume */}}
+        storageClassName: ""
+        {{- end }}
+        {{- with .Values.alertmanager.volumeName }}
+        volumeName: {{ . }}
+        {{- end }}
+        {{- with .Values.alertmanager.selector }}
+        {{- with .matchLabels }}
+        selector:
+          matchLabels:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
         {{- end }}
         accessModes:
           - ReadWriteOnce
