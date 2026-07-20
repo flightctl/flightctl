@@ -47,6 +47,12 @@ func sanitizeSchemaError(err error) string {
 	return errMsg
 }
 
+// normalizeAuthProviderURLs normalizes URL fields in auth provider specs before storing.
+// This ensures consistent URL representation (e.g. no trailing slashes on issuer identifiers).
+func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
+	return provider.NormalizeAuthProviderSpecURLs(spec)
+}
+
 // applyAuthProviderDefaults applies default values to auth provider specs during creation.
 // This includes setting UsernameClaim for OIDC and OAuth2 providers, Issuer for OAuth2,
 // and inferring Introspection for OAuth2 if not provided.
@@ -128,6 +134,11 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 
 	// don't set fields that are managed by the service
 	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
+
+	// Normalize URL fields before applying defaults so defaults inherit the normalized form
+	if err := normalizeAuthProviderURLs(&authProvider.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
+	}
 
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
@@ -217,6 +228,14 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	// Normalize URL fields before validation.
+	// Note: if the resource does not exist, this delegates to CreateAuthProvider which also calls
+	// normalizeAuthProviderURLs. The function is idempotent (normalizing an already-normalized URL
+	// is a no-op), so the double call is safe.
+	if err := normalizeAuthProviderURLs(&authProvider.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
+	}
+
 	// Get the existing resource to perform update validation
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err == nil {
@@ -254,6 +273,11 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	// Forbid changing metadata.name via PATCH
 	if currentObj.Metadata.Name != nil && newObj.Metadata.Name != nil && *currentObj.Metadata.Name != *newObj.Metadata.Name {
 		return nil, domain.StatusBadRequest("metadata.name cannot be changed")
+	}
+
+	// Normalize URL fields before validation
+	if err := normalizeAuthProviderURLs(&newObj.Spec); err != nil {
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}
 
 	// Use ValidateUpdate to prevent deletion of required fields
