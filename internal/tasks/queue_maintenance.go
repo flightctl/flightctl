@@ -278,7 +278,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
 	// First, get all organizations
-	orgList, status := t.organizationSvc.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	orgList, status := t.organizationSvc.ListAllOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to list organizations: %s", status.Message)
 	}

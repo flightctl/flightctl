@@ -9,7 +9,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/events"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -59,14 +58,14 @@ func createRepository(ctx context.Context, repostore repositorystore.Store, log 
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name:   lo.ToPtr(name),
-			Labels: labels,
+			Name:       lo.ToPtr(name),
+			Labels:     labels,
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: spec,
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	repo, err = repostore.Create(ctx, orgId, &resource, callback)
+	repo, err = repostore.Create(ctx, orgId, &resource)
 	return repo, err
 }
 
@@ -91,13 +90,13 @@ func createOciRepository(ctx context.Context, repostore repositorystore.Store, o
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: spec,
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	return repostore.Create(ctx, orgId, &resource, callback)
+	return repostore.Create(ctx, orgId, &resource)
 }
 
 var _ = Describe("RepoTester", func() {
@@ -115,7 +114,6 @@ var _ = Describe("RepoTester", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		var err error

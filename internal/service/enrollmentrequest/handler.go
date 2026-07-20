@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -20,13 +21,11 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	"github.com/flightctl/flightctl/internal/store"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -34,38 +33,53 @@ import (
 )
 
 type ServiceHandler struct {
-	store       enrollmentrequeststore.Store
-	deviceStore devicestore.Store
-	csrStore    certificatesigningrequeststore.Store
-	ca          *crypto.CAClient
-	kvStore     kvstore.KVStore
-	events      events.Service
-	log         logrus.FieldLogger
-	tpmCAPaths  []string
-	agentGate   *semaphore.Weighted
-
-	agentEndpoint string
-	uiUrl         string
+	store      enrollmentrequeststore.Store
+	deviceSvc  device.Service
+	ca         *crypto.CAClient
+	kvStore    kvstore.KVStore
+	events     events.Service
+	log        logrus.FieldLogger
+	tpmCAPaths []string
+	agentGate  *semaphore.Weighted
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceSvc device.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string) *ServiceHandler {
 	return &ServiceHandler{
-		store:         store,
-		deviceStore:   deviceStore,
-		csrStore:      csrStore,
-		ca:            ca,
-		kvStore:       kvStore,
-		events:        events,
-		log:           log,
-		tpmCAPaths:    tpmCAPaths,
-		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint: agentEndpoint,
-		uiUrl:         uiUrl,
+		store:      store,
+		deviceSvc:  deviceSvc,
+		ca:         ca,
+		kvStore:    kvStore,
+		events:     events,
+		log:        log,
+		tpmCAPaths: tpmCAPaths,
+		agentGate:  semaphore.NewWeighted(common.MaxConcurrentAgents),
 	}
 }
 
 var _ Service = (*ServiceHandler)(nil)
+
+// SanitizeEnrollmentRequest clears status and managed metadata from an untrusted enrollment
+// request document (HTTP body).
+func SanitizeEnrollmentRequest(er *domain.EnrollmentRequest) {
+	if er == nil {
+		return
+	}
+	er.Status = nil
+	common.NilOutManagedObjectMetaProperties(&er.Metadata)
+}
+
+// CreateEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then creates it.
+func CreateEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.CreateEnrollmentRequest(ctx, orgId, er)
+}
+
+// ReplaceEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then replaces it.
+func ReplaceEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.ReplaceEnrollmentRequest(ctx, orgId, name, er)
+}
 
 // getTPMCAPool loads the TPM CA certificates from configured paths
 func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
@@ -289,35 +303,18 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			}
 		}
 	}
-	// fleetStore is nil: apiResource never has Metadata.Owner set above, so domain.Device.IsManaged()
-	// is always false and the only branch of UpdateServiceSideStatus that dereferences fleetStore is
-	// unreachable from this call site (see handler_test.go's regression test for the enforced
-	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
-	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
-
-	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
-		// Prevent overwriting existing devices during enrollment request approval
-		if before != nil {
-			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
-		}
-		return nil
-	}, func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-		// Only invoke callback on success
-		if err == nil {
-			h.callbackDeviceUpdated(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
-		}
-	})
-	return err
+	// CreateDevice owns validation, UpdateServiceSideStatus, and device-created events.
+	// apiResource never has Metadata.Owner set above (unenrolled), so the managed-fleet
+	// branch remains unreachable (see TestCreateDeviceFromEnrollmentRequestNeverManaged).
+	_, status := h.deviceSvc.CreateDevice(ctx, orgId, *apiResource)
+	if status.Code == http.StatusConflict {
+		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", name)
+	}
+	return common.ApiStatusToErr(status)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	er.Status = nil
 	addStatusIfNeeded(&er)
-
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&er.Metadata)
-	}
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -349,8 +346,9 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 		}
 	}
 
-	// Use fromAPI=false for internal requests to preserve annotations
-	result, err := h.store.CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
+	setGenerationOnCreate(&er.Metadata)
+	result, err := h.store.Create(ctx, orgId, &er)
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
 }
 
@@ -386,10 +384,7 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	// don't set fields that are managed by the service
-	er.Status = nil
 	addStatusIfNeeded(&er)
-	common.NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -415,7 +410,30 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	var result, oldEnrollmentRequest *domain.EnrollmentRequest
+	var created bool
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
+		}
+
+		toWrite := er
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+		}
+
+		var writeErr error
+		result, oldEnrollmentRequest, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
 
@@ -455,7 +473,22 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 		}
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackEnrollmentRequestUpdated)
+	var result, oldEnrollmentRequest *domain.EnrollmentRequest
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+
+		var writeErr error
+		result, oldEnrollmentRequest, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -469,7 +502,10 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 		return domain.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
 	}
 
-	err = h.store.Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackEnrollmentRequestDeleted(ctx, domain.EnrollmentRequestKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -532,14 +568,16 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 	}
 
 	// Update the enrollment request status using the specific approval callback
-	_, err = h.store.UpdateStatus(ctx, orgId, enrollmentReq, h.callbackEnrollmentRequestApproved)
+	_, oldEnrollmentRequest, err := h.store.UpdateStatus(ctx, orgId, enrollmentReq)
+	h.callbackEnrollmentRequestApproved(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, enrollmentReq, false, err)
 	return approvalStatusToReturn, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 
-	result, err := h.store.UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	result, oldEnrollmentRequest, err := h.store.UpdateStatus(ctx, orgId, &er)
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldEnrollmentRequest, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -569,105 +607,72 @@ func newSignRequestFromEnrollment(cfg *ca.Config, er *domain.EnrollmentRequest) 
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.deviceStore.Get(ctx, orgId, name)
-	if errors.Is(err, flterrors.ErrResourceNotFound) {
+	dev, status := h.deviceSvc.GetDevice(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
 		return nil // Device not found: allow to create or update
 	}
-	if device != nil {
+	if err := common.ApiStatusToErr(status); err != nil {
+		return err
+	}
+	if dev != nil {
 		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
-	return err
+	return nil
 }
 
-// deviceExists checks if a device with the given name exists in the store.
-// Error is returned if there is an error other than ErrResourceNotFound.
+// deviceExists checks if a device with the given name exists.
+// Error is returned if there is an error other than not-found.
 func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	dev, err := h.deviceStore.Get(ctx, orgId, name)
-	if errors.Is(err, flterrors.ErrResourceNotFound) {
+	dev, status := h.deviceSvc.GetDevice(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
 		return false, nil
 	}
-	return dev != nil, err
-}
-
-// callbackDeviceUpdated mirrors internal/service/device's own device-updated event logic so
-// createDeviceFromEnrollmentRequest's device-creation callback keeps emitting the same
-// device-updated event it does today. Calls into the device package directly (rather than a
-// shared events hub) since that's the package that owns this decision logic.
-func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	device.EmitDeviceUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
+	if err := common.ApiStatusToErr(status); err != nil {
+		return false, err
+	}
+	return dev != nil, nil
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
 func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldEnrollmentRequest, newEnrollmentRequest *domain.EnrollmentRequest
-				ok                                         bool
-			)
-			if oldEnrollmentRequest, newEnrollmentRequest, ok = common.CastResources[domain.EnrollmentRequest](oldResource, newResource); ok && oldEnrollmentRequest != nil && newEnrollmentRequest != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldEnrollmentRequest.Metadata, newEnrollmentRequest.Metadata)
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldEnrollmentRequest, newEnrollmentRequest *domain.EnrollmentRequest
+					ok                                         bool
+				)
+				if oldEnrollmentRequest, newEnrollmentRequest, ok = common.CastResources[domain.EnrollmentRequest](oldResource, newResource); ok && oldEnrollmentRequest != nil && newEnrollmentRequest != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldEnrollmentRequest.Metadata, newEnrollmentRequest.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
 func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
 func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
-	} else {
-		// For enrollment request approval, we always emit the approved event on successful update
-		// since this callback is only called when the approval process succeeds
-		h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
-	}
-}
-
-func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	caCert, err := h.ca.GetCABundle()
-	if err != nil {
-		return nil, domain.StatusInternalServerError("failed to get CA certificate")
-	}
-
-	clientCert := []byte{}
-	if params.Csr != nil {
-		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-		}
-
-		csr, err := h.csrStore.Get(ctx, orgId, *params.Csr)
+	store.SafeEventCallback(h.log, func() {
 		if err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, params.Csr)
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+		} else {
+			// For enrollment request approval, we always emit the approved event on successful update
+			// since this callback is only called when the approval process succeeds
+			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 		}
-
-		if csr.Status != nil && csr.Status.Certificate != nil {
-			clientCert = *csr.Status.Certificate
-		}
-	}
-
-	return &domain.EnrollmentConfig{
-		EnrollmentService: domain.EnrollmentService{
-			Authentication: domain.EnrollmentServiceAuth{
-				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
-				ClientKeyData:         "",
-			},
-			Service: domain.EnrollmentServiceService{
-				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
-				Server:                   h.agentEndpoint,
-			},
-			EnrollmentUiEndpoint: h.uiUrl,
-		},
-	}, domain.StatusOK()
+	})
 }

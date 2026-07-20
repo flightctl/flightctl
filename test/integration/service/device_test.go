@@ -11,11 +11,11 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -158,7 +158,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status to reflect the error state
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusError))
 
@@ -258,7 +258,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
@@ -308,7 +308,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
@@ -350,7 +350,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
@@ -437,7 +437,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 
@@ -570,7 +570,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online
-			resultDevice, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
+			resultDevice, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
@@ -649,7 +649,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online first
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Step 3: Set the paused annotation first
@@ -705,7 +705,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status - service should automatically set it to paused
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithUpdatedStatus)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithUpdatedStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
@@ -726,6 +726,143 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 	// PrepareDevicesAfterRestore tests have been moved to test/integration/restore/device_test.go
 
+	Context("Device ownership enforcement", func() {
+		seedOwnedDevice := func(deviceName string) {
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:  lo.ToPtr(deviceName),
+					Owner: lo.ToPtr("Fleet/f1"),
+				},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			// Trusted caller (CreateDevice) preserves Owner as given, unlike
+			// CreateDeviceFromUntrusted, which would sanitize it away.
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+		}
+
+		It("denies a spec change on an owned device when enforceOwnership is true", func() {
+			deviceName := "owned-device-deny"
+			seedOwnedDevice(deviceName)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os.Image).To(Equal("img"))
+		})
+
+		It("allows a spec change on an owned device when enforceOwnership is false", func() {
+			deviceName := "owned-device-allow"
+			seedOwnedDevice(deviceName)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, false)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os.Image).To(Equal("img-updated"))
+		})
+	})
+
+	Context("Device decommission", func() {
+		It("decommissions a device and clears owner and labels", func() {
+			deviceName := "decom-device-success"
+			labels := map[string]string{"fleet": "f1"}
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr(deviceName),
+					Owner:  lo.ToPtr("Fleet/f1"),
+					Labels: &labels,
+				},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			result, status := suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result.Spec).ToNot(BeNil())
+			Expect(result.Spec.Decommissioning).ToNot(BeNil())
+			Expect(result.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
+			Expect(result.Metadata.Owner).To(BeNil())
+			// ToApiResource always materializes labels via EnsureMap; cleared labels surface as empty.
+			Expect(lo.FromPtr(result.Metadata.Labels)).To(BeEmpty())
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Decommissioning).ToNot(BeNil())
+			Expect(stored.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
+			Expect(stored.Metadata.Owner).To(BeNil())
+			Expect(lo.FromPtr(stored.Metadata.Labels)).To(BeEmpty())
+		})
+
+		It("returns conflict when decommissioning an already-decommissioning device", func() {
+			deviceName := "decom-device-conflict"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, status = suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			_, status = suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(Equal(flterrors.ErrResourceVersionConflict.Error()))
+		})
+	})
+
+	Context("SetDeviceServiceConditions", func() {
+		It("always writes even when the merged conditions are unchanged", func() {
+			deviceName := "svc-conditions-device"
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			cond := api.Condition{
+				Type:    api.ConditionTypeDeviceSpecValid,
+				Status:  api.ConditionStatusTrue,
+				Reason:  "ok",
+				Message: "ok",
+			}
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterWrite, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(api.IsStatusConditionTrue(afterWrite.Status.Conditions, api.ConditionTypeDeviceSpecValid)).To(BeTrue())
+			rvAfterWrite := lo.FromPtr(afterWrite.Metadata.ResourceVersion)
+
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterRewrite, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(lo.FromPtr(afterRewrite.Metadata.ResourceVersion)).NotTo(Equal(rvAfterWrite))
+		})
+	})
+
 	Context("GetRenderedDevice when AwaitingReconnect moves to ConflictPaused", func() {
 		var (
 			suite           *ServiceTestSuite
@@ -739,7 +876,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			suite.Setup()
 
 			// GetRenderedDevice with agent context calls healthchecker.HealthChecks.Instance().Add()
-			healthchecker.HealthChecks.Initialize(suite.Ctx, devicestore.NewDeviceStore(suite.DB, suite.Log.WithField("pkg", "device-store")), suite.Log)
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
 
 			var err error
 			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance.
@@ -788,7 +925,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Give device rendered content (version 1)
 			renderedConfig, err := createMinimalRenderedConfig("test-config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil, false)
+			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set device annotations: AwaitingReconnect and service version 1 (device 5 > service 1 -> ConflictPaused)
@@ -839,7 +976,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			renderedConfig, err := createMinimalRenderedConfig("test-config-2")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil, false)
+			_, err = suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
@@ -1101,7 +1238,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Save the updated device using ReplaceDeviceStatus for status updates
-				resultDevice, updateStatus := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, d.name, updatedDevice)
+				resultDevice, updateStatus := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, d.name, updatedDevice, true)
 				Expect(updateStatus.Code).To(Equal(int32(200)))
 				Expect(resultDevice).ToNot(BeNil())
 
@@ -1533,7 +1670,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 
 	Context("Device field selector tests", func() {
 		It("should filter devices by lastSeen field selector", func() {
-			ctx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
+			ctx := suite.Ctx
 			deviceStore := suite.DeviceStore
 			// Create test devices for ListConnectivityChangedDevices: returns devices that need
 			// connection status update (reconnected: lastSeen >= cutoff and status Unknown;
@@ -1559,7 +1696,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev1, err := deviceStore.Get(ctx, suite.OrgID, device1Name)
 			Expect(err).ToNot(HaveOccurred())
 			dev1.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev1, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev1)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 2: Before cutoff, Unknown → should not be returned
@@ -1575,7 +1712,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev2, err := deviceStore.Get(ctx, suite.OrgID, device2Name)
 			Expect(err).ToNot(HaveOccurred())
 			dev2.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev2, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev2)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 3: After cutoff, Online → should not be returned
@@ -1593,7 +1730,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev3.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			dev3.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			dev3.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev3, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev3)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 4: Before cutoff, Online → should be returned (disconnected)
@@ -1611,7 +1748,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev4.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			dev4.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			dev4.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev4, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev4)
 			Expect(err).ToNot(HaveOccurred())
 
 			params := api.ListDevicesParams{
@@ -1700,7 +1837,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			suite = NewServiceTestSuite()
 			suite.Setup()
 
-			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.DeviceStore, suite.Log)
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
 
 			var err error
 			if testKvStore == nil {
@@ -1737,7 +1874,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash1", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Prime the KV rendered-version to match what the agent reports.
@@ -1769,7 +1906,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash2", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
@@ -1809,7 +1946,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash3", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash3", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Pin the DeviceAnnotationRenderedVersion annotation to a known value.
@@ -1853,7 +1990,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash4", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash4", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set console annotation to simulate an open console session.
@@ -1884,7 +2021,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			})
 			Expect(status.Code).To(Equal(int32(201)))
 
-			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash5", nil, false)
+			_, err := suite.DeviceStore.UpdateRendered(suite.Ctx, suite.OrgID, deviceName, buildRenderedConfig("cfg"), "", "hash5", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = suite.DeviceStore.UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{

@@ -94,7 +94,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 
 		fleet := &api.Fleet{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr(name),
+				Name:       lo.ToPtr(name),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: api.FleetSpec{
 				RolloutPolicy: &api.RolloutPolicy{
@@ -103,7 +104,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -111,19 +112,21 @@ var _ = Describe("Rollout disruption budget test", func() {
 	createTestTemplateVersion := func(ownerName string) {
 		templateVersion := api.TemplateVersion{
 			Metadata: api.ObjectMeta{
-				Name:  util.TimeStampStringPtr(),
-				Owner: util.SetResourceOwner(api.FleetKind, ownerName),
+				Name:       util.TimeStampStringPtr(),
+				Owner:      util.SetResourceOwner(api.FleetKind, ownerName),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		_, _, err = fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -137,7 +140,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, _, err := deviceStore.Update(ctx, store.NullOrgId, device, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -243,8 +246,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		eventsSvc := events.NewServiceHandler(eventStore, mockWorkerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 		capturedEvents = make([]api.Event, 0)
 	})
@@ -263,7 +266,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, _, err := deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -275,7 +278,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, _, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}

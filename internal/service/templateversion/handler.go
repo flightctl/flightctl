@@ -37,7 +37,9 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
+	setGenerationOnCreate(&templateVersion.Metadata)
+	result, err := h.store.Create(ctx, orgId, &templateVersion)
+	h.callbackTemplateVersionUpdated(ctx, domain.TemplateVersionKind, orgId, lo.FromPtr(templateVersion.Metadata.Name), nil, result, true, err)
 	if err == nil {
 		fleet.EmitFleetRolloutStartedEvent(ctx, h.events, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
@@ -98,7 +100,10 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, orgId uuid.U
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
 
-	_, err = h.store.Delete(ctx, orgId, fleet, name, h.callbackTemplateVersionDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, fleet, name)
+	if err == nil && deleted {
+		h.callbackTemplateVersionDeleted(ctx, domain.TemplateVersionKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.TemplateVersionKind, &name)
 }
 
@@ -109,26 +114,30 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, orgId uui
 
 // callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
 func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldTemplateVersion, newTemplateVersion *domain.TemplateVersion
-				ok                                     bool
-			)
-			if oldTemplateVersion, newTemplateVersion, ok = common.CastResources[domain.TemplateVersion](oldResource, newResource); ok && oldTemplateVersion != nil && newTemplateVersion != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldTemplateVersion.Metadata, newTemplateVersion.Metadata)
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldTemplateVersion, newTemplateVersion *domain.TemplateVersion
+					ok                                     bool
+				)
+				if oldTemplateVersion, newTemplateVersion, ok = common.CastResources[domain.TemplateVersion](oldResource, newResource); ok && oldTemplateVersion != nil && newTemplateVersion != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldTemplateVersion.Metadata, newTemplateVersion.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events
 func (h *ServiceHandler) callbackTemplateVersionDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }

@@ -47,11 +47,37 @@ func (f *fakeOrganizationStore) List(ctx context.Context, listParams store.ListP
 }
 
 func (f *fakeOrganizationStore) ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error) {
-	return nil, nil
+	if f.err != nil {
+		return nil, f.err
+	}
+	wanted := make(map[string]struct{}, len(externalIDs))
+	for _, id := range externalIDs {
+		wanted[id] = struct{}{}
+	}
+	var out []*model.Organization
+	for _, org := range f.organizations {
+		if _, ok := wanted[org.ExternalID]; ok {
+			out = append(out, org)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeOrganizationStore) ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error) {
-	return nil, nil
+	if f.err != nil {
+		return nil, f.err
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	var out []*model.Organization
+	for _, org := range f.organizations {
+		if _, ok := wanted[org.ID.String()]; ok {
+			out = append(out, org)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeOrganizationStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error) {
@@ -84,11 +110,10 @@ func createExpectedAPIOrganization(id uuid.UUID, displayName string, externalID 
 	}
 }
 
-func TestListOrganizations_EmptyResult(t *testing.T) {
+func TestListAllOrganizations_EmptyResult(t *testing.T) {
 	handler, _ := newTestHandler([]*model.Organization{})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -98,15 +123,14 @@ func TestListOrganizations_EmptyResult(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_SingleOrganization(t *testing.T) {
+func TestListAllOrganizations_SingleOrganization(t *testing.T) {
 	orgID := uuid.New()
 	defaultOrg := createTestOrganizationModel(orgID, "default-external-id", "Default")
 	handler, _ := newTestHandler([]*model.Organization{defaultOrg})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Default", "default-external-id")
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -117,7 +141,7 @@ func TestListOrganizations_SingleOrganization(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_MultipleOrganizations(t *testing.T) {
+func TestListAllOrganizations_MultipleOrganizations(t *testing.T) {
 	orgID1 := uuid.New()
 	orgID2 := uuid.New()
 
@@ -125,12 +149,11 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	org2 := createTestOrganizationModel(orgID2, "external-id-2", "Organization Two")
 
 	handler, _ := newTestHandler([]*model.Organization{org1, org2})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One", "external-id-1")
 	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two", "external-id-2")
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -143,24 +166,22 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_StoreError(t *testing.T) {
+func TestListAllOrganizations_StoreError(t *testing.T) {
 	handler, fakeStore := newTestHandler(nil)
 	fakeStore.err = errors.New("database connection failed")
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.NotEqual(t, domain.StatusOK(), status)
 	require.Contains(t, status.Message, "database connection failed")
 }
 
-func TestListOrganizations_ResourceNotFoundError(t *testing.T) {
+func TestListAllOrganizations_ResourceNotFoundError(t *testing.T) {
 	handler, fakeStore := newTestHandler(nil)
 	fakeStore.err = flterrors.ErrResourceNotFound
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.Equal(t, int32(404), status.Code)
@@ -226,4 +247,83 @@ func TestListOrganizations_FieldSelectorFiltersAuthorizedOrgs(t *testing.T) {
 	require.Equal(t, domain.StatusOK(), status)
 	require.Len(t, result.Items, 1)
 	require.Equal(t, createExpectedAPIOrganization(u2, "Org-22", "ext-22"), result.Items[0])
+}
+
+func TestUpsertMany(t *testing.T) {
+	t.Run("When the store succeeds it should return the upserted organizations", func(t *testing.T) {
+		h, fakeStore := newTestHandler(nil)
+		org := createTestOrganizationModel(uuid.New(), "ext-1", "Org-1")
+
+		got, err := h.UpsertMany(context.Background(), []*model.Organization{org})
+		require.NoError(t, err)
+		require.Equal(t, []*model.Organization{org}, got)
+		require.Equal(t, []*model.Organization{org}, fakeStore.organizations)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore := newTestHandler(nil)
+		fakeStore.err = errors.New("upsert failed")
+
+		_, err := h.UpsertMany(context.Background(), []*model.Organization{})
+		require.EqualError(t, err, "upsert failed")
+	})
+}
+
+func TestListByIDs(t *testing.T) {
+	t.Run("When matching IDs exist it should return those organizations", func(t *testing.T) {
+		org1 := createTestOrganizationModel(uuid.New(), "ext-1", "Org-1")
+		org2 := createTestOrganizationModel(uuid.New(), "ext-2", "Org-2")
+		h, _ := newTestHandler([]*model.Organization{org1, org2})
+
+		got, err := h.ListByIDs(context.Background(), []string{org1.ID.String()})
+		require.NoError(t, err)
+		require.Equal(t, []*model.Organization{org1}, got)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore := newTestHandler(nil)
+		fakeStore.err = errors.New("list failed")
+
+		_, err := h.ListByIDs(context.Background(), []string{uuid.New().String()})
+		require.EqualError(t, err, "list failed")
+	})
+}
+
+func TestListByExternalIDs(t *testing.T) {
+	t.Run("When matching external IDs exist it should return those organizations", func(t *testing.T) {
+		org1 := createTestOrganizationModel(uuid.New(), "ext-1", "Org-1")
+		org2 := createTestOrganizationModel(uuid.New(), "ext-2", "Org-2")
+		h, _ := newTestHandler([]*model.Organization{org1, org2})
+
+		got, err := h.ListByExternalIDs(context.Background(), []string{"ext-2"})
+		require.NoError(t, err)
+		require.Equal(t, []*model.Organization{org2}, got)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore := newTestHandler(nil)
+		fakeStore.err = errors.New("list failed")
+
+		_, err := h.ListByExternalIDs(context.Background(), []string{"ext-1"})
+		require.EqualError(t, err, "list failed")
+	})
+}
+
+func TestList(t *testing.T) {
+	t.Run("When organizations exist it should return them", func(t *testing.T) {
+		org := createTestOrganizationModel(uuid.New(), "ext-1", "Org-1")
+		h, _ := newTestHandler([]*model.Organization{org})
+
+		got, err := h.List(context.Background(), store.ListParams{})
+		require.NoError(t, err)
+		require.Equal(t, []*model.Organization{org}, got)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore := newTestHandler(nil)
+		fakeStore.err = errors.New("list failed")
+
+		_, err := h.List(context.Background(), store.ListParams{})
+		require.EqualError(t, err, "list failed")
+	})
 }

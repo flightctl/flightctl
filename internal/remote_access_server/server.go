@@ -18,18 +18,21 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -50,20 +53,6 @@ type Server struct {
 	db             *gorm.DB
 	notifier       console.ConsoleEventNotifier
 	pendingStreams *sync.Map
-}
-
-// storeAppConsoleService adapts devicestore.Store to console.AppConsoleDeviceService.
-type storeAppConsoleService struct {
-	deviceStore devicestore.Store
-}
-
-func (s *storeAppConsoleService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
-	result, err := s.deviceStore.Get(ctx, orgId, name)
-	return result, service.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-}
-
-func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
-	return s.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, false, nil, nil)
 }
 
 // New returns a new Server. All initialisation requiring a context (listeners,
@@ -117,8 +106,16 @@ func (s *Server) Run(ctx context.Context) error {
 	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
+	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, s.log)
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+	deviceSvc := deviceservice.WrapWithTracing(
+		deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, nil, "", s.log))
+	catalogSvc := catalogservice.WrapWithTracing(
+		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+	organizationSvc := organizationservice.WrapWithTracing(
+		organizationservice.NewServiceHandler(organizationStore))
 
 	// Auth — matches imagebuilder-api: tracing-wrapped store-backed service,
 	// InitMultiAuth, then Start(ctx) in a goroutine with an error channel.
@@ -152,8 +149,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Identity mapper.
-	orgProvisioner := service.NewOrgProvisioner(catalogStore, s.log)
-	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
@@ -170,9 +167,8 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 	pb.RegisterRouterServiceServer(grpcServer, s)
 
-	// App console.
-	svc := &storeAppConsoleService{deviceStore: deviceStore}
-	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.notifier)
+	// App console — device.Service satisfies console.AppConsoleDeviceService.
+	appConsoleMgr := console.NewAppConsoleSessionManager(deviceSvc, s.log, s, s.notifier)
 	appConsoleHandler := NewAppConsoleHandler(s.log, appConsoleMgr)
 
 	// HTTP router — mirrors flightctl-api: AuthN → IdentityMapping → OrgExtraction → AuthZ.

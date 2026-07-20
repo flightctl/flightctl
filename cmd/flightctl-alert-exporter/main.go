@@ -47,7 +47,6 @@ func main() {
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)

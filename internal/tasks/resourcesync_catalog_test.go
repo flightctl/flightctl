@@ -143,7 +143,7 @@ func TestSyncCatalogs_InitialCreate(t *testing.T) {
 		Return(&domain.CatalogList{Items: []domain.Catalog{}}, okStatus())
 
 	// ReplaceCatalog for platform-apps (created)
-	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any(), gomock.Any()).
 		Return(&domain.Catalog{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("platform-apps"), Owner: owner},
 		}, createdStatus())
@@ -169,11 +169,11 @@ func TestSyncCatalogs_InitialCreate(t *testing.T) {
 		Return(&domain.CatalogItemList{Items: []domain.CatalogItem{}}, okStatus())
 
 	// ReplaceCatalogItem for prometheus and nginx
-	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any(), gomock.Any()).
 		Return(&domain.CatalogItem{
 			Metadata: domain.CatalogItemMeta{Name: lo.ToPtr("prometheus"), Catalog: "platform-apps", Owner: owner},
 		}, createdStatus())
-	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx", gomock.Any(), gomock.Any()).
 		Return(&domain.CatalogItem{
 			Metadata: domain.CatalogItemMeta{Name: lo.ToPtr("nginx"), Catalog: "platform-apps", Owner: owner},
 		}, createdStatus())
@@ -226,7 +226,7 @@ func TestSyncCatalogs_UpdateAndRemove(t *testing.T) {
 		}, okStatus())
 
 	// ReplaceCatalog (update)
-	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any(), gomock.Any()).
 		Return(&domain.Catalog{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("platform-apps"), Owner: owner},
 		}, okStatus())
@@ -260,11 +260,11 @@ func TestSyncCatalogs_UpdateAndRemove(t *testing.T) {
 		}, okStatus())
 
 	// ReplaceCatalogItem for prometheus (update) and redis (create)
-	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any(), gomock.Any()).
 		Return(&domain.CatalogItem{
 			Metadata: domain.CatalogItemMeta{Name: lo.ToPtr("prometheus"), Catalog: "platform-apps", Owner: owner},
 		}, okStatus())
-	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "redis", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "platform-apps", "redis", gomock.Any(), gomock.Any()).
 		Return(&domain.CatalogItem{
 			Metadata: domain.CatalogItemMeta{Name: lo.ToPtr("redis"), Catalog: "platform-apps", Owner: owner},
 		}, createdStatus())
@@ -274,7 +274,7 @@ func TestSyncCatalogs_UpdateAndRemove(t *testing.T) {
 	assert.Equal(t, []string{"platform-apps/nginx"}, itemsToRemove)
 
 	// --- Delete stale items ---
-	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx").
+	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx", gomock.Any()).
 		Return(okStatus())
 
 	err = rs.deleteStaleCatalogItems(context.Background(), log, orgId, rsObj, itemsToRemove, resourceName)
@@ -321,13 +321,13 @@ func TestSyncCatalogs_RemoveAll(t *testing.T) {
 	assert.ElementsMatch(t, []string{"platform-apps/prometheus", "platform-apps/nginx"}, itemsToRemove)
 
 	// Delete items first, then catalogs
-	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus").Return(okStatus())
-	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx").Return(okStatus())
+	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any()).Return(okStatus())
+	mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx", gomock.Any()).Return(okStatus())
 
 	err = rs.deleteStaleCatalogItems(context.Background(), log, orgId, rsObj, itemsToRemove, resourceName)
 	require.NoError(t, err)
 
-	mockCatalogSvc.EXPECT().DeleteCatalog(gomock.Any(), orgId, "platform-apps").Return(okStatus())
+	mockCatalogSvc.EXPECT().DeleteCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any()).Return(okStatus())
 
 	err = rs.deleteStaleCatalogs(context.Background(), log, orgId, rsObj, catalogsToRemove, resourceName)
 	require.NoError(t, err)
@@ -351,9 +351,9 @@ func TestSyncCatalogs_DeleteOrdering(t *testing.T) {
 	catalogsToRemove := []string{"platform-apps"}
 
 	// Enforce ordering: all item deletes happen before catalog deletes.
-	deleteItem1 := mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus").Return(okStatus())
-	deleteItem2 := mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx").Return(okStatus())
-	mockCatalogSvc.EXPECT().DeleteCatalog(gomock.Any(), orgId, "platform-apps").
+	deleteItem1 := mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "prometheus", gomock.Any()).Return(okStatus())
+	deleteItem2 := mockCatalogSvc.EXPECT().DeleteCatalogItem(gomock.Any(), orgId, "platform-apps", "nginx", gomock.Any()).Return(okStatus())
+	mockCatalogSvc.EXPECT().DeleteCatalog(gomock.Any(), orgId, "platform-apps", gomock.Any()).
 		Return(okStatus()).
 		After(deleteItem1).
 		After(deleteItem2)
@@ -471,7 +471,7 @@ func TestSyncCatalogs_MultiversionSync(t *testing.T) {
 		Return(nil, notFoundStatus())
 	mockCatalogSvc.EXPECT().ListCatalogs(gomock.Any(), orgId, gomock.Any()).
 		Return(&domain.CatalogList{Items: []domain.Catalog{}}, okStatus())
-	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "infrastructure", gomock.Any()).
+	mockCatalogSvc.EXPECT().ReplaceCatalog(gomock.Any(), orgId, "infrastructure", gomock.Any(), gomock.Any()).
 		Return(&domain.Catalog{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("infrastructure"), Owner: owner},
 		}, createdStatus())
@@ -501,8 +501,8 @@ func TestSyncCatalogs_MultiversionSync(t *testing.T) {
 
 	// Capture what gets passed to ReplaceCatalogItem to verify version data round-trips.
 	var capturedItems []domain.CatalogItem
-	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "infrastructure", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ uuid.UUID, catalogName, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	mockCatalogSvc.EXPECT().ReplaceCatalogItem(gomock.Any(), orgId, "infrastructure", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, catalogName, itemName string, item domain.CatalogItem, _ bool) (*domain.CatalogItem, domain.Status) {
 			capturedItems = append(capturedItems, item)
 			return &domain.CatalogItem{
 				Metadata: domain.CatalogItemMeta{Name: lo.ToPtr(itemName), Catalog: catalogName, Owner: owner},

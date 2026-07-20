@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -127,7 +126,6 @@ var _ = Describe("DeviceRender", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		fleetName = "myfleet"
@@ -153,9 +151,9 @@ var _ = Describe("DeviceRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
-		repositorySvc = repositoryservice.NewServiceHandler(newRepoStore, eventsSvc, log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		repositorySvc = repositoryservice.NewServiceHandler(newRepoStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStoreInst, "", log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStoreInst, eventsSvc, log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
 
@@ -192,14 +190,14 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-k8s-render-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				event := api.Event{
@@ -227,14 +225,14 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-k8s-unsafe-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				event := api.Event{
@@ -263,14 +261,14 @@ var _ = Describe("DeviceRender", func() {
 
 				testDeviceName := deviceName + "-unrenderable-" + uuid.New().String()[:8]
 				device := &api.Device{
-					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
@@ -330,11 +328,12 @@ var _ = Describe("DeviceRender", func() {
 
 			repo := &api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(repoName),
+					Name:       lo.ToPtr(repoName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration that uses device labels
@@ -354,7 +353,8 @@ var _ = Describe("DeviceRender", func() {
 
 			fleet := &api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(fleetName),
+					Name:       lo.ToPtr(fleetName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -377,7 +377,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -390,7 +390,8 @@ var _ = Describe("DeviceRender", func() {
 			// Create a device with initial label
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Labels: &map[string]string{
 						"device": "camera",
 						"size":   "small",
@@ -399,7 +400,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: &api.DeviceSpec{},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout to generate device spec
@@ -441,7 +442,7 @@ var _ = Describe("DeviceRender", func() {
 				"device": "camera",
 				"size":   "big",
 			}
-			_, err = deviceStore.Update(ctx, orgId, device, nil, false, nil, nil)
+			_, _, err = deviceStore.Update(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout again to update device spec
@@ -470,11 +471,12 @@ var _ = Describe("DeviceRender", func() {
 
 			repo := &api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(repoName),
+					Name:       lo.ToPtr(repoName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration
@@ -494,7 +496,8 @@ var _ = Describe("DeviceRender", func() {
 
 			fleet := &api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(fleetName),
+					Name:       lo.ToPtr(fleetName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -517,7 +520,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -530,7 +533,8 @@ var _ = Describe("DeviceRender", func() {
 			// Create a device
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Labels: &map[string]string{
 						"device": "camera",
 						"size":   "small",
@@ -539,7 +543,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: &api.DeviceSpec{},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout
@@ -597,12 +601,12 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-fingerprint-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -639,12 +643,12 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-inline-only-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -685,12 +689,12 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-mixed-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{k8sProvider, inlineProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -725,12 +729,12 @@ var _ = Describe("DeviceRender", func() {
 
 			testDeviceName := deviceName + "-fail-render-" + uuid.New().String()[:8]
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -765,7 +769,7 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			fleet := &api.Fleet{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName), Generation: lo.ToPtr(int64(1))},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
 					Template: struct {
@@ -776,7 +780,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
@@ -788,14 +792,15 @@ var _ = Describe("DeviceRender", func() {
 			testDeviceName := deviceName + "-fleet-rollout-" + uuid.New().String()[:8]
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name:  lo.ToPtr(testDeviceName),
-					Owner: lo.ToPtr("Fleet/" + fleetName),
+					Name:       lo.ToPtr(testDeviceName),
+					Generation: lo.ToPtr(int64(1)),
+					Owner:      lo.ToPtr("Fleet/" + fleetName),
 				},
 				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			// First render: ResourceCreated — should succeed (no hash stored yet)
 			firstEvent := api.Event{

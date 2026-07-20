@@ -34,7 +34,7 @@ func (c *Consumer) executeRequeue(ctx context.Context) {
 	log.Debug("Starting periodic requeue task")
 
 	// List all organizations
-	orgs, err := c.organizationStore.List(ctx, store.ListParams{})
+	orgs, err := c.organizations.List(ctx, store.ListParams{})
 	if err != nil {
 		log.WithError(err).Error("Failed to list organizations")
 		return
