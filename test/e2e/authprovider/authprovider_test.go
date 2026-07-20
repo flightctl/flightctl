@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -36,34 +35,32 @@ import (
 )
 
 const (
-	keycloakTestUser               = "testuser"
-	keycloakTestPass               = "testpass"
-	keycloakDuplicateName          = "keycloak-e2e-duplicate"
-	keycloakLifecycleName          = "keycloak-e2e-lifecycle"
-	keycloakLifecycleClientID      = "flightctl-client-lifecycle"
-	keycloakOAuth2ProviderName     = "keycloak-oauth2-e2e"
-	keycloakOAuth2ClientID         = "flightctl-oauth2-client"
-	keycloakAccountAudience        = "account"
-	defaultOrganizationName        = "default"
-	defaultAdminRole               = "flightctl-admin"
-	openshiftDefaultUsername       = "kubeadmin"
-	pamDefaultUsername             = "admin"
-	pamDefaultPassword             = "flightctl-e2e"
-	defaultCypressLoginScript      = "cypress/run-provider-login-cypress.sh"
-	providerVisibilityArg          = "--show-providers"
-	loginInsecureTLSArg            = "--insecure-skip-tls-verify"
-	aapConfigSkipMessage           = "AAP quadlet tests require AAP_API_URL and either AAP_CLIENT_ID or AAP_TOKEN"
-	aapCredentialSkipMessage       = "AAP browser login requires AAP_USERNAME and AAP_PASSWORD"
-	openshiftPasswordMessage       = "OPENSHIFT_PASSWORD or KUBEADMIN_PASS must be set for OpenShift browser login"
-	duplicateOIDCErrorSubstring    = "same issuer and clientId already exists"
-	cypressMissingSubstring        = "Cypress is not installed"
-	cypressInstallMissingSubstring = "Cypress install completed, but"
-	npmMissingSubstring            = "npm is not available"
-	npmErrorSubstring              = "npm error"
-	loginFlowTimeout               = 5 * time.Minute
-	loginFormHTTPTimeout           = loginFlowTimeout
-	authProviderLifecycleTimeout   = 30 * time.Second
-	authProviderPollingInterval    = 2 * time.Second
+	keycloakTestUser             = "testuser"
+	keycloakTestPass             = "testpass"
+	keycloakDuplicateName        = "keycloak-e2e-duplicate"
+	keycloakLifecycleName        = "keycloak-e2e-lifecycle"
+	keycloakLifecycleClientID    = "flightctl-client-lifecycle"
+	keycloakOAuth2ProviderName   = "keycloak-oauth2-e2e"
+	keycloakOAuth2ClientID       = "flightctl-oauth2-client"
+	keycloakAccountAudience      = "account"
+	defaultOrganizationName      = "default"
+	defaultAdminRole             = "flightctl-admin"
+	openshiftDefaultUsername     = "kubeadmin"
+	pamDefaultUsername           = "admin"
+	pamDefaultPassword           = "flightctl-e2e"
+	defaultCypressLoginScript    = "cypress/run-provider-login-cypress.sh"
+	providerVisibilityArg        = "--show-providers"
+	loginInsecureTLSArg          = "--insecure-skip-tls-verify"
+	aapConfigSkipMessage         = "AAP quadlet tests require AAP_API_URL and either AAP_CLIENT_ID or AAP_TOKEN"
+	aapCredentialSkipMessage     = "AAP browser login requires AAP_USERNAME and AAP_PASSWORD"
+	openshiftPasswordMessage     = "OPENSHIFT_PASSWORD or KUBEADMIN_PASS must be set for OpenShift browser login"
+	duplicateOIDCErrorSubstring  = "same issuer and clientId already exists"
+	cypressMissingSubstring      = "Cypress is not installed"
+	npmMissingSubstring          = "npm is not available"
+	loginFlowTimeout             = 5 * time.Minute
+	loginFormHTTPTimeout         = loginFlowTimeout
+	authProviderLifecycleTimeout = 30 * time.Second
+	authProviderPollingInterval  = 2 * time.Second
 )
 
 var loginURLRe = regexp.MustCompile(`(?:Opening login URL in default browser|Please open this URL in your browser):\s*(.+)`)
@@ -726,10 +723,7 @@ func isCypressUnavailableError(err error) bool {
 		return false
 	}
 	errText := err.Error()
-	return strings.Contains(errText, cypressMissingSubstring) &&
-		(strings.Contains(errText, npmMissingSubstring) ||
-			strings.Contains(errText, cypressInstallMissingSubstring) ||
-			strings.Contains(errText, npmErrorSubstring))
+	return strings.Contains(errText, cypressMissingSubstring) && strings.Contains(errText, npmMissingSubstring)
 }
 
 // runProviderLoginCLIWithURL starts `flightctl login ... --web --no-browser` for the given provider.
@@ -956,18 +950,16 @@ func submitAuthLoginForm(ctx context.Context, authURL, username, password string
 	if err != nil {
 		return fmt.Errorf("create login form cookie jar: %w", err)
 	}
-	transport := &http.Transport{
-		Proxy: nil,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec // E2E follows self-signed local auth endpoints.
-			MinVersion:         tls.VersionTLS12,
-		},
-	}
-	configureLocalBrowserDial(authURL, transport)
 	httpClient := &http.Client{
-		Jar:       jar,
-		Transport: transport,
-		Timeout:   loginFormHTTPTimeout,
+		Jar: jar,
+		Transport: &http.Transport{
+			Proxy: nil,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // E2E follows self-signed local auth endpoints.
+				MinVersion:         tls.VersionTLS12,
+			},
+		},
+		Timeout: loginFormHTTPTimeout,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
@@ -1069,41 +1061,6 @@ func submitAuthLoginForm(ctx context.Context, authURL, username, password string
 		}
 	}
 	return nil
-}
-
-// configureLocalBrowserDial reaches host-mapped Keycloak ports locally without changing the browser URL origin.
-func configureLocalBrowserDial(authURL string, transport *http.Transport) {
-	if transport == nil {
-		return
-	}
-	parsed, err := url.Parse(strings.TrimSpace(authURL))
-	if err != nil {
-		return
-	}
-	if parsed.Port() == "" || isLoopbackHost(parsed.Hostname()) {
-		return
-	}
-	providerHost := parsed.Hostname()
-	providerPort := parsed.Port()
-	dialer := &net.Dialer{}
-	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(address)
-		if err == nil && strings.EqualFold(host, providerHost) && port == providerPort {
-			return dialer.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", port))
-		}
-		return dialer.DialContext(ctx, network, address)
-	}
-	logrus.Infof("[authprovider] dialing provider auth host %s through local mapped port", sanitizedAuthURLForLog(authURL))
-}
-
-// isLoopbackHost reports whether host already points at the local test process.
-func isLoopbackHost(host string) bool {
-	switch strings.ToLower(strings.TrimSpace(host)) {
-	case "", "localhost", "127.0.0.1", "::1":
-		return true
-	default:
-		return false
-	}
 }
 
 // parseLoginForm returns the first form with username and password fields from an HTML document.
