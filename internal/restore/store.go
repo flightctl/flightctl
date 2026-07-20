@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	orgmodel "github.com/flightctl/flightctl/internal/org/model"
@@ -27,9 +28,13 @@ func (s *RestoreStore) getDB(ctx context.Context) *gorm.DB {
 	return s.db.WithContext(ctx)
 }
 
-// PrepareDevicesAfterRestore sets the awaitingReconnect annotation on all
-// eligible devices, clears their lastSeen timestamps, and sets a status summary.
-func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+// PrepareDevicesAfterRestore persists awaiting-reconnect preparation for eligible
+// devices using caller-supplied product params. Clears lastSeen timestamps.
+func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params DeviceAwaitingReconnectPrepareParams) (int64, error) {
+	if len(params.ExcludedLifecycleStatuses) < 2 {
+		return 0, fmt.Errorf("excluded lifecycle statuses require at least two values")
+	}
+
 	db := s.getDB(ctx)
 
 	sql := `
@@ -55,12 +60,12 @@ func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, e
 	`
 
 	result := db.Exec(sql,
-		domain.DeviceAnnotationAwaitingReconnect,
-		domain.DeviceSummaryStatusAwaitingReconnect,
-		"Device has not reconnected since restore to confirm its current state.",
-		domain.DeviceLifecycleStatusDecommissioned,
-		domain.DeviceLifecycleStatusDecommissioning,
-		domain.DeviceUpdatedStatusUnknown,
+		params.AnnotationKey,
+		params.SummaryStatus,
+		params.SummaryInfo,
+		params.ExcludedLifecycleStatuses[0],
+		params.ExcludedLifecycleStatuses[1],
+		params.UpdatedStatus,
 	)
 
 	if result.Error != nil {
@@ -70,9 +75,9 @@ func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, e
 	return result.RowsAffected, nil
 }
 
-// PrepareEnrollmentRequestsAfterRestore sets the awaitingReconnect annotation
-// on all non-approved enrollment requests.
-func (s *RestoreStore) PrepareEnrollmentRequestsAfterRestore(ctx context.Context) (int64, error) {
+// PrepareEnrollmentRequestsAfterRestore persists the awaiting-reconnect annotation
+// on non-approved enrollment requests using caller-supplied product params.
+func (s *RestoreStore) PrepareEnrollmentRequestsAfterRestore(ctx context.Context, params EnrollmentAwaitingReconnectPrepareParams) (int64, error) {
 	db := s.getDB(ctx)
 
 	sql := `
@@ -85,7 +90,7 @@ func (s *RestoreStore) PrepareEnrollmentRequestsAfterRestore(ctx context.Context
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
 	`
 
-	result := db.Exec(sql, domain.DeviceAnnotationAwaitingReconnect)
+	result := db.Exec(sql, params.AnnotationKey)
 
 	if result.Error != nil {
 		return 0, storeutil.ErrorFromGormError(result.Error)

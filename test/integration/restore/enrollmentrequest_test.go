@@ -95,7 +95,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 				By(fmt.Sprintf("ER %d: Name=%s, Status=%+v, Annotations=%+v", i, *er.Metadata.Name, er.Status, er.Metadata.Annotations))
 			}
 
-			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx, restore.NewEnrollmentAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedCount).To(Equal(int64(1)), "Should update only the non-approved enrollment request")
 
@@ -129,7 +129,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilStatusER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
-			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx, restore.NewEnrollmentAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedCount).To(Equal(int64(1)), "Should update enrollment request with nil status")
 
@@ -153,7 +153,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			_, st := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, nilApprovalER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
-			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx, restore.NewEnrollmentAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedCount).To(Equal(int64(1)), "Should update enrollment request with nil approval")
 
@@ -186,7 +186,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			_, st = s.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, s.OrgID, toApproveName, approval)
 			Expect(st.Code).To(BeEquivalentTo(200))
 
-			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			updatedCount, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx, restore.NewEnrollmentAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedCount).To(Equal(int64(0)), "Should not update any approved enrollment requests")
 		})
@@ -231,7 +231,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("simulating restore process - annotating non-approved enrollment requests")
-			enrollmentRequestsUpdated, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx)
+			enrollmentRequestsUpdated, err := s.RestoreStore.PrepareEnrollmentRequestsAfterRestore(s.Ctx, restore.NewEnrollmentAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(enrollmentRequestsUpdated).To(Equal(int64(2)), "Should update 2 non-approved enrollment requests")
 
