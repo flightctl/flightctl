@@ -667,8 +667,17 @@ func TestVMVNCSession(t *testing.T) {
 		}
 		readDone := make(chan readResult, 1)
 		go func() {
+			// require/t.FailNow must only be called from the test's main goroutine, so
+			// errors here are reported via readDone instead of require calls.
 			buf := make([]byte, 1)
-			require.NoError(serverConn.SetDeadline(time.Now().Add(100 * time.Millisecond)))
+			if err := serverConn.SetDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+				// Run()'s teardown may have already closed the other end of the pipe
+				// (clientConn), which net.Pipe surfaces here too. That race is fine: it
+				// still proves zero bytes were written before teardown.
+				readDone <- readResult{n: 0, err: err}
+				serverConn.Close()
+				return
+			}
 			n, err := serverConn.Read(buf)
 			readDone <- readResult{n: n, err: err}
 			serverConn.Close()
