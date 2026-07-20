@@ -30,6 +30,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentconfigservice "github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -38,6 +39,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -180,9 +182,8 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing API server")
 
 	// Construct the per-resource stores and service handlers this server needs, each wrapped
-	// with tracing. Cross-resource dependencies always go through the other resource's store,
-	// never its service, to avoid layering cycles (e.g. device depends on fleetStore, not
-	// fleetService).
+	// with tracing. Cross-resource calls go through owning services; hard cycles are broken
+	// via extracted shared packages (e.g. tpmcsr) or late binding (ER↔CSR).
 	vulnerabilityEnabled := s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled
 
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
@@ -200,22 +201,23 @@ func (s *Server) Run(ctx context.Context) error {
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
-	deviceSvc := deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
 	fleetSvc := fleetservice.WrapWithTracing(
 		fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
-	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
-	csrSvc := certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+	deviceSvc := deviceservice.WrapWithTracing(
+		deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
+	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceSvc, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths)
+	csrHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+	csrSvc := certificatesigningrequestservice.WrapWithTracing(csrHandler)
+	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(erHandler)
+	enrollmentConfigSvc := enrollmentconfigservice.WrapWithTracing(enrollmentconfigservice.NewServiceHandler(csrSvc, s.ca, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
-	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
-		resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
+		resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogSvc, fleetSvc, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(
 		eventservice.NewServiceHandler(eventStore, eventsSvc))
 	organizationSvc := organizationservice.WrapWithTracing(
@@ -223,7 +225,7 @@ func (s *Server) Run(ctx context.Context) error {
 	authProviderSvc := authproviderservice.WrapWithTracing(
 		authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, s.log))
 	vulnerabilityFindingSvc := vulnerabilityfindingservice.WrapWithTracing(
-		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceStore, fleetStore, eventsSvc, vulnerabilityEnabled, s.log))
+		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, vulnerabilityEnabled, s.log))
 
 	// Initialize auth with the authprovider service for OIDC provider access
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderSvc)
@@ -259,8 +261,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware
-	orgProvisioner := service.NewOrgProvisioner(catalogStore, s.log)
-	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
@@ -294,7 +296,7 @@ func (s *Server) Run(ctx context.Context) error {
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
-		authProviderSvc, csrSvc, deviceSvc, enrollmentRequestSvc, eventSvc,
+		authProviderSvc, csrSvc, deviceSvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
 		fleetSvc, organizationSvc, repositorySvc, resourceSyncSvc, templateVersionSvc,
 		convertv1beta1.NewConverter(),
 		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,

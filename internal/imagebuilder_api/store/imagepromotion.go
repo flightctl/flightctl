@@ -64,7 +64,8 @@ func (s *imagePromotionStore) Create(ctx context.Context, orgId uuid.UUID, pub *
 	}
 	m.OrgID = orgId
 
-	m.Generation = lo.ToPtr(int64(1))
+	// Generation is decided by the service, not the store — the model
+	// conversion above already carries it from the domain resource.
 	m.ResourceVersion = lo.ToPtr(int64(1))
 
 	// Set initial status if not already set
@@ -209,6 +210,7 @@ func (s *imagePromotionStore) Update(ctx context.Context, orgId uuid.UUID, pub *
 	updates := map[string]interface{}{
 		"spec":             m.Spec,
 		"labels":           m.Labels,
+		"generation":       m.Generation,
 		"resource_version": gorm.Expr("resource_version + 1"),
 	}
 	if pub.Status != nil {

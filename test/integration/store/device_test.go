@@ -56,8 +56,6 @@ var _ = Describe("DeviceStore create", func() {
 		db                *gorm.DB
 		dbName            string
 		numDevices        int
-		called            bool
-		callback          store.EventCallback
 	)
 
 	BeforeEach(func() {
@@ -69,11 +67,6 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(err).NotTo(HaveOccurred())
 		devStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
-		called = false
-		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-			called = true
-		})
-
 		orgId = uuid.New()
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
@@ -108,7 +101,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		_, _, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(BeFalse())
 	})
@@ -142,30 +135,22 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(created).To(Equal(false))
-		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
-		Expect(dev.Kind).To(Equal(api.DeviceKind))
-		Expect(dev.Spec.Os.Image).To(Equal("newos"))
-		Expect(dev.Metadata.ResourceVersion).ToNot(BeNil())
-		Expect(*dev.Metadata.ResourceVersion).To(Equal("6"))
+		_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
+		Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 	})
 
-	It("CreateOrUpdateDevice update with stale resourceVersion", func() {
+	It("CreateOrUpdateDevice updates owned device (ownership enforced in service)", func() {
 		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 		Expect(err).ToNot(HaveOccurred())
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
-		// Update but don't save the new device, so we still have the old resourceVersion
-		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+		dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
-		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+		updated, _, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updated.Spec.Os.Image).To(Equal("newos"))
 	})
 
 	Context("Device store", func() {
@@ -189,17 +174,15 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("Delete device success", func() {
-			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
-			Expect(called).To(BeTrue())
 		})
 
 		It("Delete device success when not found", func() {
-			deleted, err := devStore.Delete(ctx, orgId, "nonexistent", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
-			Expect(called).To(BeFalse())
 		})
 
 		It("List with summary", func() {
@@ -220,7 +203,7 @@ var _ = Describe("DeviceStore create", func() {
 				updatedStatus := fmt.Sprintf("updated-%d", i)
 				d.Status.Updated.Status = api.DeviceUpdatedStatusType(updatedStatus)
 				expectedUpdatedMap[updatedStatus] = expectedUpdatedMap[updatedStatus] + 1
-				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
+				_, _, err := devStore.UpdateStatus(ctx, orgId, d)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			allDevices, err = devStore.List(ctx, orgId, devicestore.DeviceListParams{})
@@ -320,7 +303,7 @@ var _ = Describe("DeviceStore create", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}
-				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+				_, _, err := devStore.UpdateStatus(ctx, orgId, &device)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -481,7 +464,7 @@ var _ = Describe("DeviceStore create", func() {
 			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
 			Expect(err).ToNot(HaveOccurred())
 			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
-			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
+			_, _, err = devStore.UpdateStatus(ctx, orgId, enrolled)
 			Expect(err).ToNot(HaveOccurred())
 
 			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
@@ -527,7 +510,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, _, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -548,7 +531,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, _, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -556,19 +539,18 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
 		})
 
-		It("CreateOrUpdateDevice update owned from API", func() {
+		It("CreateOrUpdateDevice update owned from API succeeds at store layer", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+			updated, _, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Spec.Os.Image).To(Equal("newos"))
 		})
 
 		It("CreateOrUpdateDevice update labels owned from API", func() {
@@ -713,11 +695,6 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				}
 
-				// Create decommissioning spec
-				decommissioning := &api.DeviceDecommission{
-					Target: api.DeviceDecommissionTargetTypeUnenroll,
-				}
-
 				// Create systemd spec
 				systemd := &struct {
 					MatchPatterns *[]string `json:"matchPatterns,omitempty"`
@@ -744,21 +721,20 @@ var _ = Describe("DeviceStore create", func() {
 						Owner:  owner,
 					},
 					Spec: &api.DeviceSpec{
-						Os:              osSpec,
-						Config:          &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
-						Applications:    &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
-						Resources:       &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
-						Consoles:        &consoles,
-						Decommissioning: decommissioning,
-						Systemd:         systemd,
-						UpdatePolicy:    updatePolicy,
+						Os:           osSpec,
+						Config:       &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
+						Applications: &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
+						Resources:    &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
+						Consoles:     &consoles,
+						Systemd:      systemd,
+						UpdatePolicy: updatePolicy,
 					},
 				}
 			}
 
 			// Create the first device with comprehensive spec
 			device1 := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil)
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, false, nil, callback)
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the device from the store
@@ -770,10 +746,9 @@ var _ = Describe("DeviceStore create", func() {
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			// This should succeed because only labels (metadata) are different, not the spec
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 		})
 
 		It("UpdateDeviceStatus", func() {
@@ -796,7 +771,7 @@ var _ = Describe("DeviceStore create", func() {
 				Status: &status,
 			}
 			api.SetStatusCondition(&device.Status.Conditions, condition)
-			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, _, err := devStore.UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -812,20 +787,16 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = lo.ToPtr("newowner")
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.Metadata.Owner).ToNot(BeNil())
 			Expect(*dev.Metadata.Owner).To(Equal("newowner"))
-
-			called = false
 			dev.Metadata.Owner = nil
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 
 			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -963,7 +934,7 @@ var _ = Describe("DeviceStore create", func() {
 							},
 						}
 
-						_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, false, nil, callback)
+						_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
 						Expect(err).ToNot(HaveOccurred())
 
 						if d.hasConflict {
@@ -1144,7 +1115,7 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "dev", nil, nil, nil)
 
 			// No rendered version
-			_, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			_, err := devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
@@ -1152,11 +1123,11 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
-			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig := *renderedDevice.Spec.Config
 			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
@@ -1167,19 +1138,14 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
 			Expect(renderedDevice.Version()).To(Equal("1"))
 
-			// Passing correct renderedVersion
-			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(renderedDevice).To(BeNil())
-
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Passing previous renderedVersion
-			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
+			// Getting second rendered config
+			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig = *renderedDevice.Spec.Config
 			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
@@ -1191,29 +1157,21 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedDevice.Version()).To(Equal("2"))
 		})
 
-		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil, nil)
+		It("UpdateRendered always persists when called", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-always-write", nil, nil, nil)
 
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())
 
-			// Establish an initial rendered version for a given specHash.
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-always-write", config, "", "samehash", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
-			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			// Skip-vs-write is owned by the caller; the store persists even when specHash is unchanged.
+			secondVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-always-write", config, "", "samehash", nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(noopVersion).To(BeEmpty())
-
-			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
-			// advance the rendered version, e.g. to reflect a device-level application lifecycle
-			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(forcedVersion).ToNot(BeEmpty())
-			Expect(forcedVersion).ToNot(Equal(firstVersion))
+			Expect(secondVersion).ToNot(BeEmpty())
+			Expect(secondVersion).ToNot(Equal(firstVersion))
 		})
 
 		It("OverwriteRepositoryRefs", func() {
@@ -1262,10 +1220,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
-			Expect(called).To(BeTrue())
 		})
 
 		It("DeviceSpecsAreEqual integration scenarios", func() {
@@ -1340,7 +1297,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Store the device in database
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			_, _, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1474,7 +1431,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Store fleet in database
-			_, err := fleetStore.Create(ctx, orgId, &fleet, nil)
+			_, err := fleetStore.Create(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Retrieve fleet from database
@@ -1626,7 +1583,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the devices
 			for _, device := range devices {
-				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+				_, _, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(created).To(BeTrue())
 				setLastSeen(db, orgId, *device.Metadata.Name, *device.Status.LastSeen)
@@ -1690,7 +1647,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			createdDevice, _, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1735,7 +1692,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			initialLastSeen := time.Now().Add(-1 * time.Hour)
@@ -1757,73 +1714,16 @@ var _ = Describe("DeviceStore create", func() {
 		})
 	})
 
-	Context("ProcessAwaitingReconnectAnnotation", func() {
-		It("should return false when device has no awaiting reconnect annotation", func() {
-			// Create a device without awaiting reconnect annotation
-			deviceName := "no-awaiting-reconnect-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation - should return false
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse())
-
-			// Verify device is unchanged
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			Expect(len(*updatedDevice.Metadata.Annotations)).To(Equal(0))
-		})
-
-		It("should return false when awaiting reconnect annotation is not 'true'", func() {
-			// Create a device with awaiting reconnect annotation set to 'false'
-			deviceName := "awaiting-reconnect-false-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "false",
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation - should return false
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse())
-
-			// Verify device is unchanged
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			Expect((*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]).To(Equal("false"))
-		})
-
-		It("should remove awaiting reconnect annotation and set normal status when device version <= service version", func() {
-			// Create a device with awaiting reconnect annotation and service version
-			deviceName := "normal-reconnect-device"
+	Context("ApplyAwaitingReconnectOutcome", func() {
+		It("should persist an online outcome and clear awaiting reconnect", func() {
+			deviceName := "apply-online-device"
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr(deviceName),
 					Annotations: &map[string]string{
 						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+						api.DeviceAnnotationRenderedVersion:   "5",
+						"custom-annotation":                   "custom-value",
 					},
 				},
 				Spec: &api.DeviceSpec{
@@ -1836,359 +1736,43 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Process awaiting reconnect annotation with device version <= service version
-			deviceReportedVersion := "3" // Lower than service version 5
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			err = devStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, devicestore.AwaitingReconnectOutcome{
+				SummaryStatus:         string(api.DeviceSummaryStatusOnline),
+				SummaryInfo:           "Device is up to date",
+				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
+				ConfigRenderedVersion: "3",
+				ConflictPaused:        false,
+			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse())
 
-			// Verify awaiting reconnect annotation was removed
 			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
 			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
 			Expect(hasAwaitingReconnect).To(BeFalse())
-
-			// Verify conflict paused annotation was not added
 			_, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
 			Expect(hasConflictPaused).To(BeFalse())
-
-			// Verify status was updated to normal
+			Expect((*updatedDevice.Metadata.Annotations)["custom-annotation"]).To(Equal("custom-value"))
+			Expect((*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("5"))
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
 			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is up to date"))
-
-			// Verify updated status was set to OutOfDate (device version 3 < service version 5)
 			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to device reported version
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
-
-			// Verify resource version was incremented
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("3"))
 			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
 		})
 
-		It("should remove awaiting reconnect annotation and add conflict paused when device version > service version", func() {
-			// Create a device with awaiting reconnect annotation and service version
-			deviceName := "conflict-paused-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "3", // Service version
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation with device version > service version
-			deviceReportedVersion := "5" // Higher than service version 3
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeTrue())
-
-			// Verify awaiting reconnect annotation was removed
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
-			Expect(hasAwaitingReconnect).To(BeFalse())
-
-			// Verify conflict paused annotation was added
-			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
-			Expect(hasConflictPaused).To(BeTrue())
-			Expect(conflictPausedValue).To(Equal("true"))
-
-			// Verify status was updated to conflict paused with detailed info
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
-			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("Device reconciliation is paused due to a state conflict"))
-			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 3"))
-
-			// Verify updated status was set to OutOfDate (device version 5 > service version 3)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to device reported version
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
-
-			// Verify resource version was incremented
-			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
-		})
-
-		It("should handle nil device reported version gracefully", func() {
-			// Create a device with awaiting reconnect annotation and service version
-			deviceName := "nil-version-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "5", // Service version
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation with nil device reported version
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
-
-			// Verify awaiting reconnect annotation was removed
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
-			Expect(hasAwaitingReconnect).To(BeFalse())
-
-			// Verify status was updated to normal
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-
-			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to "0" (default for nil)
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
-		})
-
-		It("should handle empty device reported version gracefully", func() {
-			// Create a device with awaiting reconnect annotation and service version
-			deviceName := "empty-version-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "5", // Service version
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation with empty device reported version
-			emptyVersion := ""
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &emptyVersion)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
-
-			// Verify awaiting reconnect annotation was removed
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
-			Expect(hasAwaitingReconnect).To(BeFalse())
-
-			// Verify status was updated to normal
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-
-			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to "0" (default for empty)
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
-		})
-
-		It("should handle invalid device reported version gracefully", func() {
-			// Create a device with awaiting reconnect annotation and service version
-			deviceName := "invalid-version-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "5", // Service version
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation with invalid device reported version
-			invalidVersion := "not-a-number"
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &invalidVersion)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
-
-			// Verify awaiting reconnect annotation was removed
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
-			Expect(hasAwaitingReconnect).To(BeFalse())
-
-			// Verify status was updated to normal
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-
-			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to the original invalid value
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("not-a-number"))
-		})
-
-		It("should handle missing service rendered version gracefully", func() {
-			// Create a device with awaiting reconnect annotation but no service version
-			deviceName := "no-service-version-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						// No DeviceAnnotationRenderedVersion
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation
-			deviceReportedVersion := "5"
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
-
-			// Verify conflict paused annotation was added
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
-			Expect(hasConflictPaused).To(BeTrue())
-			Expect(conflictPausedValue).To(Equal("true"))
-
-			// Verify status was updated to conflict paused
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
-			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
-
-			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to device reported version
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
-		})
-
-		It("should handle invalid service rendered version gracefully", func() {
-			// Create a device with awaiting reconnect annotation and invalid service version
-			deviceName := "invalid-service-version-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-					Annotations: &map[string]string{
-						api.DeviceAnnotationAwaitingReconnect: "true",
-						api.DeviceAnnotationRenderedVersion:   "not-a-number", // Invalid service version
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusAwaitingReconnect,
-					},
-				},
-			}
-
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Process awaiting reconnect annotation
-			deviceReportedVersion := "5"
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
-
-			// Verify conflict paused annotation was added
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
-			Expect(hasConflictPaused).To(BeTrue())
-			Expect(conflictPausedValue).To(Equal("true"))
-
-			// Verify status was updated to conflict paused
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
-			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
-
-			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
-
-			// Verify status.config.renderedVersion was updated to device reported version
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
-		})
-
-		It("should return error when device does not exist", func() {
-			// Try to process awaiting reconnect annotation for non-existent device
-			deviceName := "non-existent-device"
-			deviceReportedVersion := "5"
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
-			Expect(err).To(HaveOccurred())
-			Expect(wasConflictPaused).To(BeFalse())
-		})
-
-		It("should preserve existing annotations when processing", func() {
-			// Create a device with awaiting reconnect annotation and other annotations
-			deviceName := "preserve-annotations-device"
+		It("should persist a conflict-paused outcome", func() {
+			deviceName := "apply-conflict-paused-device"
 			device := &api.Device{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr(deviceName),
 					Annotations: &map[string]string{
 						api.DeviceAnnotationAwaitingReconnect: "true",
 						api.DeviceAnnotationRenderedVersion:   "3",
-						"custom-annotation":                   "custom-value",
-						"another-annotation":                  "another-value",
 					},
 				},
 				Spec: &api.DeviceSpec{
@@ -2201,35 +1785,79 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Process awaiting reconnect annotation
-			deviceReportedVersion := "5"
-			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			info := "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version 5 > device version known to service 3)"
+			err = devStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, devicestore.AwaitingReconnectOutcome{
+				SummaryStatus:         string(api.DeviceSummaryStatusConflictPaused),
+				SummaryInfo:           info,
+				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
+				ConfigRenderedVersion: "5",
+				ConflictPaused:        true,
+			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(wasConflictPaused).To(BeTrue())
 
-			// Verify awaiting reconnect annotation was removed but others preserved
 			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			annotations := *updatedDevice.Metadata.Annotations
-
-			// Awaiting reconnect should be removed
-			_, hasAwaitingReconnect := annotations[api.DeviceAnnotationAwaitingReconnect]
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
 			Expect(hasAwaitingReconnect).To(BeFalse())
+			Expect((*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]).To(Equal("true"))
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal(info))
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("5"))
+		})
 
-			// Conflict paused should be added
-			Expect(annotations[api.DeviceAnnotationConflictPaused]).To(Equal("true"))
+		It("should return ErrNoRowsUpdated when the device does not exist", func() {
+			err := devStore.ApplyAwaitingReconnectOutcome(ctx, orgId, "non-existent-device", devicestore.AwaitingReconnectOutcome{
+				SummaryStatus:         string(api.DeviceSummaryStatusOnline),
+				SummaryInfo:           "Device is up to date",
+				UpdatedStatus:         string(api.DeviceUpdatedStatusUpToDate),
+				ConfigRenderedVersion: "0",
+			})
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+		})
 
-			// Other annotations should be preserved
-			Expect(annotations["custom-annotation"]).To(Equal("custom-value"))
-			Expect(annotations["another-annotation"]).To(Equal("another-value"))
-			Expect(annotations[api.DeviceAnnotationRenderedVersion]).To(Equal("3"))
+		It("should return ErrNoRowsUpdated when awaiting reconnect is no longer true", func() {
+			deviceName := "apply-stale-awaiting-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationRenderedVersion: "5",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("already cleared"),
+					},
+				},
+			}
 
-			// Verify status.config.renderedVersion was updated to device reported version
-			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = devStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, devicestore.AwaitingReconnectOutcome{
+				SummaryStatus:         string(api.DeviceSummaryStatusConflictPaused),
+				SummaryInfo:           "stale overwrite",
+				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
+				ConfigRenderedVersion: "9",
+				ConflictPaused:        true,
+			})
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+			Expect(lo.FromPtr(updatedDevice.Status.Summary.Info)).To(Equal("already cleared"))
+			_, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeFalse())
 		})
 	})
 })

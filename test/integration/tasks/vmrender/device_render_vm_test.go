@@ -7,11 +7,11 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -81,7 +81,6 @@ var _ = Describe("VmApplicationRender", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		deviceName = "vm-test-device-" + uuid.New().String()[:8]
@@ -103,7 +102,8 @@ var _ = Describe("VmApplicationRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		fleetSvc := fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStoreInst, "", log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		if queuesProvider == nil {
@@ -130,10 +130,10 @@ var _ = Describe("VmApplicationRender", func() {
 		Expect(appSpec.FromVmApplication(vmApp)).To(Succeed())
 
 		device := &api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName), Generation: lo.ToPtr(int64(1))},
 			Spec:     &api.DeviceSpec{Applications: &[]api.ApplicationProviderSpec{appSpec}},
 		}
-		_, err := deviceStore.Create(ctx, orgId, device, nil)
+		_, err := deviceStore.Create(ctx, orgId, device)
 		Expect(err).ToNot(HaveOccurred())
 
 		event := api.Event{
@@ -145,7 +145,7 @@ var _ = Describe("VmApplicationRender", func() {
 			WithVmConverter(vmConverter)
 		Expect(logic.RenderDevice(ctx)).To(Succeed())
 
-		rendered, err := deviceStore.GetRendered(ctx, orgId, deviceName, nil, "")
+		rendered, err := deviceStore.GetRendered(ctx, orgId, deviceName, "")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(rendered.Spec).ToNot(BeNil())
 		Expect(rendered.Spec.Applications).ToNot(BeNil())

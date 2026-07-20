@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -14,13 +13,13 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	ibstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 // deepCopyJSON performs a deep copy via JSON round-trip.
@@ -243,90 +242,50 @@ func (d *dummyCatalogItemWriter) GetItem(catalogName, itemName string) *coredoma
 	return d.items[catalogName+"/"+itemName]
 }
 
-// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to catalogstore.Store.
+// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to catalogservice.Service.
 type dummyCatalogStoreAdapter struct {
+	catalogservice.Service
 	w *dummyCatalogItemWriter
 }
 
-func (a *dummyCatalogStoreAdapter) Get(ctx context.Context, orgId uuid.UUID, name string) (*coredomain.Catalog, error) {
-	if !a.w.catalogs[name] {
-		return nil, nil
-	}
-	return &coredomain.Catalog{Metadata: coredomain.ObjectMeta{Name: lo.ToPtr(name)}}, nil
-}
-
-func (a *dummyCatalogStoreAdapter) GetItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) (*coredomain.CatalogItem, error) {
+func (a *dummyCatalogStoreAdapter) GetCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) (*coredomain.CatalogItem, coredomain.Status) {
 	item := a.w.items[catalogName+"/"+itemName]
 	if item == nil {
-		return nil, fmt.Errorf("catalog item %s/%s not found", catalogName, itemName)
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceNotFound, false, coredomain.CatalogItemKind, &itemName)
 	}
 	var cp coredomain.CatalogItem
 	deepCopyJSON(item, &cp)
-	return &cp, nil
+	return &cp, coredomain.StatusOK()
 }
 
-func (a *dummyCatalogStoreAdapter) CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *coredomain.CatalogItem) (*coredomain.CatalogItem, error) {
+func (a *dummyCatalogStoreAdapter) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, item coredomain.CatalogItem) (*coredomain.CatalogItem, coredomain.Status) {
 	key := catalogName + "/" + lo.FromPtr(item.Metadata.Name)
 	if _, exists := a.w.items[key]; exists {
-		return nil, flterrors.ErrDuplicateName
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrDuplicateName, true, coredomain.CatalogItemKind, item.Metadata.Name)
 	}
 	var cp coredomain.CatalogItem
-	deepCopyJSON(item, &cp)
+	deepCopyJSON(&item, &cp)
 	a.w.items[key] = &cp
-	return &cp, nil
+	return &cp, coredomain.StatusCreated()
 }
-func (a *dummyCatalogStoreAdapter) UpdateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *coredomain.CatalogItem) (*coredomain.CatalogItem, error) {
-	key := catalogName + "/" + lo.FromPtr(item.Metadata.Name)
-	var cp coredomain.CatalogItem
-	deepCopyJSON(item, &cp)
-	a.w.items[key] = &cp
-	return &cp, nil
-}
-func (a *dummyCatalogStoreAdapter) CreateOrUpdateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *coredomain.CatalogItem) (*coredomain.CatalogItem, bool, error) {
+
+func (a *dummyCatalogStoreAdapter) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item coredomain.CatalogItem, enforceOwnership bool) (*coredomain.CatalogItem, coredomain.Status) {
 	key := catalogName + "/" + lo.FromPtr(item.Metadata.Name)
 	_, existed := a.w.items[key]
 	var cp coredomain.CatalogItem
-	deepCopyJSON(item, &cp)
+	deepCopyJSON(&item, &cp)
 	a.w.items[key] = &cp
-	return &cp, !existed, nil
+	if existed {
+		return &cp, coredomain.StatusOK()
+	}
+	return &cp, coredomain.StatusCreated()
 }
-func (a *dummyCatalogStoreAdapter) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
+
+// CreateItem is retained for tests that seed catalog items directly.
+func (a *dummyCatalogStoreAdapter) CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *coredomain.CatalogItem) (*coredomain.CatalogItem, error) {
+	result, status := a.CreateCatalogItem(ctx, orgId, catalogName, *item)
+	return result, statusToErr(status)
 }
-func (a *dummyCatalogStoreAdapter) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
-}
-func (a *dummyCatalogStoreAdapter) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, fromAPI bool, cb flightctlstore.EventCallback) (*coredomain.Catalog, bool, error) {
-	return nil, false, nil
-}
-func (a *dummyCatalogStoreAdapter) List(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (*coredomain.CatalogList, error) {
-	return &coredomain.CatalogList{}, nil
-}
-func (a *dummyCatalogStoreAdapter) Delete(ctx context.Context, orgId uuid.UUID, name string, rc flightctlstore.RemoveOwnerCallback, cb flightctlstore.EventCallback) error {
-	return nil
-}
-func (a *dummyCatalogStoreAdapter) UpdateStatus(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, cb flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
-}
-func (a *dummyCatalogStoreAdapter) Count(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (int64, error) {
-	return 0, nil
-}
-func (a *dummyCatalogStoreAdapter) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-	return nil
-}
-func (a *dummyCatalogStoreAdapter) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-	return nil
-}
-func (a *dummyCatalogStoreAdapter) ListAllItems(ctx context.Context, orgId uuid.UUID, lp flightctlstore.ListParams) (*coredomain.CatalogItemList, error) {
-	return &coredomain.CatalogItemList{}, nil
-}
-func (a *dummyCatalogStoreAdapter) ListItems(ctx context.Context, orgId uuid.UUID, catalogName string, lp flightctlstore.ListParams) (*coredomain.CatalogItemList, error) {
-	return &coredomain.CatalogItemList{}, nil
-}
-func (a *dummyCatalogStoreAdapter) DeleteItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) error {
-	return nil
-}
-func (a *dummyCatalogStoreAdapter) InitialMigration(ctx context.Context) error { return nil }
 
 // ---- helpers ----
 
@@ -596,7 +555,7 @@ func (s *testIBStore) Close() error                                { return nil 
 
 func newTestConsumer(
 	svc *testIBService,
-	catalogStore catalogstore.Store,
+	catalogs catalogservice.Service,
 ) *Consumer {
 	ibStore := &testIBStore{
 		builds:     svc.builds,
@@ -606,7 +565,7 @@ func newTestConsumer(
 	return &Consumer{
 		store:               ibStore,
 		imageBuilderService: svc,
-		catalogStore:        catalogStore,
+		catalogs:            catalogs,
 		log:                 log.InitLogs(),
 	}
 }
@@ -633,7 +592,7 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -664,7 +623,7 @@ func TestEvaluator_NewCatalogItemWithDisplayName(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -708,7 +667,7 @@ func TestEvaluator_ExportsPending(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -752,7 +711,7 @@ func TestEvaluator_ExportsReady(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	build := makeCompletedBuild("build-2", "sha256:ccdd")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -800,7 +759,7 @@ func TestEvaluator_FailPromotionsForBuild(t *testing.T) {
 
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	for i, name := range []string{"promo-a", "promo-b"} {
 		p := makeWaitingPromotion(name, "build-fail", "cat", "item"+string(rune('a'+i)), "1.0.0")
@@ -825,7 +784,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("cat")
-	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 	// Pre-populate the CatalogItem with version 1.0.0.
 	systemCategory := coredomain.CatalogItemCategorySystem
@@ -904,7 +863,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -922,7 +881,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -957,7 +916,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{w: catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)

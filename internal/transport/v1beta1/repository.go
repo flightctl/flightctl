@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Reque
 	}
 
 	domainRepo := h.converter.Repository().ToDomain(rs)
-	body, status := h.repository.CreateRepository(r.Context(), transport.OrgIDFromContext(r.Context()), domainRepo)
+	body, status := repositoryservice.CreateRepositoryFromUntrusted(r.Context(), h.repository, transport.OrgIDFromContext(r.Context()), domainRepo)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +47,7 @@ func (h *TransportHandler) ReplaceRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	domainRepo := h.converter.Repository().ToDomain(rs)
-	body, status := h.repository.ReplaceRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRepo)
+	body, status := repositoryservice.ReplaceRepositoryFromUntrusted(r.Context(), h.repository, transport.OrgIDFromContext(r.Context()), name, domainRepo)
 	apiResult := h.converter.Repository().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

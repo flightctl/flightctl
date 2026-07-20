@@ -5,43 +5,65 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/flightctl/flightctl/internal/service/fleet"
+	"github.com/flightctl/flightctl/internal/store"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 type ServiceHandler struct {
-	store        resourcesyncstore.Store
-	catalogStore catalogstore.Store
-	fleetStore   fleetstore.Store
-	events       events.Service
-	log          logrus.FieldLogger
+	store    resourcesyncstore.Store
+	catalogs catalog.Service
+	fleets   fleet.Service
+	events   events.Service
+	log      logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new resourcesync ServiceHandler instance.
-func NewServiceHandler(store resourcesyncstore.Store, catalogStore catalogstore.Store, fleetStore fleetstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, catalogStore: catalogStore, fleetStore: fleetStore, events: events, log: log}
+func NewServiceHandler(store resourcesyncstore.Store, catalogs catalog.Service, fleets fleet.Service, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, catalogs: catalogs, fleets: fleets, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeResourceSync clears status and managed metadata from an untrusted resourcesync
+// document (HTTP body).
+func SanitizeResourceSync(rs *domain.ResourceSync) {
+	if rs == nil {
+		return
+	}
 	rs.Status = nil
 	common.NilOutManagedObjectMetaProperties(&rs.Metadata)
+}
 
+// CreateResourceSyncFromUntrusted sanitizes an untrusted resourcesync document, then creates it.
+func CreateResourceSyncFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
+	SanitizeResourceSync(&rs)
+	return svc.CreateResourceSync(ctx, orgId, rs)
+}
+
+// ReplaceResourceSyncFromUntrusted sanitizes an untrusted resourcesync document, then replaces it.
+func ReplaceResourceSyncFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
+	SanitizeResourceSync(&rs)
+	return svc.ReplaceResourceSync(ctx, orgId, name, rs)
+}
+
+func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
+	setGenerationOnCreate(&rs.Metadata)
+	result, err := h.store.Create(ctx, orgId, &rs)
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(rs.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.ResourceSyncKind, rs.Metadata.Name)
 }
 
@@ -72,11 +94,6 @@ func (h *ServiceHandler) GetResourceSync(ctx context.Context, orgId uuid.UUID, n
 }
 
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
-	// don't overwrite fields that are managed by the service
-	if !common.IsInternalRequest(ctx) {
-		rs.Status = nil
-		common.NilOutManagedObjectMetaProperties(&rs.Metadata)
-	}
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -84,22 +101,58 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
+	var result, oldResourceSync *domain.ResourceSync
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
+		}
+
+		toWrite := rs
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+		}
+
+		var writeErr error
+		result, oldResourceSync, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-		if err := h.catalogStore.UnsetItemOwner(ctx, tx, orgId, owner); err != nil {
+	// Service owns the cascade: one TX for delete + owner cleanup. Catalog/fleet
+	// UnsetOwner* join the active TX from ctx via store.DB(ctx, nil).
+	var deleted bool
+	err := h.store.WithTransaction(ctx, func(ctx context.Context) error {
+		var delErr error
+		deleted, delErr = h.store.Delete(ctx, orgId, name)
+		if delErr != nil {
+			return delErr
+		}
+		if !deleted {
+			return nil
+		}
+		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
+		if err := h.catalogs.UnsetItemOwner(ctx, orgId, *owner); err != nil {
 			return err
 		}
-		if err := h.catalogStore.UnsetOwner(ctx, tx, orgId, owner); err != nil {
+		if err := h.catalogs.UnsetOwner(ctx, orgId, *owner); err != nil {
 			return err
 		}
-		return h.fleetStore.UnsetOwner(ctx, tx, orgId, owner)
+		return h.fleets.UnsetOwner(ctx, orgId, *owner)
+	})
+	if err == nil && deleted {
+		h.callbackResourceSyncDeleted(ctx, domain.ResourceSyncKind, orgId, name, nil, nil, false, nil)
 	}
-
-	err := h.store.Delete(ctx, orgId, name, callback, h.callbackResourceSyncDeleted)
 	status := common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 	return status
 }
@@ -126,7 +179,23 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackResourceSyncUpdated)
+
+	var result, oldResourceSync *domain.ResourceSync
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+
+		var writeErr error
+		result, oldResourceSync, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 
@@ -138,36 +207,46 @@ func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, orgId uu
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, err := h.store.UpdateStatus(ctx, orgId, &resourceSync, h.callbackResourceSyncUpdated)
+	result, oldResourceSync, err := h.store.UpdateStatus(ctx, orgId, &resourceSync)
+	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }
 
 // callbackResourceSyncUpdated is the resource sync-specific callback that handles resource sync events
 func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-		return
-	}
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+			return
+		}
 
-	var (
-		oldResourceSync, newResourceSync *domain.ResourceSync
-		ok                               bool
-	)
-	if oldResourceSync, newResourceSync, ok = common.CastResources[domain.ResourceSync](oldResource, newResource); !ok {
-		return
-	}
+		var (
+			oldResourceSync, newResourceSync *domain.ResourceSync
+			ok                               bool
+		)
+		if oldResourceSync, newResourceSync, ok = common.CastResources[domain.ResourceSync](oldResource, newResource); !ok {
+			return
+		}
 
-	// Emit success event for create/update
-	if created {
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log, nil))
-	} else if oldResourceSync != nil && newResourceSync != nil {
-		updateDetails := common.ComputeResourceUpdatedDetails(oldResourceSync.Metadata, newResourceSync.Metadata)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+		// Emit success event for create/update
+		if created {
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log, nil))
+		} else if oldResourceSync != nil && newResourceSync != nil {
+			updateDetails := common.ComputeResourceUpdatedDetails(oldResourceSync.Metadata, newResourceSync.Metadata)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+		}
 
-	// Emit condition-specific events
-	emitResourceSyncConditionEvents(ctx, h.events, orgId, name, oldResourceSync, newResourceSync)
+		// Emit condition-specific events
+		emitResourceSyncConditionEvents(ctx, h.events, orgId, name, oldResourceSync, newResourceSync)
+	})
+}
+
+// callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
+func (h *ServiceHandler) callbackResourceSyncDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 func emitResourceSyncConditionEvents(ctx context.Context, eventsService events.Service, orgId uuid.UUID, name string, oldResourceSync, newResourceSync *domain.ResourceSync) {
@@ -245,9 +324,4 @@ func emitResourceSyncConditionEvents(ctx context.Context, eventsService events.S
 			}
 		}
 	}
-}
-
-// callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
-func (h *ServiceHandler) callbackResourceSyncDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

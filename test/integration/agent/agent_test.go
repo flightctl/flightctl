@@ -261,9 +261,9 @@ var _ = Describe("Device Agent behavior", func() {
 				// Update rendered once via the service so the rendered bus is notified (agent will see new version).
 				cfg, err := createMinimalRenderedConfig("config-v1")
 				Expect(err).ToNot(HaveOccurred())
-				st := h.Device.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil, false)
+				st := h.Device.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil)
 				Expect(st.Code).To(BeEquivalentTo(200))
-				renderedDev, getErr := h.DeviceStore.GetRendered(h.Context, orgID, deviceName, nil, "")
+				renderedDev, getErr := h.DeviceStore.GetRendered(h.Context, orgID, deviceName, "")
 				Expect(getErr).ToNot(HaveOccurred())
 				renderedVersion := renderedDev.Version()
 				Expect(renderedVersion).ToNot(BeEmpty())
@@ -287,7 +287,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// Manually overwrite reported status so we can verify the agent pushes and restores the real one.
 				overwrittenDevice := *devBefore
 				overwrittenDevice.Status.Os.Image = "fake-os-overwritten-by-test"
-				_, replaceSt := h.Device.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice)
+				_, replaceSt := h.Device.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice, true)
 				Expect(replaceSt.Code).To(BeEquivalentTo(200))
 				GinkgoWriter.Printf("ConflictPaused test: overwrote device status Os.Image to fake value\n")
 
