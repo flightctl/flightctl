@@ -2,6 +2,7 @@ package os
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -69,4 +70,24 @@ func TestManagerStatus(t *testing.T) {
 			require.Equal(tc.osMode, *status.Capabilities.OsMode)
 		})
 	}
+}
+
+func TestManagerStatusWhenClientFails(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := NewMockClient(ctrl)
+	clientErr := errors.New("status unavailable")
+	mockClient.EXPECT().Status(gomock.Any()).Return(nil, clientErr)
+
+	m := &manager{
+		client: mockClient,
+		osMode: v1beta1.OsModePackage,
+	}
+
+	status := &v1beta1.DeviceStatus{}
+	err := m.Status(context.Background(), status)
+	require.ErrorIs(err, clientErr)
+	require.Nil(status.Capabilities)
 }
