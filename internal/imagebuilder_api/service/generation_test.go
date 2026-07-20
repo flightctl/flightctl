@@ -34,13 +34,14 @@ func TestIncrementGenerationOnSpecChange(t *testing.T) {
 		require.Equal(t, int64(3), *result)
 	})
 
-	t.Run("When spec changed and existing generation is nil it should treat it as 0 and increment to 1", func(t *testing.T) {
+	t.Run("When spec changed and existing generation is nil it should set it to 1", func(t *testing.T) {
 		result := incrementGenerationOnSpecChange(nil, true)
+		require.NotNil(t, result)
 		require.Equal(t, int64(1), *result)
 	})
 
-	t.Run("When spec is unchanged and existing generation is nil it should leave it as 0", func(t *testing.T) {
+	t.Run("When spec is unchanged and existing generation is nil it should leave it nil", func(t *testing.T) {
 		result := incrementGenerationOnSpecChange(nil, false)
-		require.Equal(t, int64(0), *result)
+		require.Nil(t, result)
 	})
 }
