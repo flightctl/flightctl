@@ -640,35 +640,42 @@ func prepareDeviceForDecommission(existing *domain.Device, decom domain.DeviceDe
 }
 
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
+	existing, err := h.deviceStore.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+
+	// Product rule: refuse a second decommission without calling the store (no success event).
+	if existing.Spec != nil && existing.Spec.Decommissioning != nil {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceVersionConflict, false, domain.DeviceKind, &name)
+	}
+
 	// Re-Get + re-prepare on CAS conflicts so concurrent renders/status writes cannot
 	// permanently block decommission with a stale prepared ResourceVersion.
-	const maxAttempts = 10
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		existing, err := h.deviceStore.Get(ctx, orgId, name)
-		if err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	var result, oldDevice *domain.Device
+	err = common.RetryOnNoRowsUpdated(func() error {
+		current, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
 		}
+		// Re-check on every retry: a concurrent decommission may have won the race since
+		// our last read. Unlike the upfront check above, this path has already reached the
+		// store-write step, so a rejection here still emits a callback/event via the return
+		// below (see DecommissionDevice event semantics).
+		if current.Spec != nil && current.Spec.Decommissioning != nil {
+			return flterrors.ErrResourceVersionConflict
+		}
+		oldDevice = current
 
-		// Product rule: refuse a second decommission without calling the store (no success event).
-		if existing.Spec != nil && existing.Spec.Decommissioning != nil {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceVersionConflict, false, domain.DeviceKind, &name)
-		}
+		prepared := prepareDeviceForDecommission(current, decom)
+		common.PinResourceVersionForCAS(current.Metadata.ResourceVersion, &prepared.Metadata)
 
-		prepared := prepareDeviceForDecommission(existing, decom)
-		result, oldDevice, err := h.deviceStore.DecommissionDevice(ctx, orgId, prepared)
-		if err == nil {
-			h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, nil)
-			return result, common.StoreErrorToApiStatus(nil, false, domain.DeviceKind, &name)
-		}
-		lastErr = err
-		if !errors.Is(err, flterrors.ErrResourceVersionConflict) && !errors.Is(err, flterrors.ErrNoRowsUpdated) {
-			h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
-			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-		}
-	}
-	h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, nil, nil, false, lastErr)
-	return nil, common.StoreErrorToApiStatus(lastErr, false, domain.DeviceKind, &name)
+		var writeErr error
+		result, writeErr = h.deviceStore.DecommissionDevice(ctx, orgId, prepared)
+		return writeErr
+	})
+	h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
+	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
