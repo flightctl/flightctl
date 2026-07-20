@@ -31,6 +31,27 @@ func NewServiceHandler(store authproviderstore.Store, events events.Service, log
 
 var _ Service = (*ServiceHandler)(nil)
 
+// SanitizeAuthProvider clears managed metadata from an untrusted auth provider document
+// (HTTP body).
+func SanitizeAuthProvider(authProvider *domain.AuthProvider) {
+	if authProvider == nil {
+		return
+	}
+	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
+}
+
+// CreateAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then creates it.
+func CreateAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.CreateAuthProvider(ctx, orgId, authProvider)
+}
+
+// ReplaceAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then replaces it.
+func ReplaceAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.ReplaceAuthProvider(ctx, orgId, name, authProvider)
+}
+
 // sanitizeSchemaError inspects the error and redacts sensitive fields
 func sanitizeSchemaError(err error) string {
 	if err == nil {
@@ -110,24 +131,19 @@ func applyAuthProviderDefaults(spec *domain.AuthProviderSpec) error {
 }
 
 // handleSuperAdminAnnotation checks if the request is from a super admin and sets the annotation if needed.
-// Returns true if the auth provider was created by a super admin, false otherwise.
-func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) bool {
+func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) {
 	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
-
-	if createdBySuperAdmin {
-		// Clear user-provided annotations and set our annotation
-		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
-			domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
-		})
+	if !ok || !mappedIdentity.IsSuperAdmin() {
+		return
 	}
-	return createdBySuperAdmin
+
+	// Clear user-provided annotations and set our annotation
+	authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
+		domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+	})
 }
 
 func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
-
-	// don't set fields that are managed by the service
-	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
 
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
@@ -138,16 +154,8 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
-	// Check if created by super admin and prepare annotations
-	createdBySuperAdmin := h.handleSuperAdminAnnotation(ctx, &authProvider)
+	h.handleSuperAdminAnnotation(ctx, &authProvider)
 
-	// Use fromAPI=false to preserve annotations when created by super admin
-	if createdBySuperAdmin {
-		result, err := h.store.CreateWithFromAPI(ctx, orgId, &authProvider, false, h.callbackAuthProviderUpdated)
-		return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
-	}
-
-	// For non-super-admin users, use regular Create (fromAPI=true, annotations cleared)
 	result, err := h.store.Create(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
 	return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 }
@@ -203,11 +211,6 @@ func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, n
 }
 
 func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
-
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
-	}
 
 	// Validate name early for both create and update paths
 	if authProvider.Metadata.Name == nil {

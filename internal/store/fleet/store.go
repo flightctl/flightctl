@@ -23,8 +23,8 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, eventCallback store.EventCallback) (*domain.Fleet, error)
-	Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*domain.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...ListOption) (*domain.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error
@@ -120,14 +120,14 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *doma
 	return fleet, err
 }
 
-func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, error) {
-	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error) {
+	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, false, err)
 	return newFleet, err
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
-	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
+	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, created, err)
 	return newFleet, created, err
 }
@@ -416,23 +416,11 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	if existingRecord.Status == nil {
 		existingRecord.Status = model.MakeJSONField(domain.FleetStatus{})
 	}
-	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []domain.Condition{}
-	}
 
-	// Make a full copy of the existing conditions
 	existingConditions := make([]domain.Condition, len(existingRecord.Status.Data.Conditions))
 	copy(existingConditions, existingRecord.Status.Data.Conditions)
 
-	changed := false
-	for _, condition := range conditions {
-		if domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition) {
-			changed = true
-		}
-	}
-	if !changed {
-		return false, nil
-	}
+	existingRecord.Status.Data.Conditions = conditions
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,
@@ -440,10 +428,10 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	})
 	err := store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 
 	oldFleet, _ := existingRecord.ToApiResource()

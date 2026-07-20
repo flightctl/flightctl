@@ -35,11 +35,11 @@ func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *dom
 	return nil, nil
 }
 
-func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*domain.Fleet, error) {
+func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, callback store.EventCallback) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*domain.Fleet, bool, error) {
+func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, callback store.EventCallback) (*domain.Fleet, bool, error) {
 	return nil, false, nil
 }
 
