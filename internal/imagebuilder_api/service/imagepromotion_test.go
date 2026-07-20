@@ -139,6 +139,8 @@ func TestImagePromotionCreate(t *testing.T) {
 	result, status := svc.Create(ctx, orgId, promotion)
 	require.Equal(int32(http.StatusCreated), status.Code, "expected 201 Created, got: %s", status.Message)
 	require.NotNil(result)
+	require.NotNil(result.Metadata.Generation)
+	require.Equal(int64(1), lo.FromPtr(result.Metadata.Generation))
 
 	// The service must immediately set WaitingForArtifacts; evaluation is deferred to the worker.
 	requirePromotionReason(t, promotionStore, "promo-1", domain.ImagePromotionConditionReasonWaitingForArtifacts)
@@ -279,8 +281,9 @@ func TestImagePromotionReplace_AppendOnlyFormats(t *testing.T) {
 			Target: makeNewCatalogItemTarget("my-catalog", "my-app", "1.0.0"),
 		},
 	}
-	_, status := svc.Create(ctx, orgId, promotion)
+	created, status := svc.Create(ctx, orgId, promotion)
 	require.Equal(int32(http.StatusCreated), status.Code, "create failed: %s", status.Message)
+	require.Equal(int64(1), lo.FromPtr(created.Metadata.Generation))
 
 	// Replace: adding qcow2 format is allowed.
 	updated := domain.ImagePromotion{
@@ -293,8 +296,9 @@ func TestImagePromotionReplace_AppendOnlyFormats(t *testing.T) {
 			Target: makeNewCatalogItemTarget("my-catalog", "my-app", "1.0.0"),
 		},
 	}
-	_, replaceStatus := svc.Replace(ctx, orgId, "promo-replace", updated)
+	replaced, replaceStatus := svc.Replace(ctx, orgId, "promo-replace", updated)
 	require.Equal(int32(http.StatusOK), replaceStatus.Code, "replace with new format should succeed: %s", replaceStatus.Message)
+	require.Equal(int64(2), lo.FromPtr(replaced.Metadata.Generation), "adding an export format is a spec change and should increment generation")
 
 	// Replace: removing an existing format must be rejected.
 	removed := domain.ImagePromotion{
@@ -309,6 +313,51 @@ func TestImagePromotionReplace_AppendOnlyFormats(t *testing.T) {
 	}
 	_, removedStatus := svc.Replace(ctx, orgId, "promo-replace", removed)
 	require.Equal(int32(http.StatusBadRequest), removedStatus.Code, "removing a format should be rejected")
+}
+
+// TestImagePromotionReplace_LabelsOnly_GenerationUnchanged verifies that a Replace which only
+// changes metadata.labels (no export format change) leaves generation untouched.
+func TestImagePromotionReplace_LabelsOnly_GenerationUnchanged(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	imageBuildStore := NewDummyImageBuildStore()
+	promotionStore := NewDummyImagePromotionStore()
+	catalogStore := NewDummyCatalogStore()
+
+	build := newCompletedImageBuild("my-build", "sha256:5678")
+	_, err := imageBuildStore.Create(ctx, orgId, &build)
+	require.NoError(err)
+	catalogStore.AddCatalog("my-catalog")
+
+	svc := newTestImagePromotionService(promotionStore, imageBuildStore, catalogStore)
+
+	promotion := domain.ImagePromotion{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("promo-labels-only")},
+		Spec: domain.ImagePromotionSpec{
+			Source: domain.ImagePromotionSource{ImageBuildRef: "my-build"},
+			Target: makeNewCatalogItemTarget("my-catalog", "my-app", "1.0.0"),
+		},
+	}
+	created, status := svc.Create(ctx, orgId, promotion)
+	require.Equal(int32(http.StatusCreated), status.Code, "create failed: %s", status.Message)
+	require.Equal(int64(1), lo.FromPtr(created.Metadata.Generation))
+
+	// Replace with the same export formats (none) but new labels — not a spec change.
+	relabeled := domain.ImagePromotion{
+		Metadata: domain.ObjectMeta{
+			Name:   lo.ToPtr("promo-labels-only"),
+			Labels: lo.ToPtr(map[string]string{"env": "prod"}),
+		},
+		Spec: domain.ImagePromotionSpec{
+			Source: domain.ImagePromotionSource{ImageBuildRef: "my-build"},
+			Target: makeNewCatalogItemTarget("my-catalog", "my-app", "1.0.0"),
+		},
+	}
+	replaced, replaceStatus := svc.Replace(ctx, orgId, "promo-labels-only", relabeled)
+	require.Equal(int32(http.StatusOK), replaceStatus.Code, "labels-only replace should succeed: %s", replaceStatus.Message)
+	require.Equal(int64(1), lo.FromPtr(replaced.Metadata.Generation), "labels-only change should not increment generation")
 }
 
 // TestImagePromotionReplace_ImmutableFields verifies that immutable spec fields (imageBuildRef,
