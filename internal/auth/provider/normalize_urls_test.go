@@ -17,7 +17,7 @@ func TestNormalizeOIDCProviderSpecURLs(t *testing.T) {
 			ClientId:     "client",
 		}
 		require.NoError(t, NormalizeOIDCProviderSpecURLs(&spec))
-		assert.Equal(t, "https://idp.example.com/realm", spec.Issuer)
+		assert.Equal(t, "https://idp.example.com/Realm", spec.Issuer)
 	})
 
 	t.Run("When issuer is empty it should be a no-op", func(t *testing.T) {

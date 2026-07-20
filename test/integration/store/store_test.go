@@ -231,7 +231,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oidc").First(&oidcRow).Error).To(Succeed())
 			gotOIDC, err := oidcRow.Spec.Data.AsOIDCProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(gotOIDC.Issuer).To(Equal("https://idp.example.com/realm/master"))
+			Expect(gotOIDC.Issuer).To(Equal("https://idp.example.com/Realm/Master"))
 
 			var oauth2Row model.AuthProvider
 			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oauth2").First(&oauth2Row).Error).To(Succeed())

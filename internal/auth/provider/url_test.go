@@ -15,8 +15,9 @@ func TestNormalizeIssuerURL(t *testing.T) {
 		{"trailing slash", "https://example.com/", "https://example.com", false},
 		{"with path", "https://example.com/oidc", "https://example.com/oidc", false},
 		{"with path and trailing slash", "https://example.com/oidc/", "https://example.com/oidc", false},
-		{"upper host and scheme", "HTTPS://IdP.Example.COM/Realm/", "https://idp.example.com/realm", false},
-		{"mixed case path", "https://example.com/OIDC/Master/", "https://example.com/oidc/master", false},
+		{"upper host and scheme", "HTTPS://IdP.Example.COM/Realm/", "https://idp.example.com/Realm", false},
+		{"mixed case path preserved", "https://example.com/OIDC/Master/", "https://example.com/OIDC/Master", false},
+		{"query and fragment case preserved", "https://Example.COM/path?Realm=MyRealm#Frag", "https://example.com/path?Realm=MyRealm#Frag", false},
 		{"empty", "", "", true},
 		{"invalid no scheme", "example.com", "", true},
 		{"invalid no host", "https://", "", true},
@@ -46,7 +47,7 @@ func TestDiscoveryURL(t *testing.T) {
 		{"no trailing slash", "https://example.com", "https://example.com/.well-known/openid-configuration", false},
 		{"trailing slash no double slash", "https://example.com/", "https://example.com/.well-known/openid-configuration", false},
 		{"with path", "https://example.com/oidc", "https://example.com/oidc/.well-known/openid-configuration", false},
-		{"mixed case issuer", "HTTPS://IdP.Example.COM/OIDC/", "https://idp.example.com/oidc/.well-known/openid-configuration", false},
+		{"mixed case issuer", "HTTPS://IdP.Example.COM/OIDC/", "https://idp.example.com/OIDC/.well-known/openid-configuration", false},
 		{"empty", "", "", true},
 	}
 	for _, tt := range tests {

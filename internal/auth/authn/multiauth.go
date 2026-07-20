@@ -474,11 +474,16 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			m.log.Debugf("Provider %s: changed (OAuth2 AuthorizationUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.AuthorizationUrl, newOauth2Spec.AuthorizationUrl)
 			return true, nil
 		}
-		if existingOauth2Spec.TokenUrl != newOauth2Spec.TokenUrl {
+		// If normalization fails for either URL (malformed), treat as changed.
+		existingNormalizedTokenURL, existingTokenNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.TokenUrl)
+		newNormalizedTokenURL, newTokenNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.TokenUrl)
+		if existingTokenNormErr != nil || newTokenNormErr != nil || existingNormalizedTokenURL != newNormalizedTokenURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 TokenUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.TokenUrl, newOauth2Spec.TokenUrl)
 			return true, nil
 		}
-		if existingOauth2Spec.UserinfoUrl != newOauth2Spec.UserinfoUrl {
+		existingNormalizedUserinfoURL, existingUserinfoNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.UserinfoUrl)
+		newNormalizedUserinfoURL, newUserinfoNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.UserinfoUrl)
+		if existingUserinfoNormErr != nil || newUserinfoNormErr != nil || existingNormalizedUserinfoURL != newNormalizedUserinfoURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 UserinfoUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.UserinfoUrl, newOauth2Spec.UserinfoUrl)
 			return true, nil
 		}

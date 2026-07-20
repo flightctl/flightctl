@@ -20,7 +20,7 @@ func TestInitOIDCAuth_NormalizesIssuer(t *testing.T) {
 	require.NoError(t, err)
 	oidcAuth, ok := authN.(*authn.OIDCAuth)
 	require.True(t, ok)
-	assert.Equal(t, "https://idp.example.com/realm", oidcAuth.GetOIDCSpec().Issuer)
+	assert.Equal(t, "https://idp.example.com/Realm", oidcAuth.GetOIDCSpec().Issuer)
 }
 
 func TestInitOAuth2Auth_NormalizesURLs(t *testing.T) {

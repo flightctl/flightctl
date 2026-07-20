@@ -112,7 +112,8 @@ func buildIntrospectionURL(baseURL string) string {
 }
 
 // NormalizeIssuerURL parses an issuer URL and returns a canonical form:
-// scheme/host/path/query/fragment lowercased, and no trailing slash on path.
+// scheme and host lowercased, and no trailing slash on path.
+// Path, query, and fragment case are preserved (OIDC issuer paths are case-sensitive).
 // Requires scheme and host. Used so discovery, token verification, unique indexes,
 // and cache keys share one form.
 func NormalizeIssuerURL(issuer string) (string, error) {
@@ -128,10 +129,8 @@ func NormalizeIssuerURL(issuer string) (string, error) {
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.Host = strings.ToLower(parsed.Host)
-	parsed.Path = strings.ToLower(strings.TrimSuffix(parsed.Path, "/"))
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
 	parsed.RawPath = ""
-	parsed.RawQuery = strings.ToLower(parsed.RawQuery)
-	parsed.Fragment = strings.ToLower(parsed.Fragment)
 	return parsed.String(), nil
 }
 

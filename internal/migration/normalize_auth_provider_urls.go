@@ -28,11 +28,11 @@ type oauth2UniquenessKey struct {
 }
 
 // normalizeAuthProviderURLs rewrites stored OIDC/OAuth2 auth provider URL fields to the
-// canonical form (lowercase + trailing-slash strip) so unique indexes and runtime lookups
-// match write-path normalization. Runs once via schema_migrations.
+// canonical form (lowercase scheme/host + trailing-slash strip) so unique indexes and
+// runtime lookups match write-path normalization. Runs once via schema_migrations.
 //
 // If two existing rows would collide after normalization (e.g. issuer with/without a
-// trailing slash, or differing only by letter case, for the same clientId), the migration
+// trailing slash, or differing only by host case, for the same clientId), the migration
 // fails so an admin can resolve the duplicate before upgrade completes.
 func normalizeAuthProviderURLs(ctx context.Context, tx *gorm.DB) error {
 	return tx.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
