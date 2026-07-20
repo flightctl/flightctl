@@ -256,10 +256,6 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				// Prepare status update
 				statusUpdate := statusUpdateFunc(*setupResult)
 
-				if !isExternalRequest {
-					ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-				}
-
 				By("performing status update")
 				updated, st := suite.EnrollmentRequest.ReplaceEnrollmentRequestStatus(ctx, suite.OrgID, erName, statusUpdate)
 

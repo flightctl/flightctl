@@ -84,11 +84,10 @@ func createExpectedAPIOrganization(id uuid.UUID, displayName string, externalID 
 	}
 }
 
-func TestListOrganizations_EmptyResult(t *testing.T) {
+func TestListAllOrganizations_EmptyResult(t *testing.T) {
 	handler, _ := newTestHandler([]*model.Organization{})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -98,15 +97,14 @@ func TestListOrganizations_EmptyResult(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_SingleOrganization(t *testing.T) {
+func TestListAllOrganizations_SingleOrganization(t *testing.T) {
 	orgID := uuid.New()
 	defaultOrg := createTestOrganizationModel(orgID, "default-external-id", "Default")
 	handler, _ := newTestHandler([]*model.Organization{defaultOrg})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Default", "default-external-id")
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -117,7 +115,7 @@ func TestListOrganizations_SingleOrganization(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_MultipleOrganizations(t *testing.T) {
+func TestListAllOrganizations_MultipleOrganizations(t *testing.T) {
 	orgID1 := uuid.New()
 	orgID2 := uuid.New()
 
@@ -125,12 +123,11 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	org2 := createTestOrganizationModel(orgID2, "external-id-2", "Organization Two")
 
 	handler, _ := newTestHandler([]*model.Organization{org1, org2})
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One", "external-id-1")
 	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two", "external-id-2")
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Equal(t, domain.StatusOK(), status)
 	require.NotNil(t, result)
@@ -143,24 +140,22 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	require.Equal(t, domain.ListMeta{}, result.Metadata)
 }
 
-func TestListOrganizations_StoreError(t *testing.T) {
+func TestListAllOrganizations_StoreError(t *testing.T) {
 	handler, fakeStore := newTestHandler(nil)
 	fakeStore.err = errors.New("database connection failed")
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.NotEqual(t, domain.StatusOK(), status)
 	require.Contains(t, status.Message, "database connection failed")
 }
 
-func TestListOrganizations_ResourceNotFoundError(t *testing.T) {
+func TestListAllOrganizations_ResourceNotFoundError(t *testing.T) {
 	handler, fakeStore := newTestHandler(nil)
 	fakeStore.err = flterrors.ErrResourceNotFound
-	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	result, status := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.Equal(t, int32(404), status.Code)

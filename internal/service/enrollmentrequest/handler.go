@@ -67,6 +67,28 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 
 var _ Service = (*ServiceHandler)(nil)
 
+// SanitizeEnrollmentRequest clears status and managed metadata from an untrusted enrollment
+// request document (HTTP body).
+func SanitizeEnrollmentRequest(er *domain.EnrollmentRequest) {
+	if er == nil {
+		return
+	}
+	er.Status = nil
+	common.NilOutManagedObjectMetaProperties(&er.Metadata)
+}
+
+// CreateEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then creates it.
+func CreateEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.CreateEnrollmentRequest(ctx, orgId, er)
+}
+
+// ReplaceEnrollmentRequestFromUntrusted sanitizes an untrusted enrollment request document, then replaces it.
+func ReplaceEnrollmentRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
+	SanitizeEnrollmentRequest(&er)
+	return svc.ReplaceEnrollmentRequest(ctx, orgId, name, er)
+}
+
 // getTPMCAPool loads the TPM CA certificates from configured paths
 func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
 	if len(h.tpmCAPaths) == 0 {
@@ -295,7 +317,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
-	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
+	_, _, err := h.deviceStore.CreateOrUpdate(ctx, orgId, apiResource, nil, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
 		// Prevent overwriting existing devices during enrollment request approval
 		if before != nil {
 			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
@@ -311,13 +333,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	er.Status = nil
 	addStatusIfNeeded(&er)
-
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&er.Metadata)
-	}
 
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
@@ -349,8 +365,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 		}
 	}
 
-	// Use fromAPI=false for internal requests to preserve annotations
-	result, err := h.store.CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
+	result, err := h.store.Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, common.StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
 }
 
@@ -386,10 +401,7 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UU
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
-	// don't set fields that are managed by the service
-	er.Status = nil
 	addStatusIfNeeded(&er)
-	common.NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
