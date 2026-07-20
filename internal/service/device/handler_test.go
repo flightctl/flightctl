@@ -886,6 +886,28 @@ func TestDecommissionDevice(t *testing.T) {
 		require.Equal(t, int32(http.StatusNotFound), status.Code)
 		require.Empty(t, ev.created)
 	})
+
+	t.Run("When a concurrent decommission wins the race between the upfront check and the write it should retry, detect it, and emit a failure event", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		})
+		require.NoError(t, err)
+		// Simulates another request committing a decommission between this call's upfront
+		// check and its store write - the store reports a CAS miss, and the closure's re-Get
+		// on retry must be what catches the now-decommissioning device, not the upfront check.
+		st.device.decommissionRaceOnce = true
+
+		_, status := svc.DecommissionDevice(ctx, orgId, "foo", domain.DeviceDecommission{})
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrResourceVersionConflict.Error(), status.Message)
+		require.Len(t, ev.created, 1, "unlike the upfront-rejection case, a race caught on retry has already reached the write step and must emit a failure event")
+		require.Equal(t, domain.EventReasonDeviceDecommissionFailed, ev.created[0].Reason)
+	})
 }
 
 // TestUpdateRenderedDevice covers the "no change in rendered version" path only. The
