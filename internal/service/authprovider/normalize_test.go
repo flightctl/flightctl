@@ -78,33 +78,51 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 		name             string
 		authorizationUrl string
 		issuer           *string
+		tokenUrl         string
+		userinfoUrl      string
 		wantAuthzURL     string
 		wantIssuer       *string
+		wantTokenURL     string
+		wantUserinfoURL  string
 		wantErr          bool
 		errContains      string
 	}{
 		{
 			name:             "When authorizationUrl has trailing slash it should be stripped",
 			authorizationUrl: "https://idp.example.com/oauth2/authorize/",
+			tokenUrl:         "https://idp.example.com/token",
+			userinfoUrl:      "https://idp.example.com/userinfo",
 			wantAuthzURL:     "https://idp.example.com/oauth2/authorize",
+			wantTokenURL:     "https://idp.example.com/token",
+			wantUserinfoURL:  "https://idp.example.com/userinfo",
 		},
 		{
 			name:             "When both authorizationUrl and issuer have trailing slashes they should both be stripped",
 			authorizationUrl: "https://idp.example.com/oauth2/authorize/",
 			issuer:           lo.ToPtr("https://idp.example.com/"),
+			tokenUrl:         "https://idp.example.com/token/",
+			userinfoUrl:      "https://idp.example.com/userinfo/",
 			wantAuthzURL:     "https://idp.example.com/oauth2/authorize",
 			wantIssuer:       lo.ToPtr("https://idp.example.com"),
+			wantTokenURL:     "https://idp.example.com/token",
+			wantUserinfoURL:  "https://idp.example.com/userinfo",
 		},
 		{
 			name:             "When issuer is nil it should be left nil",
 			authorizationUrl: "https://idp.example.com/oauth2/authorize",
 			issuer:           nil,
+			tokenUrl:         "https://idp.example.com/token",
+			userinfoUrl:      "https://idp.example.com/userinfo",
 			wantAuthzURL:     "https://idp.example.com/oauth2/authorize",
 			wantIssuer:       nil,
+			wantTokenURL:     "https://idp.example.com/token",
+			wantUserinfoURL:  "https://idp.example.com/userinfo",
 		},
 		{
 			name:             "When authorizationUrl is invalid it should fail",
 			authorizationUrl: "not-a-url",
+			tokenUrl:         "https://idp.example.com/token",
+			userinfoUrl:      "https://idp.example.com/userinfo",
 			wantErr:          true,
 			errContains:      "invalid OAuth2 authorizationUrl",
 		},
@@ -112,8 +130,18 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 			name:             "When issuer is invalid it should fail",
 			authorizationUrl: "https://idp.example.com/authorize",
 			issuer:           lo.ToPtr("not-a-url"),
+			tokenUrl:         "https://idp.example.com/token",
+			userinfoUrl:      "https://idp.example.com/userinfo",
 			wantErr:          true,
 			errContains:      "invalid OAuth2 issuer URL",
+		},
+		{
+			name:             "When userinfoUrl is invalid it should fail",
+			authorizationUrl: "https://idp.example.com/authorize",
+			tokenUrl:         "https://idp.example.com/token",
+			userinfoUrl:      "not-a-url",
+			wantErr:          true,
+			errContains:      "invalid OAuth2 userinfoUrl",
 		},
 	}
 	for _, tt := range tests {
@@ -127,8 +155,8 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 			oauth2Spec := domain.OAuth2ProviderSpec{
 				ProviderType:     domain.Oauth2,
 				AuthorizationUrl: tt.authorizationUrl,
-				TokenUrl:         "https://idp.example.com/token",
-				UserinfoUrl:      "https://idp.example.com/userinfo",
+				TokenUrl:         tt.tokenUrl,
+				UserinfoUrl:      tt.userinfoUrl,
 				ClientId:         "test-client",
 				Issuer:           tt.issuer,
 				Introspection:    rfc7662,
@@ -145,6 +173,8 @@ func TestNormalizeAuthProviderURLs_OAuth2(t *testing.T) {
 			got, err := spec.AsOAuth2ProviderSpec()
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantAuthzURL, got.AuthorizationUrl)
+			assert.Equal(t, tt.wantTokenURL, got.TokenUrl)
+			assert.Equal(t, tt.wantUserinfoURL, got.UserinfoUrl)
 			if tt.wantIssuer == nil {
 				assert.Nil(t, got.Issuer)
 			} else {

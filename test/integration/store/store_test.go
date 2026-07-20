@@ -178,4 +178,107 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err).To(HaveOccurred(), "default catalog deleted by user must not be recreated on restart")
 		})
 	})
+
+	Context("Auth provider URL normalization", func() {
+		It("When upgrading, it should strip trailing slashes from stored OIDC and OAuth2 URL fields", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			oidcSpec := domain.AuthProviderSpec{}
+			Expect(oidcSpec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
+				Issuer:       "https://idp.example.com/realm/master/",
+				ClientId:     "oidc-client",
+			})).To(Succeed())
+			Expect(db.Create(&model.AuthProvider{
+				Resource: model.Resource{OrgID: orgID, Name: "legacy-oidc"},
+				Spec:     model.MakeJSONField(oidcSpec),
+			}).Error).To(Succeed())
+
+			oauth2Introspection := &domain.OAuth2Introspection{}
+			Expect(oauth2Introspection.FromRfc7662IntrospectionSpec(domain.Rfc7662IntrospectionSpec{
+				Type: domain.IntrospectionTypeRfc7662,
+				Url:  "https://idp.example.com/introspect",
+			})).To(Succeed())
+			oauth2Spec := domain.AuthProviderSpec{}
+			Expect(oauth2Spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+				ProviderType:     domain.Oauth2,
+				AuthorizationUrl: "https://idp.example.com/oauth2/authorize/",
+				TokenUrl:         "https://idp.example.com/token/",
+				UserinfoUrl:      "https://idp.example.com/userinfo/",
+				ClientId:         "oauth2-client",
+				Introspection:    oauth2Introspection,
+			})).To(Succeed())
+			Expect(db.Create(&model.AuthProvider{
+				Resource: model.Resource{OrgID: orgID, Name: "legacy-oauth2"},
+				Spec:     model.MakeJSONField(oauth2Spec),
+			}).Error).To(Succeed())
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			var oidcRow model.AuthProvider
+			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oidc").First(&oidcRow).Error).To(Succeed())
+			gotOIDC, err := oidcRow.Spec.Data.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotOIDC.Issuer).To(Equal("https://idp.example.com/realm/master"))
+
+			var oauth2Row model.AuthProvider
+			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oauth2").First(&oauth2Row).Error).To(Succeed())
+			gotOAuth2, err := oauth2Row.Spec.Data.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotOAuth2.AuthorizationUrl).To(Equal("https://idp.example.com/oauth2/authorize"))
+			Expect(gotOAuth2.TokenUrl).To(Equal("https://idp.example.com/token"))
+			Expect(gotOAuth2.UserinfoUrl).To(Equal("https://idp.example.com/userinfo"))
+		})
+
+		It("When two providers would collide after normalization, migration should fail", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			for _, nameIssuer := range []struct {
+				name   string
+				issuer string
+			}{
+				{name: "oidc-a", issuer: "https://idp.example.com"},
+				{name: "oidc-b", issuer: "https://idp.example.com/"},
+			} {
+				spec := domain.AuthProviderSpec{}
+				Expect(spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+					ProviderType: domain.Oidc,
+					Issuer:       nameIssuer.issuer,
+					ClientId:     "same-client",
+				})).To(Succeed())
+				Expect(db.Create(&model.AuthProvider{
+					Resource: model.Resource{OrgID: orgID, Name: nameIssuer.name},
+					Spec:     model.MakeJSONField(spec),
+				}).Error).To(Succeed())
+			}
+
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("would share issuer"))
+		})
+	})
 })

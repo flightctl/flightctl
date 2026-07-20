@@ -50,56 +50,7 @@ func sanitizeSchemaError(err error) string {
 // normalizeAuthProviderURLs normalizes URL fields in auth provider specs before storing.
 // This ensures consistent URL representation (e.g. no trailing slashes on issuer identifiers).
 func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
-	discriminator, err := spec.Discriminator()
-	if err != nil {
-		// Unknown or malformed provider type — skip normalization. Validation (called after this)
-		// will reject the spec with a descriptive error, so surfacing the discriminator error here
-		// would only add noise.
-		return nil
-	}
-
-	switch discriminator {
-	case string(domain.Oidc):
-		oidcSpec, err := spec.AsOIDCProviderSpec()
-		if err != nil {
-			return fmt.Errorf("invalid OIDC provider spec: %w", err)
-		}
-		if oidcSpec.Issuer != "" {
-			normalized, err := provider.NormalizeIssuerURL(oidcSpec.Issuer)
-			if err != nil {
-				return fmt.Errorf("invalid OIDC issuer URL: %w", err)
-			}
-			oidcSpec.Issuer = normalized
-		}
-		if mergeErr := spec.MergeOIDCProviderSpec(oidcSpec); mergeErr != nil {
-			return fmt.Errorf("failed to update OIDC provider spec: %w", mergeErr)
-		}
-
-	case string(domain.Oauth2):
-		oauth2Spec, err := spec.AsOAuth2ProviderSpec()
-		if err != nil {
-			return fmt.Errorf("invalid OAuth2 provider spec: %w", err)
-		}
-		if oauth2Spec.AuthorizationUrl != "" {
-			normalized, err := provider.NormalizeIssuerURL(oauth2Spec.AuthorizationUrl)
-			if err != nil {
-				return fmt.Errorf("invalid OAuth2 authorizationUrl: %w", err)
-			}
-			oauth2Spec.AuthorizationUrl = normalized
-		}
-		if oauth2Spec.Issuer != nil && *oauth2Spec.Issuer != "" {
-			normalized, err := provider.NormalizeIssuerURL(*oauth2Spec.Issuer)
-			if err != nil {
-				return fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
-			}
-			oauth2Spec.Issuer = &normalized
-		}
-		if mergeErr := spec.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
-			return fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr)
-		}
-	}
-
-	return nil
+	return provider.NormalizeAuthProviderSpecURLs(spec)
 }
 
 // applyAuthProviderDefaults applies default values to auth provider specs during creation.

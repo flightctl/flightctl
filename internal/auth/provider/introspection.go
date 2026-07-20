@@ -112,7 +112,9 @@ func buildIntrospectionURL(baseURL string) string {
 }
 
 // NormalizeIssuerURL parses an issuer URL and returns a canonical form (no trailing slash on path).
-// Requires scheme and host. Used so discovery, token verification, and cache keys share one form.
+// Requires scheme and host. Host letter-case and other RFC 3986 equivalence classes are left
+// unchanged — uniqueness and lookups are exact-string after this trailing-slash strip only.
+// Used so discovery, token verification, and cache keys share one form.
 func NormalizeIssuerURL(issuer string) (string, error) {
 	if issuer == "" {
 		return "", errors.New("issuer URL is empty")

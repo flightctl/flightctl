@@ -1154,6 +1154,10 @@ func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Confi
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 	}
+	if err := authprovider.NormalizeOIDCProviderSpecURLs(&oidcSpec); err != nil {
+		return nil, fmt.Errorf("failed to normalize OIDC provider URLs for %s: %w",
+			lo.FromPtr(provider.Metadata.Name), err)
+	}
 
 	// Create OIDCAuth instance for this specific provider
 	oidcAuth, err := NewOIDCAuth(provider.Metadata, oidcSpec, tlsConfig, log)
@@ -1170,6 +1174,10 @@ func createOAuth2AuthFromProvider(ctx context.Context, provider *api.AuthProvide
 	oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
+	}
+	if err := authprovider.NormalizeOAuth2ProviderSpecURLs(&oauth2Spec); err != nil {
+		return nil, fmt.Errorf("failed to normalize OAuth2 provider URLs for %s: %w",
+			lo.FromPtr(provider.Metadata.Name), err)
 	}
 
 	// Create OAuth2Auth instance for this specific provider
