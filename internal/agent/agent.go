@@ -331,6 +331,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		a.config.DefaultLabels,
 		a.config.LabelFromSystemInfo,
+		osMode,
 		statusManager,
 		rootSystemdClient,
 		identityProvider,
