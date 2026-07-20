@@ -359,9 +359,13 @@ func GetGoTemplateFuncMap() template.FuncMap {
 // 1. The user-provided template uses the yaml/json API format (e.g., lower case)
 // 2. The map contains only the device fields we allow access to
 func ExecuteGoTemplateOnDevice(t *template.Template, dev *Device) (string, error) {
+	var name string
+	if dev.Metadata.Name != nil {
+		name = *dev.Metadata.Name
+	}
 	devMap := map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"name":   dev.Metadata.Name,
+			"name":   name,
 			"labels": dev.Metadata.Labels,
 		},
 	}
