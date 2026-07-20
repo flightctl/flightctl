@@ -152,7 +152,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// TODO: replace wait with poll
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
-		Duration: 10 * time.Second,
+		Duration: time.Duration(a.config.EnrollmentVerifyInterval),
 		Factor:   1.5,
 		Steps:    6,
 	}

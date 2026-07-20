@@ -33,6 +33,9 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// DefaultEnrollmentVerifyInterval is the default initial interval between checks for
+	// enrollment approval while the agent waits to be enrolled.
+	DefaultEnrollmentVerifyInterval = util.Duration(10 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
@@ -96,6 +99,9 @@ type Config struct {
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
+	// EnrollmentVerifyInterval is the initial interval between checks for enrollment
+	// approval. Retries back off from this value (see agent.go's enrollment backoff).
+	EnrollmentVerifyInterval util.Duration `json:"enrollment-verify-interval,omitempty"`
 
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
@@ -202,21 +208,22 @@ var DefaultSystemInfo = append([]string{
 
 func NewDefault() *Config {
 	c := &Config{
-		ConfigDir:            DefaultConfigDir,
-		DataDir:              DefaultDataDir,
-		StatusUpdateInterval: DefaultStatusUpdateInterval,
-		SpecFetchInterval:    DefaultSpecFetchInterval,
-		readWriter:           fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
-		LogLevel:             logrus.InfoLevel.String(),
-		DefaultLabels:        make(map[string]string),
-		LabelFromSystemInfo:  make(map[string]string),
-		ServiceConfig:        config.NewServiceConfig(),
-		SystemInfo:           DefaultSystemInfo,
-		SystemInfoTimeout:    DefaultSystemInfoTimeout,
-		PullTimeout:          DefaultPullTimeout,
-		PullRetrySteps:       DefaultPullRetrySteps,
-		MetricsEnabled:       DefaultMetricsEnabled,
-		ProfilingEnabled:     DefaultProfilingEnabled,
+		ConfigDir:                DefaultConfigDir,
+		DataDir:                  DefaultDataDir,
+		StatusUpdateInterval:     DefaultStatusUpdateInterval,
+		SpecFetchInterval:        DefaultSpecFetchInterval,
+		EnrollmentVerifyInterval: DefaultEnrollmentVerifyInterval,
+		readWriter:               fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+		LogLevel:                 logrus.InfoLevel.String(),
+		DefaultLabels:            make(map[string]string),
+		LabelFromSystemInfo:      make(map[string]string),
+		ServiceConfig:            config.NewServiceConfig(),
+		SystemInfo:               DefaultSystemInfo,
+		SystemInfoTimeout:        DefaultSystemInfoTimeout,
+		PullTimeout:              DefaultPullTimeout,
+		PullRetrySteps:           DefaultPullRetrySteps,
+		MetricsEnabled:           DefaultMetricsEnabled,
+		ProfilingEnabled:         DefaultProfilingEnabled,
 		TPM: TPM{
 			Enabled:         false,
 			AuthEnabled:     false,
@@ -467,6 +474,9 @@ func (cfg *Config) validateSyncIntervals() error {
 	}
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
+	}
+	if cfg.EnrollmentVerifyInterval < MinSyncInterval {
+		return fmt.Errorf("minimum enrollment verify interval is %s have %s", MinSyncInterval, cfg.EnrollmentVerifyInterval)
 	}
 	return nil
 }
