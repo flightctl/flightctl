@@ -31,22 +31,28 @@ func (s *RestoreStore) getDB(ctx context.Context) *gorm.DB {
 
 // PrepareDevicesAfterRestore persists awaiting-reconnect preparation for eligible
 // devices using caller-supplied product params. Clears lastSeen timestamps.
+// When ExcludedLifecycleStatuses is empty, no lifecycle NOT IN filter is applied.
 func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params DeviceAwaitingReconnectPrepareParams) (int64, error) {
-	if len(params.ExcludedLifecycleStatuses) == 0 {
-		return 0, fmt.Errorf("excluded lifecycle statuses must not be empty")
-	}
-
 	args := []any{
 		params.AnnotationKey,
 		params.SummaryStatus,
 		params.SummaryInfo,
 	}
-	exclusionPlaceholders := make([]string, len(params.ExcludedLifecycleStatuses))
-	for i, status := range params.ExcludedLifecycleStatuses {
-		exclusionPlaceholders[i] = fmt.Sprintf("$%d", i+4)
-		args = append(args, status)
+
+	lifecycleExclusionClause := ""
+	if len(params.ExcludedLifecycleStatuses) > 0 {
+		exclusionPlaceholders := make([]string, len(params.ExcludedLifecycleStatuses))
+		for i, status := range params.ExcludedLifecycleStatuses {
+			exclusionPlaceholders[i] = fmt.Sprintf("$%d", i+4)
+			args = append(args, status)
+		}
+		lifecycleExclusionClause = fmt.Sprintf(
+			"AND COALESCE(status->'lifecycle'->>'status', '') NOT IN (%s)",
+			strings.Join(exclusionPlaceholders, ", "),
+		)
 	}
-	updatedStatusPlaceholder := fmt.Sprintf("$%d", len(params.ExcludedLifecycleStatuses)+4)
+
+	updatedStatusPlaceholder := fmt.Sprintf("$%d", len(args)+1)
 	args = append(args, params.UpdatedStatus)
 
 	sql := fmt.Sprintf(`
@@ -62,14 +68,14 @@ func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params De
 			END,
 			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE deleted_at IS NULL 
-			AND COALESCE(status->'lifecycle'->>'status', '') NOT IN (%s)
+			%s
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
         RETURNING name, org_id)
         UPDATE device_timestamps dt
         SET last_seen = NULL
 		FROM updated_devices ud
 		WHERE dt.org_id = ud.org_id AND dt.name = ud.name
-	`, updatedStatusPlaceholder, updatedStatusPlaceholder, strings.Join(exclusionPlaceholders, ", "))
+	`, updatedStatusPlaceholder, updatedStatusPlaceholder, lifecycleExclusionClause)
 
 	result := s.getDB(ctx).Exec(sql, args...)
 	if result.Error != nil {
