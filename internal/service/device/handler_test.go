@@ -210,7 +210,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -231,7 +231,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -253,7 +253,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("unowned-device")},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -353,7 +353,7 @@ func TestPatchDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &device, nil)
+		_, err := st.device.Create(ctx, orgId, &device)
 		require.NoError(t, err)
 		return st, svc, orgId
 	}
@@ -960,7 +960,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour)
@@ -986,7 +986,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
