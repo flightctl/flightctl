@@ -345,7 +345,7 @@ func (s *fakeDeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, org
 			}
 		}
 	}
-	if outcome.SetConflictPaused {
+	if outcome.ConflictPaused {
 		annotations[domain.DeviceAnnotationConflictPaused] = "true"
 	}
 	d.Metadata.Annotations = &annotations

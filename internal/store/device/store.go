@@ -22,12 +22,11 @@ import (
 // AwaitingReconnectOutcome is the persist payload for clearing AwaitingReconnect
 // after the service has decided summary/updated status and ConflictPaused.
 type AwaitingReconnectOutcome struct {
-	WasConflictPaused     bool
+	ConflictPaused        bool
 	SummaryStatus         string
 	SummaryInfo           string
 	UpdatedStatus         string
 	ConfigRenderedVersion string
-	SetConflictPaused     bool
 }
 
 // DeviceStatusType represents the type of device status to query
@@ -967,7 +966,7 @@ func (s *DeviceStore) applyAwaitingReconnectOutcome(ctx context.Context, orgId u
 
 	result := s.getDB(ctx).Exec(sql,
 		domain.DeviceAnnotationAwaitingReconnect,
-		outcome.SetConflictPaused,
+		outcome.ConflictPaused,
 		domain.DeviceAnnotationConflictPaused,
 		outcome.SummaryStatus,
 		outcome.SummaryInfo,

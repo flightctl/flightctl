@@ -40,8 +40,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("3"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     false,
-				SetConflictPaused:     false,
+				ConflictPaused:        false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -57,8 +56,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("5"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     false,
-				SetConflictPaused:     false,
+				ConflictPaused:        false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusUpToDate),
@@ -74,8 +72,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("5"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     true,
-				SetConflictPaused:     true,
+				ConflictPaused:        true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
 				SummaryInfo:           "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version 5 > device version known to service 3)",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -91,8 +88,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: nil,
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     false,
-				SetConflictPaused:     false,
+				ConflictPaused:        false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -108,8 +104,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr(""),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     false,
-				SetConflictPaused:     false,
+				ConflictPaused:        false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -125,8 +120,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("invalid"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     false,
-				SetConflictPaused:     false,
+				ConflictPaused:        false,
 				SummaryStatus:         string(domain.DeviceSummaryStatusOnline),
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -142,8 +136,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("1"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     true,
-				SetConflictPaused:     true,
+				ConflictPaused:        true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
 				SummaryInfo:           "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version 1 > device version known to service 0)",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -158,8 +151,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: lo.ToPtr("1"),
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     true,
-				SetConflictPaused:     true,
+				ConflictPaused:        true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
 				SummaryInfo:           "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version 1 > device version known to service 0)",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),
@@ -175,8 +167,7 @@ func TestDecideAwaitingReconnect(t *testing.T) {
 			deviceReportedVersion: nil,
 			wantApply:             true,
 			wantOutcome: devicestore.AwaitingReconnectOutcome{
-				WasConflictPaused:     true,
-				SetConflictPaused:     true,
+				ConflictPaused:        true,
 				SummaryStatus:         string(domain.DeviceSummaryStatusConflictPaused),
 				SummaryInfo:           "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version unknown > device version known to service -1)",
 				UpdatedStatus:         string(domain.DeviceUpdatedStatusOutOfDate),

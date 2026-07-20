@@ -1779,7 +1779,7 @@ var _ = Describe("DeviceStore create", func() {
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
 				ConfigRenderedVersion: "3",
-				SetConflictPaused:     false,
+				ConflictPaused: false,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1829,7 +1829,7 @@ var _ = Describe("DeviceStore create", func() {
 				SummaryInfo:           info,
 				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
 				ConfigRenderedVersion: "5",
-				SetConflictPaused:     true,
+				ConflictPaused: true,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
