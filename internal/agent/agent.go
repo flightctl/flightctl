@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	stdexec "os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -168,6 +169,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create os client
 	osClient := os.NewClient(a.log, exec)
 
+	osMode := os.DetectMode(stdexec.LookPath)
+	a.log.Infof("OS mode detected: %s", osMode)
+
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
 	rootPodmanClient, err := podmanClientFactory("")
@@ -255,6 +259,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		policyManager,
 		rootReadWriter,
 		osClient,
+		osMode,
 		pollBackoff,
 		deviceNotFoundHandler,
 		auditLogger,
@@ -294,7 +299,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient, pullConfigResolver)
+	osManager := os.NewManager(a.log, osClient, osMode, rootReadWriter, rootPodmanClient, pullConfigResolver)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(

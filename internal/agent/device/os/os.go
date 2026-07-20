@@ -40,16 +40,18 @@ type Manager interface {
 	status.Exporter
 }
 
-// NewManager creates a new OS manager
+// NewManager creates a new OS manager.
 func NewManager(
 	log *log.PrefixLogger,
 	client Client,
+	osMode v1beta1.OsModeType,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	pullConfigResolver dependency.PullConfigResolver,
 ) Manager {
 	return &manager{
 		client:             client,
+		osMode:             osMode,
 		podmanClient:       podmanClient,
 		readWriter:         readWriter,
 		pullConfigResolver: pullConfigResolver,
@@ -59,6 +61,7 @@ func NewManager(
 
 type manager struct {
 	client             Client
+	osMode             v1beta1.OsModeType
 	podmanClient       *client.Podman
 	readWriter         fileio.ReadWriter
 	pullConfigResolver dependency.PullConfigResolver
@@ -73,6 +76,8 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
+	osMode := m.osMode
+	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
 	return nil
 }
 

@@ -40,6 +40,7 @@ type manager struct {
 	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
+	osMode           v1beta1.OsModeType
 	publisher        Publisher
 	watcher          Watcher
 	cache            *cache
@@ -61,6 +62,7 @@ func NewManager(
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
+	osMode v1beta1.OsModeType,
 	pollConfig poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
@@ -83,6 +85,7 @@ func NewManager(
 		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
+		osMode:           osMode,
 		cache:            cache,
 		policyManager:    policyManager,
 		auditLogger:      auditLogger,
