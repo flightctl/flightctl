@@ -383,7 +383,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		}
 
 		// Compare all fields including client secret
-		if existingOidcSpec.Issuer != newOidcSpec.Issuer {
+		// If normalization fails for either URL (malformed), treat as changed — safer than silently skipping a real change.
+		existingNormalizedIssuer, existingNormErr := authprovider.NormalizeIssuerURL(existingOidcSpec.Issuer)
+		newNormalizedIssuer, newNormErr := authprovider.NormalizeIssuerURL(newOidcSpec.Issuer)
+		if existingNormErr != nil || newNormErr != nil || existingNormalizedIssuer != newNormalizedIssuer {
 			m.log.Debugf("Provider %s: changed (OIDC Issuer: existing=%q, new=%q)", providerName, existingOidcSpec.Issuer, newOidcSpec.Issuer)
 			return true, nil
 		}
@@ -456,18 +459,31 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if (existingOauth2Spec.Issuer == nil) != (newOauth2Spec.Issuer == nil) {
 			return true, nil
 		}
-		if existingOauth2Spec.Issuer != nil && newOauth2Spec.Issuer != nil && *existingOauth2Spec.Issuer != *newOauth2Spec.Issuer {
-			return true, nil
+		if existingOauth2Spec.Issuer != nil && newOauth2Spec.Issuer != nil {
+			// If normalization fails for either URL (malformed), treat as changed — safer than missing a real change.
+			existingNormalizedIssuer, existingNormErr := authprovider.NormalizeIssuerURL(*existingOauth2Spec.Issuer)
+			newNormalizedIssuer, newNormErr := authprovider.NormalizeIssuerURL(*newOauth2Spec.Issuer)
+			if existingNormErr != nil || newNormErr != nil || existingNormalizedIssuer != newNormalizedIssuer {
+				return true, nil
+			}
 		}
-		if existingOauth2Spec.AuthorizationUrl != newOauth2Spec.AuthorizationUrl {
+		// If normalization fails for either URL (malformed), treat as changed.
+		existingNormalizedAuthzURL, existingAuthzNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.AuthorizationUrl)
+		newNormalizedAuthzURL, newAuthzNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.AuthorizationUrl)
+		if existingAuthzNormErr != nil || newAuthzNormErr != nil || existingNormalizedAuthzURL != newNormalizedAuthzURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 AuthorizationUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.AuthorizationUrl, newOauth2Spec.AuthorizationUrl)
 			return true, nil
 		}
-		if existingOauth2Spec.TokenUrl != newOauth2Spec.TokenUrl {
+		// If normalization fails for either URL (malformed), treat as changed.
+		existingNormalizedTokenURL, existingTokenNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.TokenUrl)
+		newNormalizedTokenURL, newTokenNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.TokenUrl)
+		if existingTokenNormErr != nil || newTokenNormErr != nil || existingNormalizedTokenURL != newNormalizedTokenURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 TokenUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.TokenUrl, newOauth2Spec.TokenUrl)
 			return true, nil
 		}
-		if existingOauth2Spec.UserinfoUrl != newOauth2Spec.UserinfoUrl {
+		existingNormalizedUserinfoURL, existingUserinfoNormErr := authprovider.NormalizeIssuerURL(existingOauth2Spec.UserinfoUrl)
+		newNormalizedUserinfoURL, newUserinfoNormErr := authprovider.NormalizeIssuerURL(newOauth2Spec.UserinfoUrl)
+		if existingUserinfoNormErr != nil || newUserinfoNormErr != nil || existingNormalizedUserinfoURL != newNormalizedUserinfoURL {
 			m.log.Debugf("Provider %s: changed (OAuth2 UserinfoUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.UserinfoUrl, newOauth2Spec.UserinfoUrl)
 			return true, nil
 		}
@@ -1143,6 +1159,10 @@ func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Confi
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 	}
+	if err := authprovider.NormalizeOIDCProviderSpecURLs(&oidcSpec); err != nil {
+		return nil, fmt.Errorf("failed to normalize OIDC provider URLs for %s: %w",
+			lo.FromPtr(provider.Metadata.Name), err)
+	}
 
 	// Create OIDCAuth instance for this specific provider
 	oidcAuth, err := NewOIDCAuth(provider.Metadata, oidcSpec, tlsConfig, log)
@@ -1159,6 +1179,10 @@ func createOAuth2AuthFromProvider(ctx context.Context, provider *api.AuthProvide
 	oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
+	}
+	if err := authprovider.NormalizeOAuth2ProviderSpecURLs(&oauth2Spec); err != nil {
+		return nil, fmt.Errorf("failed to normalize OAuth2 provider URLs for %s: %w",
+			lo.FromPtr(provider.Metadata.Name), err)
 	}
 
 	// Create OAuth2Auth instance for this specific provider

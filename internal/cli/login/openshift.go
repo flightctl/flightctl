@@ -47,7 +47,10 @@ func (o *OpenShift) getOAuth2Client(callback string) (*osincli.Client, error) {
 	}
 
 	// Use the API server's token proxy endpoint instead of the OpenShift provider's token endpoint
-	tokenProxyURL := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	tokenProxyURL, err := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	config := &osincli.ClientConfig{
 		ClientId:                 *o.Spec.ClientId,
