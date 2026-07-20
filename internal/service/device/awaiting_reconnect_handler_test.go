@@ -32,7 +32,7 @@ func (k *fakeKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key stri
 	return nil
 }
 
-func (k *fakeKVStore) Close()                                              {}
+func (k *fakeKVStore) Close() {}
 func (k *fakeKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
 	return false, nil
 }
