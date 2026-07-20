@@ -30,14 +30,32 @@ func NewServiceHandler(store fleetstore.Store, events events.Service, log logrus
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeFleet clears status and managed metadata from an untrusted fleet document
+// (HTTP body or ResourceSync YAML). Callers that must set Owner must not use this.
+func SanitizeFleet(fleet *domain.Fleet) {
+	if fleet == nil {
+		return
+	}
 	fleet.Status = nil
 	common.NilOutManagedObjectMetaProperties(&fleet.Metadata)
 	if fleet.Spec.Template.Metadata != nil {
 		common.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 	}
+}
 
+// CreateFleetFromUntrusted sanitizes an untrusted fleet document, then creates it.
+func CreateFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
+	SanitizeFleet(&fleet)
+	return svc.CreateFleet(ctx, orgId, fleet)
+}
+
+// ReplaceFleetFromUntrusted sanitizes an untrusted fleet document, then replaces it.
+func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+	SanitizeFleet(&fleet)
+	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
+}
+
+func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -72,17 +90,7 @@ func (h *ServiceHandler) GetFleet(ctx context.Context, orgId uuid.UUID, name str
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
-	// don't overwrite fields that are managed by the service
-	isInternal := common.IsInternalRequest(ctx)
-	if !isInternal {
-		fleet.Status = nil
-		common.NilOutManagedObjectMetaProperties(&fleet.Metadata)
-		if fleet.Spec.Template.Metadata != nil {
-			common.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
-		}
-	}
-
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -90,15 +98,13 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// External updates of owned fleets cannot change spec or labels (ResourceSync may).
-	// Internal requests skip this check (store fromAPI=false path).
-	if !isInternal {
+	if enforceOwnership {
 		existing, getErr := h.store.Get(ctx, orgId, name)
 		if getErr != nil {
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
 				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
 			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 && !common.IsResourceSyncRequest(ctx) {
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
 			if !domain.FleetSpecsAreEqual(existing.Spec, fleet.Spec) {
 				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 			}
@@ -108,11 +114,11 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackFleetUpdated)
+	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, false, h.callbackFleetUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status {
 	f, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
@@ -121,7 +127,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name 
 		return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 	}
 
-	if f.Metadata.Owner != nil && !common.IsResourceSyncRequest(ctx) {
+	if enforceOwnership && len(lo.FromPtr(f.Metadata.Owner)) != 0 {
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
@@ -140,7 +146,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Fleet, domain.Status) {
+func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Fleet, domain.Status) {
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
@@ -163,8 +169,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	// Owned fleets cannot change spec or labels via patch (ResourceSync may).
-	if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 && !common.IsResourceSyncRequest(ctx) {
+	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
 		if !domain.FleetSpecsAreEqual(currentObj.Spec, newObj.Spec) {
 			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 		}
@@ -173,7 +178,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		}
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, nil, true, h.callbackFleetUpdated)
+	result, err := h.store.Update(ctx, orgId, newObj, nil, false, h.callbackFleetUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

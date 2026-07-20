@@ -152,20 +152,19 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(*dev.Metadata.ResourceVersion).To(Equal("6"))
 	})
 
-	It("CreateOrUpdateDevice update with stale resourceVersion", func() {
+	It("CreateOrUpdateDevice updates owned device (ownership enforced in service)", func() {
 		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 		Expect(err).ToNot(HaveOccurred())
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
-		// Update but don't save the new device, so we still have the old resourceVersion
 		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
-		Expect(err).To(HaveOccurred())
-		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+		updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updated.Spec.Os.Image).To(Equal("newos"))
 	})
 
 	Context("Device store", func() {
@@ -556,7 +555,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
 		})
 
-		It("CreateOrUpdateDevice update owned from API", func() {
+		It("CreateOrUpdateDevice update owned from API succeeds at store layer", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
@@ -566,9 +565,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
-			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+			updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Spec.Os.Image).To(Equal("newos"))
 		})
 
 		It("CreateOrUpdateDevice update labels owned from API", func() {

@@ -158,7 +158,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status to reflect the error state
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusError))
 
@@ -258,7 +258,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
@@ -308,7 +308,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
@@ -350,7 +350,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
@@ -437,7 +437,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 
@@ -570,7 +570,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online
-			resultDevice, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
+			resultDevice, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
@@ -649,7 +649,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online first
-			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Step 3: Set the paused annotation first
@@ -705,7 +705,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status - service should automatically set it to paused
-			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithUpdatedStatus)
+			resultDevice, status := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithUpdatedStatus, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
@@ -1101,7 +1101,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Save the updated device using ReplaceDeviceStatus for status updates
-				resultDevice, updateStatus := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, d.name, updatedDevice)
+				resultDevice, updateStatus := suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, d.name, updatedDevice, true)
 				Expect(updateStatus.Code).To(Equal(int32(200)))
 				Expect(resultDevice).ToNot(BeNil())
 
@@ -1533,7 +1533,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 
 	Context("Device field selector tests", func() {
 		It("should filter devices by lastSeen field selector", func() {
-			ctx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
+			ctx := suite.Ctx
 			deviceStore := suite.DeviceStore
 			// Create test devices for ListConnectivityChangedDevices: returns devices that need
 			// connection status update (reconnected: lastSeen >= cutoff and status Unknown;

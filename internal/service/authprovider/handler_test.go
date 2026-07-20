@@ -251,16 +251,28 @@ func TestCreateAuthProvider(t *testing.T) {
 		require.Nil(t, stored.Metadata.Annotations)
 	})
 
-	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateAuthProviderFromUntrusted should clear them before creation", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "p3", "", nil)
 		provider.Metadata.Owner = lo.ToPtr("someone")
 		provider.Metadata.Generation = lo.ToPtr(int64(5))
 
-		_, status := h.CreateAuthProvider(adminCtx(), uuid.New(), provider)
+		_, status := CreateAuthProviderFromUntrusted(adminCtx(), h, uuid.New(), provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Nil(t, fakeStore.providers["p3"].Metadata.Owner)
 		require.Nil(t, fakeStore.providers["p3"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateAuthProvider (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "p3-trusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateAuthProvider(memberCtx(), uuid.New(), provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Generation))
 	})
 
 	t.Run("When creating an OAuth2 provider it should default the issuer to the authorization URL and infer introspection", func(t *testing.T) {
@@ -415,6 +427,30 @@ func TestReplaceAuthProvider(t *testing.T) {
 		// data leaves generation/labels/owner unchanged, so no further event is emitted.
 		require.Len(t, fakeEvents.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceAuthProviderFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-untrusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceAuthProviderFromUntrusted(memberCtx(), h, uuid.New(), "replace-untrusted", provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceAuthProvider (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-trusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceAuthProvider(memberCtx(), uuid.New(), "replace-trusted", provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Generation))
 	})
 }
 
