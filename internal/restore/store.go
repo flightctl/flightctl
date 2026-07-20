@@ -33,6 +33,18 @@ func (s *RestoreStore) getDB(ctx context.Context) *gorm.DB {
 // devices using caller-supplied product params. Clears lastSeen timestamps.
 // When ExcludedLifecycleStatuses is empty, no lifecycle NOT IN filter is applied.
 func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params DeviceAwaitingReconnectPrepareParams) (int64, error) {
+	sql, args := buildPrepareDevicesAfterRestoreQuery(params)
+	result := s.getDB(ctx).Exec(sql, args...)
+	if result.Error != nil {
+		return 0, storeutil.ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
+}
+
+// buildPrepareDevicesAfterRestoreQuery builds the bulk prepare SQL and bind args.
+// Exclusion statuses occupy $4..$3+N; UpdatedStatus is always the next placeholder.
+func buildPrepareDevicesAfterRestoreQuery(params DeviceAwaitingReconnectPrepareParams) (string, []any) {
 	args := []any{
 		params.AnnotationKey,
 		params.SummaryStatus,
@@ -77,12 +89,7 @@ func (s *RestoreStore) PrepareDevicesAfterRestore(ctx context.Context, params De
 		WHERE dt.org_id = ud.org_id AND dt.name = ud.name
 	`, updatedStatusPlaceholder, updatedStatusPlaceholder, lifecycleExclusionClause)
 
-	result := s.getDB(ctx).Exec(sql, args...)
-	if result.Error != nil {
-		return 0, storeutil.ErrorFromGormError(result.Error)
-	}
-
-	return result.RowsAffected, nil
+	return sql, args
 }
 
 // PrepareEnrollmentRequestsAfterRestore persists the awaiting-reconnect annotation
