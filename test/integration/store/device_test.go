@@ -1779,7 +1779,7 @@ var _ = Describe("DeviceStore create", func() {
 				SummaryInfo:           "Device is up to date",
 				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
 				ConfigRenderedVersion: "3",
-				ConflictPaused: false,
+				ConflictPaused:        false,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1829,7 +1829,7 @@ var _ = Describe("DeviceStore create", func() {
 				SummaryInfo:           info,
 				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
 				ConfigRenderedVersion: "5",
-				ConflictPaused: true,
+				ConflictPaused:        true,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1853,6 +1853,46 @@ var _ = Describe("DeviceStore create", func() {
 				ConfigRenderedVersion: "0",
 			})
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+		})
+
+		It("should return ErrNoRowsUpdated when awaiting reconnect is no longer true", func() {
+			deviceName := "apply-stale-awaiting-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationRenderedVersion: "5",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("already cleared"),
+					},
+				},
+			}
+
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = devStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, devicestore.AwaitingReconnectOutcome{
+				SummaryStatus:         string(api.DeviceSummaryStatusConflictPaused),
+				SummaryInfo:           "stale overwrite",
+				UpdatedStatus:         string(api.DeviceUpdatedStatusOutOfDate),
+				ConfigRenderedVersion: "9",
+				ConflictPaused:        true,
+			})
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+			Expect(lo.FromPtr(updatedDevice.Status.Summary.Info)).To(Equal("already cleared"))
+			_, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeFalse())
 		})
 	})
 })

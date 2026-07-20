@@ -337,12 +337,13 @@ func (s *fakeDeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, org
 	if !ok {
 		return flterrors.ErrNoRowsUpdated
 	}
+	if d.Metadata.Annotations == nil || (*d.Metadata.Annotations)[domain.DeviceAnnotationAwaitingReconnect] != "true" {
+		return flterrors.ErrNoRowsUpdated
+	}
 	annotations := map[string]string{}
-	if d.Metadata.Annotations != nil {
-		for k, v := range *d.Metadata.Annotations {
-			if k != domain.DeviceAnnotationAwaitingReconnect {
-				annotations[k] = v
-			}
+	for k, v := range *d.Metadata.Annotations {
+		if k != domain.DeviceAnnotationAwaitingReconnect {
+			annotations[k] = v
 		}
 	}
 	if outcome.ConflictPaused {
