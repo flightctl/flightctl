@@ -322,6 +322,33 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	return d, oldServiceConditions, prepared, nil
 }
 
+func (s *fakeDeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uuid.UUID, name string, outcome devicestore.AwaitingReconnectOutcome) error {
+	d, ok := s.devices[name]
+	if !ok {
+		return flterrors.ErrNoRowsUpdated
+	}
+	annotations := map[string]string{}
+	if d.Metadata.Annotations != nil {
+		for k, v := range *d.Metadata.Annotations {
+			if k != domain.DeviceAnnotationAwaitingReconnect {
+				annotations[k] = v
+			}
+		}
+	}
+	if outcome.SetConflictPaused {
+		annotations[domain.DeviceAnnotationConflictPaused] = "true"
+	}
+	d.Metadata.Annotations = &annotations
+	if d.Status == nil {
+		d.Status = lo.ToPtr(domain.NewDeviceStatus())
+	}
+	d.Status.Summary.Status = domain.DeviceSummaryStatusType(outcome.SummaryStatus)
+	d.Status.Summary.Info = lo.ToPtr(outcome.SummaryInfo)
+	d.Status.Updated.Status = domain.DeviceUpdatedStatusType(outcome.UpdatedStatus)
+	d.Status.Config.RenderedVersion = outcome.ConfigRenderedVersion
+	return nil
+}
+
 func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	var ids []string
 	for name, d := range s.devices {
