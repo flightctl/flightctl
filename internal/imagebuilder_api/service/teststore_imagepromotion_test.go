@@ -229,7 +229,7 @@ func (s *DummyCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog
 func (s *DummyCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, error) {
 	return nil, nil
 }
-func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, fromAPI bool, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, bool, error) {
+func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, bool, error) {
 	return nil, false, nil
 }
 func (s *DummyCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*coredomain.CatalogList, error) {

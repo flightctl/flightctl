@@ -44,6 +44,29 @@ func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentReq
 
 var _ Service = (*ServiceHandler)(nil)
 
+// SanitizeCertificateSigningRequest clears status and managed metadata from an untrusted CSR
+// document (HTTP body). Callers that must set Owner (e.g. the agent creating its own device CSR)
+// must not use this.
+func SanitizeCertificateSigningRequest(csr *domain.CertificateSigningRequest) {
+	if csr == nil {
+		return
+	}
+	csr.Status = nil
+	common.NilOutManagedObjectMetaProperties(&csr.Metadata)
+}
+
+// CreateCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then creates it.
+func CreateCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.CreateCertificateSigningRequest(ctx, orgId, csr)
+}
+
+// ReplaceCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then replaces it.
+func ReplaceCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.ReplaceCertificateSigningRequest(ctx, orgId, name, csr)
+}
+
 func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
 	if domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) || domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied) {
 		return
@@ -176,12 +199,6 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUI
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
-	}
-
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
 	if csr.Spec.SignerName == "enrollment" {
 		csr.Spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
@@ -301,12 +318,6 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 }
 
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
-	}
-
 	if name != *csr.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}

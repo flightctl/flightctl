@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util"
@@ -80,12 +79,11 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 		},
 	}
 
-	// Submit CSR through the service with internal request context
-	// This ensures the Owner field is preserved (not nil'd out)
+	// Submit the CSR directly through the service (bypassing sanitization, which is a
+	// transport-adapter concern): Owner is set above and must be preserved.
 	// Also add orgId to context so WithOrgIDExtension can inject it into the certificate
-	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-	internalCtx = util.WithOrganizationID(internalCtx, orgId)
-	result, status := h.CreateCertificateSigningRequest(internalCtx, orgId, csrResource)
+	ctx = util.WithOrganizationID(ctx, orgId)
+	result, status := h.CreateCertificateSigningRequest(ctx, orgId, csrResource)
 	if status.Code != 201 && status.Code != 200 {
 		return nil, status
 	}

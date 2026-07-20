@@ -11,6 +11,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -28,10 +29,10 @@ func NewServiceHandler(store catalogstore.Store, events events.Service, log logr
 
 var _ Service = (*ServiceHandler)(nil)
 
-// nilOutManagedCatalogItemMetaProperties clears the CatalogItemMeta fields that are managed
+// NilOutManagedCatalogItemMetaProperties clears the CatalogItemMeta fields that are managed
 // by the service and must not be set by API callers. Catalog-specific; deliberately left
 // un-relocated to internal/service/common (no other resource needs it).
-func nilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
+func NilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
 	if om == nil {
 		return
 	}
@@ -42,11 +43,49 @@ func nilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
 	om.DeletionTimestamp = nil
 }
 
-func (h *ServiceHandler) CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeCatalog clears status and managed metadata from an untrusted catalog document
+// (HTTP body or ResourceSync YAML). Callers that must set Owner must not use this.
+func SanitizeCatalog(catalog *domain.Catalog) {
+	if catalog == nil {
+		return
+	}
 	catalog.Status = nil
 	common.NilOutManagedObjectMetaProperties(&catalog.Metadata)
+}
 
+// SanitizeCatalogItem clears managed metadata from an untrusted catalog item document.
+func SanitizeCatalogItem(item *domain.CatalogItem) {
+	if item == nil {
+		return
+	}
+	NilOutManagedCatalogItemMetaProperties(&item.Metadata)
+}
+
+// CreateCatalogFromUntrusted sanitizes an untrusted catalog document, then creates it.
+func CreateCatalogFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	SanitizeCatalog(&catalog)
+	return svc.CreateCatalog(ctx, orgId, catalog)
+}
+
+// ReplaceCatalogFromUntrusted sanitizes an untrusted catalog document, then replaces it.
+func ReplaceCatalogFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, catalog domain.Catalog, enforceOwnership bool) (*domain.Catalog, domain.Status) {
+	SanitizeCatalog(&catalog)
+	return svc.ReplaceCatalog(ctx, orgId, name, catalog, enforceOwnership)
+}
+
+// CreateCatalogItemFromUntrusted sanitizes an untrusted catalog item document, then creates it.
+func CreateCatalogItemFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, catalogName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	SanitizeCatalogItem(&item)
+	return svc.CreateCatalogItem(ctx, orgId, catalogName, item)
+}
+
+// ReplaceCatalogItemFromUntrusted sanitizes an untrusted catalog item document, then replaces it.
+func ReplaceCatalogItemFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, catalogName, itemName string, item domain.CatalogItem, enforceOwnership bool) (*domain.CatalogItem, domain.Status) {
+	SanitizeCatalogItem(&item)
+	return svc.ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item, enforceOwnership)
+}
+
+func (h *ServiceHandler) CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
 	if errs := catalog.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -81,13 +120,7 @@ func (h *ServiceHandler) GetCatalog(ctx context.Context, orgId uuid.UUID, name s
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
-	// don't overwrite fields that are managed by the service
-	isInternal := common.IsInternalRequest(ctx)
-	if !isInternal {
-		catalog.Status = nil
-		common.NilOutManagedObjectMetaProperties(&catalog.Metadata)
-	}
+func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog, enforceOwnership bool) (*domain.Catalog, domain.Status) {
 	if errs := catalog.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -95,11 +128,23 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, !isInternal, h.callbackCatalogUpdated)
+	if enforceOwnership {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogKind, &name)
+			}
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
+			!domain.CatalogSpecsAreEqual(existing.Spec, catalog.Spec) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+		}
+	}
+
+	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog, h.callbackCatalogUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
-func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status {
 	c, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
@@ -108,7 +153,7 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 		return common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 	}
 
-	if c.Metadata.Owner != nil && !common.IsResourceSyncRequest(ctx) {
+	if enforceOwnership && len(lo.FromPtr(c.Metadata.Owner)) != 0 {
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
@@ -117,13 +162,14 @@ func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, nam
 		return nil
 	}
 
+	// Product rule: refuse deleting a non-empty catalog. The service chooses store.Delete
+	// (TX primitive that returns ErrResourceNotEmpty when items exist) and maps the error.
 	err = h.store.Delete(ctx, orgId, name, callback, h.callbackCatalogDeleted)
-	status := common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
-	return status
+	return common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Catalog, domain.Status) {
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
@@ -144,6 +190,13 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	if enforceOwnership &&
+		len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 &&
+		!domain.CatalogSpecsAreEqual(currentObj.Spec, newObj.Spec) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+	}
+
 	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCatalogUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
@@ -239,8 +292,6 @@ func (h *ServiceHandler) GetCatalogItem(ctx context.Context, orgId uuid.UUID, ca
 }
 
 func (h *ServiceHandler) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
-	nilOutManagedCatalogItemMetaProperties(&item.Metadata)
-
 	if errs := item.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -252,17 +303,24 @@ func (h *ServiceHandler) CreateCatalogItem(ctx context.Context, orgId uuid.UUID,
 	return result, common.StoreErrorToApiStatus(err, true, domain.CatalogItemKind, item.Metadata.Name)
 }
 
-func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
-	isInternal := common.IsInternalRequest(ctx)
-	if !isInternal {
-		nilOutManagedCatalogItemMetaProperties(&item.Metadata)
-	}
-
+func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem, enforceOwnership bool) (*domain.CatalogItem, domain.Status) {
 	if errs := item.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if itemName != *item.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	if enforceOwnership {
+		existing, getErr := h.store.GetItem(ctx, orgId, catalogName, itemName)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) && !errors.Is(getErr, flterrors.ErrParentResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogItemKind, &itemName)
+			}
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
+			!domain.CatalogItemSpecsAreEqual(existing.Spec, item.Spec) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogItemKind, &itemName)
+		}
 	}
 
 	result, created, err := h.store.CreateOrUpdateItem(ctx, orgId, catalogName, &item)
@@ -272,7 +330,7 @@ func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogItemKind, &itemName)
 }
 
-func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest, enforceOwnership bool) (*domain.CatalogItem, domain.Status) {
 	currentObj, err := h.store.GetItem(ctx, orgId, catalogName, itemName)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrParentResourceNotFound) {
@@ -295,8 +353,14 @@ func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, 
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	nilOutManagedCatalogItemMetaProperties(&newObj.Metadata)
+	NilOutManagedCatalogItemMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	if enforceOwnership &&
+		len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 &&
+		!domain.CatalogItemSpecsAreEqual(currentObj.Spec, newObj.Spec) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogItemKind, &itemName)
+	}
 
 	result, err := h.store.UpdateItem(ctx, orgId, catalogName, newObj)
 	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
@@ -305,7 +369,7 @@ func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, 
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
 }
 
-func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status {
+func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, enforceOwnership bool) domain.Status {
 	existing, err := h.store.GetItem(ctx, orgId, catalogName, itemName)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) || errors.Is(err, flterrors.ErrParentResourceNotFound) {
@@ -314,7 +378,7 @@ func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID,
 		return common.StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
 	}
 
-	if existing.Metadata.Owner != nil && !common.IsResourceSyncRequest(ctx) {
+	if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
