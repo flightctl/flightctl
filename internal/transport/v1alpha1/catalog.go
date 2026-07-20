@@ -6,6 +6,7 @@ import (
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -18,7 +19,7 @@ func (h *TransportHandler) CreateCatalog(w http.ResponseWriter, r *http.Request)
 	}
 
 	domainCatalog := h.converter.Catalog().ToDomain(catalog)
-	body, status := h.catalog.CreateCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), domainCatalog)
+	body, status := catalogservice.CreateCatalogFromUntrusted(r.Context(), h.catalog, transport.OrgIDFromContext(r.Context()), domainCatalog)
 	apiResult := h.converter.Catalog().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -47,14 +48,14 @@ func (h *TransportHandler) ReplaceCatalog(w http.ResponseWriter, r *http.Request
 	}
 
 	domainCatalog := h.converter.Catalog().ToDomain(catalog)
-	body, status := h.catalog.ReplaceCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCatalog)
+	body, status := catalogservice.ReplaceCatalogFromUntrusted(r.Context(), h.catalog, transport.OrgIDFromContext(r.Context()), name, domainCatalog, true)
 	apiResult := h.converter.Catalog().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/catalogs/{name})
 func (h *TransportHandler) DeleteCatalog(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.catalog.DeleteCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.catalog.DeleteCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), name, true)
 	h.SetResponse(w, nil, status)
 }
 
@@ -67,7 +68,7 @@ func (h *TransportHandler) PatchCatalog(w http.ResponseWriter, r *http.Request, 
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.catalog.PatchCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.catalog.PatchCatalog(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true)
 	apiResult := h.converter.Catalog().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -132,7 +133,7 @@ func (h *TransportHandler) CreateCatalogItem(w http.ResponseWriter, r *http.Requ
 	}
 
 	domainItem := h.converter.Catalog().ItemToDomain(item)
-	body, status := h.catalog.CreateCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainItem)
+	body, status := catalogservice.CreateCatalogItemFromUntrusted(r.Context(), h.catalog, transport.OrgIDFromContext(r.Context()), name, domainItem)
 	apiResult := h.converter.Catalog().ItemFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -153,7 +154,7 @@ func (h *TransportHandler) ReplaceCatalogItem(w http.ResponseWriter, r *http.Req
 	}
 
 	domainItem := h.converter.Catalog().ItemToDomain(item)
-	body, status := h.catalog.ReplaceCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, itemName, domainItem)
+	body, status := catalogservice.ReplaceCatalogItemFromUntrusted(r.Context(), h.catalog, transport.OrgIDFromContext(r.Context()), name, itemName, domainItem, true)
 	apiResult := h.converter.Catalog().ItemFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -167,13 +168,13 @@ func (h *TransportHandler) PatchCatalogItem(w http.ResponseWriter, r *http.Reque
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.catalog.PatchCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, itemName, domainPatch)
+	body, status := h.catalog.PatchCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, itemName, domainPatch, true)
 	apiResult := h.converter.Catalog().ItemFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/catalogs/{name}/items/{item})
 func (h *TransportHandler) DeleteCatalogItem(w http.ResponseWriter, r *http.Request, name string, item string) {
-	status := h.catalog.DeleteCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, item)
+	status := h.catalog.DeleteCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, item, true)
 	h.SetResponse(w, nil, status)
 }

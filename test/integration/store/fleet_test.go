@@ -706,8 +706,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(orgIds).To(HaveKey(otherOrgId.String()))
 		})
 
-		It("Cannot update fleet spec or labels when owned by resourcesync", func() {
-			// Create a resourcesync first
+		It("Store allows updating owned fleet spec and labels (ownership enforced in service)", func() {
 			resourceSync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("test-resourcesync"),
@@ -720,7 +719,6 @@ var _ = Describe("FleetStore create", func() {
 			_, err := resourceSyncStore.Create(ctx, orgId, &resourceSync, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Create a fleet owned by the resourcesync
 			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
@@ -737,33 +735,28 @@ var _ = Describe("FleetStore create", func() {
 			_, err = fleetStore.Create(ctx, orgId, &fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify the fleet was created with the owner
 			createdFleet, err := fleetStore.Get(ctx, orgId, "owned-fleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
 			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/test-resourcesync"))
 
-			// Try to update the fleet's spec - should fail
 			updatedFleet := *createdFleet
 			updatedFleet.Spec.Selector = &api.LabelSelector{
 				MatchLabels: &map[string]string{"key": "updated"},
 			}
 			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, true, nil)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			// Try to update the fleet's labels - should fail
-			updatedFleet = *createdFleet
-			updatedFleet.Metadata.Labels = &map[string]string{"updated": "label"}
-			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, true, nil)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			// Verify the original fleet is unchanged
-			unchangedFleet, err := fleetStore.Get(ctx, orgId, "owned-fleet")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(unchangedFleet.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "original"}))
-			Expect(unchangedFleet.Metadata.Labels).To(Equal(&map[string]string{"original": "label"}))
+
+			refetched, err := fleetStore.Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			refetched.Metadata.Labels = &map[string]string{"updated": "label"}
+			_, err = fleetStore.Update(ctx, orgId, refetched, nil, true, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := fleetStore.Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "updated"}))
+			Expect(got.Metadata.Labels).To(Equal(&map[string]string{"updated": "label"}))
 		})
 
 		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {

@@ -23,5 +23,10 @@ func TestWrapWithTracing(t *testing.T) {
 		expected, expectedStatus := handler.ListOrganizations(context.Background(), domain.ListOrganizationsParams{})
 		require.Equal(t, expectedStatus, status)
 		require.Equal(t, expected, result)
+
+		allResult, allStatus := traced.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
+		expectedAll, expectedAllStatus := handler.ListAllOrganizations(context.Background(), domain.ListOrganizationsParams{})
+		require.Equal(t, expectedAllStatus, allStatus)
+		require.Equal(t, expectedAll, allResult)
 	})
 }

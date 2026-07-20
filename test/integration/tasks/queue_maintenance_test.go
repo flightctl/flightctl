@@ -201,7 +201,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Basic Queue Maintenance Operations", func() {
 		It("should execute queue maintenance without errors", func() {
 			// Setup expectations for basic execution - recovery may or may not happen depending on Redis state
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
@@ -221,7 +221,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should handle empty system gracefully", func() {
 			// Setup expectations for empty organization list - recovery may or may not happen
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
@@ -247,7 +247,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				orgs := createTestOrganizations([]uuid.UUID{testOrg1ID, testOrg2ID})
 
 				// Setup mock expectations
-				mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
+				mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
 
 				// Setup database checkpoint to trigger republishing
 				baseTime := time.Now().Add(-1 * time.Hour)
@@ -325,7 +325,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				emptyOrgID := uuid.New()
 				orgs := createTestOrganizations([]uuid.UUID{emptyOrgID})
 
-				mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
+				mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
 
 				// Mock ListEvents for the organization (returns empty list)
 				mockEventSvc.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return(
@@ -352,7 +352,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		It("should recover when Redis checkpoint is missing but database checkpoint exists", func() {
 			// Setup organizations
 			orgs := createTestOrganizations([]uuid.UUID{testOrg1ID})
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200})
 
 			// Set only database checkpoint (simulate Redis failure)
 			checkpointTime := time.Now().Add(-30 * time.Minute)
@@ -380,7 +380,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should handle fresh system with no checkpoints", func() {
 			// Setup empty organizations - recovery may or may not happen
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
@@ -402,7 +402,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Error Handling", func() {
 		It("should handle service errors gracefully", func() {
 			// Setup service to return an error - may or may not be called depending on Redis state
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				nil, api.Status{Code: 500, Message: "internal server error"}).AnyTimes()
 
 			// Even when ListOrganizations fails, other queue maintenance operations may still run
@@ -433,7 +433,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 			}
 			orgs := &api.OrganizationList{Items: []api.Organization{invalidOrg}}
 
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(orgs, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
 			mockCheckpointSvc.EXPECT().GetCheckpoint(gomock.Any(), "task_queue", "global_checkpoint").Return(
@@ -454,7 +454,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 	Describe("Timeout and Retry Scenarios", func() {
 		It("should handle message timeouts and retries", func() {
 			// Setup basic organizations for queue operations - recovery may or may not happen
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process
@@ -478,7 +478,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 		It("should advance checkpoint after processing", func() {
 			// Setup basic organizations - recovery may or may not happen
-			mockOrganizationSvc.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(
+			mockOrganizationSvc.EXPECT().ListAllOrganizations(gomock.Any(), gomock.Any()).Return(
 				&api.OrganizationList{Items: []api.Organization{}}, api.Status{Code: 200}).AnyTimes()
 
 			// The queue maintenance will try to get checkpoint during recovery process

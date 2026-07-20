@@ -74,7 +74,6 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	defer cancel()
 
 	processID := fmt.Sprintf("periodic-%s-%s", util.GetHostname(), uuid.New().String())

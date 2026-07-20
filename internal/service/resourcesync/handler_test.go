@@ -232,6 +232,30 @@ func TestCreateResourceSync(t *testing.T) {
 		_, status := h.CreateResourceSync(context.Background(), uuid.New(), rs)
 		require.Equal(t, statusCreatedCode, status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateResourceSyncFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		rs := testResourceSync("untrusted-rs")
+		rs.Metadata.Owner = lo.ToPtr("someone")
+		rs.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := CreateResourceSyncFromUntrusted(context.Background(), h, uuid.New(), rs)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items["untrusted-rs"].Metadata.Owner)
+		require.Nil(t, fakeStore.items["untrusted-rs"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateResourceSync (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		rs := testResourceSync("trusted-rs")
+		rs.Metadata.Owner = lo.ToPtr("someone")
+		rs.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateResourceSync(context.Background(), uuid.New(), rs)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items["trusted-rs"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items["trusted-rs"].Metadata.Generation))
+	})
 }
 
 func TestListResourceSyncs(t *testing.T) {
@@ -273,6 +297,32 @@ func TestReplaceResourceSync(t *testing.T) {
 		replaced, status := h.ReplaceResourceSync(ctx, orgId, "catalog-mixed-sync", rs)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Equal(t, "updated-repo", replaced.Spec.Repository)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceResourceSyncFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		orgId := uuid.New()
+		rs := testResourceSync("replace-untrusted")
+		rs.Metadata.Owner = lo.ToPtr("someone")
+		rs.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceResourceSyncFromUntrusted(context.Background(), h, orgId, "replace-untrusted", rs)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, fakeStore.items["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceResourceSync (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler()
+		orgId := uuid.New()
+		rs := testResourceSync("replace-trusted")
+		rs.Metadata.Owner = lo.ToPtr("someone")
+		rs.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceResourceSync(context.Background(), orgId, "replace-trusted", rs)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items["replace-trusted"].Metadata.Generation))
 	})
 }
 

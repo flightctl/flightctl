@@ -92,6 +92,11 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 			return nil, false, err
 		}
 	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if existed && device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	created := !existed
@@ -111,6 +116,11 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 		if err := validationCallback(ctx, old, device); err != nil {
 			return nil, err
 		}
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
