@@ -59,8 +59,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
 
-	// Set internal request context values for worker operations
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	// Set context values for worker operations
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-imagebuilder-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-imagebuilder-worker")
 

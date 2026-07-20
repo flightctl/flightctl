@@ -216,6 +216,30 @@ func TestCreateRepository(t *testing.T) {
 		_, status := h.CreateRepository(context.Background(), uuid.New(), invalid)
 		require.Equal(t, statusBadRequestCode, status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateRepositoryFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		repo := newGitRepository("untrusted-repo", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := CreateRepositoryFromUntrusted(context.Background(), h, uuid.New(), repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Owner)
+		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateRepository (trusted) should preserve them", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		repo := newGitRepository("trusted-repo", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateRepository(context.Background(), uuid.New(), repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Generation))
+	})
 }
 
 // ── ListRepositories / GetRepository ─────────────────────────────────────
@@ -280,6 +304,32 @@ func TestReplaceRepository(t *testing.T) {
 		repo := newGitRepository("repo1", "https://example.com/1.git")
 		_, status := h.ReplaceRepository(context.Background(), uuid.New(), "other-name", repo)
 		require.Equal(t, statusBadRequestCode, status.Code)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceRepositoryFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		orgId := uuid.New()
+		repo := newGitRepository("replace-untrusted", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceRepositoryFromUntrusted(context.Background(), h, orgId, "replace-untrusted", repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceRepository (trusted) should preserve them", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		orgId := uuid.New()
+		repo := newGitRepository("replace-trusted", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceRepository(context.Background(), orgId, "replace-trusted", repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Generation))
 	})
 }
 

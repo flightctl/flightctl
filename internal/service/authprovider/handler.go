@@ -31,6 +31,27 @@ func NewServiceHandler(store authproviderstore.Store, events events.Service, log
 
 var _ Service = (*ServiceHandler)(nil)
 
+// SanitizeAuthProvider clears managed metadata from an untrusted auth provider document
+// (HTTP body).
+func SanitizeAuthProvider(authProvider *domain.AuthProvider) {
+	if authProvider == nil {
+		return
+	}
+	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
+}
+
+// CreateAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then creates it.
+func CreateAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.CreateAuthProvider(ctx, orgId, authProvider)
+}
+
+// ReplaceAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then replaces it.
+func ReplaceAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.ReplaceAuthProvider(ctx, orgId, name, authProvider)
+}
+
 // sanitizeSchemaError inspects the error and redacts sensitive fields
 func sanitizeSchemaError(err error) string {
 	if err == nil {
@@ -126,9 +147,6 @@ func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authPro
 
 func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 
-	// don't set fields that are managed by the service
-	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
-
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
@@ -203,11 +221,6 @@ func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, n
 }
 
 func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
-
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
-	}
 
 	// Validate name early for both create and update paths
 	if authProvider.Metadata.Name == nil {

@@ -37,11 +37,29 @@ func NewServiceHandler(store repositorystore.Store, events events.Service, log l
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeRepository clears status and managed metadata from an untrusted repository document
+// (HTTP body).
+func SanitizeRepository(repository *domain.Repository) {
+	if repository == nil {
+		return
+	}
 	repository.Status = nil
 	common.NilOutManagedObjectMetaProperties(&repository.Metadata)
+}
 
+// CreateRepositoryFromUntrusted sanitizes an untrusted repository document, then creates it.
+func CreateRepositoryFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
+	SanitizeRepository(&repository)
+	return svc.CreateRepository(ctx, orgId, repository)
+}
+
+// ReplaceRepositoryFromUntrusted sanitizes an untrusted repository document, then replaces it.
+func ReplaceRepositoryFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, repository domain.Repository) (*domain.Repository, domain.Status) {
+	SanitizeRepository(&repository)
+	return svc.ReplaceRepository(ctx, orgId, name, repository)
+}
+
+func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
 	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -77,12 +95,6 @@ func (h *ServiceHandler) GetRepository(ctx context.Context, orgId uuid.UUID, nam
 }
 
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository) (*domain.Repository, domain.Status) {
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		repository.Status = nil
-		common.NilOutManagedObjectMetaProperties(&repository.Metadata)
-	}
-
 	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
