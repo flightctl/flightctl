@@ -33,6 +33,15 @@ const (
 	// startup forever; the largest observed single-image copy in CI is well under
 	// this budget.
 	perCopyTimeout = 5 * time.Minute
+
+	// externalCopyRetries bounds retries for copyExternalImage only: unlike the
+	// bundle copies (copyImageFromBundle), it pulls from the real quay.io over the
+	// internet, so it's exposed to transient upstream blips (seen in CI: a one-off
+	// EOF reading a config blob from quay's CDN). A single such blip previously
+	// failed the whole aux-service startup (see MirrorExternalTestImages), taking
+	// down every e2e shard sharing it.
+	externalCopyRetries   = 3
+	externalCopyRetryWait = 5 * time.Second
 )
 
 // externalTestImages are quay.io/flightctl-tests fixture images that e2e specs
@@ -90,8 +99,10 @@ func (s *Services) MirrorExternalTestImages(ctx context.Context) error {
 }
 
 // copyExternalImage copies a single image reference directly from quay.io to the
-// registry. Bounded by perCopyTimeout so a hung skopeo process can't block the
-// uploadConcurrency semaphore indefinitely.
+// registry, retrying on transient failures since it depends on the real, external
+// quay.io rather than resources local to the CI run. Bounded by perCopyTimeout per
+// attempt so a hung skopeo process can't block the uploadConcurrency semaphore
+// indefinitely.
 func (s *Services) copyExternalImage(ctx context.Context, ref string) error {
 	path := ref
 	if idx := strings.Index(ref, "/"); idx != -1 {
@@ -100,17 +111,32 @@ func (s *Services) copyExternalImage(ctx context.Context, ref string) error {
 	src := fmt.Sprintf("docker://%s", ref)
 	dst := fmt.Sprintf("docker://%s/%s", s.Registry.URL, path)
 
-	copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
-	defer cancel()
-	copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
-	output, err := copyCmd.CombinedOutput()
-	if copyCtx.Err() != nil {
-		return fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+	var lastErr error
+	for attempt := 1; attempt <= externalCopyRetries; attempt++ {
+		copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
+		copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
+		output, err := copyCmd.CombinedOutput()
+		timedOut := copyCtx.Err() != nil
+		cancel()
+
+		if timedOut {
+			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+		} else if err != nil {
+			lastErr = fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
+		} else {
+			return nil
+		}
+
+		if attempt < externalCopyRetries {
+			logrus.Warnf("Retrying external image mirror for %s (attempt %d/%d): %v", ref, attempt, externalCopyRetries, lastErr)
+			select {
+			case <-ctx.Done():
+				return lastErr
+			case <-time.After(externalCopyRetryWait):
+			}
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
-	}
-	return nil
+	return lastErr
 }
 
 // UploadImages uploads all image bundles to the registry.
