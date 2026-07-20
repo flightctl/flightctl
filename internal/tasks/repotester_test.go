@@ -1,16 +1,56 @@
 package tasks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "repotester-test")
+	if err != nil {
+		panic(err)
+	}
+
+	key, err := crypto.GenerateAES256Key()
+	if err != nil {
+		panic(err)
+	}
+	keyPath := filepath.Join(dir, "key")
+	if err := os.WriteFile(keyPath, []byte(key), 0600); err != nil {
+		panic(err)
+	}
+
+	cfg := config.NewDefault()
+	cfg.Encryption = &config.EncryptionConfig{
+		Keys:        []config.EncryptionKeyConfig{{ID: "test", Path: keyPath}},
+		ActiveKeyID: "test",
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	if err := encryption.InitGlobalEncryption(logger, cfg); err != nil {
+		panic(err)
+	}
+
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // makeTestOciRepo builds a Repository pointing at a test HTTP server.
 func makeTestOciRepo(t *testing.T, server *httptest.Server, auth *domain.OciAuth) *domain.Repository {
@@ -28,13 +68,18 @@ func makeTestOciRepo(t *testing.T, server *httptest.Server, auth *domain.OciAuth
 	return &domain.Repository{Spec: spec}
 }
 
-// makeDockerOciAuth creates an OciAuth with docker (username/password) credentials.
+// makeDockerOciAuth creates an OciAuth with docker credentials.
+// The password is encrypted to match what the GORM plugin produces on save.
 func makeDockerOciAuth(username, password string) *domain.OciAuth {
+	encrypted, err := encryption.Encrypt(context.Background(), []byte(password))
+	if err != nil {
+		panic(fmt.Sprintf("makeDockerOciAuth encrypt: %v", err))
+	}
 	auth := &domain.OciAuth{}
-	err := auth.FromDockerAuth(domain.DockerAuth{
+	err = auth.FromDockerAuth(domain.DockerAuth{
 		AuthType: domain.Docker,
 		Username: username,
-		Password: password,
+		Password: string(encrypted),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("makeDockerOciAuth: %v", err))
@@ -66,7 +111,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, nil)
-		require.NoError(t, tester.TestAccess(repo))
+		require.NoError(t, tester.TestAccess(t.Context(), repo))
 	})
 
 	t.Run("When registry returns 401 with Basic challenge and valid credentials it returns nil", func(t *testing.T) {
@@ -74,7 +119,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, makeDockerOciAuth("user", "pass"))
-		require.NoError(t, tester.TestAccess(repo))
+		require.NoError(t, tester.TestAccess(t.Context(), repo))
 	})
 
 	t.Run("When registry returns 401 with Basic challenge and wrong credentials it returns an auth error", func(t *testing.T) {
@@ -82,7 +127,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, makeDockerOciAuth("user", "wrong"))
-		err := tester.TestAccess(repo)
+		err := tester.TestAccess(t.Context(), repo)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authentication failed")
 	})
@@ -92,7 +137,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, nil)
-		err := tester.TestAccess(repo)
+		err := tester.TestAccess(t.Context(), repo)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no credentials")
 	})
@@ -120,7 +165,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, makeDockerOciAuth("user", "pass"))
-		require.NoError(t, tester.TestAccess(repo))
+		require.NoError(t, tester.TestAccess(t.Context(), repo))
 	})
 
 	t.Run("When registry returns 401 with an unsupported auth scheme it returns an error", func(t *testing.T) {
@@ -131,7 +176,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, nil)
-		err := tester.TestAccess(repo)
+		err := tester.TestAccess(t.Context(), repo)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported auth type")
 	})
@@ -141,7 +186,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, makeDockerOciAuth("", ""))
-		err := tester.TestAccess(repo)
+		err := tester.TestAccess(t.Context(), repo)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "credentials are incomplete")
 	})
@@ -158,7 +203,7 @@ func TestOciRepoTester_TestAccess(t *testing.T) {
 		defer server.Close()
 
 		repo := makeTestOciRepo(t, server, makeDockerOciAuth("user", "pass"))
-		err := tester.TestAccess(repo)
+		err := tester.TestAccess(t.Context(), repo)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authentication failed")
 	})

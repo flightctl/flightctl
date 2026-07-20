@@ -439,7 +439,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *dom
 
 	if t.ownerFleet == nil {
 		var hash string
-		ignition, hash, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, t.cfg)
+		ignition, hash, err = CloneGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, t.cfg)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, nil, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
@@ -700,7 +700,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if httpData == nil {
-		httpData, err = sendHTTPrequest(repo.Spec, repoURL)
+		httpData, err = sendHTTPrequest(ctx, repo.Spec, repoURL)
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed fetching data: %w", err)
 		}
@@ -846,7 +846,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		revisionToClone = string(frozenHashBytes)
 	}
 
-	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, t.cfg)
+	ign, hash, err := CloneGitRepoToIgnition(ctx, repo, revisionToClone, path, t.cfg)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed cloning git: %w", err)
 	}

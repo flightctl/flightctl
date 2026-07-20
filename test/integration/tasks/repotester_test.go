@@ -175,7 +175,7 @@ var _ = Describe("RepoTester", func() {
 				}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
+			err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -211,7 +211,7 @@ var _ = Describe("RepoTester", func() {
 				}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
+			err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 			Expect(err).NotTo(HaveOccurred())
 
 			select {
@@ -241,7 +241,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -270,7 +270,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -299,7 +299,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("invalid credentials"))
 			})
@@ -327,7 +327,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -358,7 +358,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 
 				// Test without credentials - should get anonymous token via scope
@@ -370,7 +370,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-anon")}, Spec: specAnon})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-anon")}, Spec: specAnon})
 				Expect(err).NotTo(HaveOccurred())
 
 				// Test with invalid credentials - should fail even though anonymous access is available
@@ -383,7 +383,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-invalid")}, Spec: specInvalid})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-invalid")}, Spec: specInvalid})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("invalid credentials"))
 			})
@@ -400,7 +400,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to connect"))
 			})
@@ -423,7 +423,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -453,7 +453,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls-auth")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls-auth")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -475,7 +475,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-insecure")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-insecure")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -496,7 +496,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-no-ca")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-no-ca")}, Spec: spec})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to connect"))
 			})
@@ -524,7 +524,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -551,7 +551,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-invalid")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-invalid")}, Spec: spec})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("authentication failed"))
 			})
@@ -576,7 +576,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-no-creds")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-no-creds")}, Spec: spec})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("no credentials"))
 			})
@@ -605,7 +605,7 @@ var _ = Describe("RepoTester", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-tls")}, Spec: spec})
+				err = repotester.TestAccess(context.Background(), &api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-basic-auth-tls")}, Spec: spec})
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})

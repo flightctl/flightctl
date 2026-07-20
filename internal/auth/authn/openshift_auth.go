@@ -50,6 +50,7 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
+
 	if spec.ClusterControlPlaneUrl == nil || *spec.ClusterControlPlaneUrl == "" {
 		return nil, fmt.Errorf("clusterControlPlaneUrl is required")
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/service/common"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -129,14 +130,14 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, orgId uuid.UUID, re
 
 func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository, tester TypeSpecificRepoTester) {
 	repoName := *repository.Metadata.Name
-	accessErr := tester.TestAccess(&repository)
+	accessErr := tester.TestAccess(ctx, &repository)
 	if err := r.SetAccessCondition(ctx, orgId, &repository, accessErr); err != nil {
 		r.log.Errorf("Failed to update repository status for %s: %v", repoName, err)
 	}
 }
 
 type TypeSpecificRepoTester interface {
-	TestAccess(repository *domain.Repository) error
+	TestAccess(ctx context.Context, repository *domain.Repository) error
 }
 
 type GitRepoTester struct {
@@ -148,7 +149,7 @@ type HttpRepoTester struct {
 type OciRepoTester struct {
 }
 
-func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
+func (r *GitRepoTester) TestAccess(ctx context.Context, repository *domain.Repository) error {
 	repoURL, err := repository.Spec.GetRepoURL()
 	if err != nil {
 		return err
@@ -160,13 +161,13 @@ func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 	})
 
 	listOps := &git.ListOptions{}
-	auth, err := GetAuth(repository, nil) // nil config for test
+	auth, err := GetAuth(ctx, repository, nil) // nil config for test
 	if err != nil {
 		return err
 	}
 
 	listOps.Auth = auth
-	_, err = remote.List(listOps)
+	_, err = remote.ListContext(ctx, listOps)
 	if err != nil {
 		// Extract the root cause from go-git wrapped errors
 		// Format is often "authentication required: <actual error>"
@@ -182,7 +183,7 @@ func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 	return nil
 }
 
-func (r *HttpRepoTester) TestAccess(repository *domain.Repository) error {
+func (r *HttpRepoTester) TestAccess(ctx context.Context, repository *domain.Repository) error {
 	repoHttpSpec, err := repository.Spec.AsHttpRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
@@ -195,11 +196,11 @@ func (r *HttpRepoTester) TestAccess(repository *domain.Repository) error {
 	}
 
 	repoSpec := repository.Spec
-	_, err = sendHTTPrequest(repoSpec, repoURL)
+	_, err = sendHTTPrequest(ctx, repoSpec, repoURL)
 	return err
 }
 
-func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
+func (r *OciRepoTester) TestAccess(ctx context.Context, repository *domain.Repository) error {
 	ociSpec, err := repository.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get OCI repo spec: %w", err)
@@ -245,7 +246,11 @@ func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
 	}
 
 	// Step 1: Call /v2/ without auth (OCI Distribution Spec)
-	resp, err := client.Get(v2URL)
+	req, err := http.NewRequestWithContext(ctx, "GET", v2URL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
@@ -264,20 +269,20 @@ func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
 		}
 		switch domain.OciAuthType(authType) {
 		case domain.Docker:
-			return r.authenticateDocker(client, v2URL, resp, ociSpec.OciAuth)
+			return r.authenticateDocker(ctx, client, v2URL, resp, ociSpec.OciAuth)
 		default:
 			return fmt.Errorf("unsupported OCI auth type: %s", authType)
 		}
 	}
 
 	// No auth configured - try anonymous access with Docker protocol
-	return r.authenticateDocker(client, v2URL, resp, nil)
+	return r.authenticateDocker(ctx, client, v2URL, resp, nil)
 }
 
 // authenticateDocker performs OCI registry authentication. It detects whether
 // the registry challenges with HTTP Basic or Bearer (Docker token) auth from the
 // Www-Authenticate header and dispatches accordingly.
-func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, initialResp *http.Response, ociAuth *domain.OciAuth) error {
+func (r *OciRepoTester) authenticateDocker(ctx context.Context, client *http.Client, v2URL string, initialResp *http.Response, ociAuth *domain.OciAuth) error {
 	if initialResp.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("unexpected status code: %d", initialResp.StatusCode)
 	}
@@ -286,7 +291,7 @@ func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, in
 
 	// RFC 7235: auth scheme names are case-insensitive.
 	if strings.HasPrefix(strings.ToLower(wwwAuth), "basic ") {
-		return r.authenticateBasic(client, v2URL, ociAuth)
+		return r.authenticateBasic(ctx, client, v2URL, ociAuth)
 	}
 
 	// Parse www-authenticate header to get realm and service
@@ -302,18 +307,23 @@ func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, in
 		if err != nil {
 			return fmt.Errorf("failed to parse docker auth config: %w", err)
 		}
+		decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+		if err != nil {
+			return fmt.Errorf("failed to decrypt OCI password: %w", err)
+		}
+		pw := string(decryptedPassword)
 		username = &dockerAuth.Username
-		password = &dockerAuth.Password
+		password = &pw
 	}
 
 	// Get token from auth endpoint
-	token, err := r.getToken(client, realm, service, username, password)
+	token, err := r.getToken(ctx, client, realm, service, username, password)
 	if err != nil {
 		return err
 	}
 
 	// Call /v2/ with bearer token
-	req, err := http.NewRequest("GET", v2URL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", v2URL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -333,7 +343,7 @@ func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, in
 }
 
 // authenticateBasic performs HTTP Basic authentication against the OCI /v2/ endpoint.
-func (r *OciRepoTester) authenticateBasic(client *http.Client, v2URL string, ociAuth *domain.OciAuth) error {
+func (r *OciRepoTester) authenticateBasic(ctx context.Context, client *http.Client, v2URL string, ociAuth *domain.OciAuth) error {
 	if ociAuth == nil {
 		return fmt.Errorf("registry requires Basic authentication but no credentials are configured")
 	}
@@ -347,11 +357,16 @@ func (r *OciRepoTester) authenticateBasic(client *http.Client, v2URL string, oci
 		return fmt.Errorf("registry requires Basic authentication but credentials are incomplete")
 	}
 
-	req, err := http.NewRequest("GET", v2URL, nil)
+	decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+	if err != nil {
+		return fmt.Errorf("failed to decrypt OCI password: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", v2URL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.SetBasicAuth(dockerAuth.Username, dockerAuth.Password)
+	req.SetBasicAuth(dockerAuth.Username, string(decryptedPassword))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -393,7 +408,7 @@ func parseWwwAuthenticate(header string) (realm, service string, err error) {
 }
 
 // getToken gets an auth token from the registry's auth endpoint
-func (r *OciRepoTester) getToken(client *http.Client, realm, service string, username, password *string) (string, error) {
+func (r *OciRepoTester) getToken(ctx context.Context, client *http.Client, realm, service string, username, password *string) (string, error) {
 	// Parse the realm URL
 	authURL, err := url.Parse(realm)
 	if err != nil {
@@ -409,7 +424,7 @@ func (r *OciRepoTester) getToken(client *http.Client, realm, service string, use
 	query.Set("scope", "repository:"+uuid.New().String()+":pull")
 	authURL.RawQuery = query.Encode()
 
-	req, err := http.NewRequest("GET", authURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", authURL.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create auth request: %w", err)
 	}

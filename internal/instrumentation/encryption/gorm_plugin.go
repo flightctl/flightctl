@@ -3,6 +3,7 @@ package encryption
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"gorm.io/gorm"
 )
@@ -17,7 +18,7 @@ type EncryptFunc func(ctx context.Context, data []byte) ([]byte, error)
 
 // ModelEncryptHandler knows how to encrypt a specific model type.
 // It receives the model instance and an encryption function to use.
-type ModelEncryptHandler func(ctx context.Context, model interface{}, encrypt EncryptFunc) error
+type ModelEncryptHandler func(ctx context.Context, model any, encrypt EncryptFunc) error
 
 // Plugin is a GORM plugin that delegates model-specific encryption
 // to handlers registered from the store/model package.
@@ -59,33 +60,55 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 }
 
 // beforeSave is the GORM callback that delegates to model-specific encryption handlers.
-func (p *Plugin) beforeSave(db *gorm.DB) {
-	if db.Error != nil || db.Statement.Schema == nil {
+func (p *Plugin) beforeSave(tx *gorm.DB) {
+	if tx.Error != nil || tx.Statement.Schema == nil {
 		return
 	}
 
 	// Check if we have a handler for this model type
-	handler, exists := p.handlers[db.Statement.Schema.Name]
+	handler, exists := p.handlers[tx.Statement.Schema.Name]
 	if !exists {
 		return // No encryption for this model type
 	}
 
-	ctx := db.Statement.Context
+	ctx := tx.Statement.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	// Use Manager.ProcessEncryption which handles all cases:
-	// - Plaintext: encrypts
-	// - Old version: migrates to active version
-	// - Old key: re-encrypts with active key
-	// - Current version + key: preserves (no wasteful re-encryption)
-	processEncryption := func(ctx context.Context, data []byte) ([]byte, error) {
-		return p.manager.ProcessEncryption(ctx, data)
+	dest := tx.Statement.Dest
+	val := reflect.ValueOf(dest)
+
+	// Dereference pointer if needed (GORM passes *[]T for batch creates).
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
 	}
 
-	// Call model-specific handler
-	if err := handler(ctx, db.Statement.Dest, processEncryption); err != nil {
-		_ = db.AddError(fmt.Errorf("encrypt model %s: %w", db.Statement.Schema.Name, err))
+	// Batch operations: GORM may pass []T or []*T — encrypt each element.
+	if val.Kind() == reflect.Slice {
+		for i := 0; i < val.Len(); i++ {
+			elem := val.Index(i)
+			// For []T (non-pointer elements), take address so handler gets *T.
+			if elem.Kind() != reflect.Ptr && elem.CanAddr() {
+				elem = elem.Addr()
+			}
+			if err := handler(ctx, elem.Interface(), p.manager.ProcessEncryption); err != nil {
+				tx.Logger.Error(ctx, err.Error())
+				_ = tx.AddError(fmt.Errorf("encrypt model %s: %w", tx.Statement.Schema.Name, err))
+				return
+			}
+		}
+		return
+	}
+
+	// Partial updates (map[string]interface{}, etc.) don't carry the full model.
+	// Only encrypt pointer-to-struct, the normal single-model create/update path.
+	if val.Kind() != reflect.Struct {
+		return
+	}
+
+	if err := handler(ctx, dest, p.manager.ProcessEncryption); err != nil {
+		tx.Logger.Error(ctx, err.Error())
+		_ = tx.AddError(fmt.Errorf("encrypt model %s: %w", tx.Statement.Schema.Name, err))
 	}
 }

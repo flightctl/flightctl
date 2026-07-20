@@ -100,7 +100,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uu
 	}
 
 	// Parse and validate resources
-	resources, err := r.parseAndValidateResources(rs, repo, CloneGitRepo)
+	resources, err := r.parseAndValidateResources(ctx, rs, repo, CloneGitRepo)
 	if err != nil {
 		log.Errorf("resourcesync/%s: parsing failed. error: %s", *rs.Metadata.Name, err.Error())
 		return err
@@ -403,10 +403,10 @@ func NeedsSyncToHash(rs *domain.ResourceSync, hash string) bool {
 	return hash != prevHash || observedGen != *rs.Metadata.Generation
 }
 
-func (r *ResourceSync) parseAndValidateResources(rs *domain.ResourceSync, repo *domain.Repository, gitCloneRepo cloneGitRepoFunc) ([]GenericResourceMap, error) {
+func (r *ResourceSync) parseAndValidateResources(ctx context.Context, rs *domain.ResourceSync, repo *domain.Repository, gitCloneRepo cloneGitRepoFunc) ([]GenericResourceMap, error) {
 	path := rs.Spec.Path
 	revision := rs.Spec.TargetRevision
-	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1), r.cfg)
+	mfs, hash, err := gitCloneRepo(ctx, repo, &revision, lo.ToPtr(1), r.cfg)
 	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncAccessible, "accessible", "failed to clone repository", err)
 	if err != nil {
 		return nil, err

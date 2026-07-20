@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -13,9 +14,18 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+func encryptString(s string) string {
+	encrypted, err := encryption.Encrypt(context.Background(), []byte(s))
+	if err != nil {
+		panic(err)
+	}
+	return string(encrypted)
+}
 
 func generateDummyX509KeyPair() ([]byte, []byte, error) {
 	// Generate a private key
@@ -53,11 +63,32 @@ func generateDummyX509KeyPair() ([]byte, []byte, error) {
 }
 
 var _ = Describe("buildHttpRepoRequestAuth", func() {
+	When("only basic auth credentials are provided", func() {
+		It("sets basic auth header with decrypted password", func() {
+			username := "user"
+			password := encryptString("pass")
+			req, _ := http.NewRequest("GET", "http://example.com", nil)
+			repoHttpSpec := domain.HttpRepoSpec{
+				HttpConfig: &domain.HttpConfig{
+					Username: &username,
+					Password: &password,
+				},
+			}
+			req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
+			Expect(err).ToNot(HaveOccurred())
+			u, p, ok := req.BasicAuth()
+			Expect(ok).To(BeTrue())
+			Expect(u).To(Equal("user"))
+			Expect(p).To(Equal("pass"))
+			Expect(tlsConfig.MinVersion).To(Equal(uint16(tls.VersionTLS12)))
+		})
+	})
+
 	When("all authentication details are provided", func() {
 		It("sets basic auth and bearer token headers", func() {
 			username := "user"
-			password := "pass"
-			token := "token"
+			password := encryptString("pass")
+			token := encryptString("token")
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
 				HttpConfig: &domain.HttpConfig{
@@ -77,8 +108,8 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 		It("sets the TLS certificates", func() {
 			tlsCrt, tlsKey, err := generateDummyX509KeyPair()
 			Expect(err).ToNot(HaveOccurred())
-			tlsCrtEncoded := base64.StdEncoding.EncodeToString(tlsCrt)
-			tlsKeyEncoded := base64.StdEncoding.EncodeToString(tlsKey)
+			tlsCrtEncoded := encryptString(base64.StdEncoding.EncodeToString(tlsCrt))
+			tlsKeyEncoded := encryptString(base64.StdEncoding.EncodeToString(tlsKey))
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
 				HttpConfig: &domain.HttpConfig{
