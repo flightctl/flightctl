@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -579,9 +580,13 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
+			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			if decErr != nil {
+				return nil, "", "", fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
 			authClient.Credential = auth.StaticCredential(registryHostname, auth.Credential{
 				Username: dockerAuth.Username,
-				Password: dockerAuth.Password,
+				Password: string(decryptedPassword),
 			})
 			log.WithFields(logrus.Fields{"registryHostname": registryHostname, "username": dockerAuth.Username}).Debug("Configured authentication for repository")
 		}
@@ -706,8 +711,13 @@ func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req
 		return nil
 	}
 
+	decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+	if err != nil {
+		return fmt.Errorf("failed to decrypt OCI password: %w", err)
+	}
+
 	log.WithFields(logrus.Fields{"registryHostname": registryHostname, "repoName": repoName}).Debug("Getting registry token for authentication")
-	token, err := s.getRegistryToken(ctx, client, scheme, registryHostname, repoName, dockerAuth.Username, dockerAuth.Password)
+	token, err := s.getRegistryToken(ctx, client, scheme, registryHostname, repoName, dockerAuth.Username, string(decryptedPassword))
 	if err != nil {
 		log.WithError(err).WithField("registryHostname", registryHostname).Error("Failed to get registry token from external service")
 		return fmt.Errorf("%w: failed to get registry token: %w", ErrExternalServiceUnavailable, err)

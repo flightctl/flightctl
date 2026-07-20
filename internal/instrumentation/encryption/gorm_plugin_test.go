@@ -3,6 +3,7 @@ package encryption
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -255,25 +256,21 @@ func TestPlugin_UsesProcessEncryption(t *testing.T) {
 func TestPlugin_BatchCreate_HandlerCalledForSlice(t *testing.T) {
 	mgr := createTestManager(t)
 
-	var receivedType string
+	var callCount int
 
 	handlers := map[string]ModelEncryptHandler{
 		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
-			switch val := v.(type) {
-			case *TestUser:
-				receivedType = "single"
-			case *[]TestUser:
-				receivedType = "slice"
-				// Encrypt each user
-				for i := range *val {
-					if (*val)[i].Password != "" {
-						encrypted, err := encrypt(ctx, []byte((*val)[i].Password))
-						if err != nil {
-							return err
-						}
-						(*val)[i].Password = string(encrypted)
-					}
+			user, ok := v.(*TestUser)
+			if !ok {
+				return fmt.Errorf("expected *TestUser, got %T", v)
+			}
+			callCount++
+			if user.Password != "" {
+				encrypted, err := encrypt(ctx, []byte(user.Password))
+				if err != nil {
+					return err
 				}
+				user.Password = string(encrypted)
 			}
 			return nil
 		},
@@ -289,7 +286,7 @@ func TestPlugin_BatchCreate_HandlerCalledForSlice(t *testing.T) {
 	result := db.Create(&users)
 	require.NoError(t, result.Error)
 
-	assert.Equal(t, "slice", receivedType, "Handler should receive *[]TestUser for batch create")
+	assert.Equal(t, 2, callCount, "Handler should be called once per element in batch create")
 
 	// Verify both passwords encrypted
 	assert.True(t, strings.HasPrefix(users[0].Password, "enc:"))

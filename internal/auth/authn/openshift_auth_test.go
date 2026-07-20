@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -17,6 +18,10 @@ import (
 
 func newTestOpenShiftAuth(t *testing.T, k8sClient k8sclient.K8SClient) *OpenShiftAuth {
 	t.Helper()
+	encryptedSecret, err := encryption.Encrypt(t.Context(), []byte("secret"))
+	require.NoError(t, err)
+	encryptedStr := string(encryptedSecret)
+
 	auth, err := NewOpenShiftAuth(
 		api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 		api.OpenShiftProviderSpec{
@@ -24,7 +29,7 @@ func newTestOpenShiftAuth(t *testing.T, k8sClient k8sclient.K8SClient) *OpenShif
 			AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
 			TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
 			ClientId:               lo.ToPtr("flightctl"),
-			ClientSecret:           lo.ToPtr("secret"),
+			ClientSecret:           &encryptedStr,
 			ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
 			Issuer:                 lo.ToPtr("https://oauth.example.com"),
 			RoleSuffix:             lo.ToPtr("flightctl"),
@@ -72,6 +77,10 @@ func projectListJSON(names ...string) []byte {
 
 func newTestOpenShiftAuthWithPrefix(t *testing.T, k8sClient k8sclient.K8SClient, prefix string) *OpenShiftAuth {
 	t.Helper()
+	encryptedSecret, err := encryption.Encrypt(t.Context(), []byte("secret"))
+	require.NoError(t, err)
+	encryptedStr := string(encryptedSecret)
+
 	auth, err := NewOpenShiftAuth(
 		api.ObjectMeta{Name: lo.ToPtr("test-provider")},
 		api.OpenShiftProviderSpec{
@@ -79,7 +88,7 @@ func newTestOpenShiftAuthWithPrefix(t *testing.T, k8sClient k8sclient.K8SClient,
 			AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
 			TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
 			ClientId:               lo.ToPtr("flightctl"),
-			ClientSecret:           lo.ToPtr("secret"),
+			ClientSecret:           &encryptedStr,
 			ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
 			Issuer:                 lo.ToPtr("https://oauth.example.com"),
 			RoleSuffix:             lo.ToPtr("flightctl"),
