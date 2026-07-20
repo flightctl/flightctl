@@ -76,7 +76,8 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
-	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &m.osMode}
+	osMode := m.osMode
+	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
 	return nil
 }
 
