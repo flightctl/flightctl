@@ -7,7 +7,7 @@ import (
 )
 
 // NormalizeOIDCProviderSpecURLs canonicalizes issuer-identity URL fields on an OIDC spec
-// by stripping a trailing path slash. Host case and other RFC 3986 variations are left unchanged.
+// via NormalizeIssuerURL (lowercase + trailing-slash strip).
 func NormalizeOIDCProviderSpecURLs(spec *api.OIDCProviderSpec) error {
 	if spec == nil {
 		return nil
@@ -24,7 +24,7 @@ func NormalizeOIDCProviderSpecURLs(spec *api.OIDCProviderSpec) error {
 }
 
 // NormalizeOAuth2ProviderSpecURLs canonicalizes OAuth2 URL fields used for identity and
-// uniqueness (authorizationUrl, issuer, tokenUrl, userinfoUrl) by stripping a trailing path slash.
+// uniqueness (authorizationUrl, issuer, tokenUrl, userinfoUrl) via NormalizeIssuerURL.
 func NormalizeOAuth2ProviderSpecURLs(spec *api.OAuth2ProviderSpec) error {
 	if spec == nil {
 		return nil

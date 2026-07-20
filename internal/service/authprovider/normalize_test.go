@@ -38,6 +38,11 @@ func TestNormalizeAuthProviderURLs_OIDC(t *testing.T) {
 			wantIssuer: "https://idp.example.com:8443",
 		},
 		{
+			name:       "When OIDC issuer has mixed case it should be lowercased",
+			issuer:     "HTTPS://IdP.Example.COM/Realm/Master/",
+			wantIssuer: "https://idp.example.com/realm/master",
+		},
+		{
 			name:        "When OIDC issuer has no scheme it should fail",
 			issuer:      "idp.example.com",
 			wantErr:     true,

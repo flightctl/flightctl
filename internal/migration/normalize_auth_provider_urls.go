@@ -28,12 +28,12 @@ type oauth2UniquenessKey struct {
 }
 
 // normalizeAuthProviderURLs rewrites stored OIDC/OAuth2 auth provider URL fields to the
-// canonical trailing-slash-stripped form so unique indexes and runtime lookups match
-// write-path normalization. Runs once via schema_migrations.
+// canonical form (lowercase + trailing-slash strip) so unique indexes and runtime lookups
+// match write-path normalization. Runs once via schema_migrations.
 //
-// If two existing rows would collide after normalization (e.g. issuer with and without a
-// trailing slash for the same clientId), the migration fails so an admin can resolve the
-// duplicate before upgrade completes.
+// If two existing rows would collide after normalization (e.g. issuer with/without a
+// trailing slash, or differing only by letter case, for the same clientId), the migration
+// fails so an admin can resolve the duplicate before upgrade completes.
 func normalizeAuthProviderURLs(ctx context.Context, tx *gorm.DB) error {
 	return tx.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).
@@ -103,7 +103,7 @@ func recordNormalizedAuthProviderKey(
 		}
 		key := oidcUniquenessKey{issuer: oidcSpec.Issuer, clientID: oidcSpec.ClientId}
 		if existing, ok := seenOIDC[key]; ok {
-			return fmt.Errorf("cannot normalize auth provider URLs: OIDC providers %q and %q would share issuer %q and clientId %q after trailing-slash normalization; resolve the duplicate and re-run migration", existing, name, key.issuer, key.clientID)
+			return fmt.Errorf("cannot normalize auth provider URLs: OIDC providers %q and %q would share issuer %q and clientId %q after URL normalization; resolve the duplicate and re-run migration", existing, name, key.issuer, key.clientID)
 		}
 		seenOIDC[key] = name
 	case string(api.Oauth2):
@@ -113,7 +113,7 @@ func recordNormalizedAuthProviderKey(
 		}
 		key := oauth2UniquenessKey{userinfoURL: oauth2Spec.UserinfoUrl, clientID: oauth2Spec.ClientId}
 		if existing, ok := seenOAuth2[key]; ok {
-			return fmt.Errorf("cannot normalize auth provider URLs: OAuth2 providers %q and %q would share userinfoUrl %q and clientId %q after trailing-slash normalization; resolve the duplicate and re-run migration", existing, name, key.userinfoURL, key.clientID)
+			return fmt.Errorf("cannot normalize auth provider URLs: OAuth2 providers %q and %q would share userinfoUrl %q and clientId %q after URL normalization; resolve the duplicate and re-run migration", existing, name, key.userinfoURL, key.clientID)
 		}
 		seenOAuth2[key] = name
 	}

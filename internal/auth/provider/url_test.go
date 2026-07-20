@@ -15,6 +15,8 @@ func TestNormalizeIssuerURL(t *testing.T) {
 		{"trailing slash", "https://example.com/", "https://example.com", false},
 		{"with path", "https://example.com/oidc", "https://example.com/oidc", false},
 		{"with path and trailing slash", "https://example.com/oidc/", "https://example.com/oidc", false},
+		{"upper host and scheme", "HTTPS://IdP.Example.COM/Realm/", "https://idp.example.com/realm", false},
+		{"mixed case path", "https://example.com/OIDC/Master/", "https://example.com/oidc/master", false},
 		{"empty", "", "", true},
 		{"invalid no scheme", "example.com", "", true},
 		{"invalid no host", "https://", "", true},

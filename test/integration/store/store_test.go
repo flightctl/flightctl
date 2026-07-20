@@ -198,7 +198,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 			oidcSpec := domain.AuthProviderSpec{}
 			Expect(oidcSpec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
 				ProviderType: domain.Oidc,
-				Issuer:       "https://idp.example.com/realm/master/",
+				Issuer:       "HTTPS://IdP.Example.COM/Realm/Master/",
 				ClientId:     "oidc-client",
 			})).To(Succeed())
 			Expect(db.Create(&model.AuthProvider{
@@ -214,9 +214,9 @@ var _ = Describe("DataStore Migration Tests", func() {
 			oauth2Spec := domain.AuthProviderSpec{}
 			Expect(oauth2Spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
 				ProviderType:     domain.Oauth2,
-				AuthorizationUrl: "https://idp.example.com/oauth2/authorize/",
-				TokenUrl:         "https://idp.example.com/token/",
-				UserinfoUrl:      "https://idp.example.com/userinfo/",
+				AuthorizationUrl: "HTTPS://IdP.Example.COM/oauth2/authorize/",
+				TokenUrl:         "HTTPS://IdP.Example.COM/token/",
+				UserinfoUrl:      "HTTPS://IdP.Example.COM/userinfo/",
 				ClientId:         "oauth2-client",
 				Introspection:    oauth2Introspection,
 			})).To(Succeed())
@@ -262,7 +262,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 				issuer string
 			}{
 				{name: "oidc-a", issuer: "https://idp.example.com"},
-				{name: "oidc-b", issuer: "https://idp.example.com/"},
+				{name: "oidc-b", issuer: "HTTPS://IdP.Example.COM/"},
 			} {
 				spec := domain.AuthProviderSpec{}
 				Expect(spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
