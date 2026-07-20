@@ -113,6 +113,7 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 	// Don't set fields that are managed by the service
 	imageExport.Status = nil
 	NilOutManagedObjectMetaProperties(&imageExport.Metadata)
+	setGenerationOnCreate(&imageExport.Metadata)
 
 	// Validate input
 	if errs, internalErr := s.validate(ctx, orgId, &imageExport); internalErr != nil {

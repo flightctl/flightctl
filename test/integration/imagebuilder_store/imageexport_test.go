@@ -35,6 +35,9 @@ func newTestImageExport(name string) *api.ImageExport {
 		Kind:       string(api.ResourceKindImageExport),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
+			// Generation is service-assigned; these store-level tests call the
+			// store directly, so simulate what the service now sets.
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
@@ -55,6 +58,9 @@ func newTestImageExportWithImageBuildRef(name string, imageBuildRef string) *api
 		Kind:       string(api.ResourceKindImageExport),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
+			// Generation is service-assigned; these store-level tests call the
+			// store directly, so simulate what the service now sets.
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
