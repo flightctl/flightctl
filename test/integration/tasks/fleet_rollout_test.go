@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -94,7 +93,6 @@ var _ = Describe("FleetRollout", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		numDevices = 3
@@ -119,7 +117,7 @@ var _ = Describe("FleetRollout", func() {
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStore, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
 	})
 

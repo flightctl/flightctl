@@ -10,6 +10,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -43,10 +45,66 @@ func endSpan(span trace.Span, st domain.Status) {
 	span.End()
 }
 
+func (_d *TracedService) List(ctx context.Context, listParams store.ListParams) (opa1 []*model.Organization, err error) {
+	ctx, span := startSpan(ctx, "List")
+
+	opa1, err = _d.inner.List(ctx, listParams)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return opa1, err
+}
+
+func (_d *TracedService) ListAllOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (op1 *domain.OrganizationList, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ListAllOrganizations")
+
+	op1, s1 = _d.inner.ListAllOrganizations(ctx, params)
+	endSpan(span, s1)
+	return op1, s1
+}
+
+func (_d *TracedService) ListByExternalIDs(ctx context.Context, externalIDs []string) (opa1 []*model.Organization, err error) {
+	ctx, span := startSpan(ctx, "ListByExternalIDs")
+
+	opa1, err = _d.inner.ListByExternalIDs(ctx, externalIDs)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return opa1, err
+}
+
+func (_d *TracedService) ListByIDs(ctx context.Context, ids []string) (opa1 []*model.Organization, err error) {
+	ctx, span := startSpan(ctx, "ListByIDs")
+
+	opa1, err = _d.inner.ListByIDs(ctx, ids)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return opa1, err
+}
+
 func (_d *TracedService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (op1 *domain.OrganizationList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListOrganizations")
 
 	op1, s1 = _d.inner.ListOrganizations(ctx, params)
 	endSpan(span, s1)
 	return op1, s1
+}
+
+func (_d *TracedService) UpsertMany(ctx context.Context, orgs []*model.Organization) (opa1 []*model.Organization, err error) {
+	ctx, span := startSpan(ctx, "UpsertMany")
+
+	opa1, err = _d.inner.UpsertMany(ctx, orgs)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return opa1, err
 }

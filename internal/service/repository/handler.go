@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -37,16 +38,36 @@ func NewServiceHandler(store repositorystore.Store, events events.Service, log l
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeRepository clears status and managed metadata from an untrusted repository document
+// (HTTP body).
+func SanitizeRepository(repository *domain.Repository) {
+	if repository == nil {
+		return
+	}
 	repository.Status = nil
 	common.NilOutManagedObjectMetaProperties(&repository.Metadata)
+}
 
+// CreateRepositoryFromUntrusted sanitizes an untrusted repository document, then creates it.
+func CreateRepositoryFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
+	SanitizeRepository(&repository)
+	return svc.CreateRepository(ctx, orgId, repository)
+}
+
+// ReplaceRepositoryFromUntrusted sanitizes an untrusted repository document, then replaces it.
+func ReplaceRepositoryFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, repository domain.Repository) (*domain.Repository, domain.Status) {
+	SanitizeRepository(&repository)
+	return svc.ReplaceRepository(ctx, orgId, name, repository)
+}
+
+func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository) (*domain.Repository, domain.Status) {
 	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &repository, h.callbackRepositoryUpdated)
+	setGenerationOnCreate(&repository.Metadata)
+	result, err := h.store.Create(ctx, orgId, &repository)
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
 }
 
@@ -77,12 +98,6 @@ func (h *ServiceHandler) GetRepository(ctx context.Context, orgId uuid.UUID, nam
 }
 
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository) (*domain.Repository, domain.Status) {
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		repository.Status = nil
-		common.NilOutManagedObjectMetaProperties(&repository.Metadata)
-	}
-
 	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -90,20 +105,43 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// Preserve sensitive data from existing repository if the new one contains masked placeholders
-	existingRepo, err := h.store.Get(ctx, orgId, name)
-	if err == nil {
-		if preserveErr := repository.PreserveSensitiveData(existingRepo); preserveErr != nil {
-			return nil, domain.StatusInternalServerError(preserveErr.Error())
+	var result, oldRepo *domain.Repository
+	var created bool
+	err := common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
 		}
-	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &repository, h.callbackRepositoryUpdated)
+		toWrite := repository
+		if existing != nil {
+			if preserveErr := toWrite.PreserveSensitiveData(existing); preserveErr != nil {
+				return preserveErr
+			}
+		}
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+		}
+
+		var writeErr error
+		result, oldRepo, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name, h.callbackRepositoryDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackRepositoryDeleted(ctx, domain.RepositoryKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
@@ -135,7 +173,20 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackRepositoryUpdated)
+	var result, oldRepo *domain.Repository
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+		var writeErr error
+		result, oldRepo, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		return writeErr
+	})
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
@@ -151,7 +202,8 @@ func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, org
 		return &repository, domain.StatusOK()
 	}
 
-	result, err := h.store.UpdateStatus(ctx, orgId, &repository, h.callbackRepositoryUpdated)
+	result, oldRepo, err := h.store.UpdateStatus(ctx, orgId, &repository)
+	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }
 
@@ -167,58 +219,62 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, orgI
 
 // callbackRepositoryUpdated is the repository-specific callback that handles repository update events
 func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.RepositoryKind, name, status, nil))
-		return
-	}
-
-	var (
-		oldRepository, newRepository *domain.Repository
-		ok                           bool
-	)
-	if oldRepository, newRepository, ok = common.CastResources[domain.Repository](oldResource, newResource); !ok {
-		return
-	}
-
-	// Emit success event for create/update
-	if created {
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, nil, h.log, nil))
-	} else if oldRepository != nil && newRepository != nil {
-		// Check if the Accessible condition changed
-		var oldConditions, newConditions []domain.Condition
-		if oldRepository.Status != nil {
-			oldConditions = oldRepository.Status.Conditions
-		}
-		if newRepository.Status != nil {
-			newConditions = newRepository.Status.Conditions
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.RepositoryKind, name, status, nil))
+			return
 		}
 
-		oldAccessible := domain.FindStatusCondition(oldConditions, domain.ConditionTypeRepositoryAccessible)
-		newAccessible := domain.FindStatusCondition(newConditions, domain.ConditionTypeRepositoryAccessible)
+		var (
+			oldRepository, newRepository *domain.Repository
+			ok                           bool
+		)
+		if oldRepository, newRepository, ok = common.CastResources[domain.Repository](oldResource, newResource); !ok {
+			return
+		}
 
-		if common.HasConditionChanged(oldAccessible, newAccessible) {
-			if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeRepositoryAccessible) {
-				h.events.CreateEvent(ctx, orgId, common.GetRepositoryAccessibleEvent(ctx, name))
-			} else {
-				message := "Repository access failed"
-				if newAccessible != nil && newAccessible.Message != "" {
-					message = newAccessible.Message
-				}
-				h.events.CreateEvent(ctx, orgId, common.GetRepositoryInaccessibleEvent(ctx, name, message))
+		// Emit success event for create/update
+		if created {
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, nil, h.log, nil))
+		} else if oldRepository != nil && newRepository != nil {
+			// Check if the Accessible condition changed
+			var oldConditions, newConditions []domain.Condition
+			if oldRepository.Status != nil {
+				oldConditions = oldRepository.Status.Conditions
 			}
+			if newRepository.Status != nil {
+				newConditions = newRepository.Status.Conditions
+			}
+
+			oldAccessible := domain.FindStatusCondition(oldConditions, domain.ConditionTypeRepositoryAccessible)
+			newAccessible := domain.FindStatusCondition(newConditions, domain.ConditionTypeRepositoryAccessible)
+
+			if common.HasConditionChanged(oldAccessible, newAccessible) {
+				if domain.IsStatusConditionTrue(newConditions, domain.ConditionTypeRepositoryAccessible) {
+					h.events.CreateEvent(ctx, orgId, common.GetRepositoryAccessibleEvent(ctx, name))
+				} else {
+					message := "Repository access failed"
+					if newAccessible != nil && newAccessible.Message != "" {
+						message = newAccessible.Message
+					}
+					h.events.CreateEvent(ctx, orgId, common.GetRepositoryInaccessibleEvent(ctx, name, message))
+				}
+			}
+
+			updateDetails := common.ComputeResourceUpdatedDetails(oldRepository.Metadata, newRepository.Metadata)
+
+			// Also emit the standard update event
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, updateDetails, h.log, nil))
 		}
-
-		updateDetails := common.ComputeResourceUpdatedDetails(oldRepository.Metadata, newRepository.Metadata)
-
-		// Also emit the standard update event
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.RepositoryKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events
 func (h *ServiceHandler) callbackRepositoryDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 func (h *ServiceHandler) CheckRepositoryOciTag(ctx context.Context, orgId uuid.UUID, repositoryName, imageName, tag string) (*domain.OciRegistryCheckResult, domain.Status) {

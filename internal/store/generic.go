@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"errors"
-	"reflect"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -43,6 +41,10 @@ type GenericStore[P extInt[M], M any, A any, AL any] struct {
 
 	// Callback for integration tests to inject logic
 	IntegrationTestCreateOrUpdateCallback IntegrationTestCallback
+
+	// prePersistValidate is an optional persistence-contract check run inside
+	// createOrUpdate (and therefore inside CAS retries). Not a service callback.
+	prePersistValidate func(ctx context.Context, before, after *A) error
 }
 
 type Resource struct {
@@ -72,25 +74,29 @@ func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
 	return s.dbHandler.WithContext(ctx)
 }
 
+func (s *GenericStore[P, M, A, AL]) SetPrePersistValidate(fn func(ctx context.Context, before, after *A) error) {
+	s.prePersistValidate = fn
+}
+
 func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {
-	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil)
+	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, ModeCreateOnly)
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string) (*A, *A, error) {
 	updated, before, _, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeUpdateOnly)
 	})
 	return updated, before, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string) (*A, *A, bool, error) {
 	return retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeCreateOrUpdate)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, mode CreateOrUpdateMode) (*A, *A, bool, bool, error) {
 	if resource == nil {
 		return nil, nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -100,9 +106,6 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		return nil, nil, false, false, err
 	}
 	modelInst.SetOrgID(orgId)
-	if fromAPI {
-		modelInst.SetAnnotations(nil)
-	}
 
 	existing, err := s.getExistingResource(ctx, orgId, modelInst)
 	if err != nil {
@@ -119,13 +122,13 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		}
 	}
 
-	if validationCallback != nil {
+	if s.prePersistValidate != nil {
 		modifiedAPIResource, err := s.modelPtrToAPI(modelInst)
 		if err != nil {
 			return nil, nil, creating, false, err
 		}
 
-		err = validationCallback(ctx, existingAPIResource, modifiedAPIResource)
+		err = s.prePersistValidate(ctx, existingAPIResource, modifiedAPIResource)
 		if err != nil {
 			return nil, nil, creating, false, err
 		}
@@ -145,7 +148,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 	if !exists {
 		retry, err = s.createResource(ctx, modelInst)
 	} else {
-		retry, err = s.updateResource(ctx, fromAPI, existing, modelInst, fieldsToUnset)
+		retry, err = s.updateResource(ctx, existing, modelInst, fieldsToUnset)
 	}
 	if err != nil {
 		return nil, existingAPIResource, creating, retry, err
@@ -175,7 +178,6 @@ func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, org
 }
 
 func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource P) (bool, error) {
-	resource.SetGeneration(lo.ToPtr(int64(1)))
 	resource.SetResourceVersion(lo.ToPtr(int64(1)))
 
 	result := s.getDB(ctx).Create(resource)
@@ -186,37 +188,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	return false, nil
 }
 
-func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
-	hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
-
-	// TODO: Move ownership validation checks to the service layer. The store layer should
-	// focus on data access, while authorization and business rules belong in the service layer.
-	// This allows resource sync to update resources it owns, but ideally this should be
-	// handled in service.ReplaceFleet() by checking ownership before calling the store.
-	allowResourceSyncUpdate := false
-	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
-		allowResourceSyncUpdate = true
-	}
-
-	sameSpec := resource.HasSameSpecAs(existing)
-	if !sameSpec {
-		if fromAPI && hasOwner && !allowResourceSyncUpdate {
-			// Don't let the user update the spec if it has an owner
-			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-		}
-
-		// Update the generation if the spec was updated
-		resource.SetGeneration(lo.ToPtr(lo.FromPtr(existing.GetGeneration()) + 1))
-	}
-
-	// Don't let the user update a fleet's labels if it has an owner
-	if fromAPI && hasOwner && !allowResourceSyncUpdate && resource.GetKind() == domain.FleetKind {
-		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
-		if !sameLabels {
-			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-		}
-	}
-
+func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, existing, resource P, fieldsToUnset []string) (bool, error) {
 	if resource.GetResourceVersion() != nil &&
 		lo.FromPtr(existing.GetResourceVersion()) != lo.FromPtr(resource.GetResourceVersion()) {
 		return false, flterrors.ErrResourceVersionConflict
@@ -243,7 +215,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 		return false, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 
 	// Merge preserved fields from existing into resource
@@ -255,8 +227,6 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 		resource.SetOwner(existing.GetOwner())
 	}
 	// Preserve annotations if they were nil (not updated)
-	// When fromAPI=true, annotations are set to nil in createOrUpdate to preserve existing ones
-	// When fromAPI=false, if annotations are nil, they weren't updated, so preserve from existing
 	if resource.GetAnnotations() == nil && !lo.Contains(fieldsToUnset, "annotations") {
 		resource.SetAnnotations(existing.GetAnnotations())
 	}

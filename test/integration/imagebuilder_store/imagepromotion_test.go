@@ -36,6 +36,9 @@ func newTestImagePromotion(name, imageBuildRef string) *domain.ImagePromotion {
 		Kind:       string(api.ResourceKindImagePromotion),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
+			// Generation is service-assigned; these store-level tests call the
+			// store directly, so simulate what the service now sets.
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: api.ImagePromotionSpec{
 			Source: api.ImagePromotionSource{
@@ -281,6 +284,22 @@ var _ = Describe("ImagePromotionStore", func() {
 			Expect(result).ToNot(BeNil())
 			Expect(result.Spec.Source.ImageBuildRef).To(Equal("build-v2"))
 			Expect(*result.Metadata.Labels).To(HaveKeyWithValue("env", "prod"))
+		})
+
+		It("should persist a caller-supplied generation value unchanged", func() {
+			// Update is a pure persistence relay for generation — the service decides
+			// the value (see internal/imagebuilder_api/service/imagepromotion.go), and
+			// the store must not compute or override it.
+			promotion := newTestImagePromotion("generation-update-test", "test-build")
+			created, err := storeInst.ImagePromotion().Create(ctx, orgId, promotion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*created.Metadata.Generation).To(Equal(int64(1)))
+
+			created.Metadata.Generation = lo.ToPtr(int64(2))
+			result, err := storeInst.ImagePromotion().Update(ctx, orgId, created)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Metadata.Generation).ToNot(BeNil())
+			Expect(*result.Metadata.Generation).To(Equal(int64(2)))
 		})
 
 		It("should increment resource version on update", func() {

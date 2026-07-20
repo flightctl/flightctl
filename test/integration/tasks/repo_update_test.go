@@ -5,7 +5,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -46,7 +45,6 @@ var _ = Describe("RepoUpdate", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		var err error
@@ -104,45 +102,45 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1"), Generation: lo.ToPtr(int64(1))},
 			Spec:     api.FleetSpec{},
 		}
 		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &config1}
 
 		fleet2 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2"), Generation: lo.ToPtr(int64(1))},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		_, err = fleetStore.Create(ctx, orgId, &fleet1, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet1)
 		Expect(err).ToNot(HaveOccurred())
 		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = fleetStore.Create(ctx, orgId, &fleet2, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet2)
 		Expect(err).ToNot(HaveOccurred())
 		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create device1 referencing repo1, device2 referencing repo2
 		device1 := api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1"), Generation: lo.ToPtr(int64(1))},
 			Spec: &api.DeviceSpec{
 				Config: &config1,
 			},
 		}
 
 		device2 := api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2"), Generation: lo.ToPtr(int64(1))},
 			Spec: &api.DeviceSpec{
 				Config: &config2,
 			},
 		}
 
-		_, err = deviceStore.Create(ctx, orgId, &device1, nil)
+		_, err = deviceStore.Create(ctx, orgId, &device1)
 		Expect(err).ToNot(HaveOccurred())
 		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = deviceStore.Create(ctx, orgId, &device2, nil)
+		_, err = deviceStore.Create(ctx, orgId, &device2)
 		Expect(err).ToNot(HaveOccurred())
 		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())

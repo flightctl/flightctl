@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
@@ -210,7 +209,6 @@ func (c *Consumer) transitionToPublishing(ctx context.Context, orgID uuid.UUID, 
 		baseURI = extractBaseURIWorker(imageBuild.Status.ImageReference)
 	}
 
-	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	discriminator, _ := promotion.Spec.Target.Discriminator()
 	var publishErr error
 
@@ -220,13 +218,13 @@ func (c *Consumer) transitionToPublishing(ctx context.Context, orgID uuid.UUID, 
 		if err != nil {
 			return c.transitionToFailed(ctx, orgID, promotion, domain.ImagePromotionConditionReasonFailed, "invalid target: "+err.Error())
 		}
-		publishErr = c.createNewCatalogItem(internalCtx, orgID, target, references, baseURI)
+		publishErr = c.createNewCatalogItem(ctx, orgID, target, references, baseURI)
 	case string(domain.ImagePromotionTargetTypeExistingCatalogItem):
 		target, err := promotion.Spec.Target.AsExistingCatalogItemTarget()
 		if err != nil {
 			return c.transitionToFailed(ctx, orgID, promotion, domain.ImagePromotionConditionReasonFailed, "invalid target: "+err.Error())
 		}
-		publishErr = c.appendVersionToCatalogItem(internalCtx, orgID, target, references, baseURI)
+		publishErr = c.appendVersionToCatalogItem(ctx, orgID, target, references, baseURI)
 	default:
 		publishErr = fmt.Errorf("unknown target type: %s", discriminator)
 	}
@@ -270,7 +268,6 @@ func (c *Consumer) executeAmendmentPublish(ctx context.Context, orgID uuid.UUID,
 		baseURI = extractBaseURIWorker(imageBuild.Status.ImageReference)
 	}
 
-	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	discriminator, _ := promotion.Spec.Target.Discriminator()
 
 	var catalogName, itemName, version string
@@ -291,7 +288,7 @@ func (c *Consumer) executeAmendmentPublish(ctx context.Context, orgID uuid.UUID,
 		return c.transitionToAmendmentFailed(ctx, orgID, promotion, fmt.Sprintf("unknown target type: %s", discriminator))
 	}
 
-	if err := c.patchCatalogItemVersion(internalCtx, orgID, catalogName, itemName, version, newReferences, baseURI); err != nil {
+	if err := c.patchCatalogItemVersion(ctx, orgID, catalogName, itemName, version, newReferences, baseURI); err != nil {
 		return c.transitionToAmendmentFailed(ctx, orgID, promotion, err.Error())
 	}
 
@@ -300,8 +297,8 @@ func (c *Consumer) executeAmendmentPublish(ctx context.Context, orgID uuid.UUID,
 
 // patchCatalogItemVersion adds new artifact references to an existing CatalogItemVersion.
 func (c *Consumer) patchCatalogItemVersion(ctx context.Context, orgID uuid.UUID, catalogName, itemName, version string, newRefs map[string]string, baseURI string) error {
-	existing, err := c.catalogStore.GetItem(ctx, orgID, catalogName, itemName)
-	if err != nil {
+	existing, status := c.catalogs.GetCatalogItem(ctx, orgID, catalogName, itemName)
+	if err := statusToErr(status); err != nil {
 		return fmt.Errorf("failed to get CatalogItem %s: %w", itemName, err)
 	}
 
@@ -344,8 +341,8 @@ func (c *Consumer) patchCatalogItemVersion(ctx context.Context, orgID uuid.UUID,
 		return fmt.Errorf("target CatalogItem version %q not found", version)
 	}
 
-	_, _, err = c.catalogStore.CreateOrUpdateItem(ctx, orgID, catalogName, existing)
-	if err != nil {
+	_, status = c.catalogs.ReplaceCatalogItem(ctx, orgID, catalogName, itemName, *existing, false)
+	if err := statusToErr(status); err != nil {
 		return fmt.Errorf("failed to patch CatalogItem: %w", err)
 	}
 	return nil
@@ -377,15 +374,15 @@ func (c *Consumer) createNewCatalogItem(ctx context.Context, orgID uuid.UUID, ta
 		Spec: itemSpec,
 	}
 
-	_, err := c.catalogStore.CreateItem(ctx, orgID, target.CatalogName, &item)
-	if err != nil {
+	_, status := c.catalogs.CreateCatalogItem(ctx, orgID, target.CatalogName, item)
+	if err := statusToErr(status); err != nil {
 		if errors.Is(err, flterrors.ErrDuplicateName) {
 			// The item already exists. Check whether our specific version+references are
 			// already present, which means a previous attempt wrote it before crashing.
 			// References are deterministic (derived from immutable build/export digests),
 			// so a match unambiguously identifies our own previous write.
-			existing, getErr := c.catalogStore.GetItem(ctx, orgID, target.CatalogName, target.CatalogItemName)
-			if getErr == nil {
+			existing, getStatus := c.catalogs.GetCatalogItem(ctx, orgID, target.CatalogName, target.CatalogItemName)
+			if statusToErr(getStatus) == nil {
 				for _, v := range existing.Spec.Versions {
 					if v.Version == target.Version && referencesEqualWorker(v.References, references) {
 						c.log.WithField("catalogItem", target.CatalogItemName).
@@ -403,8 +400,8 @@ func (c *Consumer) createNewCatalogItem(ctx context.Context, orgID uuid.UUID, ta
 
 // appendVersionToCatalogItem appends a version entry to an existing CatalogItem.
 func (c *Consumer) appendVersionToCatalogItem(ctx context.Context, orgID uuid.UUID, target domain.ExistingCatalogItemTarget, references map[string]string, baseURI string) error {
-	existing, err := c.catalogStore.GetItem(ctx, orgID, target.CatalogName, target.CatalogItemName)
-	if err != nil {
+	existing, status := c.catalogs.GetCatalogItem(ctx, orgID, target.CatalogName, target.CatalogItemName)
+	if err := statusToErr(status); err != nil {
 		return fmt.Errorf("failed to get CatalogItem %s: %w", target.CatalogItemName, err)
 	}
 
@@ -462,8 +459,8 @@ func (c *Consumer) appendVersionToCatalogItem(ctx context.Context, orgID uuid.UU
 	}
 	existing.Spec.Versions = append(existing.Spec.Versions, newVersion)
 
-	_, _, err = c.catalogStore.CreateOrUpdateItem(ctx, orgID, target.CatalogName, existing)
-	if err != nil {
+	_, status = c.catalogs.ReplaceCatalogItem(ctx, orgID, target.CatalogName, target.CatalogItemName, *existing, false)
+	if err := statusToErr(status); err != nil {
 		return fmt.Errorf("failed to update CatalogItem: %w", err)
 	}
 	return nil
