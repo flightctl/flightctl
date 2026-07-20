@@ -9,63 +9,32 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
-// mockRepositoryStore is a mock implementation of repositorystore.Store for testing
+// mockRepositoryStore is a mock implementation of repository.Service for testing
 type mockRepositoryStore struct {
-	repositories map[string]*v1beta1.Repository
+	repository.Service
+	repositories map[string]*domain.Repository
 }
 
 func newMockRepositoryStore() *mockRepositoryStore {
 	return &mockRepositoryStore{
-		repositories: make(map[string]*v1beta1.Repository),
+		repositories: make(map[string]*domain.Repository),
 	}
 }
 
-func (m *mockRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Repository, error) {
+func (m *mockRepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
 	repo, ok := m.repositories[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, domain.StatusResourceNotFound(domain.RepositoryKind, name)
 	}
-	return repo, nil
-}
-
-func (m *mockRepositoryStore) InitialMigration(context.Context) error { return nil }
-func (m *mockRepositoryStore) Create(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Update(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) CreateOrUpdate(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, bool, error) {
-	return nil, false, nil
-}
-func (m *mockRepositoryStore) List(context.Context, uuid.UUID, store.ListParams) (*v1beta1.RepositoryList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
-	return nil
-}
-func (m *mockRepositoryStore) UpdateStatus(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) GetFleetRefs(context.Context, uuid.UUID, string) (*v1beta1.FleetList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) GetDeviceRefs(context.Context, uuid.UUID, string) (*v1beta1.DeviceList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Count(context.Context, uuid.UUID, store.ListParams) (int64, error) {
-	return 0, nil
-}
-func (m *mockRepositoryStore) CountByOrg(context.Context, *uuid.UUID) ([]store.CountByOrgResult, error) {
-	return nil, nil
+	return repo, domain.StatusOK()
 }
 
 // mockServiceHandler is a mock implementation of service.ServiceHandler for testing

@@ -87,8 +87,9 @@ func (s *imageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuil
 	}
 	m.OrgID = orgId
 
-	// Set initial Generation and ResourceVersion on create (matching GenericStore pattern)
-	m.Generation = lo.ToPtr(int64(1))
+	// Set initial ResourceVersion on create (matching GenericStore pattern).
+	// Generation is decided by the service, not the store — the model
+	// conversion above already carries it from the domain resource.
 	m.ResourceVersion = lo.ToPtr(int64(1))
 
 	// Set initial status with Ready=False, Reason=Pending if status is nil or empty

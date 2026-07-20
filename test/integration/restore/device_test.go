@@ -26,12 +26,12 @@ var _ = Describe("Device restore operations", func() {
 	Context("PrepareDevicesAfterRestore", func() {
 		It("sets annotation, clears lastSeen, and sets status", func() {
 			devStore := s.DeviceStore
-			callback := store.EventCallback(nil)
 
 			testDeviceName := "restore-test-device"
 			testDevice := &api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(testDeviceName),
+					Name:       lo.ToPtr(testDeviceName),
+					Generation: lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{
 						"existing-annotation": "existing-value",
 					},
@@ -70,7 +70,7 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			createdDevice, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, testDevice, nil, false, nil, callback)
+			createdDevice, _, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, testDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdDevice).ToNot(BeNil())
 			Expect(created).To(BeTrue())
@@ -78,7 +78,7 @@ var _ = Describe("Device restore operations", func() {
 			Expect(createdDevice.Status.LastSeen.IsZero()).To(BeFalse())
 			Expect(createdDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -105,12 +105,12 @@ var _ = Describe("Device restore operations", func() {
 
 		It("handles devices with no existing status", func() {
 			devStore := s.DeviceStore
-			callback := store.EventCallback(nil)
 
 			deviceName := "test-device-no-status"
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
+					Name:       lo.ToPtr(deviceName),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: &api.DeviceSpec{
 					Os: &api.DeviceOsSpec{Image: "test-image"},
@@ -118,11 +118,11 @@ var _ = Describe("Device restore operations", func() {
 				Status: nil,
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &device, nil, true, nil, callback)
+			_, _, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -143,12 +143,12 @@ var _ = Describe("Device restore operations", func() {
 
 		It("excludes decommissioned and decommissioning devices", func() {
 			devStore := s.DeviceStore
-			callback := store.EventCallback(nil)
 
 			decommissioningDeviceName := "decommissioning-device"
 			decommissioningDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(decommissioningDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{
@@ -173,6 +173,7 @@ var _ = Describe("Device restore operations", func() {
 			decommissionedDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(decommissionedDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{
@@ -197,6 +198,7 @@ var _ = Describe("Device restore operations", func() {
 			normalDevice := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:        lo.ToPtr(normalDeviceName),
+					Generation:  lo.ToPtr(int64(1)),
 					Annotations: &map[string]string{"existing-annotation": "existing-value"},
 				},
 				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
@@ -214,22 +216,22 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissioningDevice, nil, false, nil, callback)
+			_, _, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissioningDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(decommissioningDeviceName, *decommissioningDevice.Status.LastSeen)
 
-			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissionedDevice, nil, false, nil, callback)
+			_, _, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &decommissionedDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(decommissionedDeviceName, *decommissionedDevice.Status.LastSeen)
 
-			_, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &normalDevice, nil, false, nil, callback)
+			_, _, created, err = devStore.CreateOrUpdate(s.Ctx, s.OrgID, &normalDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			s.SetDeviceLastSeen(normalDeviceName, *normalDevice.Status.LastSeen)
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -271,11 +273,10 @@ var _ = Describe("Device restore operations", func() {
 
 		It("properly clears last_seen column", func() {
 			devStore := s.DeviceStore
-			callback := store.EventCallback(nil)
 
 			deviceName := "last-seen-column-test"
 			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName), Generation: lo.ToPtr(int64(1))},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
 				Status: &api.DeviceStatus{
 					LastSeen: lo.ToPtr(time.Now()),
@@ -283,7 +284,7 @@ var _ = Describe("Device restore operations", func() {
 				},
 			}
 
-			_, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, device, nil, false, nil, callback)
+			_, _, created, err := devStore.CreateOrUpdate(s.Ctx, s.OrgID, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -293,7 +294,7 @@ var _ = Describe("Device restore operations", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(lastSeenBefore).ToNot(BeNil(), "last_seen column should have a value initially")
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 

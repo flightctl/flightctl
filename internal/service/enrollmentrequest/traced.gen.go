@@ -68,14 +68,6 @@ func (_d *TracedService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid
 	return s1
 }
 
-func (_d *TracedService) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (ep1 *domain.EnrollmentConfig, s1 domain.Status) {
-	ctx, span := startSpan(ctx, "GetEnrollmentConfig")
-
-	ep1, s1 = _d.inner.GetEnrollmentConfig(ctx, orgId, params)
-	endSpan(span, s1)
-	return ep1, s1
-}
-
 func (_d *TracedService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (ep1 *domain.EnrollmentRequest, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetEnrollmentRequest")
 

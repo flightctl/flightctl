@@ -101,11 +101,11 @@ func newValidImageBuild(name string) api.ImageBuild {
 func setupRepositoriesForImageBuild(repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID) {
 	// Create source repository (Read is fine for source)
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 
 	// Create destination repository (must be ReadWrite)
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 }
 
 func TestCreateImageBuild(t *testing.T) {
@@ -124,6 +124,8 @@ func TestCreateImageBuild(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
 	require.Equal("test-build", lo.FromPtr(result.Metadata.Name))
+	require.NotNil(result.Metadata.Generation)
+	require.Equal(int64(1), lo.FromPtr(result.Metadata.Generation))
 }
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
@@ -798,7 +800,7 @@ func TestCreateImageBuildSourceRepositoryNotFound(t *testing.T) {
 	// Set up only destination repository
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -816,7 +818,7 @@ func TestCreateImageBuildDestinationRepositoryNotFound(t *testing.T) {
 	// Set up only source repository
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -846,10 +848,10 @@ func TestCreateImageBuildSourceRepositoryNotOci(t *testing.T) {
 		},
 		Spec: spec,
 	}
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -867,7 +869,7 @@ func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
 	// Set up repositories - destination is Git type (not OCI)
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 
 	spec := v1beta1.RepositorySpec{}
 	_ = spec.FromGitRepoSpec(v1beta1.GitRepoSpec{
@@ -882,7 +884,7 @@ func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
 		},
 		Spec: spec,
 	}
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -900,10 +902,10 @@ func TestCreateImageBuildDestinationRepositoryNotReadWrite(t *testing.T) {
 	// Set up repositories - destination is Read-only
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 
 	destRepo := newOciRepository("output-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")

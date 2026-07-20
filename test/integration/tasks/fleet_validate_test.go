@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -63,7 +62,6 @@ var _ = Describe("FleetValidate", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		var err error
@@ -84,7 +82,7 @@ var _ = Describe("FleetValidate", func() {
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		spec := api.RepositorySpec{}
@@ -95,7 +93,8 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("git-repo"),
+				Name:       lo.ToPtr("git-repo"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: spec,
 		}
@@ -107,20 +106,20 @@ var _ = Describe("FleetValidate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("http-repo"),
+				Name:       lo.ToPtr("http-repo"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: specHttp,
 		}
-
-		repoCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Create(ctx, orgId, repository, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repository)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = repositoryStore.Create(ctx, orgId, repositoryHttp, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repositoryHttp)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr("myfleet"),
+				Name:       lo.ToPtr("myfleet"),
+				Generation: lo.ToPtr(int64(1)),
 			},
 		}
 
@@ -203,7 +202,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -262,7 +261,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -319,7 +318,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -373,7 +372,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)

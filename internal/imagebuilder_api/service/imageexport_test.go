@@ -80,12 +80,12 @@ func setupRepositoriesForImageExport(repoStore *DummyRepositoryStore, ctx contex
 	if includeSource {
 		// Create source repository (Read is fine for source)
 		sourceRepo := newOciRepository("source-registry", v1beta1.Read)
-		_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+		_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	}
 
 	// Create destination repository (must be ReadWrite)
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 }
 
 // setupImageBuildForExport creates the ImageBuild that newValidImageExport references
@@ -117,6 +117,8 @@ func TestCreateImageExport(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
 	require.Equal("test-export", lo.FromPtr(result.Metadata.Name))
+	require.NotNil(result.Metadata.Generation)
+	require.Equal(int64(1), lo.FromPtr(result.Metadata.Generation))
 }
 
 func TestCreateImageExportDuplicate(t *testing.T) {
@@ -891,7 +893,7 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 	// Set up repositories - don't create destination repository
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 
 	// Create ImageBuild with destination repository that doesn't exist
 	imageBuildStore := NewDummyImageBuildStore()
@@ -1032,7 +1034,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination
@@ -1127,7 +1129,7 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination
@@ -1222,7 +1224,7 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination

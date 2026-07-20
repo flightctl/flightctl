@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/google/uuid"
@@ -41,43 +42,45 @@ func organizationModelToAPI(org *model.Organization) domain.Organization {
 	}
 }
 
+// ListOrganizations returns the organizations the caller's mapped identity belongs to.
 func (h *ServiceHandler) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
-	var orgs []*model.Organization
-	var err error
+	userOrgs, err := h.listUserOrganizations(ctx)
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.OrganizationKind, nil)
+	}
+
+	if params.FieldSelector == nil || *params.FieldSelector == "" {
+		return buildOrganizationList(userOrgs), domain.StatusOK()
+	}
+
+	allowedIDs := parseFieldSelectorForOrgIDs(*params.FieldSelector)
+	filtered := make([]*model.Organization, 0, len(userOrgs))
+	for _, userOrg := range userOrgs {
+		if _, exists := allowedIDs[userOrg.ID]; exists {
+			filtered = append(filtered, userOrg)
+		}
+	}
+	return buildOrganizationList(filtered), domain.StatusOK()
+}
+
+// ListAllOrganizations returns every organization in the system, bypassing identity-based scoping.
+// It is intended for trusted internal callers (workers, periodic tasks, alert exporter) that need
+// a system-wide view rather than the requesting identity's own organizations.
+func (h *ServiceHandler) ListAllOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	listParams, status := common.PrepareListParams(nil, nil, params.FieldSelector, nil)
 	if status.Code != http.StatusOK {
 		return nil, status
 	}
 
-	if !common.IsInternalRequest(ctx) {
-		var listErr error
-		userOrgs, listErr := h.listUserOrganizations(ctx)
-		if listErr != nil {
-			status := common.StoreErrorToApiStatus(listErr, false, domain.OrganizationKind, nil)
-			return nil, status
-		}
-		if params.FieldSelector != nil && *params.FieldSelector != "" {
-			allowedIDs := parseFieldSelectorForOrgIDs(*params.FieldSelector)
-
-			filtered := make([]*model.Organization, 0, len(userOrgs))
-			for _, userOrg := range userOrgs {
-				if _, exists := allowedIDs[userOrg.ID]; exists {
-					filtered = append(filtered, userOrg)
-				}
-			}
-			orgs = filtered
-		} else {
-			orgs = userOrgs
-		}
-
-	} else {
-		orgs, err = h.store.List(ctx, *listParams)
-		if err != nil {
-			status := common.StoreErrorToApiStatus(err, false, domain.OrganizationKind, nil)
-			return nil, status
-		}
+	orgs, err := h.store.List(ctx, *listParams)
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.OrganizationKind, nil)
 	}
 
+	return buildOrganizationList(orgs), domain.StatusOK()
+}
+
+func buildOrganizationList(orgs []*model.Organization) *domain.OrganizationList {
 	apiOrgs := make([]domain.Organization, len(orgs))
 	for i, org := range orgs {
 		apiOrgs[i] = organizationModelToAPI(org)
@@ -88,7 +91,7 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context, params domain.Li
 		ApiVersion: organizationApiVersion,
 		Kind:       domain.OrganizationListKind,
 		Metadata:   domain.ListMeta{},
-	}, domain.StatusOK()
+	}
 }
 
 func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Organization, error) {
@@ -99,6 +102,22 @@ func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Or
 	}
 
 	return mappedIdentity.Organizations, nil
+}
+
+func (h *ServiceHandler) UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
+	return h.store.UpsertMany(ctx, orgs)
+}
+
+func (h *ServiceHandler) ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error) {
+	return h.store.ListByIDs(ctx, ids)
+}
+
+func (h *ServiceHandler) ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error) {
+	return h.store.ListByExternalIDs(ctx, externalIDs)
+}
+
+func (h *ServiceHandler) List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error) {
+	return h.store.List(ctx, listParams)
 }
 
 func parseFieldSelectorForOrgIDs(selectorStr string) map[uuid.UUID]struct{} {

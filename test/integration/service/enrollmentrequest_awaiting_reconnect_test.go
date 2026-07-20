@@ -38,9 +38,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			}
 
 			By("creating enrollment request with awaitingReconnect annotation")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 			Expect(created.Metadata.Annotations).ToNot(BeNil())
@@ -80,9 +78,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			By("creating enrollment request without awaitingReconnect annotation")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -123,9 +119,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			}
 
 			By("creating enrollment request with awaitingReconnect annotation set to false")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -168,9 +162,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			}
 
 			By("creating enrollment request with awaitingReconnect and other annotations")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
