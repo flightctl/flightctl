@@ -68,6 +68,11 @@ type fakeDeviceStore struct {
 	healthcheckErr            error
 	applyAwaitingOutcomes     []devicestore.AwaitingReconnectOutcome
 	applyAwaitingErrs         []error
+	// decommissionRaceOnce, when true, makes the next DecommissionDevice call simulate a
+	// concurrent winner: it marks the target device as already decommissioning (as if another
+	// request just committed that change) and returns ErrNoRowsUpdated, exercising the
+	// service's re-Get-and-recheck retry path instead of the immediate upfront rejection.
+	decommissionRaceOnce bool
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
@@ -282,23 +287,31 @@ func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, name
 	return s.healthcheckErr
 }
 
-func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
-	if device == nil || device.Metadata.Name == nil {
-		return nil, nil, flterrors.ErrResourceIsNil
+// DecommissionDevice mirrors the real store's CAS-only contract: no independent
+// Decommissioning check, just an existence/CAS-style write. decommissionRaceOnce lets tests
+// simulate a concurrent writer winning the race between the caller's last Get and this call.
+func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (*domain.Device, error) {
+	if prepared == nil || prepared.Metadata.Name == nil {
+		return nil, flterrors.ErrResourceIsNil
 	}
-	name := *device.Metadata.Name
+	name := *prepared.Metadata.Name
 	d, ok := s.devices[name]
 	if !ok {
-		return nil, nil, flterrors.ErrResourceNotFound
+		return nil, flterrors.ErrNoRowsUpdated
 	}
-	if d.Spec != nil && d.Spec.Decommissioning != nil {
-		return nil, nil, flterrors.ErrResourceVersionConflict
+	if s.decommissionRaceOnce {
+		s.decommissionRaceOnce = false
+		spec := domain.DeviceSpec{}
+		if d.Spec != nil {
+			spec = *d.Spec
+		}
+		spec.Decommissioning = &domain.DeviceDecommission{}
+		d.Spec = &spec
+		return nil, flterrors.ErrNoRowsUpdated
 	}
-	old := deepCopyDevice(d)
-	// Persist the service-prepared device as the source of truth.
-	prepared := deepCopyDevice(device)
-	s.devices[name] = prepared
-	return deepCopyDevice(prepared), old, nil
+	persisted := deepCopyDevice(prepared)
+	s.devices[name] = persisted
+	return deepCopyDevice(persisted), nil
 }
 
 func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (*domain.Device, []domain.Condition, []domain.Condition, error) {

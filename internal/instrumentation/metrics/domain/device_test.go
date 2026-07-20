@@ -125,8 +125,8 @@ func (m *MockDevice) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uu
 	return nil
 }
 
-func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
-	return nil, nil, nil
+func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
+	return nil, nil
 }
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {

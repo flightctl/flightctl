@@ -695,9 +695,6 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				}
 
-				// Omit Spec.Decommissioning: DeviceStore.CreateOrUpdate refuses updates when
-				// the stored device is already decommissioning (persistence contract).
-
 				// Create systemd spec
 				systemd := &struct {
 					MatchPatterns *[]string `json:"matchPatterns,omitempty"`
@@ -752,33 +749,6 @@ var _ = Describe("DeviceStore create", func() {
 			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil)
 
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("CreateOrUpdateDevice refuses update when device is already decommissioning", func() {
-			name := "decom-guard-device"
-			device := api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
-				Spec: &api.DeviceSpec{
-					Os:              &api.DeviceOsSpec{Image: "img"},
-					Decommissioning: &api.DeviceDecommission{Target: api.DeviceDecommissionTargetTypeUnenroll},
-				},
-			}
-			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			stored, err := devStore.Get(ctx, orgId, name)
-			Expect(err).ToNot(HaveOccurred())
-
-			updated := api.Device{
-				Metadata: api.ObjectMeta{
-					Name:            lo.ToPtr(name),
-					ResourceVersion: stored.Metadata.ResourceVersion,
-					Labels:          &map[string]string{"k": "v"},
-				},
-				Spec: stored.Spec,
-			}
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &updated, nil)
-			Expect(err).To(MatchError(flterrors.ErrDecommission))
 		})
 
 		It("UpdateDeviceStatus", func() {

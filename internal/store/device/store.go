@@ -71,7 +71,7 @@ type Store interface {
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error)
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error)
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, consoleGrpcEndpoint string) (*domain.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	// ApplyAwaitingReconnectOutcome persists a service-prepared awaiting-reconnect
 	// outcome (annotation/status updates). Caller owns version comparison and
@@ -84,10 +84,13 @@ type Store interface {
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (*domain.Device, []domain.Condition, []domain.Condition, error)
-	// DecommissionDevice persists an already-prepared device under resourceVersion CAS.
-	// Persistence contract: if the stored row already has Spec.Decommissioning set, returns
-	// flterrors.ErrResourceVersionConflict. Caller owns product-rule mutations.
-	DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error)
+	// DecommissionDevice persists an already-prepared device (Spec/Status/Owner/Labels already
+	// decided by the caller) under resourceVersion CAS. The caller must pin
+	// prepared.Metadata.ResourceVersion to the version it last read (e.g. via
+	// common.PinResourceVersionForCAS) before calling. Returns flterrors.ErrNoRowsUpdated when no
+	// row matches that resource_version; the caller owns any re-check/retry, including detecting
+	// a concurrent decommission.
+	DecommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -127,7 +130,6 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.Device).ToApiResource,
 		model.DevicesToApiResource,
 	)
-	genericStore.SetPrePersistValidate(decommissionPersistenceGuard)
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
@@ -385,16 +387,6 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Device) (*domain.Device, error) {
 	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-// decommissionPersistenceGuard refuses updates when the stored device is already
-// decommissioning. This is a persistence contract of device mutate paths; it runs
-// inside the createOrUpdate retry loop so races are covered.
-func decommissionPersistenceGuard(ctx context.Context, before, after *domain.Device) error {
-	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
-		return flterrors.ErrDecommission
-	}
-	return nil
 }
 
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, error) {
@@ -1121,7 +1113,7 @@ func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name,
 	return rv, err
 }
 
-func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
@@ -1130,7 +1122,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 
-	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
+	return deviceModel.ToApiResource(model.WithRendered())
 }
 
 func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
@@ -1198,69 +1190,51 @@ func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID,
 	return device, oldConditions, newConditions, err
 }
 
-func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (retry bool, device *domain.Device, oldDevice *domain.Device, err error) {
+func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (retry bool, device *domain.Device, err error) {
 	if prepared == nil || prepared.Metadata.Name == nil {
-		return false, nil, nil, flterrors.ErrResourceIsNil
-	}
-	name := *prepared.Metadata.Name
-
-	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).Take(&existingRecord)
-	if result.Error != nil {
-		return false, nil, nil, store.ErrorFromGormError(result.Error)
+		return false, nil, flterrors.ErrResourceIsNil
 	}
 
-	existingDevice, err := existingRecord.ToApiResource()
+	preparedRecord, err := model.NewDeviceFromApiResource(prepared)
 	if err != nil {
-		return false, nil, nil, err
+		return false, nil, err
 	}
+	preparedRecord.SetOrgID(orgId)
 
-	if existingDevice.Spec != nil && existingDevice.Spec.Decommissioning != nil {
-		return false, nil, nil, flterrors.ErrResourceVersionConflict
-	}
-
-	oldDevice = existingDevice
-
-	existingRecord.Spec = model.MakeJSONField(lo.FromPtr(prepared.Spec))
-	existingRecord.Status = model.MakeJSONField(lo.FromPtr(prepared.Status))
-	existingRecord.Owner = nil
-	existingRecord.Labels = nil
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"spec":             existingRecord.Spec,
-		"status":           existingRecord.Status,
+	result := s.getDB(ctx).Model(preparedRecord).Where("resource_version = ?", lo.FromPtr(preparedRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"spec":             preparedRecord.Spec,
+		"status":           preparedRecord.Status,
 		"owner":            nil,
 		"labels":           nil,
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
 	err = store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), nil, nil, err
+		return strings.Contains(err.Error(), "deadlock"), nil, err
 	}
 	if result.RowsAffected == 0 {
-		return true, nil, nil, flterrors.ErrNoRowsUpdated
+		// prepared is caller-decided and never refreshed here, so retrying internally would
+		// just resubmit an identical write; the caller owns re-checking and retrying.
+		return false, nil, flterrors.ErrNoRowsUpdated
 	}
 
-	updatedDevice, err := existingRecord.ToApiResource()
+	updatedDevice, err := preparedRecord.ToApiResource()
 	if err != nil {
-		return false, nil, nil, err
+		return false, nil, err
 	}
 
-	return false, updatedDevice, oldDevice, nil
+	return false, updatedDevice, nil
 }
 
-func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
-	var (
-		result    *domain.Device
-		oldDevice *domain.Device
-	)
+func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (*domain.Device, error) {
+	var result *domain.Device
 	err := retryUpdate(func() (bool, error) {
 		var retry bool
 		var err error
-		retry, result, oldDevice, err = s.decommissionDevice(ctx, orgId, device)
+		retry, result, err = s.decommissionDevice(ctx, orgId, prepared)
 		return retry, err
 	})
-	return result, oldDevice, err
+	return result, err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

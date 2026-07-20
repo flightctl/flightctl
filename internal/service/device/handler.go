@@ -635,8 +635,28 @@ func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uui
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceVersionConflict, false, domain.DeviceKind, &name)
 	}
 
-	prepared := prepareDeviceForDecommission(existing, decom)
-	result, oldDevice, err := h.deviceStore.DecommissionDevice(ctx, orgId, prepared)
+	var result, oldDevice *domain.Device
+	err = common.RetryOnNoRowsUpdated(func() error {
+		current, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		// Re-check on every retry: a concurrent decommission may have won the race since
+		// our last read. Unlike the upfront check above, this path has already reached the
+		// store-write step, so a rejection here still emits a callback/event via the return
+		// below (see DecommissionDevice event semantics).
+		if current.Spec != nil && current.Spec.Decommissioning != nil {
+			return flterrors.ErrResourceVersionConflict
+		}
+		oldDevice = current
+
+		prepared := prepareDeviceForDecommission(current, decom)
+		common.PinResourceVersionForCAS(current.Metadata.ResourceVersion, &prepared.Metadata)
+
+		var writeErr error
+		result, writeErr = h.deviceStore.DecommissionDevice(ctx, orgId, prepared)
+		return writeErr
+	})
 	h.callbackDeviceDecommission(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
