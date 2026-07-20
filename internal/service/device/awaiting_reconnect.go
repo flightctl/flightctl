@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -36,7 +37,7 @@ func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *strin
 		if deviceReportedVersion != nil && *deviceReportedVersion != "" {
 			deviceVersionDisplay = *deviceReportedVersion
 		}
-		infoMessage = fmt.Sprintf("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version %s > device version known to service %d)", deviceVersionDisplay, serviceVersion)
+		infoMessage = fmt.Sprintf("%s (device reported version %s > device version known to service %d)", common.DeviceStatusInfoConflictPaused, deviceVersionDisplay, serviceVersion)
 	}
 
 	summaryStatus := string(domain.DeviceSummaryStatusOnline)
