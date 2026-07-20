@@ -462,6 +462,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		prefetchManager,
 		pullConfigResolver,
 		pruningManager,
+		osMode,
 		backoff,
 		a.log,
 	)
