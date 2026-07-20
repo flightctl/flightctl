@@ -172,6 +172,31 @@ var _ = Describe("EventStore Integration Tests", func() {
 			Expect(*(eventList.Items[0].Metadata.Name)).To(Equal("event2"))
 		})
 	})
+
+	Context("Create", func() {
+		It("Persists and round-trips a service-assigned generation", func() {
+			// EventStore.Create does not compute Generation itself — the service
+			// layer assigns it before calling Create. Simulate that here.
+			name := "event-with-generation"
+			ev := &api.Event{
+				Reason:         api.EventReasonResourceCreated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name},
+				Metadata:       api.ObjectMeta{Name: &name, Generation: lo.ToPtr(int64(1))},
+			}
+			Expect(eventStore.Create(ctx, orgId, ev)).ToNot(HaveOccurred())
+
+			listParams := store.ListParams{
+				Limit: 100,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
+					map[string]string{"involvedObject.name": name}, selector.WithPrivateSelectors()),
+			}
+			eventList, err := eventStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventList.Items).To(HaveLen(1))
+			Expect(eventList.Items[0].Metadata.Generation).ToNot(BeNil())
+			Expect(*eventList.Items[0].Metadata.Generation).To(Equal(int64(1)))
+		})
+	})
 })
 
 func createEvents(ctx context.Context, store eventstore.Store, orgId uuid.UUID) {
