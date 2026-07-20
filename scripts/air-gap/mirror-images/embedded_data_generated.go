@@ -109,6 +109,7 @@ var embeddedBuildManifest = []byte(`
       "rpms": [
         "bash",
         "container-selinux",
+        "flightctl-agent",
         "flightctl-selinux",
         "flightctl-services",
         "greenboot",
@@ -214,6 +215,7 @@ var embeddedBuildManifest = []byte(`
       "rpms": [
         "bash",
         "container-selinux",
+        "flightctl-agent",
         "flightctl-selinux",
         "flightctl-services",
         "greenboot",
@@ -315,6 +317,7 @@ var embeddedBuildManifest = []byte(`
       "rpms": [
         "bash",
         "container-selinux",
+        "flightctl-agent",
         "flightctl-selinux",
         "flightctl-services",
         "greenboot",
@@ -416,6 +419,7 @@ var embeddedBuildManifest = []byte(`
       "rpms": [
         "bash",
         "container-selinux",
+        "flightctl-agent",
         "flightctl-selinux",
         "flightctl-services",
         "greenboot",
