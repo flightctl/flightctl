@@ -32,6 +32,12 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	if err := json.Unmarshal(data, dst); err != nil {
 		panic(fmt.Sprintf("deepCopyDevice failed in test: %v", err))
 	}
+	// Status.LastSeen is tagged `json:"-"` (the real store persists it as its own DB
+	// column, not as part of the JSON status blob), so it doesn't survive the JSON
+	// round trip above; copy it explicitly to mirror real persistence.
+	if src.Status != nil && dst.Status != nil {
+		dst.Status.LastSeen = src.Status.LastSeen
+	}
 	return dst
 }
 
