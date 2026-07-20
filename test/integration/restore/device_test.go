@@ -83,7 +83,7 @@ var _ = Describe("Device restore operations", func() {
 			Expect(createdDevice.Status.LastSeen.IsZero()).To(BeFalse())
 			Expect(createdDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -125,7 +125,7 @@ var _ = Describe("Device restore operations", func() {
 			_, err := createTestDevice(s.Ctx, devStore, s.OrgID, &device)
 			Expect(err).ToNot(HaveOccurred())
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -228,7 +228,7 @@ var _ = Describe("Device restore operations", func() {
 			Expect(err).ToNot(HaveOccurred())
 			s.SetDeviceLastSeen(normalDeviceName, *normalDevice.Status.LastSeen)
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
@@ -290,7 +290,7 @@ var _ = Describe("Device restore operations", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(lastSeenBefore).ToNot(BeNil(), "last_seen column should have a value initially")
 
-			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx)
+			devicesUpdated, err := s.RestoreStore.PrepareDevicesAfterRestore(s.Ctx, restore.NewDeviceAwaitingReconnectPrepareParams())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
 
