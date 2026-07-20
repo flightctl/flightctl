@@ -176,6 +176,20 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
+	if err := a.checkPackageModeSpecCompat(desired); err != nil {
+		a.log.Errorf("Spec rejected for package-mode device: %v", err)
+		if a.specManager.IsUpgrading() {
+			if setErr := a.specManager.SetUpgradeFailed(desired.Version(), desired.SpecHash()); setErr != nil {
+				a.log.Errorf("Failed to set upgrade failed: %v", setErr)
+			}
+			if rbErr := a.rollbackDevice(ctx, current, desired, err, a.sync); rbErr != nil {
+				a.log.Errorf("Rollback did not complete cleanly: %v", rbErr)
+			}
+			a.handleSyncError(ctx, desired, err)
+		}
+		return
+	}
+
 	if syncErr := a.sync(ctx, current, desired); syncErr != nil {
 		// if context is canceled return to exit the sync loop
 		if errors.Is(syncErr, context.Canceled) {
@@ -264,6 +278,19 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			// Don't return error - pruning failures must not block reconciliation
 		}
 	}
+}
+
+// checkPackageModeSpecCompat validates that a package-mode device can satisfy
+// the desired spec. Returns a non-retryable error if the spec contains
+// spec.os.image, which package-mode devices cannot fulfill.
+func (a *Agent) checkPackageModeSpecCompat(desired *v1beta1.Device) error {
+	if a.osMode != v1beta1.OsModePackage {
+		return nil
+	}
+	if desired.Spec != nil && desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
+		return fmt.Errorf("package-mode device cannot satisfy spec with os.image %q: %w", desired.Spec.Os.Image, errors.ErrNoRetry)
+	}
+	return nil
 }
 
 // handleMissingSpec checks if the error is due to a missing spec file. If so,
