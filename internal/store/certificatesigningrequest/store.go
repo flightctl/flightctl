@@ -98,13 +98,13 @@ func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, error) {
-	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, false, err)
 	return newCsr, err
 }
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, bool, error) {
-	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, created, err)
 	return newCsr, created, err
 }

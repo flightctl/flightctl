@@ -32,6 +32,12 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	if err := json.Unmarshal(data, dst); err != nil {
 		panic(fmt.Sprintf("deepCopyDevice failed in test: %v", err))
 	}
+	// Status.LastSeen is tagged `json:"-"` (the real store persists it as its own DB
+	// column, not as part of the JSON status blob), so it doesn't survive the JSON
+	// round trip above; copy it explicitly to mirror real persistence.
+	if src.Status != nil && dst.Status != nil {
+		dst.Status.LastSeen = src.Status.LastSeen
+	}
 	return dst
 }
 
@@ -84,13 +90,23 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
-	if existed && validationCallback != nil {
-		if err := validationCallback(ctx, old, device); err != nil {
-			return nil, false, err
+	if existed {
+		if old.Spec != nil && old.Spec.Decommissioning != nil {
+			return nil, false, flterrors.ErrDecommission
 		}
+		if validationCallback != nil {
+			if err := validationCallback(ctx, old, device); err != nil {
+				return nil, false, err
+			}
+		}
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if existed && device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
@@ -101,16 +117,24 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	return deepCopyDevice(d), created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
 	}
+	if old.Spec != nil && old.Spec.Decommissioning != nil {
+		return nil, flterrors.ErrDecommission
+	}
 	if validationCallback != nil {
 		if err := validationCallback(ctx, old, device); err != nil {
 			return nil, err
 		}
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
@@ -273,20 +297,26 @@ func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, own
 	return nil
 }
 
-func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+	if device == nil || device.Metadata.Name == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	name := *device.Metadata.Name
 	d, ok := s.devices[name]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
 	}
+	if d.Spec != nil && d.Spec.Decommissioning != nil {
+		return nil, flterrors.ErrResourceVersionConflict
+	}
 	old := deepCopyDevice(d)
-	if d.Spec == nil {
-		d.Spec = &domain.DeviceSpec{}
-	}
-	d.Spec.Decommissioning = &decom
+	// Persist the service-prepared device as the source of truth.
+	prepared := deepCopyDevice(device)
+	s.devices[name] = prepared
 	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
+		eventCallback(ctx, domain.DeviceKind, orgId, name, old, prepared, false, nil)
 	}
-	return deepCopyDevice(d), nil
+	return deepCopyDevice(prepared), nil
 }
 
 func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {

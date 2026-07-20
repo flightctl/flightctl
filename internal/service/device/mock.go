@@ -317,18 +317,18 @@ func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, nam
 }
 
 // PatchDevice mocks base method.
-func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch)
+	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch, enforceOwnership)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchDevice indicates an expected call of PatchDevice.
-func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, orgId, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, orgId, name, patch, enforceOwnership)
 }
 
 // PatchDeviceStatus mocks base method.
@@ -347,33 +347,33 @@ func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch any
 }
 
 // ReplaceDevice mocks base method.
-func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
+func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset)
+	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDevice indicates an expected call of ReplaceDevice.
-func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
 }
 
 // ReplaceDeviceStatus mocks base method.
-func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status) {
+func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDeviceStatus", ctx, orgId, name, device)
+	ret := m.ctrl.Call(m, "ReplaceDeviceStatus", ctx, orgId, name, device, refreshLastSeen)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDeviceStatus indicates an expected call of ReplaceDeviceStatus.
-func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, orgId, name, device any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceStatus", reflect.TypeOf((*MockService)(nil).ReplaceDeviceStatus), ctx, orgId, name, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceStatus", reflect.TypeOf((*MockService)(nil).ReplaceDeviceStatus), ctx, orgId, name, device, refreshLastSeen)
 }
 
 // RestartDeviceApplication mocks base method.

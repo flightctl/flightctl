@@ -137,7 +137,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 

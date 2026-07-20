@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -17,7 +16,6 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error)
-	CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, fromAPI bool, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
@@ -93,27 +91,14 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 	return er, err
 }
 
-func (s *EnrollmentRequestStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest, fromAPI bool, eventCallback store.EventCallback) (*domain.EnrollmentRequest, error) {
-	// Use CreateOrUpdate with a custom validation callback that ensures create-only behavior
-	er, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, func(ctx context.Context, before, after *domain.EnrollmentRequest) error {
-		// If there's an existing resource, return an error to enforce create-only behavior
-		if before != nil {
-			return flterrors.ErrDuplicateName
-		}
-		return nil
-	})
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, er, true, err)
-	return er, err
-}
-
 func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest, eventCallback store.EventCallback) (*domain.EnrollmentRequest, error) {
-	newEr, oldEr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newEr, oldEr, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, false, err)
 	return newEr, err
 }
 
 func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest, eventCallback store.EventCallback) (*domain.EnrollmentRequest, bool, error) {
-	newEr, oldEr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+	newEr, oldEr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, created, err)
 	return newEr, created, err
 }

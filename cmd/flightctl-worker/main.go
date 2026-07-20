@@ -63,7 +63,6 @@ func main() {
 	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 

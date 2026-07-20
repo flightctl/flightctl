@@ -348,6 +348,42 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
+	t.Run("When managed metadata fields are set by the caller CreateCertificateSigningRequestFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "untrusted-csr"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+
+		_, status := CreateCertificateSigningRequestFromUntrusted(context.Background(), h, uuid.New(), csr)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "trusted-csr"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+
+		_, status := h.CreateCertificateSigningRequest(context.Background(), uuid.New(), csr)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+
 	t.Run("When the device-management signer is used it should be rejected", func(t *testing.T) {
 		h, _, _, _, cfg := newTestHandler(t)
 		cn := "test-csr-rejected"
@@ -443,6 +479,46 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 	result, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, csr)
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.NotNil(t, result)
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequestFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-untrusted"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &csr
+
+		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, csr)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-trusted"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &csr
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, csr)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
 }
 
 func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
