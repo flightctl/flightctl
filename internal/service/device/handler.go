@@ -1135,19 +1135,16 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 		h.log.Infof("Processing awaiting reconnect annotation for device %s (orgId: %s, version: %s)", deviceName, orgId, versionStr)
 
 		var wasConflictPaused bool
-		err := common.RetryOnNoRowsUpdated(func() error {
-			device, getErr := h.deviceStore.Get(ctx, orgId, deviceName)
-			if getErr != nil {
-				return getErr
+		_, _, _, err := h.deviceStore.Mutate(ctx, orgId, deviceName, nil, func(m *devicestore.DeviceMutation) error {
+			if err := m.RequireExisting(); err != nil {
+				return err
 			}
-			apply, outcome := decideAwaitingReconnect(device, deviceReportedVersion)
+			apply, outcome := decideAwaitingReconnect(m.Device, deviceReportedVersion)
 			if !apply {
 				wasConflictPaused = false
-				return nil
+				return store.ErrMutateSkipWrite
 			}
-			if applyErr := h.deviceStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, outcome); applyErr != nil {
-				return applyErr
-			}
+			applyAwaitingReconnectOutcome(m.Device, outcome)
 			wasConflictPaused = outcome.ConflictPaused
 			return nil
 		})

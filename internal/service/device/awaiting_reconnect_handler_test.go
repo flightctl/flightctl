@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -67,11 +66,10 @@ func TestProcessAwaitingReconnectIfNeeded(t *testing.T) {
 		st := newFakeStore()
 		kv := &fakeKVStore{values: map[string][]byte{}}
 		ev := &fakeEvents{}
-		h := NewDeviceServiceHandler(st.device, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
+		h := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
 
 		processed := h.processAwaitingReconnectIfNeeded(context.Background(), orgId, deviceName, lo.ToPtr("1"))
 		require.False(t, processed)
-		require.Empty(t, st.device.applyAwaitingOutcomes)
 		require.Empty(t, kv.deletedKeys)
 		require.Empty(t, ev.created)
 	})
@@ -89,13 +87,14 @@ func TestProcessAwaitingReconnectIfNeeded(t *testing.T) {
 		}
 		kv := &fakeKVStore{values: map[string][]byte{key: []byte("true")}}
 		ev := &fakeEvents{}
-		h := NewDeviceServiceHandler(st.device, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
+		h := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
 
 		processed := h.processAwaitingReconnectIfNeeded(context.Background(), orgId, deviceName, lo.ToPtr("3"))
 		require.True(t, processed)
-		require.Len(t, st.device.applyAwaitingOutcomes, 1)
-		require.Equal(t, string(domain.DeviceSummaryStatusOnline), st.device.applyAwaitingOutcomes[0].SummaryStatus)
-		require.False(t, st.device.applyAwaitingOutcomes[0].ConflictPaused)
+		updated := st.device.devices[deviceName]
+		_, hasAwaiting := (*updated.Metadata.Annotations)[domain.DeviceAnnotationAwaitingReconnect]
+		require.False(t, hasAwaiting)
+		require.Equal(t, domain.DeviceSummaryStatusOnline, updated.Status.Summary.Status)
 		require.Equal(t, []string{key}, kv.deletedKeys)
 		require.Empty(t, ev.created)
 	})
@@ -113,38 +112,15 @@ func TestProcessAwaitingReconnectIfNeeded(t *testing.T) {
 		}
 		kv := &fakeKVStore{values: map[string][]byte{key: []byte("true")}}
 		ev := &fakeEvents{}
-		h := NewDeviceServiceHandler(st.device, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
+		h := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
 
 		processed := h.processAwaitingReconnectIfNeeded(context.Background(), orgId, deviceName, lo.ToPtr("5"))
 		require.True(t, processed)
-		require.Len(t, st.device.applyAwaitingOutcomes, 1)
-		require.True(t, st.device.applyAwaitingOutcomes[0].ConflictPaused)
-		require.Equal(t, string(domain.DeviceSummaryStatusConflictPaused), st.device.applyAwaitingOutcomes[0].SummaryStatus)
+		updated := st.device.devices[deviceName]
+		require.Equal(t, "true", (*updated.Metadata.Annotations)[domain.DeviceAnnotationConflictPaused])
+		require.Equal(t, domain.DeviceSummaryStatusConflictPaused, updated.Status.Summary.Status)
 		require.Len(t, ev.created, 1)
 		require.Equal(t, domain.EventReasonDeviceConflictPaused, ev.created[0].Reason)
-	})
-
-	t.Run("When Apply returns ErrNoRowsUpdated it should retry and re-decide", func(t *testing.T) {
-		st := newFakeStore()
-		st.device.devices[deviceName] = &domain.Device{
-			Metadata: domain.ObjectMeta{
-				Name: lo.ToPtr(deviceName),
-				Annotations: lo.ToPtr(map[string]string{
-					domain.DeviceAnnotationAwaitingReconnect: "true",
-					domain.DeviceAnnotationRenderedVersion:   "3",
-				}),
-			},
-		}
-		st.device.applyAwaitingErrs = []error{flterrors.ErrNoRowsUpdated, nil}
-		kv := &fakeKVStore{values: map[string][]byte{key: []byte("true")}}
-		ev := &fakeEvents{}
-		h := NewDeviceServiceHandler(st.device, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
-
-		processed := h.processAwaitingReconnectIfNeeded(context.Background(), orgId, deviceName, lo.ToPtr("5"))
-		require.True(t, processed)
-		require.Len(t, st.device.applyAwaitingOutcomes, 2)
-		require.Equal(t, []string{key}, kv.deletedKeys)
-		require.Len(t, ev.created, 1)
 	})
 
 	t.Run("When the device has no awaiting reconnect annotation it should clear KV without applying", func(t *testing.T) {
@@ -154,11 +130,10 @@ func TestProcessAwaitingReconnectIfNeeded(t *testing.T) {
 		}
 		kv := &fakeKVStore{values: map[string][]byte{key: []byte("true")}}
 		ev := &fakeEvents{}
-		h := NewDeviceServiceHandler(st.device, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
+		h := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, kv, "agent.example.com", logrus.New()).(*DeviceServiceHandler)
 
 		processed := h.processAwaitingReconnectIfNeeded(context.Background(), orgId, deviceName, lo.ToPtr("1"))
 		require.True(t, processed)
-		require.Empty(t, st.device.applyAwaitingOutcomes)
 		require.Equal(t, []string{key}, kv.deletedKeys)
 		require.Empty(t, ev.created)
 	})
