@@ -51,6 +51,7 @@ type Agent struct {
 	prefetchManager        dependency.PrefetchManager
 	pullConfigResolver     dependency.PullConfigResolver
 	pruningManager         imagepruning.Manager
+	osMode                 v1beta1.OsModeType
 
 	statusUpdateInterval util.Duration
 
@@ -81,6 +82,7 @@ func NewAgent(
 	prefetchManager dependency.PrefetchManager,
 	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
+	osMode v1beta1.OsModeType,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -106,6 +108,7 @@ func NewAgent(
 		prefetchManager:        prefetchManager,
 		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
+		osMode:                 osMode,
 		backoff:                backoff,
 		log:                    log,
 	}
