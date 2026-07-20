@@ -23,7 +23,7 @@ import (
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/service"
-	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -468,7 +468,7 @@ type EnrollmentCredentialGenerator interface {
 // This function is exported for testing purposes
 func GenerateContainerfile(
 	ctx context.Context,
-	repositoryStore repositorystore.Store,
+	repositories repositoryservice.Service,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
@@ -476,8 +476,8 @@ func GenerateContainerfile(
 ) (*ContainerfileResult, error) {
 	// Create a temporary consumer for testing purposes
 	c := &Consumer{
-		repositoryStore: repositoryStore,
-		log:             log,
+		repositories: repositories,
+		log:          log,
 	}
 	return c.generateContainerfileWithGenerator(ctx, orgID, imageBuild, credentialGenerator, log)
 }
@@ -513,8 +513,8 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	spec := imageBuild.Spec
 
 	// Load the source repository to get the registry hostname
-	repo, err := c.repositoryStore.Get(ctx, orgID, spec.Source.Repository)
-	if err != nil {
+	repo, status := c.repositories.GetRepository(ctx, orgID, spec.Source.Repository)
+	if err := statusToErr(status); err != nil {
 		return nil, fmt.Errorf("failed to get source repository: %w", err)
 	}
 
@@ -958,8 +958,8 @@ func (c *Consumer) loginToRegistry(
 
 // getOciRepoSpec retrieves and validates a repository as OCI type, returning its spec.
 func (c *Consumer) getOciRepoSpec(ctx context.Context, orgID uuid.UUID, repoName string, repoRole string) (*coredomain.OciRepoSpec, error) {
-	repo, err := c.repositoryStore.Get(ctx, orgID, repoName)
-	if err != nil {
+	repo, status := c.repositories.GetRepository(ctx, orgID, repoName)
+	if err := statusToErr(status); err != nil {
 		return nil, fmt.Errorf("failed to get %s repository: %w", repoRole, err)
 	}
 

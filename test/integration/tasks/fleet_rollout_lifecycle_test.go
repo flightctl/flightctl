@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -72,7 +71,6 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		fleetName = "lifecycle-fleet"
@@ -98,7 +96,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStoreInst, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetSvc, eventsSvc, kvStoreInst, "", log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(newRepoStore, eventsSvc, log)
 		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
@@ -235,10 +233,9 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		// since StopFleetApplication/StartFleetApplication validate appName against the fleet's
 		// own declarative template (mirroring how the device-scoped APIs validate against
 		// device.Spec.Applications), not against the TemplateVersion.
-		fleet := api.Fleet{Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)}}
+		fleet := api.Fleet{Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName), Generation: lo.ToPtr(int64(1))}}
 		fleet.Spec.Template.Spec.Applications = &[]api.ApplicationProviderSpec{fleetApp}
-		noopCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err := fleetStore.Create(ctx, orgId, &fleet, noopCallback)
+		_, err := fleetStore.Create(ctx, orgId, &fleet)
 		Expect(err).ToNot(HaveOccurred())
 
 		tvStatus := api.TemplateVersionStatus{

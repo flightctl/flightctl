@@ -143,6 +143,18 @@ func (_d *TracedDeviceService) GetRenderedDevice(ctx context.Context, orgId uuid
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) (err error) {
+	ctx, span := startSpan(ctx, "HealthcheckDevices")
+
+	err = _d.inner.HealthcheckDevices(ctx, orgId, names)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
 func (_d *TracedDeviceService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (dp1 *domain.DeviceList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListConnectivityChangedDevices")
 
@@ -191,10 +203,10 @@ func (_d *TracedDeviceService) OverwriteDeviceRepositoryRefs(ctx context.Context
 	return s1
 }
 
-func (_d *TracedDeviceService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchDevice")
 
-	dp1, s1 = _d.inner.PatchDevice(ctx, orgId, name, patch)
+	dp1, s1 = _d.inner.PatchDevice(ctx, orgId, name, patch, enforceOwnership)
 	endSpan(span, s1)
 	return dp1, s1
 }
@@ -207,18 +219,18 @@ func (_d *TracedDeviceService) PatchDeviceStatus(ctx context.Context, orgId uuid
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDevice")
 
-	dp1, s1 = _d.inner.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset)
+	dp1, s1 = _d.inner.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
 	endSpan(span, s1)
 	return dp1, s1
 }
 
-func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (dp1 *domain.Device, s1 domain.Status) {
+func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceStatus")
 
-	dp1, s1 = _d.inner.ReplaceDeviceStatus(ctx, orgId, name, device)
+	dp1, s1 = _d.inner.ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen)
 	endSpan(span, s1)
 	return dp1, s1
 }
@@ -303,10 +315,10 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return s1
 }
 
-func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (s1 domain.Status) {
+func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
 
-	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 	endSpan(span, s1)
 	return s1
 }

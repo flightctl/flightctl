@@ -8,7 +8,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -75,9 +74,10 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 	resource := api.Device{
 		Metadata: api.ObjectMeta{
-			Name:   &name,
-			Labels: labels,
-			Owner:  owner,
+			Name:       &name,
+			Labels:     labels,
+			Owner:      owner,
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: &api.DeviceSpec{
 			Os: &api.DeviceOsSpec{
@@ -102,8 +102,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore devicestore.Store, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
+	_, err := deviceStore.Create(ctx, orgId, &resource)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -129,17 +128,17 @@ func CreateTestDevicesWithOffset(ctx context.Context, numDevices int, deviceStor
 func CreateTestFleet(ctx context.Context, fleetStore fleetstore.Store, orgId uuid.UUID, name string, selector *map[string]string, owner *string) {
 	resource := api.Fleet{
 		Metadata: api.ObjectMeta{
-			Name:   &name,
-			Labels: selector,
-			Owner:  owner,
+			Name:       &name,
+			Labels:     selector,
+			Owner:      owner,
+			Generation: lo.ToPtr(int64(1)),
 		},
 	}
 
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
+	_, err := fleetStore.Create(ctx, orgId, &resource)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -159,8 +158,9 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore templateversionstore
 	owner := util.SetResourceOwner(api.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
-			Name:  &name,
-			Owner: owner,
+			Name:       &name,
+			Owner:      owner,
+			Generation: lo.ToPtr(int64(1)),
 		},
 		Spec: api.TemplateVersionSpec{
 			Fleet: fleet,
@@ -171,8 +171,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore templateversionstore
 		resource.Status = status
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback)
+	_, err := tvStore.Create(ctx, orgId, &resource)
 
 	return err
 }
@@ -200,14 +199,14 @@ func CreateRepositories(ctx context.Context, numRepositories int, repositoryStor
 		}
 		resource := api.Repository{
 			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myrepository-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Name:       lo.ToPtr(fmt.Sprintf("myrepository-%d", i)),
+				Labels:     &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: spec,
 		}
 
-		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Create(ctx, orgId, &resource, callback)
+		_, err = repositoryStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			return err
 		}
@@ -219,8 +218,9 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 	for i := 1; i <= numEnrollmentRequests; i++ {
 		resource := api.EnrollmentRequest{
 			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Name:       lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
+				Labels:     &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: api.EnrollmentRequestSpec{
 				Csr: "csr string",
@@ -230,11 +230,11 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 			},
 		}
 
-		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource, nil)
+		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource, nil)
+		_, _, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}
@@ -245,8 +245,9 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resource
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Name:       lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
+				Labels:     &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: api.ResourceSyncSpec{
 				Repository: "myrepo",
@@ -254,7 +255,7 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resource
 			},
 		}
 
-		_, err := resourceSyncStore.Create(ctx, orgId, &resource, nil)
+		_, err := resourceSyncStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}
@@ -307,8 +308,8 @@ func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels 
 // CreateTestAuthProvider creates a test auth provider in the store
 func CreateTestAuthProvider(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
 	resource := ReturnTestAuthProvider(orgId, name, issuer, labels)
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &resource, callback)
+	resource.Metadata.Generation = lo.ToPtr(int64(1))
+	_, err := authStore.Create(ctx, orgId, &resource)
 	if err != nil {
 		log.Fatalf("creating auth provider: %v", err)
 	}
@@ -372,15 +373,15 @@ func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore authprov
 
 	provider := api.AuthProvider{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 	}
 	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with static org: %v", err)
 	}
@@ -422,15 +423,15 @@ func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore authpro
 
 	provider := api.AuthProvider{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 	}
 	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with dynamic org: %v", err)
 	}
@@ -473,15 +474,15 @@ func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore authpro
 
 	provider := api.AuthProvider{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(name),
+			Name:       lo.ToPtr(name),
+			Generation: lo.ToPtr(int64(1)),
 		},
 	}
 	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with per-user org: %v", err)
 	}

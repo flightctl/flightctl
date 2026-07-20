@@ -128,7 +128,6 @@ var _ = Describe("Periodic", func() {
 		baseCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 		baseCtx = context.WithValue(baseCtx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 		baseCtx = context.WithValue(baseCtx, consts.EventActorCtxKey, "service:flightctl-periodic")
-		baseCtx = context.WithValue(baseCtx, consts.InternalRequestCtxKey, true)
 		ctx, cancel = context.WithCancel(baseCtx)
 
 		log = flightlog.InitLogs()

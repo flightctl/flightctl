@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *htt
 	}
 
 	domainER := h.converter.EnrollmentRequest().ToDomain(er)
-	body, status := h.enrollmentrequest.CreateEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainER)
+	body, status := enrollmentrequestservice.CreateEnrollmentRequestFromUntrusted(r.Context(), h.enrollmentrequest, transport.OrgIDFromContext(r.Context()), domainER)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +47,7 @@ func (h *TransportHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *ht
 	}
 
 	domainER := h.converter.EnrollmentRequest().ToDomain(er)
-	body, status := h.enrollmentrequest.ReplaceEnrollmentRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainER)
+	body, status := enrollmentrequestservice.ReplaceEnrollmentRequestFromUntrusted(r.Context(), h.enrollmentrequest, transport.OrgIDFromContext(r.Context()), name, domainER)
 	apiResult := h.converter.EnrollmentRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
