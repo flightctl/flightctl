@@ -883,6 +883,59 @@ func TestReplaceCatalogItem(t *testing.T) {
 	})
 }
 
+func TestReplaceCatalogItemOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	t.Run("When replacing an owned item with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "owned-item", &owner)
+		fakeStore.items[itemKey("c1", "owned-item")] = &existing
+
+		updated := createTestCatalogItem("c1", "owned-item", nil)
+		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+	})
+
+	t.Run("When enforceOwnership is false it should allow updating an owned item", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "owned-item", &owner)
+		fakeStore.items[itemKey("c1", "owned-item")] = &existing
+
+		updated := createTestCatalogItem("c1", "owned-item", nil)
+		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
+
+		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", updated, false)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey("c1", "owned-item")].Metadata.Owner))
+	})
+
+	t.Run("When replacing an unowned item with a changed spec it should allow the update", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "unowned-item", nil)
+		fakeStore.items[itemKey("c1", "unowned-item")] = &existing
+
+		updated := createTestCatalogItem("c1", "unowned-item", nil)
+		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
+
+		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "unowned-item", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "unowned-item")].Spec.Artifacts[0].Uri)
+	})
+}
+
 func TestPatchCatalogItem(t *testing.T) {
 	t.Run("When the parent catalog does not exist it should return a not-found status", func(t *testing.T) {
 		h, _, _ := newTestHandler()
@@ -906,6 +959,42 @@ func TestPatchCatalogItem(t *testing.T) {
 		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "i1", patch, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
+	})
+}
+
+func TestPatchCatalogItemOwnership(t *testing.T) {
+	owner := "ResourceSync/my-resourcesync"
+
+	setup := func(t *testing.T) (*ServiceHandler, *fakeCatalogStore) {
+		h, fakeStore, _ := newTestHandler()
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "owned-item", &owner)
+		fakeStore.items[itemKey("c1", "owned-item")] = &item
+		return h, fakeStore
+	}
+
+	t.Run("When patching an owned item spec it should return conflict", func(t *testing.T) {
+		h, fakeStore := setup(t)
+		var value interface{} = "quay.io/example/changed"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/artifacts/0/uri", Value: &value}}
+
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+	})
+
+	t.Run("When enforceOwnership is false it should allow patching an owned item", func(t *testing.T) {
+		h, fakeStore := setup(t)
+		var value interface{} = "quay.io/example/changed"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/artifacts/0/uri", Value: &value}}
+
+		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", patch, false)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result)
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey("c1", "owned-item")].Metadata.Owner))
 	})
 }
 

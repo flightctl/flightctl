@@ -795,6 +795,56 @@ func TestReplaceDeviceStatus(t *testing.T) {
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 	})
+
+	t.Run("When refreshLastSeen is true it should stamp LastSeen with the server's current time", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}, nil)
+		require.NoError(t, err)
+
+		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour)
+		incomingStatus := domain.NewDeviceStatus()
+		incomingStatus.LastSeen = lo.ToPtr(callerProvidedLastSeen)
+		incoming := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status:   &incomingStatus,
+		}
+		before := time.Now()
+		result, status := svc.ReplaceDeviceStatus(ctx, orgId, "foo", incoming, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result.Status.LastSeen)
+		require.False(t, result.Status.LastSeen.Before(before))
+		require.WithinDuration(t, time.Now(), *result.Status.LastSeen, 5*time.Second)
+	})
+
+	t.Run("When refreshLastSeen is false it should preserve the caller-provided LastSeen", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}, nil)
+		require.NoError(t, err)
+
+		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+		incomingStatus := domain.NewDeviceStatus()
+		incomingStatus.LastSeen = lo.ToPtr(callerProvidedLastSeen)
+		incoming := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status:   &incomingStatus,
+		}
+		result, status := svc.ReplaceDeviceStatus(ctx, orgId, "foo", incoming, false)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result.Status.LastSeen)
+		require.True(t, result.Status.LastSeen.Equal(callerProvidedLastSeen))
+	})
 }
 
 func TestGetRenderedDevice(t *testing.T) {

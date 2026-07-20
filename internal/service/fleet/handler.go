@@ -104,18 +104,25 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
 				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
 			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
-			if !domain.FleetSpecsAreEqual(existing.Spec, fleet.Spec) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
-			}
-			if !reflect.DeepEqual(existing.Metadata.Labels, fleet.Metadata.Labels) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
-			}
+		} else if fleetOwnershipConflict(existing, &fleet) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 		}
 	}
 
 	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, false, h.callbackFleetUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
+}
+
+// fleetOwnershipConflict reports whether replacing/patching an owned fleet's spec or
+// labels would silently override changes made by its owning controller.
+func fleetOwnershipConflict(existing, incoming *domain.Fleet) bool {
+	if len(lo.FromPtr(existing.Metadata.Owner)) == 0 {
+		return false
+	}
+	if !domain.FleetSpecsAreEqual(existing.Spec, incoming.Spec) {
+		return true
+	}
+	return !reflect.DeepEqual(existing.Metadata.Labels, incoming.Metadata.Labels)
 }
 
 func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status {
@@ -169,13 +176,8 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
-		if !domain.FleetSpecsAreEqual(currentObj.Spec, newObj.Spec) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
-		}
-		if !reflect.DeepEqual(currentObj.Metadata.Labels, newObj.Metadata.Labels) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
-		}
+	if enforceOwnership && fleetOwnershipConflict(currentObj, newObj) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
 	}
 
 	result, err := h.store.Update(ctx, orgId, newObj, nil, false, h.callbackFleetUpdated)

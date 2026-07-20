@@ -333,21 +333,18 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*domain.Fleet) error {
 	var errs []error
 	for _, resource := range resources {
-		// Untrusted YAML: sanitize managed meta/annotations without enforcing ownership.
-		updatedFleet, status := fleetservice.ReplaceFleetFromUntrusted(ctx, r.fleetSvc, orgId, *resource.Metadata.Name, *resource, false)
+		// Sanitize the untrusted YAML and claim ownership before the single trusted
+		// write, instead of sanitize-write then owner-fixup-write: the sanitize step
+		// always clears Owner, so writing twice doubled every sync's DB writes and
+		// left the fleet observably unowned between them.
+		fleetToUpdate := *resource
+		fleetservice.SanitizeFleet(&fleetToUpdate)
+		fleetToUpdate.Metadata.Owner = owner
+		_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, fleetToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more fleets are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-		}
-
-		// Trusted write: set owner without sanitizing (SanitizeFleet clears Owner).
-		if updatedFleet != nil && util.DefaultIfNil(updatedFleet.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedFleet.Metadata.Owner = owner
-			_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *updatedFleet, false)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
@@ -766,19 +763,16 @@ func (r *ResourceSync) SyncCatalogs(ctx context.Context, log logrus.FieldLogger,
 func (r *ResourceSync) createOrUpdateCatalogs(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*domain.Catalog) error {
 	var errs []error
 	for _, resource := range resources {
-		updatedCatalog, status := catalogservice.ReplaceCatalogFromUntrusted(ctx, r.catalogSvc, orgId, *resource.Metadata.Name, *resource, false)
+		// See createOrUpdateMultiple: sanitize + claim ownership before the single
+		// write to avoid a double DB write and a transient unowned window.
+		catalogToUpdate := *resource
+		catalogservice.SanitizeCatalog(&catalogToUpdate)
+		catalogToUpdate.Metadata.Owner = owner
+		_, status := r.catalogSvc.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, catalogToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalogs are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-		}
-
-		if updatedCatalog != nil && util.DefaultIfNil(updatedCatalog.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedCatalog.Metadata.Owner = owner
-			_, status := r.catalogSvc.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, *updatedCatalog, false)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
@@ -890,20 +884,16 @@ func (r *ResourceSync) SyncCatalogItems(ctx context.Context, log logrus.FieldLog
 func (r *ResourceSync) createOrUpdateCatalogItems(ctx context.Context, orgId uuid.UUID, owner *string, items ...*domain.CatalogItem) error {
 	var errs []error
 	for _, item := range items {
-		updatedItem, status := catalogservice.ReplaceCatalogItemFromUntrusted(ctx, r.catalogSvc, orgId, item.Metadata.Catalog, *item.Metadata.Name, *item, false)
+		// See createOrUpdateMultiple: sanitize + claim ownership before the single
+		// write to avoid a double DB write and a transient unowned window.
+		itemToUpdate := *item
+		catalogservice.SanitizeCatalogItem(&itemToUpdate)
+		itemToUpdate.Metadata.Owner = owner
+		_, status := r.catalogSvc.ReplaceCatalogItem(ctx, orgId, item.Metadata.Catalog, *item.Metadata.Name, itemToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalog items are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-			continue
-		}
-
-		if updatedItem != nil && util.DefaultIfNil(updatedItem.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedItem.Metadata.Owner = owner
-			_, status := r.catalogSvc.ReplaceCatalogItem(ctx, orgId, updatedItem.Metadata.Catalog, *updatedItem.Metadata.Name, *updatedItem, false)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
