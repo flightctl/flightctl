@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -46,7 +45,6 @@ var _ = Describe("DeviceConnection", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		var err error
@@ -101,7 +99,7 @@ var _ = Describe("DeviceConnection", func() {
 
 				// Set device status to online
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, _, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set a recent last seen time directly in the database
@@ -139,7 +137,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, _, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set an old last seen time directly in the database (more than DeviceDisconnectedTimeout ago)
@@ -180,7 +178,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, _, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set a recent last seen time directly in the database
@@ -201,7 +199,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, _, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set an old last seen time directly in the database
@@ -248,7 +246,7 @@ var _ = Describe("DeviceConnection", func() {
 
 			// Set device status to online
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set last seen to exactly the disconnection timeout directly in the database
@@ -278,7 +276,7 @@ var _ = Describe("DeviceConnection", func() {
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set a recent last seen time directly in the database
@@ -293,7 +291,7 @@ var _ = Describe("DeviceConnection", func() {
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set an old last seen time directly in the database

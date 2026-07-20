@@ -106,13 +106,15 @@ var _ = Describe("Rollout batch sequence test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationLastBatchCompletionReport: fmt.Sprintf(`{"successPercentage":%d}`, percentage),
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		_, _, err := fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	setAutomaticApproval := func(fleetName string) {
 		annotations := map[string]string{
 			api.FleetAnnotationRolloutApprovalMethod: "automatic",
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		_, _, err := fleetStore.UpdateAnnotations(ctx, store.NullOrgId, fleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	rolloutDeviceSelection := func(b api.BatchSequence) *api.RolloutDeviceSelection {
 		ret := &api.RolloutDeviceSelection{}
@@ -133,7 +135,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			},
 		}
 
-		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -151,17 +153,18 @@ var _ = Describe("Rollout batch sequence test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		_, _, err = fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, _, err := deviceStore.Update(ctx, store.NullOrgId, device, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 	setRolledOut := func(deviceName string) {
@@ -208,7 +211,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			condition = &device.Status.Conditions[len(device.Status.Conditions)-1]
 		}
 		condition.Reason = "Error"
-		_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, device, nil)
+		_, _, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, device)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -405,7 +408,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				for i := range devices.Items {
 					device := &devices.Items[i]
 					device.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, device, nil)
+					_, _, err := deviceStore.UpdateStatus(ctx, store.NullOrgId, device)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
@@ -616,7 +619,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, _, err := deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
@@ -643,7 +646,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				}
 				Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 				d.Status.Config.RenderedVersion = renderedVersion
-				_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+				_, _, err := deviceStore.UpdateStatus(ctx, store.NullOrgId, &d)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		}
@@ -724,7 +727,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 					fleet.Spec.RolloutPolicy = &api.RolloutPolicy{}
 				}
 				fleet.Spec.RolloutPolicy.DeviceSelection = definition
-				_, err = fleetStore.Update(ctx, store.NullOrgId, fleet, nil, false, nil)
+				_, _, err = fleetStore.Update(ctx, store.NullOrgId, fleet, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			fromBatchSequence := func(b api.BatchSequence) *api.RolloutDeviceSelection {

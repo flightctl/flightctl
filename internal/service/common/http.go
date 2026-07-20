@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -32,24 +31,6 @@ const MaxRecordsPerListRequest = 1000
 // MaxConcurrentAgents bounds the number of concurrent agent-originated requests a resource's
 // ServiceHandler will process at once via its own semaphore.Weighted gate.
 const MaxConcurrentAgents = 15
-
-// IsInternalRequest reports whether ctx marks the current request as internal
-// (i.e. originating from within the service, not from an external API caller).
-func IsInternalRequest(ctx context.Context) bool {
-	if internal, ok := ctx.Value(consts.InternalRequestCtxKey).(bool); ok && internal {
-		return true
-	}
-	return false
-}
-
-// IsResourceSyncRequest reports whether ctx marks the current request as originating
-// from the ResourceSync controller.
-func IsResourceSyncRequest(ctx context.Context) bool {
-	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
-		return true
-	}
-	return false
-}
 
 // NilOutManagedObjectMetaProperties clears the ObjectMeta fields that are managed by the
 // service and must not be set by API callers.

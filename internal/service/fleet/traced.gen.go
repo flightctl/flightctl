@@ -52,10 +52,10 @@ func (_d *TracedService) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 	return fp1, s1
 }
 
-func (_d *TracedService) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) (s1 domain.Status) {
+func (_d *TracedService) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "DeleteFleet")
 
-	s1 = _d.inner.DeleteFleet(ctx, orgId, name)
+	s1 = _d.inner.DeleteFleet(ctx, orgId, name, enforceOwnership)
 	endSpan(span, s1)
 	return s1
 }
@@ -116,18 +116,18 @@ func (_d *TracedService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId
 	return s1
 }
 
-func (_d *TracedService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (fp1 *domain.Fleet, s1 domain.Status) {
+func (_d *TracedService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchFleet")
 
-	fp1, s1 = _d.inner.PatchFleet(ctx, orgId, name, patch)
+	fp1, s1 = _d.inner.PatchFleet(ctx, orgId, name, patch, enforceOwnership)
 	endSpan(span, s1)
 	return fp1, s1
 }
 
-func (_d *TracedService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (fp1 *domain.Fleet, s1 domain.Status) {
+func (_d *TracedService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceFleet")
 
-	fp1, s1 = _d.inner.ReplaceFleet(ctx, orgId, name, fleet)
+	fp1, s1 = _d.inner.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
 	endSpan(span, s1)
 	return fp1, s1
 }

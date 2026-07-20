@@ -171,11 +171,8 @@ func (s *fakeCatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+func (s *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error) {
 	s.catalogs = append(s.catalogs, catalog)
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, *catalog.Metadata.Name, nil, catalog, true, nil)
-	}
 	return catalog, nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -43,6 +44,29 @@ func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentReq
 }
 
 var _ Service = (*ServiceHandler)(nil)
+
+// SanitizeCertificateSigningRequest clears status and managed metadata from an untrusted CSR
+// document (HTTP body). Callers that must set Owner (e.g. the agent creating its own device CSR)
+// must not use this.
+func SanitizeCertificateSigningRequest(csr *domain.CertificateSigningRequest) {
+	if csr == nil {
+		return
+	}
+	csr.Status = nil
+	common.NilOutManagedObjectMetaProperties(&csr.Metadata)
+}
+
+// CreateCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then creates it.
+func CreateCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.CreateCertificateSigningRequest(ctx, orgId, csr)
+}
+
+// ReplaceCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then replaces it.
+func ReplaceCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.ReplaceCertificateSigningRequest(ctx, orgId, name, csr)
+}
 
 func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
 	if domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) || domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied) {
@@ -176,12 +200,6 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUI
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
-	}
-
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
 	if csr.Spec.SignerName == "enrollment" {
 		csr.Spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
@@ -209,7 +227,8 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		}
 	}
 
-	result, err := h.store.Create(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, err := h.store.Create(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, true, domain.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
@@ -230,13 +249,37 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name, h.callbackCertificateSigningRequestDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 }
 
 func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
 	result, err := h.store.Get(ctx, orgId, name)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
+}
+
+// UpdateCertificateSigningRequestConditions merges condition updates into the
+// CSR status. When nothing changes, the update is skipped.
+func (h *ServiceHandler) UpdateCertificateSigningRequestConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
+	err := common.RetryOnNoRowsUpdated(func() error {
+		csr, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		var existing []domain.Condition
+		if csr.Status != nil {
+			existing = csr.Status.Conditions
+		}
+		merged, changed := common.MergeStatusConditions(existing, conditions)
+		if !changed {
+			return nil
+		}
+		return h.store.UpdateConditions(ctx, orgId, name, merged)
+	})
+	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 }
 
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
@@ -285,7 +328,8 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		}
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -301,12 +345,6 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 }
 
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
-	}
-
 	if name != *csr.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
@@ -339,7 +377,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}
@@ -488,28 +527,32 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.Certifi
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
 func (h *ServiceHandler) callbackCertificateSigningRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldCSR, newCSR *domain.CertificateSigningRequest
-				ok             bool
-			)
-			if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldCSR, newCSR *domain.CertificateSigningRequest
+					ok             bool
+				)
+				if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackCertificateSigningRequestDeleted is the certificate signing request-specific callback that handles CSR deletion events
 func (h *ServiceHandler) callbackCertificateSigningRequestDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // setCSRFailedCondition sets the Failed condition on the provided CSR, persists the change, and logs any error during persistence.

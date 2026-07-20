@@ -5,6 +5,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -706,8 +707,9 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
+			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName, true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+			Expect(status.Message).To(Equal(flterrors.ErrResourceNotEmpty.Error()))
 		})
 
 		It("should allow deletion of empty catalog", func() {
@@ -723,7 +725,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName)
+			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName, true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		})
 	})

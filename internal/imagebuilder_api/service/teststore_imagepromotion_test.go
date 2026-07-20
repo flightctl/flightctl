@@ -223,23 +223,23 @@ func (s *DummyCatalogStore) CreateOrUpdateItem(ctx context.Context, orgId uuid.U
 	return &stored, created, nil
 }
 
-func (s *DummyCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, error) {
+func (s *DummyCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, error) {
 	return nil, nil
 }
-func (s *DummyCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
+func (s *DummyCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
+	return nil, nil, nil
 }
-func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog, fromAPI bool, callbackEvent flightctlstore.EventCallback) (*coredomain.Catalog, bool, error) {
-	return nil, false, nil
+func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, bool, error) {
+	return nil, nil, false, nil
 }
 func (s *DummyCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*coredomain.CatalogList, error) {
 	return &coredomain.CatalogList{}, nil
 }
-func (s *DummyCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback flightctlstore.RemoveOwnerCallback, callbackEvent flightctlstore.EventCallback) error {
-	return nil
+func (s *DummyCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return true, nil
 }
-func (s *DummyCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *coredomain.Catalog, eventCallback flightctlstore.EventCallback) (*coredomain.Catalog, error) {
-	return nil, nil
+func (s *DummyCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
+	return nil, nil, nil
 }
 func (s *DummyCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (int64, error) {
 	return 0, nil

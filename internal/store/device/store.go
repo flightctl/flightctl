@@ -54,14 +54,14 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
@@ -70,9 +70,12 @@ type Store interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error)
-	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
-	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error)
+	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (*domain.Device, []domain.Condition, []domain.Condition, error)
+	// DecommissionDevice persists an already-prepared device under resourceVersion CAS.
+	// Persistence contract: if the stored row already has Spec.Decommissioning set, returns
+	// flterrors.ErrResourceVersionConflict. Caller owns product-rule mutations.
+	DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -101,9 +104,6 @@ type DeviceStore struct {
 	genericStore *store.GenericStore[*model.Device, model.Device, domain.Device, domain.DeviceList]
 }
 
-type DeviceStoreValidationCallback func(ctx context.Context, before *domain.Device, after *domain.Device) error
-type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition)
-
 // Make sure we conform to the Store interface
 var _ Store = (*DeviceStore)(nil)
 
@@ -115,17 +115,8 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		(*model.Device).ToApiResource,
 		model.DevicesToApiResource,
 	)
+	genericStore.SetPrePersistValidate(decommissionPersistenceGuard)
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
-}
-
-func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store.EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *domain.Device, created bool, err error) {
-	if eventCallback == nil {
-		return
-	}
-
-	store.SafeEventCallback(s.log, func() {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, oldDevice, newDevice, created, err)
-	})
 }
 
 func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
@@ -380,25 +371,26 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
-	device, err := s.genericStore.Create(ctx, orgId, resource)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, err)
-	return device, err
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Device) (*domain.Device, error) {
+	return s.genericStore.Create(ctx, orgId, resource)
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
-	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
-	return device, err
+// decommissionPersistenceGuard refuses updates when the stored device is already
+// decommissioning. This is a persistence contract of device mutate paths; it runs
+// inside the createOrUpdate retry loop so races are covered.
+func decommissionPersistenceGuard(ctx context.Context, before, after *domain.Device) error {
+	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
+		return flterrors.ErrDecommission
+	}
+	return nil
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
-	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
-	return device, created, err
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, error) {
+	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset)
+}
+
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
+	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset)
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
@@ -618,15 +610,11 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams st
 	return labelStrings, nil
 }
 
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
-	deleted, err := s.genericStore.Delete(
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return s.genericStore.Delete(
 		ctx,
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
 		store.Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
-	if deleted && eventCallback != nil {
-		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
-	}
-	return deleted, err
 }
 
 func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
@@ -827,22 +815,21 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	}, nil
 }
 
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device) (*domain.Device, *domain.Device, error) {
 	var oldDevice domain.Device
 	name := lo.FromPtr(resource.Metadata.Name)
 	device, err := s.Get(ctx, orgId, name)
 	if err != nil {
 		s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
 	} else if device != nil {
-		// Capture old device with deep copy
-		var devices []domain.Device
-		devices = append(devices, *device)
-		oldDevice = devices[0]
+		oldDevice = *device
 	}
 
-	device, err = s.genericStore.UpdateStatus(ctx, orgId, resource)
-	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
-	return device, err
+	updated, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	return updated, &oldDevice, nil
 }
 
 // updateAnnotationsCAS loads the device's current annotations, applies transform to compute the
@@ -1116,7 +1103,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -1134,31 +1121,15 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		return false, "", err
 	}
 
-	hash := specHash
-
 	existingAnnotations[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
 	}
 
-	specUnchanged := false
-	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
-		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
-			specUnchanged = true
-		}
-	}
-
 	// Build dependency sync status from fingerprints, preserving lastUpdatedAt for unchanged entries
 	updatedServiceConditions := buildDependencySyncStatus(existingRecord.ServiceConditions, configFingerprints)
 
-	// forceUpdate bypasses the specUnchanged short-circuit for callers that already determined
-	// (using fresher or additional context than specHash alone, e.g. a device-level application
-	// lifecycle annotation change) that this render must be persisted regardless of hash equality.
-	if specUnchanged && len(configFingerprints) == 0 && !forceUpdate {
-		return false, "", nil
-	}
-
-	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
+	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = specHash
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -1232,13 +1203,13 @@ func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions
 	return model.MakeJSONField(sc)
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints)
 		return retry, err
 	}
 
@@ -1270,123 +1241,87 @@ func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name str
 	return deviceModel.LastSeen, nil
 }
 
-func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
+func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (retry bool, device *domain.Device, oldConditions, newConditions []domain.Condition, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
-		return false, store.ErrorFromGormError(result.Error)
+		return false, nil, nil, nil, store.ErrorFromGormError(result.Error)
 	}
 
-	// Capture old conditions with deep copy
-	var oldConditions []domain.Condition
 	if existingRecord.ServiceConditions != nil && existingRecord.ServiceConditions.Data.Conditions != nil {
-		// Deep copy the conditions to avoid shared memory issues
 		oldConditions = append(oldConditions, *existingRecord.ServiceConditions.Data.Conditions...)
 	}
 
-	// Initialize service conditions if needed
 	if existingRecord.ServiceConditions == nil {
 		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
 	}
-	if existingRecord.ServiceConditions.Data.Conditions == nil {
-		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
-	}
+	prepared := append([]domain.Condition(nil), conditions...)
+	existingRecord.ServiceConditions.Data.Conditions = &prepared
+	newConditions = prepared
 
-	// Set new conditions
-	for _, condition := range conditions {
-		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
-	}
-
-	// Update using the original pattern with specific field updates and optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
 	err = store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, nil, nil, nil, err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, nil, nil, nil, flterrors.ErrNoRowsUpdated
 	}
 
-	// Call callback if provided (but don't fail the operation if callback fails)
-	if callback != nil {
-		// Convert the updated model to API resource for the callback
-		apiDevice, convertErr := existingRecord.ToApiResource()
-		if convertErr != nil {
-			// Log the error but don't fail the operation
-			s.log.Errorf("Failed to convert device to API resource for callback: %v", convertErr)
-		} else {
-			// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
-			defer func() {
-				if r := recover(); r != nil {
-					s.log.Errorf("Callback panicked during service conditions update: %v", r)
-				}
-			}()
-
-			// Call the callback - if it fails, log the error but don't propagate it
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						s.log.Errorf("Service conditions callback panicked: %v", r)
-					}
-				}()
-				callback(ctx, orgId, apiDevice, oldConditions, *existingRecord.ServiceConditions.Data.Conditions)
-			}()
-		}
+	apiDevice, convertErr := existingRecord.ToApiResource()
+	if convertErr != nil {
+		return false, nil, nil, nil, convertErr
 	}
 
-	return false, nil
+	return false, apiDevice, oldConditions, newConditions, nil
 }
 
-func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error {
-	return retryUpdate(func() (bool, error) {
-		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
+func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (*domain.Device, []domain.Condition, []domain.Condition, error) {
+	var (
+		device        *domain.Device
+		oldConditions []domain.Condition
+		newConditions []domain.Condition
+	)
+	err := retryUpdate(func() (bool, error) {
+		var retry bool
+		var err error
+		retry, device, oldConditions, newConditions, err = s.setServiceConditions(ctx, orgId, name, conditions)
+		return retry, err
 	})
+	return device, oldConditions, newConditions, err
 }
 
-func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (retry bool, device *domain.Device, err error) {
+func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, prepared *domain.Device) (retry bool, device *domain.Device, oldDevice *domain.Device, err error) {
+	if prepared == nil || prepared.Metadata.Name == nil {
+		return false, nil, nil, flterrors.ErrResourceIsNil
+	}
+	name := *prepared.Metadata.Name
+
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
-		return false, nil, store.ErrorFromGormError(result.Error)
+		return false, nil, nil, store.ErrorFromGormError(result.Error)
 	}
 
-	// Convert to API resource to check precondition
 	existingDevice, err := existingRecord.ToApiResource()
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
-	// Check precondition: device must not already be decommissioning
 	if existingDevice.Spec != nil && existingDevice.Spec.Decommissioning != nil {
-		return false, nil, flterrors.ErrResourceVersionConflict
+		return false, nil, nil, flterrors.ErrResourceVersionConflict
 	}
 
-	// Capture old device with deep copy for callback
-	var oldDevice domain.Device
-	var devices []domain.Device
-	devices = append(devices, *existingDevice)
-	oldDevice = devices[0]
+	oldDevice = existingDevice
 
-	// Apply decommissioning changes to the model
-	if existingRecord.Spec == nil {
-		existingRecord.Spec = model.MakeJSONField(domain.DeviceSpec{})
-	}
-	existingRecord.Spec.Data.Decommissioning = &decom
-
-	// Update status
-	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(domain.NewDeviceStatus())
-	}
-	existingRecord.Status.Data.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
-
-	// These fields must be un-set so that device is no longer associated with any fleet
+	existingRecord.Spec = model.MakeJSONField(lo.FromPtr(prepared.Spec))
+	existingRecord.Status = model.MakeJSONField(lo.FromPtr(prepared.Status))
 	existingRecord.Owner = nil
 	existingRecord.Labels = nil
 
-	// Update using optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"spec":             existingRecord.Spec,
 		"status":           existingRecord.Status,
@@ -1396,32 +1331,32 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, n
 	})
 	err = store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), nil, err
+		return strings.Contains(err.Error(), "deadlock"), nil, nil, err
 	}
 	if result.RowsAffected == 0 {
-		return true, nil, flterrors.ErrNoRowsUpdated
+		return true, nil, nil, flterrors.ErrNoRowsUpdated
 	}
 
-	// Convert updated record to API resource for return and callback
 	updatedDevice, err := existingRecord.ToApiResource()
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
-	// Call event callback
-	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, updatedDevice, false, nil)
-
-	return false, updatedDevice, nil
+	return false, updatedDevice, oldDevice, nil
 }
 
-func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
-	var device *domain.Device
+func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	var (
+		result    *domain.Device
+		oldDevice *domain.Device
+	)
 	err := retryUpdate(func() (bool, error) {
-		retry, dev, err := s.decommissionDevice(ctx, orgId, name, decom, eventCallback)
-		device = dev
+		var retry bool
+		var err error
+		retry, result, oldDevice, err = s.decommissionDevice(ctx, orgId, device)
 		return retry, err
 	})
-	return device, err
+	return result, oldDevice, err
 }
 
 func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

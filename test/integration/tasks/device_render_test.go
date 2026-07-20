@@ -7,7 +7,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -127,7 +126,6 @@ var _ = Describe("DeviceRender", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		fleetName = "myfleet"
@@ -195,11 +193,11 @@ var _ = Describe("DeviceRender", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				event := api.Event{
@@ -230,11 +228,11 @@ var _ = Describe("DeviceRender", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				event := api.Event{
@@ -266,11 +264,11 @@ var _ = Describe("DeviceRender", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 				}
-				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				_, err = deviceStore.Create(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 
 				defer func() {
-					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName)
 				}()
 
 				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
@@ -334,7 +332,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration that uses device labels
@@ -377,7 +375,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -399,7 +397,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: &api.DeviceSpec{},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout to generate device spec
@@ -441,7 +439,7 @@ var _ = Describe("DeviceRender", func() {
 				"device": "camera",
 				"size":   "big",
 			}
-			_, err = deviceStore.Update(ctx, orgId, device, nil, false, nil, nil)
+			_, _, err = deviceStore.Update(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout again to update device spec
@@ -474,7 +472,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration
@@ -517,7 +515,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -539,7 +537,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: &api.DeviceSpec{},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout
@@ -600,9 +598,9 @@ var _ = Describe("DeviceRender", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -642,9 +640,9 @@ var _ = Describe("DeviceRender", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -688,9 +686,9 @@ var _ = Describe("DeviceRender", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{k8sProvider, inlineProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -728,9 +726,9 @@ var _ = Describe("DeviceRender", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
 				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -776,7 +774,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
@@ -793,9 +791,9 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
 			}
-			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			_, err = deviceStore.Create(ctx, orgId, device)
 			Expect(err).ToNot(HaveOccurred())
-			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName) }()
 
 			// First render: ResourceCreated — should succeed (no hash stored yet)
 			firstEvent := api.Event{

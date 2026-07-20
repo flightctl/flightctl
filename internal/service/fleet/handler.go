@@ -3,15 +3,18 @@ package fleet
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,19 +31,38 @@ func NewServiceHandler(store fleetstore.Store, events events.Service, log logrus
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeFleet clears status and managed metadata from an untrusted fleet document
+// (HTTP body or ResourceSync YAML). Callers that must set Owner must not use this.
+func SanitizeFleet(fleet *domain.Fleet) {
+	if fleet == nil {
+		return
+	}
 	fleet.Status = nil
 	common.NilOutManagedObjectMetaProperties(&fleet.Metadata)
 	if fleet.Spec.Template.Metadata != nil {
 		common.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 	}
+}
 
+// CreateFleetFromUntrusted sanitizes an untrusted fleet document, then creates it.
+func CreateFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
+	SanitizeFleet(&fleet)
+	return svc.CreateFleet(ctx, orgId, fleet)
+}
+
+// ReplaceFleetFromUntrusted sanitizes an untrusted fleet document, then replaces it.
+func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
+	SanitizeFleet(&fleet)
+	return svc.ReplaceFleet(ctx, orgId, name, fleet, enforceOwnership)
+}
+
+func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Create(ctx, orgId, &fleet, h.callbackFleetUpdated)
+	result, err := h.store.Create(ctx, orgId, &fleet)
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
 }
 
@@ -70,17 +92,7 @@ func (h *ServiceHandler) GetFleet(ctx context.Context, orgId uuid.UUID, name str
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
-	// don't overwrite fields that are managed by the service
-	isInternal := common.IsInternalRequest(ctx)
-	if !isInternal {
-		fleet.Status = nil
-		common.NilOutManagedObjectMetaProperties(&fleet.Metadata)
-		if fleet.Spec.Template.Metadata != nil {
-			common.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
-		}
-	}
-
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet, enforceOwnership bool) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -88,11 +100,35 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackFleetUpdated)
+	if enforceOwnership {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
+			}
+		} else if fleetOwnershipConflict(existing, &fleet) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+		}
+	}
+
+	result, oldFleet, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil)
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+// fleetOwnershipConflict reports whether replacing/patching an owned fleet's spec or
+// labels would silently override changes made by its owning controller.
+func fleetOwnershipConflict(existing, incoming *domain.Fleet) bool {
+	if len(lo.FromPtr(existing.Metadata.Owner)) == 0 {
+		return false
+	}
+	if !domain.FleetSpecsAreEqual(existing.Spec, incoming.Spec) {
+		return true
+	}
+	return !reflect.DeepEqual(existing.Metadata.Labels, incoming.Metadata.Labels)
+}
+
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status {
 	f, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
@@ -101,11 +137,14 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name 
 		return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 	}
 
-	if f.Metadata.Owner != nil && !common.IsResourceSyncRequest(ctx) {
+	if enforceOwnership && len(lo.FromPtr(f.Metadata.Owner)) != 0 {
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
-	err = h.store.Delete(ctx, orgId, name, h.callbackFleetDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackFleetDeleted(ctx, domain.FleetKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -120,7 +159,7 @@ func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Fleet, domain.Status) {
+func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Fleet, domain.Status) {
 	currentObj, err := h.store.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
@@ -143,7 +182,12 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, err := h.store.Update(ctx, orgId, newObj, nil, true, h.callbackFleetUpdated)
+	if enforceOwnership && fleetOwnershipConflict(currentObj, newObj) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+	}
+
+	result, oldFleet, err := h.store.Update(ctx, orgId, newObj, nil)
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -157,13 +201,35 @@ func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context, orgId u
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, nil)
 }
 
+// UpdateFleetConditions merges condition updates into the fleet status. When
+// nothing changes, the update is skipped.
 func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	err := h.store.UpdateConditions(ctx, orgId, name, conditions, h.callbackFleetUpdated)
+	err := common.RetryOnNoRowsUpdated(func() error {
+		fleet, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+		var existing []domain.Condition
+		if fleet.Status != nil {
+			existing = fleet.Status.Conditions
+		}
+		merged, changed := common.MergeStatusConditions(existing, conditions)
+		if !changed {
+			return nil
+		}
+		oldFleet, newFleet, updateErr := h.store.UpdateConditions(ctx, orgId, name, merged)
+		h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, updateErr)
+		if updateErr != nil {
+			return updateErr
+		}
+		return nil
+	})
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
-	err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
+	oldFleet, newFleet, err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	h.callbackFleetUpdated(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, false, err)
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -179,10 +245,14 @@ func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.
 
 // callbackFleetUpdated is the fleet-specific callback that handles fleet events
 func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	EmitFleetUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		EmitFleetUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // callbackFleetDeleted is the fleet-specific callback that handles fleet deletion events
 func (h *ServiceHandler) callbackFleetDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }

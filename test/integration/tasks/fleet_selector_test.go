@@ -50,7 +50,6 @@ var _ = Describe("FleetSelector", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 		orgId = store.NullOrgId
@@ -353,7 +352,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(7))
 			for _, device := range devices.Items {
 				condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet2,fleet3"}
-				err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition}, nil)
+				_, _, _, err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition})
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -432,7 +431,7 @@ var _ = Describe("FleetSelector", func() {
 			noLabelsNoOwnerDevice := "nolabels-noowner"
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, noLabelsNoOwnerDevice, nil, nil, &map[string]string{})
 			condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet1,fleet2"}
-			err := deviceStore.SetServiceConditions(ctx, orgId, noLabelsNoOwnerDevice, []api.Condition{condition}, nil)
+			_, _, _, err := deviceStore.SetServiceConditions(ctx, orgId, noLabelsNoOwnerDevice, []api.Condition{condition})
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 0}}
@@ -496,15 +495,14 @@ var _ = Describe("FleetSelector", func() {
 			device, err := deviceStore.Get(ctx, orgId, "decommissioning-device")
 			Expect(err).ToNot(HaveOccurred())
 			device.Spec.Decommissioning = &api.DeviceDecommission{}
-			callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Change fleet selector so device no longer matches
 			fleet, err := fleetStore.Get(ctx, orgId, "fleet")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector.MatchLabels = &map[string]string{"different": "value"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, false, nil)
+			_, _, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.FleetSelectorUpdated(ctx)

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
@@ -210,7 +209,6 @@ func (c *Consumer) transitionToPublishing(ctx context.Context, orgID uuid.UUID, 
 		baseURI = extractBaseURIWorker(imageBuild.Status.ImageReference)
 	}
 
-	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	discriminator, _ := promotion.Spec.Target.Discriminator()
 	var publishErr error
 
@@ -220,13 +218,13 @@ func (c *Consumer) transitionToPublishing(ctx context.Context, orgID uuid.UUID, 
 		if err != nil {
 			return c.transitionToFailed(ctx, orgID, promotion, domain.ImagePromotionConditionReasonFailed, "invalid target: "+err.Error())
 		}
-		publishErr = c.createNewCatalogItem(internalCtx, orgID, target, references, baseURI)
+		publishErr = c.createNewCatalogItem(ctx, orgID, target, references, baseURI)
 	case string(domain.ImagePromotionTargetTypeExistingCatalogItem):
 		target, err := promotion.Spec.Target.AsExistingCatalogItemTarget()
 		if err != nil {
 			return c.transitionToFailed(ctx, orgID, promotion, domain.ImagePromotionConditionReasonFailed, "invalid target: "+err.Error())
 		}
-		publishErr = c.appendVersionToCatalogItem(internalCtx, orgID, target, references, baseURI)
+		publishErr = c.appendVersionToCatalogItem(ctx, orgID, target, references, baseURI)
 	default:
 		publishErr = fmt.Errorf("unknown target type: %s", discriminator)
 	}
@@ -270,7 +268,6 @@ func (c *Consumer) executeAmendmentPublish(ctx context.Context, orgID uuid.UUID,
 		baseURI = extractBaseURIWorker(imageBuild.Status.ImageReference)
 	}
 
-	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	discriminator, _ := promotion.Spec.Target.Discriminator()
 
 	var catalogName, itemName, version string
@@ -291,7 +288,7 @@ func (c *Consumer) executeAmendmentPublish(ctx context.Context, orgID uuid.UUID,
 		return c.transitionToAmendmentFailed(ctx, orgID, promotion, fmt.Sprintf("unknown target type: %s", discriminator))
 	}
 
-	if err := c.patchCatalogItemVersion(internalCtx, orgID, catalogName, itemName, version, newReferences, baseURI); err != nil {
+	if err := c.patchCatalogItemVersion(ctx, orgID, catalogName, itemName, version, newReferences, baseURI); err != nil {
 		return c.transitionToAmendmentFailed(ctx, orgID, promotion, err.Error())
 	}
 

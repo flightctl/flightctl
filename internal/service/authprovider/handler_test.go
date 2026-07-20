@@ -49,7 +49,7 @@ func newFakeAuthProviderStore() *fakeAuthProviderStore {
 
 func (f *fakeAuthProviderStore) InitialMigration(ctx context.Context) error { return f.err }
 
-func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
+func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -58,40 +58,30 @@ func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, aut
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.providers[name] = authProvider
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, nil, authProvider, true, nil)
-	}
 	return authProvider, nil
 }
 
-func (f *fakeAuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, fromAPI bool, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	return f.Create(ctx, orgId, authProvider, eventCallback)
-}
-
-func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
+func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	name := lo.FromPtr(authProvider.Metadata.Name)
 	old, exists := f.providers[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.providers[name] = authProvider
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, old, authProvider, false, nil)
-	}
-	return authProvider, nil
+	return authProvider, old, nil
 }
 
-func (f *fakeAuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, bool, error) {
+func (f *fakeAuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
 	name := lo.FromPtr(authProvider.Metadata.Name)
 	if _, exists := f.providers[name]; exists {
-		result, err := f.Update(ctx, orgId, authProvider, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, authProvider)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, authProvider, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, authProvider)
+	return result, nil, true, err
 }
 
 func (f *fakeAuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {
@@ -116,19 +106,19 @@ func (f *fakeAuthProviderStore) List(ctx context.Context, orgId uuid.UUID, listP
 	return &domain.AuthProviderList{Items: items}, nil
 }
 
-func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeAuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if f.err != nil {
-		return f.err
+		return false, f.err
+	}
+	if _, exists := f.providers[name]; !exists {
+		return false, nil
 	}
 	delete(f.providers, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.AuthProviderKind, orgId, name, nil, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
-func (f *fakeAuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback store.EventCallback) (*domain.AuthProvider, error) {
-	return resource, f.err
+func (f *fakeAuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
+	return resource, nil, f.err
 }
 
 func (f *fakeAuthProviderStore) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, error) {
@@ -251,16 +241,28 @@ func TestCreateAuthProvider(t *testing.T) {
 		require.Nil(t, stored.Metadata.Annotations)
 	})
 
-	t.Run("When managed metadata fields are set by the caller it should clear them before creation", func(t *testing.T) {
+	t.Run("When managed metadata fields are set by the caller CreateAuthProviderFromUntrusted should clear them before creation", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "p3", "", nil)
 		provider.Metadata.Owner = lo.ToPtr("someone")
 		provider.Metadata.Generation = lo.ToPtr(int64(5))
 
-		_, status := h.CreateAuthProvider(adminCtx(), uuid.New(), provider)
+		_, status := CreateAuthProviderFromUntrusted(adminCtx(), h, uuid.New(), provider)
 		require.Equal(t, int32(201), status.Code)
 		require.Nil(t, fakeStore.providers["p3"].Metadata.Owner)
 		require.Nil(t, fakeStore.providers["p3"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateAuthProvider (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "p3-trusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateAuthProvider(memberCtx(), uuid.New(), provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["p3-trusted"].Metadata.Generation))
 	})
 
 	t.Run("When creating an OAuth2 provider it should default the issuer to the authorization URL and infer introspection", func(t *testing.T) {
@@ -415,6 +417,30 @@ func TestReplaceAuthProvider(t *testing.T) {
 		// data leaves generation/labels/owner unchanged, so no further event is emitted.
 		require.Len(t, fakeEvents.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceAuthProviderFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-untrusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceAuthProviderFromUntrusted(memberCtx(), h, uuid.New(), "replace-untrusted", provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, fakeStore.providers["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceAuthProvider (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		provider := testutil.ReturnTestAuthProvider(uuid.Nil, "replace-trusted", "", nil)
+		provider.Metadata.Owner = lo.ToPtr("someone")
+		provider.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceAuthProvider(memberCtx(), uuid.New(), "replace-trusted", provider)
+		require.Equal(t, int32(201), status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.providers["replace-trusted"].Metadata.Generation))
 	})
 }
 

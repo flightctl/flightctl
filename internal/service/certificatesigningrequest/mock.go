@@ -144,3 +144,17 @@ func (mr *MockServiceMockRecorder) UpdateCertificateSigningRequestApproval(ctx, 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCertificateSigningRequestApproval", reflect.TypeOf((*MockService)(nil).UpdateCertificateSigningRequestApproval), ctx, orgId, name, csr)
 }
+
+// UpdateCertificateSigningRequestConditions mocks base method.
+func (m *MockService) UpdateCertificateSigningRequestConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCertificateSigningRequestConditions", ctx, orgId, name, conditions)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// UpdateCertificateSigningRequestConditions indicates an expected call of UpdateCertificateSigningRequestConditions.
+func (mr *MockServiceMockRecorder) UpdateCertificateSigningRequestConditions(ctx, orgId, name, conditions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCertificateSigningRequestConditions", reflect.TypeOf((*MockService)(nil).UpdateCertificateSigningRequestConditions), ctx, orgId, name, conditions)
+}

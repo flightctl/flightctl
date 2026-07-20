@@ -42,39 +42,33 @@ func newFakeRepositoryStore() *fakeRepositoryStore {
 
 func (f *fakeRepositoryStore) InitialMigration(_ context.Context) error { return nil }
 
-func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = repository
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, nil, repository, true, nil)
-	}
 	return repository, nil
 }
 
-func (f *fakeRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = repository
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, old, repository, false, nil)
-	}
-	return repository, nil
+	return repository, old, nil
 }
 
-func (f *fakeRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, bool, error) {
+func (f *fakeRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, repository, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, repository)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, repository, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, repository)
+	return result, nil, true, err
 }
 
 func (f *fakeRepositoryStore) Get(_ context.Context, _ uuid.UUID, name string) (*domain.Repository, error) {
@@ -93,29 +87,23 @@ func (f *fakeRepositoryStore) List(_ context.Context, _ uuid.UUID, _ store.ListP
 	return &domain.RepositoryList{Items: items}, nil
 }
 
-func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, nil, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
-func (f *fakeRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
+func (f *fakeRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
 	existing, ok := f.items[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	old := *existing
 	existing.Status = resource.Status
-	if eventCallback != nil {
-		eventCallback(ctx, domain.RepositoryKind, orgId, name, &old, existing, false, nil)
-	}
-	return existing, nil
+	return existing, &old, nil
 }
 
 func (f *fakeRepositoryStore) GetFleetRefs(_ context.Context, _ uuid.UUID, name string) (*domain.FleetList, error) {
@@ -216,6 +204,30 @@ func TestCreateRepository(t *testing.T) {
 		_, status := h.CreateRepository(context.Background(), uuid.New(), invalid)
 		require.Equal(t, statusBadRequestCode, status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateRepositoryFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		repo := newGitRepository("untrusted-repo", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := CreateRepositoryFromUntrusted(context.Background(), h, uuid.New(), repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Owner)
+		require.Nil(t, repoStore.items["untrusted-repo"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateRepository (trusted) should preserve them", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		repo := newGitRepository("trusted-repo", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.CreateRepository(context.Background(), uuid.New(), repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Generation))
+	})
 }
 
 // ── ListRepositories / GetRepository ─────────────────────────────────────
@@ -280,6 +292,32 @@ func TestReplaceRepository(t *testing.T) {
 		repo := newGitRepository("repo1", "https://example.com/1.git")
 		_, status := h.ReplaceRepository(context.Background(), uuid.New(), "other-name", repo)
 		require.Equal(t, statusBadRequestCode, status.Code)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceRepositoryFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		orgId := uuid.New()
+		repo := newGitRepository("replace-untrusted", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := ReplaceRepositoryFromUntrusted(context.Background(), h, orgId, "replace-untrusted", repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Owner)
+		require.Nil(t, repoStore.items["replace-untrusted"].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceRepository (trusted) should preserve them", func(t *testing.T) {
+		h, repoStore, _ := newTestHandler()
+		orgId := uuid.New()
+		repo := newGitRepository("replace-trusted", "https://example.com/repo.git")
+		repo.Metadata.Owner = lo.ToPtr("someone")
+		repo.Metadata.Generation = lo.ToPtr(int64(5))
+
+		_, status := h.ReplaceRepository(context.Background(), orgId, "replace-trusted", repo)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Generation))
 	})
 }
 

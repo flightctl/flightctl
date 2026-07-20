@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -30,6 +31,27 @@ func NewServiceHandler(store authproviderstore.Store, events events.Service, log
 }
 
 var _ Service = (*ServiceHandler)(nil)
+
+// SanitizeAuthProvider clears managed metadata from an untrusted auth provider document
+// (HTTP body).
+func SanitizeAuthProvider(authProvider *domain.AuthProvider) {
+	if authProvider == nil {
+		return
+	}
+	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
+}
+
+// CreateAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then creates it.
+func CreateAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.CreateAuthProvider(ctx, orgId, authProvider)
+}
+
+// ReplaceAuthProviderFromUntrusted sanitizes an untrusted auth provider document, then replaces it.
+func ReplaceAuthProviderFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	SanitizeAuthProvider(&authProvider)
+	return svc.ReplaceAuthProvider(ctx, orgId, name, authProvider)
+}
 
 // sanitizeSchemaError inspects the error and redacts sensitive fields
 func sanitizeSchemaError(err error) string {
@@ -110,24 +132,19 @@ func applyAuthProviderDefaults(spec *domain.AuthProviderSpec) error {
 }
 
 // handleSuperAdminAnnotation checks if the request is from a super admin and sets the annotation if needed.
-// Returns true if the auth provider was created by a super admin, false otherwise.
-func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) bool {
+func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) {
 	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
-
-	if createdBySuperAdmin {
-		// Clear user-provided annotations and set our annotation
-		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
-			domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
-		})
+	if !ok || !mappedIdentity.IsSuperAdmin() {
+		return
 	}
-	return createdBySuperAdmin
+
+	// Clear user-provided annotations and set our annotation
+	authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
+		domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+	})
 }
 
 func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
-
-	// don't set fields that are managed by the service
-	common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
 
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
@@ -138,17 +155,10 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
-	// Check if created by super admin and prepare annotations
-	createdBySuperAdmin := h.handleSuperAdminAnnotation(ctx, &authProvider)
+	h.handleSuperAdminAnnotation(ctx, &authProvider)
 
-	// Use fromAPI=false to preserve annotations when created by super admin
-	if createdBySuperAdmin {
-		result, err := h.store.CreateWithFromAPI(ctx, orgId, &authProvider, false, h.callbackAuthProviderUpdated)
-		return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
-	}
-
-	// For non-super-admin users, use regular Create (fromAPI=true, annotations cleared)
-	result, err := h.store.Create(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
+	result, err := h.store.Create(ctx, orgId, &authProvider)
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, lo.FromPtr(authProvider.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 }
 
@@ -204,11 +214,6 @@ func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, n
 
 func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		common.NilOutManagedObjectMetaProperties(&authProvider.Metadata)
-	}
-
 	// Validate name early for both create and update paths
 	if authProvider.Metadata.Name == nil {
 		return nil, domain.StatusBadRequest("metadata.name is required")
@@ -234,7 +239,8 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		return h.CreateAuthProvider(ctx, orgId, authProvider)
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
+	result, oldAuthProvider, created, err := h.store.CreateOrUpdate(ctx, orgId, &authProvider)
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
 
@@ -269,13 +275,17 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackAuthProviderUpdated)
+	result, oldAuthProvider, err := h.store.Update(ctx, orgId, newObj)
+	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
 func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 
-	err := h.store.Delete(ctx, orgId, name, h.callbackAuthProviderDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackAuthProviderDeleted(ctx, domain.AuthProviderKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
@@ -299,32 +309,36 @@ func (h *ServiceHandler) GetAuthConfig(ctx context.Context, authConfig *domain.A
 
 // callbackAuthProviderUpdated is the auth provider-specific callback that handles auth provider update events
 func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.AuthProviderKind, name, status, nil))
-		return
-	}
-
-	// Emit success event for create
-	if created {
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.AuthProviderKind, name, nil, h.log, nil))
-	} else {
-		// Handle update events
-		var oldAuthProvider, newAuthProvider *domain.AuthProvider
-		var ok bool
-		if oldAuthProvider, newAuthProvider, ok = common.CastResources[domain.AuthProvider](oldResource, newResource); !ok {
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.AuthProviderKind, name, status, nil))
 			return
 		}
 
-		updateDetails := common.ComputeResourceUpdatedDetails(oldAuthProvider.Metadata, newAuthProvider.Metadata)
-		// Generate ResourceUpdated event if there are spec changes
-		if updateDetails != nil {
-			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.AuthProviderKind, name, updateDetails, h.log, nil))
+		// Emit success event for create
+		if created {
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.AuthProviderKind, name, nil, h.log, nil))
+		} else {
+			// Handle update events
+			var oldAuthProvider, newAuthProvider *domain.AuthProvider
+			var ok bool
+			if oldAuthProvider, newAuthProvider, ok = common.CastResources[domain.AuthProvider](oldResource, newResource); !ok {
+				return
+			}
+
+			updateDetails := common.ComputeResourceUpdatedDetails(oldAuthProvider.Metadata, newAuthProvider.Metadata)
+			// Generate ResourceUpdated event if there are spec changes
+			if updateDetails != nil {
+				h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.AuthProviderKind, name, updateDetails, h.log, nil))
+			}
 		}
-	}
+	})
 }
 
 // callbackAuthProviderDeleted is the auth provider-specific callback that handles auth provider deletion events
 func (h *ServiceHandler) callbackAuthProviderDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
