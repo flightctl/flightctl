@@ -941,7 +941,9 @@ func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []
 }
 
 // ApplyAwaitingReconnectOutcome persists a service-prepared awaiting-reconnect outcome.
-// Retries only on deadlock; ErrNoRowsUpdated is returned to the caller without store-side re-decide.
+// The update requires awaitingReconnect=true so a stale decide→Apply after a concurrent
+// clear returns ErrNoRowsUpdated instead of overwriting status. Retries only on deadlock;
+// ErrNoRowsUpdated is returned to the caller without store-side re-decide.
 func (s *DeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uuid.UUID, name string, outcome AwaitingReconnectOutcome) error {
 	return retryUpdate(func() (bool, error) {
 		return s.applyAwaitingReconnectOutcome(ctx, orgId, name, outcome)
@@ -965,6 +967,7 @@ func (s *DeviceStore) applyAwaitingReconnectOutcome(ctx context.Context, orgId u
 			),
 			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE org_id = $6 AND name = $7 AND deleted_at IS NULL
+			AND (annotations->>$1) = 'true'
 	`
 
 	result := s.getDB(ctx).Exec(sql,
