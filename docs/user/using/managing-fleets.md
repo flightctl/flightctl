@@ -82,7 +82,7 @@ A fleet's device template contains a device specification that gets applied to a
 
 For example, you could specify in a fleet's device template that all devices in the fleet shall run the OS image `quay.io/flightctl/rhel:9.5`. The Flight Control service would then roll out this specification to all devices in the fleet and the Flight Control agents would update the devices accordingly. The same would apply to the other specification items described in [Managing Devices](managing-devices.md).
 
-However, it would be impractical if *all* of a fleet's devices had to have the *exact same specification*. Flight Control therefore allows templates to contain placeholders that get filled in based on a device's name or label values. The syntax for these placeholders matches that of [Go templates](https://pkg.go.dev/text/template), but you may only use simple text or actions (no conditionals or loops, for example). You may reference anything under a device's metadata such as `{{ .metadata.labels.key }}` or `{{ .metadata.name }}`.
+However, it would be impractical if *all* of a fleet's devices had to have the *exact same specification*. Flight Control therefore allows templates to contain placeholders that get filled in based on a device's name or label values. The syntax for these placeholders matches that of [Go templates](https://pkg.go.dev/text/template). You may use simple text, actions, and conditionals (`if`/`else`/`else if` and `with`). Loops (`range`) and other control structures are not supported. You may reference a device's name with `{{ .metadata.name }}` and its labels with `{{ .metadata.labels.key }}`.
 
 We also provide some helper functions:
 
@@ -92,6 +92,15 @@ We also provide some helper functions:
 * `getOrDefault`: Return a default value if accessing a missing label. For example, `{{ getOrDefault .metadata.labels "key" "default" }}`.
 
 You can also combine helpers in pipelines, for example `{{ getOrDefault .metadata.labels "key" "default" | upper | replace " " "-" }}`.
+
+You can use conditionals to include content based on device metadata:
+
+* Use `if` to conditionally include content: `{{if .metadata.labels.env}}env: {{.metadata.labels.env}}{{end}}`
+* Use `else` for fallback content: `{{if .metadata.labels.env}}{{.metadata.labels.env}}{{else}}default{{end}}`
+* Use `else if` for multiple branches: `{{if eq .metadata.labels.env "prod"}}production{{else if eq .metadata.labels.env "staging"}}staging{{else}}development{{end}}`
+* Use `with` to conditionally scope into a value: `{{with .metadata.labels.region}}region: {{.}}{{else}}no region{{end}}`. Note that inside a `with` body the dot (`.`) is rebound to the scoped value. To access root fields, use `$`, for example: `{{with .metadata.labels.region}}region: {{.}} name: {{$.metadata.name}}{{end}}`
+
+The following comparison functions are available for use in conditionals: `eq` (equal), `ne` (not equal), `lt` (less than), `gt` (greater than), `le` (less or equal), `ge` (greater or equal), `and`, `or`, `not`.
 
 Note: Always make sure to use proper Go template syntax. For example, `{{ .metadata.labels.target-revision }}` is not valid because of the hyphen, and you would need to use something like `{{ index .metadata.labels "target-revision" }}` instead.
 
