@@ -13,9 +13,18 @@ func setGenerationOnCreate(meta *domain.ObjectMeta) {
 }
 
 // incrementGenerationOnSpecChange increments generation by 1 when specChanged
-// is true, otherwise carries the existing generation forward unchanged.
+// is true, otherwise carries the existing generation forward unchanged. A nil
+// existingGeneration stays nil unless specChanged — mirroring the sibling
+// setGenerationOnUpdate convention (e.g. internal/service/catalog/generation.go)
+// — since 0 is never a valid generation value in this system.
 func incrementGenerationOnSpecChange(existingGeneration *int64, specChanged bool) *int64 {
-	next := lo.FromPtr(existingGeneration)
+	if existingGeneration == nil && !specChanged {
+		return nil
+	}
+	if existingGeneration == nil {
+		return lo.ToPtr(int64(1))
+	}
+	next := *existingGeneration
 	if specChanged {
 		next++
 	}
