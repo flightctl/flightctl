@@ -72,31 +72,31 @@ func (mr *MockServiceMockRecorder) CreateCatalogItem(ctx, orgId, catalogName, it
 }
 
 // DeleteCatalog mocks base method.
-func (m *MockService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+func (m *MockService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteCatalog", ctx, orgId, name)
+	ret := m.ctrl.Call(m, "DeleteCatalog", ctx, orgId, name, enforceOwnership)
 	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteCatalog indicates an expected call of DeleteCatalog.
-func (mr *MockServiceMockRecorder) DeleteCatalog(ctx, orgId, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteCatalog(ctx, orgId, name, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalog", reflect.TypeOf((*MockService)(nil).DeleteCatalog), ctx, orgId, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalog", reflect.TypeOf((*MockService)(nil).DeleteCatalog), ctx, orgId, name, enforceOwnership)
 }
 
 // DeleteCatalogItem mocks base method.
-func (m *MockService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) domain.Status {
+func (m *MockService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, enforceOwnership bool) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteCatalogItem", ctx, orgId, catalogName, itemName)
+	ret := m.ctrl.Call(m, "DeleteCatalogItem", ctx, orgId, catalogName, itemName, enforceOwnership)
 	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteCatalogItem indicates an expected call of DeleteCatalogItem.
-func (mr *MockServiceMockRecorder) DeleteCatalogItem(ctx, orgId, catalogName, itemName any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteCatalogItem(ctx, orgId, catalogName, itemName, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalogItem", reflect.TypeOf((*MockService)(nil).DeleteCatalogItem), ctx, orgId, catalogName, itemName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalogItem", reflect.TypeOf((*MockService)(nil).DeleteCatalogItem), ctx, orgId, catalogName, itemName, enforceOwnership)
 }
 
 // GetCatalog mocks base method.
@@ -190,33 +190,33 @@ func (mr *MockServiceMockRecorder) ListCatalogs(ctx, orgId, params any) *gomock.
 }
 
 // PatchCatalog mocks base method.
-func (m *MockService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+func (m *MockService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Catalog, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchCatalog", ctx, orgId, name, patch)
+	ret := m.ctrl.Call(m, "PatchCatalog", ctx, orgId, name, patch, enforceOwnership)
 	ret0, _ := ret[0].(*domain.Catalog)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchCatalog indicates an expected call of PatchCatalog.
-func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch, enforceOwnership)
 }
 
 // PatchCatalogItem mocks base method.
-func (m *MockService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+func (m *MockService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, patch domain.PatchRequest, enforceOwnership bool) (*domain.CatalogItem, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchCatalogItem", ctx, orgId, catalogName, itemName, patch)
+	ret := m.ctrl.Call(m, "PatchCatalogItem", ctx, orgId, catalogName, itemName, patch, enforceOwnership)
 	ret0, _ := ret[0].(*domain.CatalogItem)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchCatalogItem indicates an expected call of PatchCatalogItem.
-func (mr *MockServiceMockRecorder) PatchCatalogItem(ctx, orgId, catalogName, itemName, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchCatalogItem(ctx, orgId, catalogName, itemName, patch, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogItem", reflect.TypeOf((*MockService)(nil).PatchCatalogItem), ctx, orgId, catalogName, itemName, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogItem", reflect.TypeOf((*MockService)(nil).PatchCatalogItem), ctx, orgId, catalogName, itemName, patch, enforceOwnership)
 }
 
 // PatchCatalogStatus mocks base method.
@@ -235,33 +235,33 @@ func (mr *MockServiceMockRecorder) PatchCatalogStatus(ctx, orgId, name, patch an
 }
 
 // ReplaceCatalog mocks base method.
-func (m *MockService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+func (m *MockService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog, enforceOwnership bool) (*domain.Catalog, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceCatalog", ctx, orgId, name, catalog)
+	ret := m.ctrl.Call(m, "ReplaceCatalog", ctx, orgId, name, catalog, enforceOwnership)
 	ret0, _ := ret[0].(*domain.Catalog)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceCatalog indicates an expected call of ReplaceCatalog.
-func (mr *MockServiceMockRecorder) ReplaceCatalog(ctx, orgId, name, catalog any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceCatalog(ctx, orgId, name, catalog, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalog", reflect.TypeOf((*MockService)(nil).ReplaceCatalog), ctx, orgId, name, catalog)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalog", reflect.TypeOf((*MockService)(nil).ReplaceCatalog), ctx, orgId, name, catalog, enforceOwnership)
 }
 
 // ReplaceCatalogItem mocks base method.
-func (m *MockService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+func (m *MockService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, item domain.CatalogItem, enforceOwnership bool) (*domain.CatalogItem, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceCatalogItem", ctx, orgId, catalogName, itemName, item)
+	ret := m.ctrl.Call(m, "ReplaceCatalogItem", ctx, orgId, catalogName, itemName, item, enforceOwnership)
 	ret0, _ := ret[0].(*domain.CatalogItem)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceCatalogItem indicates an expected call of ReplaceCatalogItem.
-func (mr *MockServiceMockRecorder) ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item, enforceOwnership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogItem", reflect.TypeOf((*MockService)(nil).ReplaceCatalogItem), ctx, orgId, catalogName, itemName, item)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogItem", reflect.TypeOf((*MockService)(nil).ReplaceCatalogItem), ctx, orgId, catalogName, itemName, item, enforceOwnership)
 }
 
 // ReplaceCatalogStatus mocks base method.

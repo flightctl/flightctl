@@ -104,13 +104,13 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 }
 
 func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
-	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, err)
 	return newRs, err
 }
 
 func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, bool, error) {
-	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, err)
 	return newRs, created, err
 }
