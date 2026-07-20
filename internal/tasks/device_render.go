@@ -209,11 +209,17 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	if renderErr != nil {
+		if !isRetryableRenderError(renderErr) {
+			t.markPermanentRenderFailure(ctx, specHash)
+		}
 		return t.setStatus(ctx, renderErr)
 	}
 
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
+		if !isRetryableRenderError(err) {
+			t.markPermanentRenderFailure(ctx, specHash)
+		}
 		return t.setStatus(ctx, err)
 	}
 
@@ -230,6 +236,20 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// even though specHash is unchanged (see bypassHashCheck above).
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
 	return t.setStatus(ctx, common.ApiStatusToErr(status))
+}
+
+func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, specHash string) {
+	annotations := map[string]string{
+		domain.DeviceAnnotationRenderedSpecHash: specHash,
+	}
+	if t.templateVersion != nil {
+		annotations[domain.DeviceAnnotationRenderedTemplateVersion] = *t.templateVersion
+	}
+
+	status := t.deviceSvc.UpdateDeviceAnnotations(ctx, t.orgId, t.event.InvolvedObject.Name, annotations, nil)
+	if status.Code != http.StatusOK {
+		t.log.Errorf("Failed writing render-failure annotations for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+	}
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
