@@ -66,6 +66,8 @@ type fakeDeviceStore struct {
 	setServiceConditionsCalls int
 	healthcheckCalls          [][]string
 	healthcheckErr            error
+	applyAwaitingOutcomes     []devicestore.AwaitingReconnectOutcome
+	applyAwaitingErrs         []error
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
@@ -323,6 +325,14 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 }
 
 func (s *fakeDeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uuid.UUID, name string, outcome devicestore.AwaitingReconnectOutcome) error {
+	s.applyAwaitingOutcomes = append(s.applyAwaitingOutcomes, outcome)
+	if len(s.applyAwaitingErrs) > 0 {
+		err := s.applyAwaitingErrs[0]
+		s.applyAwaitingErrs = s.applyAwaitingErrs[1:]
+		if err != nil {
+			return err
+		}
+	}
 	d, ok := s.devices[name]
 	if !ok {
 		return flterrors.ErrNoRowsUpdated
