@@ -6,20 +6,27 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
+
+type awaitingReconnectOutcome struct {
+	ConflictPaused        bool
+	SummaryStatus         string
+	SummaryInfo           string
+	UpdatedStatus         string
+	ConfigRenderedVersion string
+}
 
 // decideAwaitingReconnect computes whether and how to clear AwaitingReconnect
 // based on the device's annotations and the agent-reported rendered version.
 // Parse failures are treated as version 0 to preserve historical behavior.
 // When apply is false, outcome is zero-valued and must not be persisted.
-func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *string) (apply bool, outcome devicestore.AwaitingReconnectOutcome) {
+func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *string) (apply bool, outcome awaitingReconnectOutcome) {
 	annotations := util.EnsureMap(lo.FromPtr(device.Metadata.Annotations))
 	waitingAnnotation, hasWaitingAnnotation := annotations[domain.DeviceAnnotationAwaitingReconnect]
 	if !hasWaitingAnnotation || waitingAnnotation != "true" {
-		return false, devicestore.AwaitingReconnectOutcome{}
+		return false, awaitingReconnectOutcome{}
 	}
 
 	deviceVersion := parseVersionOrZero(deviceReportedVersion)
@@ -52,13 +59,31 @@ func decideAwaitingReconnect(device *domain.Device, deviceReportedVersion *strin
 		configRenderedVersion = *deviceReportedVersion
 	}
 
-	return true, devicestore.AwaitingReconnectOutcome{
+	return true, awaitingReconnectOutcome{
 		ConflictPaused:        willBeConflictPaused,
 		SummaryStatus:         summaryStatus,
 		SummaryInfo:           infoMessage,
 		UpdatedStatus:         updatedStatus,
 		ConfigRenderedVersion: configRenderedVersion,
 	}
+}
+
+func applyAwaitingReconnectOutcome(device *domain.Device, outcome awaitingReconnectOutcome) {
+	annotations := util.EnsureMap(lo.FromPtr(device.Metadata.Annotations))
+	delete(annotations, domain.DeviceAnnotationAwaitingReconnect)
+	if outcome.ConflictPaused {
+		annotations[domain.DeviceAnnotationConflictPaused] = "true"
+	}
+	device.Metadata.Annotations = &annotations
+
+	if device.Status == nil {
+		status := domain.NewDeviceStatus()
+		device.Status = &status
+	}
+	device.Status.Summary.Status = domain.DeviceSummaryStatusType(outcome.SummaryStatus)
+	device.Status.Summary.Info = lo.ToPtr(outcome.SummaryInfo)
+	device.Status.Updated.Status = domain.DeviceUpdatedStatusType(outcome.UpdatedStatus)
+	device.Status.Config.RenderedVersion = outcome.ConfigRenderedVersion
 }
 
 func parseVersionOrZero(version *string) int64 {

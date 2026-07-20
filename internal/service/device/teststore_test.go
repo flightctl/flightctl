@@ -300,6 +300,11 @@ func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, own
 	return nil
 }
 
+func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	s.healthcheckCalls = append(s.healthcheckCalls, names)
+	return s.healthcheckErr
+}
+
 func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	var ids []string
 	for name, d := range s.devices {
