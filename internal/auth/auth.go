@@ -70,6 +70,12 @@ func getTlsConfig(cfg *config.Config) *tls.Config {
 }
 
 func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	normalizedAuthzURL, err := authprovider.NormalizeIssuerURL(cfg.Auth.OAuth2.AuthorizationUrl)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OAuth2 AuthorizationUrl: %w", err)
+	}
+	log.Infof("OAuth2 auth enabled: %s", normalizedAuthzURL)
+
 	providerName := "oauth2"
 	metadata := api.ObjectMeta{
 		Name: &providerName,
@@ -78,7 +84,17 @@ func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMid
 		},
 	}
 
-	authNProvider, err := authn.NewOAuth2Auth(metadata, *cfg.Auth.OAuth2, getTlsConfig(cfg), log)
+	spec := *cfg.Auth.OAuth2
+	spec.AuthorizationUrl = normalizedAuthzURL
+	if spec.Issuer != nil && *spec.Issuer != "" {
+		normalizedIssuer, err := authprovider.NormalizeIssuerURL(*spec.Issuer)
+		if err != nil {
+			return nil, fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
+		}
+		spec.Issuer = &normalizedIssuer
+	}
+
+	authNProvider, err := authn.NewOAuth2Auth(metadata, spec, getTlsConfig(cfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth2 AuthN: %w", err)
 	}

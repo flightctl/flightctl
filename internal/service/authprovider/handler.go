@@ -65,7 +65,7 @@ func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
 			return fmt.Errorf("invalid OIDC provider spec: %w", err)
 		}
 		if oidcSpec.Issuer != "" {
-			normalized, err := authprovider.NormalizeIssuerURL(oidcSpec.Issuer)
+			normalized, err := provider.NormalizeIssuerURL(oidcSpec.Issuer)
 			if err != nil {
 				return fmt.Errorf("invalid OIDC issuer URL: %w", err)
 			}
@@ -81,14 +81,14 @@ func normalizeAuthProviderURLs(spec *domain.AuthProviderSpec) error {
 			return fmt.Errorf("invalid OAuth2 provider spec: %w", err)
 		}
 		if oauth2Spec.AuthorizationUrl != "" {
-			normalized, err := authprovider.NormalizeIssuerURL(oauth2Spec.AuthorizationUrl)
+			normalized, err := provider.NormalizeIssuerURL(oauth2Spec.AuthorizationUrl)
 			if err != nil {
 				return fmt.Errorf("invalid OAuth2 authorizationUrl: %w", err)
 			}
 			oauth2Spec.AuthorizationUrl = normalized
 		}
 		if oauth2Spec.Issuer != nil && *oauth2Spec.Issuer != "" {
-			normalized, err := authprovider.NormalizeIssuerURL(*oauth2Spec.Issuer)
+			normalized, err := provider.NormalizeIssuerURL(*oauth2Spec.Issuer)
 			if err != nil {
 				return fmt.Errorf("invalid OAuth2 issuer URL: %w", err)
 			}

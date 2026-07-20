@@ -1,4 +1,4 @@
-package service
+package authprovider
 
 import (
 	"testing"
