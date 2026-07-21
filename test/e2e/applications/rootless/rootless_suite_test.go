@@ -1,9 +1,11 @@
 package rootless_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -19,6 +21,11 @@ func TestRootless(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// TEMPORARY DIAGNOSTIC (see auxiliary.StartStandaloneRegistryHealthMonitor): this
+	// suite never calls auxiliary.Get(), so without this it gets no visibility into
+	// registry reachability during the reproducible "connection refused" failures
+	// pulling quay.io/flightctl-tests/* here.
+	auxiliary.StartStandaloneRegistryHealthMonitor(context.Background())
 	e2e.SetupWorkerHarnessOrAbort()
 })
 
