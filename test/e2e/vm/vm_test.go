@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -16,8 +17,6 @@ import (
 const (
 	vmAppName                    = "test-vm"
 	defaultVMImage               = "quay.io/containerdisks/fedora:40"
-	vmAppTargetUnitSuffix        = "flightctl-quadlet-app.target"
-	vmAppComputeServiceFmt       = "%s-virt-launcher-%s-compute.service"
 	systemdSubStateActive        = "active"
 	systemdSubStateRunning       = "running"
 	systemdLoadStateLoadedString = string(v1beta1.SystemdLoadStateLoaded)
@@ -164,10 +163,15 @@ func vmApplicationFormatUnits(units []e2e.SystemdUnitState) string {
 
 // vmApplicationTargetUnitName returns the exact generated Flight Control target unit name for a VM app.
 func vmApplicationTargetUnitName(appName string) string {
-	return fmt.Sprintf("%s-%s", lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername), vmAppTargetUnitSuffix)
+	return quadlet.NamespaceResource(vmApplicationID(appName), lifecycle.QuadletTargetName)
 }
 
 // vmApplicationComputeServiceName returns the generated virt-launcher compute service name for a VM app.
 func vmApplicationComputeServiceName(appName string) string {
-	return fmt.Sprintf(vmAppComputeServiceFmt, lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername), appName)
+	return quadlet.NamespaceResource(vmApplicationID(appName), fmt.Sprintf("virt-launcher-%s-compute.service", appName))
+}
+
+// vmApplicationID returns the production app ID used to namespace generated VM units.
+func vmApplicationID(appName string) string {
+	return lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 }

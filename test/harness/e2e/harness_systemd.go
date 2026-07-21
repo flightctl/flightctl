@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -189,21 +188,6 @@ func ParseSystemdListUnits(output string) []SystemdUnitState {
 		})
 	}
 	return units
-}
-
-// SystemdUnitsContainState reports whether any parsed unit name matches exactly or with a dash-delimited suffix and has the expected state.
-func SystemdUnitsContainState(units []SystemdUnitState, unitName string, loadState string, activeState string, subState string) bool {
-	return slices.ContainsFunc(units, func(unit SystemdUnitState) bool {
-		return systemdUnitNameMatches(unit.Unit, unitName) &&
-			unit.LoadState == loadState &&
-			unit.ActiveState == activeState &&
-			unit.SubState == subState
-	})
-}
-
-// systemdUnitNameMatches reports whether unitName is exact or namespaced with a dash delimiter.
-func systemdUnitNameMatches(unitName string, expectedName string) bool {
-	return unitName == expectedName || strings.HasSuffix(unitName, "-"+expectedName)
 }
 
 // RemoveSystemdService disables and removes a systemd unit file on the device and reloads systemd.
