@@ -568,8 +568,9 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 				},
 			}
 
-			updateServerSideDeviceUpdatedStatus(device, ctx, fs, log, orgId)
+			changed := updateServerSideDeviceUpdatedStatus(device, ctx, fs, log, orgId)
 
+			assert.False(t, changed, "status enum did not change so changed must be false")
 			assert.Equal(t, domain.DeviceUpdatedStatusOutOfDate, device.Status.Updated.Status)
 			assert.Contains(t, *device.Status.Updated.Info, tt.expectedContain)
 		})

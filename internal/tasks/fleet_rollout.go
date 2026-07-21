@@ -333,7 +333,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		if status.Code != http.StatusOK {
 			errs = append(errs, common.ApiStatusToErr(status))
 		}
-		if err := f.deviceSvc.UpdateServerSideDeviceStatus(ctx, f.orgId, *device.Metadata.Name); err != nil {
+		if err := f.deviceSvc.ForceUpdateServerSideDeviceStatus(ctx, f.orgId, *device.Metadata.Name); err != nil {
 			f.log.Errorf("failed to update server-side status for device %s/%s after rollout error: %v", f.orgId, *device.Metadata.Name, err)
 		}
 		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))

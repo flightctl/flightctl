@@ -444,8 +444,8 @@ func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_TemplateRenderingFailure
 			return domain.Status{Code: http.StatusOK}
 		})
 
-		// Expect UpdateServerSideDeviceStatus to be called to recompute device status
-		mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+		// Expect ForceUpdateServerSideDeviceStatus to be called to recompute and persist device status
+		mockDeviceSvc.EXPECT().ForceUpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 		_, err := logic.updateDeviceToFleetTemplate(context.Background(), device, tv, false)
 		require.Error(t, err)
