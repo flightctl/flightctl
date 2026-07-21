@@ -112,3 +112,39 @@ auth:
       {{with .global.auth.oidc.organizationAssignment.organizationNamePrefix}}organizationNamePrefix: {{.}}{{end}}
       {{with .global.auth.oidc.organizationAssignment.organizationNameSuffix}}organizationNameSuffix: {{.}}{{end}}
 {{- end}}
+
+{{- with .profiling }}
+{{- $pprof := .pprof }}
+{{- $pyroscope := .pyroscope }}
+{{- $pprofOn := false }}
+{{- $pyroscopeOn := false }}
+{{- if $pprof }}{{ if $pprof.enabled }}{{ $pprofOn = true }}{{ end }}{{ end }}
+{{- if $pyroscope }}{{ if $pyroscope.enabled }}{{ $pyroscopeOn = true }}{{ end }}{{ end }}
+{{- if or $pprofOn $pyroscopeOn }}
+profiling:
+{{- if $pprofOn }}
+  pprof:
+    enabled: true
+{{- if $pprof.port }}
+    port: {{ $pprof.port }}
+{{- end }}
+{{- end }}
+{{- if $pyroscopeOn }}
+  pyroscope:
+    enabled: true
+    serverAddress: {{ $pyroscope.serverAddress }}
+{{- if $pyroscope.applicationName }}
+    applicationName: {{ $pyroscope.applicationName }}
+{{- end }}
+{{- if $pyroscope.basicAuthUser }}
+    basicAuthUser: {{ $pyroscope.basicAuthUser }}
+{{- end }}
+{{- if $pyroscope.basicAuthPassword }}
+    basicAuthPassword: {{ $pyroscope.basicAuthPassword }}
+{{- end }}
+{{- if $pyroscope.tenantID }}
+    tenantID: {{ $pyroscope.tenantID }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

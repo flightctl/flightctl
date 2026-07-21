@@ -130,4 +130,5 @@ data:
             {{- end }}
         {{- end }}
     {{- end }}
+{{ include "flightctl.profiling" . | nindent 4 }}
 {{- end }}

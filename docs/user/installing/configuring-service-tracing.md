@@ -56,6 +56,8 @@ This brings up the Jaeger web interface, where you can:
 
 Flightctl supports two independent profiling backends under `profiling`. Either, both, or neither may be enabled. Both are **disabled by default**.
 
+For Podman/quadlet deployments, uncomment the `profiling` block in `/etc/flightctl/service-config.yaml` (see `deploy/podman/service-config.yaml`), then re-render or restart the services so each `config.yaml` picks it up. For Helm, set `dev.profiling` (for example in `values.dev.yaml`).
+
 ```yaml
 profiling:
   pprof:

@@ -165,6 +165,21 @@ prometheus:
 # dependenciesSync:
 #   pollInterval: 15m
 
+# Profiling (optional). Uncomment to enable loopback pprof and/or Pyroscope push
+# for long-running services that load this shared config. See
+# docs/user/installing/configuring-service-tracing.md.
+# profiling:
+#   pprof:
+#     enabled: true
+#     # port: 15691  # optional single-process override; omit for multi-service hosts
+#   pyroscope:
+#     enabled: true
+#     serverAddress: http://pyroscope:4040
+#     # applicationName: flightctl-worker
+#     # basicAuthUser: ...
+#     # basicAuthPassword: ...
+#     # tenantID: ...
+
 telemetryGateway:
   forward:
     endpoint:
