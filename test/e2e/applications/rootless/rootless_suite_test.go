@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -21,12 +20,19 @@ func TestRootless(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// TEMPORARY DIAGNOSTIC (see auxiliary.StartStandaloneRegistryHealthMonitor): this
-	// suite never calls auxiliary.Get(), so without this it gets no visibility into
-	// registry reachability during the reproducible "connection refused" failures
-	// pulling quay.io/flightctl-tests/* here.
-	auxiliary.StartStandaloneRegistryHealthMonitor(context.Background())
+	// This suite pulls quay.io/flightctl-tests/* images (see rootlessAlpineImage,
+	// rootlessNginxImage in rootless_test.go), which only resolve because the device's
+	// registries.conf remaps them to the local registry (see inject_agent_files_into_qcow.sh)
+	// - a container that this suite must create/populate itself via StartAuxServicesAsync,
+	// same as containers_suite_test.go/helm_suite_test.go. Previously this suite skipped
+	// that call entirely and implicitly relied on some *other* suite in the same shard
+	// having already started the registry first; when Ginkgo's LPT scheduler happened to
+	// run this suite first in a shard, nothing had created the registry yet, so every
+	// device got "connection refused" pulling these images for the suite's whole run (see
+	// git history for the registry-health diagnostic that root-caused this).
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	e2e.SetupWorkerHarnessOrAbort()
+	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
