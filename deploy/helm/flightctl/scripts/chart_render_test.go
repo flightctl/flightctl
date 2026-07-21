@@ -20,18 +20,14 @@ func TestChartRenderOfflineSafe(t *testing.T) {
 	t.Run("When rendering offline it should emit migration hooks and password ensure job", func(t *testing.T) {
 		out := helmTemplate(t, chartDir, lintValues)
 
-		if !strings.Contains(out, "name: flightctl-db-migration-1\n") {
+		if !strings.Contains(out, "flightctl-db-migration-1") {
 			t.Error("expected migration job")
 		}
-		if !strings.Contains(out, "helm.sh/hook: pre-install,pre-upgrade") {
-			t.Error("expected pre-install,pre-upgrade hooks")
+		if !strings.Contains(out, "helm.sh/hook: post-install,pre-upgrade") {
+			t.Error("expected post-install,pre-upgrade migration hooks")
 		}
-		if !strings.Contains(out, "name: flightctl-password-secrets-1\n") &&
-			!strings.Contains(out, "name: flightctl-password-secrets-1\r\n") {
-			// helm may quote differently; accept either form
-			if !strings.Contains(out, "flightctl-password-secrets-1") {
-				t.Error("expected password-secrets ensure job")
-			}
+		if !strings.Contains(out, "flightctl-password-secrets-1") {
+			t.Error("expected password-secrets ensure job")
 		}
 		if !strings.Contains(out, "ensure-password-secrets.sh") {
 			t.Error("expected ensure-password-secrets script in rendered output")
@@ -41,7 +37,7 @@ func TestChartRenderOfflineSafe(t *testing.T) {
 		}
 	})
 
-	t.Run("When rendering offline it should not emit chart-managed password Secret resources", func(t *testing.T) {
+	t.Run("When rendering offline it should not emit password Secret resources without lookup", func(t *testing.T) {
 		out := helmTemplate(t, chartDir, lintValues)
 		for _, name := range []string{
 			"flightctl-db-admin-secret",
@@ -50,7 +46,7 @@ func TestChartRenderOfflineSafe(t *testing.T) {
 			"flightctl-kv-secret",
 		} {
 			if secretResourceRendered(out, name) {
-				t.Errorf("password Secret %s should not be rendered as a chart-managed resource", name)
+				t.Errorf("password Secret %s should not render when lookup is empty", name)
 			}
 		}
 	})
@@ -69,7 +65,8 @@ func TestChartRenderOfflineSafe(t *testing.T) {
 		}
 		idx := strings.Index(out, "name: flightctl-preupgrade-scale-to-zero")
 		window := out[idx:min(len(out), idx+400)]
-		if !strings.Contains(window, "pre-install,pre-upgrade") {
+		if !strings.Contains(window, `helm.sh/hook": pre-install,pre-upgrade`) &&
+			!strings.Contains(window, "helm.sh/hook: pre-install,pre-upgrade") {
 			t.Errorf("expected pre-install,pre-upgrade on scale-down job, got:\n%s", window)
 		}
 	})

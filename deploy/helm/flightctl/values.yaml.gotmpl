@@ -16,7 +16,7 @@ global:
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
   # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
-  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
+  # - auto: when the Route is visible, preserve whether externalCertificate is set; when lookup is empty, false.
   # - true: always use externalCertificate.
   # - false: never use externalCertificate (rely on default router cert).
   routeExternalCertificate: "auto"
@@ -567,5 +567,5 @@ upgradeHooks:
       - flightctl-worker
     # -- Timeout in seconds to wait for rollout per Deployment
     timeoutSeconds: 120
-  # -- Enable DB migration dry-run as a pre-install/pre-upgrade hook
+  # -- Enable DB migration dry-run as a post-install/pre-upgrade hook
   databaseMigrationDryRun: true

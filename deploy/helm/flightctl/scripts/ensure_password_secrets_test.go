@@ -38,7 +38,7 @@ func TestEnsurePasswordSecrets(t *testing.T) {
 	})
 
 	t.Run("When secrets are missing it should create them with keep annotations", func(t *testing.T) {
-		binDir, storeDir := fakeKubectlEnv(t)
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{})
 		cmd := exec.Command("bash", scriptPath,
 			"--namespace", "flightctl",
 			"--ensure-db-admin",
@@ -67,7 +67,7 @@ func TestEnsurePasswordSecrets(t *testing.T) {
 	})
 
 	t.Run("When secrets already exist it should preserve passwords and annotate", func(t *testing.T) {
-		binDir, storeDir := fakeKubectlEnv(t)
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{})
 		existingPassword := base64.StdEncoding.EncodeToString([]byte("keep-me-password"))
 		writeFakeSecret(t, storeDir, "flightctl", "flightctl-kv-secret", map[string]string{
 			"password": existingPassword,
@@ -94,7 +94,7 @@ func TestEnsurePasswordSecrets(t *testing.T) {
 	})
 
 	t.Run("When secret exists in one namespace it should copy password to the other", func(t *testing.T) {
-		binDir, storeDir := fakeKubectlEnv(t)
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{})
 		existingPassword := base64.StdEncoding.EncodeToString([]byte("shared-password"))
 		writeFakeSecret(t, storeDir, "flightctl", "flightctl-db-app-secret", map[string]string{
 			"user":         base64.StdEncoding.EncodeToString([]byte("flightctl_app")),
@@ -123,12 +123,72 @@ func TestEnsurePasswordSecrets(t *testing.T) {
 		assertKeepAnnotations(t, primary)
 		assertKeepAnnotations(t, internal)
 	})
+
+	t.Run("When lookup fails it should abort without creating secrets", func(t *testing.T) {
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{failGet: true})
+		cmd := exec.Command("bash", scriptPath,
+			"--namespace", "flightctl",
+			"--ensure-kv",
+		)
+		cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected failure on lookup error, got: %s", output)
+		}
+		if !strings.Contains(string(output), "failed to look up secret") {
+			t.Errorf("expected lookup error, got: %s", output)
+		}
+		if _, err := os.Stat(filepath.Join(storeDir, "flightctl", "flightctl-kv-secret.json")); err == nil {
+			t.Error("secret should not be created when lookup fails")
+		}
+	})
+
+	t.Run("When create races with AlreadyExists it should preserve not overwrite", func(t *testing.T) {
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{createAlreadyExists: true})
+		existingPassword := base64.StdEncoding.EncodeToString([]byte("race-password"))
+		// Secret appears only at create time via fake; seed for annotate/get after AlreadyExists.
+		writeFakeSecret(t, storeDir, "flightctl", "flightctl-kv-secret", map[string]string{
+			"password": existingPassword,
+		})
+		// Make get during find/exists report missing until create is attempted.
+		if err := os.Rename(
+			filepath.Join(storeDir, "flightctl", "flightctl-kv-secret.json"),
+			filepath.Join(storeDir, "flightctl", "flightctl-kv-secret.json.hidden"),
+		); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command("bash", scriptPath,
+			"--namespace", "flightctl",
+			"--ensure-kv",
+		)
+		cmd.Env = append(os.Environ(),
+			"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"FAKE_REVEAL_ON_CREATE="+filepath.Join(storeDir, "flightctl", "flightctl-kv-secret.json.hidden"),
+		)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("script failed: %v\nOutput: %s", err, output)
+		}
+		if !strings.Contains(string(output), "appeared concurrently") && !strings.Contains(string(output), "preserving data") {
+			t.Errorf("expected race/preserve handling, got: %s", output)
+		}
+		kv := readFakeSecret(t, storeDir, "flightctl", "flightctl-kv-secret")
+		if got := kv.Data["password"]; got != existingPassword {
+			t.Errorf("password overwritten on race: got %q want %q", got, existingPassword)
+		}
+	})
 }
 
 type fakeSecret struct {
 	Data        map[string]string `json:"data"`
 	Annotations map[string]string `json:"annotations"`
 	Labels      map[string]string `json:"labels"`
+}
+
+type fakeKubectlOptions struct {
+	failGet            bool
+	createAlreadyExists bool
 }
 
 func ensurePasswordSecretsScriptPath() string {
@@ -146,17 +206,17 @@ func assertKeepAnnotations(t *testing.T, secret fakeSecret) {
 	}
 }
 
-func fakeKubectlEnv(t *testing.T) (binDir, storeDir string) {
+func fakeKubectlEnv(t *testing.T, opts fakeKubectlOptions) (binDir, storeDir string) {
 	t.Helper()
 	storeDir = t.TempDir()
 	binDir = t.TempDir()
 
-	// Fake kubectl that stores Secrets as JSON files. Supports the subset used by
-	// ensure-password-secrets.sh: get/create|apply/annotate/label.
 	simple := fmt.Sprintf(`#!/usr/bin/env python3
 import base64, json, os, sys
 
 STORE = %q
+FAIL_GET = %s
+CREATE_ALREADY_EXISTS = %s
 
 def path(ns, name):
     return os.path.join(STORE, ns, f"{name}.json")
@@ -180,6 +240,9 @@ def main(argv):
         raise SystemExit("missing command")
     cmd, args = argv[0], argv[1:]
     if cmd == "get":
+        if FAIL_GET:
+            print("Error: connection refused", file=sys.stderr)
+            raise SystemExit(1)
         ns = name = output = None
         ignore = False
         i = 0
@@ -211,9 +274,8 @@ def main(argv):
         return
 
     if cmd == "create":
-        # create secret generic NAME --namespace NS --from-literal=k=v --dry-run=client -o yaml
         name = ns = None
-        literals = []
+        from_files = []
         i = 0
         while i < len(args):
             a = args[i]
@@ -223,44 +285,31 @@ def main(argv):
                 ns = args[i+1]; i += 2
             elif a.startswith("--namespace="):
                 ns = a.split("=", 1)[1]; i += 1
-            elif a == "--from-literal":
-                literals.append(args[i+1]); i += 2
-            elif a.startswith("--from-literal="):
-                literals.append(a.split("=", 1)[1]); i += 1
-            elif a in ("--dry-run=client", "-o", "yaml"):
-                i += 1
+            elif a == "--from-file":
+                from_files.append(args[i+1]); i += 2
+            elif a.startswith("--from-file="):
+                from_files.append(a.split("=", 1)[1]); i += 1
             else:
                 name = a; i += 1
+        reveal = os.environ.get("FAKE_REVEAL_ON_CREATE")
+        if reveal and os.path.exists(reveal):
+            os.rename(reveal, path(ns, name))
+        if CREATE_ALREADY_EXISTS or load(ns, name) is not None:
+            print(f'Error from server (AlreadyExists): secrets "{name}" already exists', file=sys.stderr)
+            raise SystemExit(1)
         data = {}
-        for item in literals:
-            k, v = item.split("=", 1)
-            data[k] = base64.b64encode(v.encode()).decode()
+        for item in from_files:
+            k, fpath = item.split("=", 1)
+            with open(fpath, "rb") as f:
+                data[k] = base64.b64encode(f.read()).decode()
         obj = {
             "metadata": {"name": name, "namespace": ns},
             "data": data,
             "annotations": {},
             "labels": {},
         }
-        # Print JSON for apply -f -
-        print(json.dumps(obj))
-        return
-
-    if cmd == "apply":
-        # apply -f -   (stdin); ignore -f/- flags
-        raw = sys.stdin.read().strip()
-        if not raw:
-            return
-        # Some kubectl builds emit YAML; our create dry-run prints JSON.
-        obj = json.loads(raw)
-        existing = load(obj["metadata"]["namespace"], obj["metadata"]["name"]) or {
-            "data": {}, "annotations": {}, "labels": {}, "metadata": obj["metadata"]
-        }
-        existing["data"] = obj.get("data", existing.get("data", {}))
-        existing["metadata"] = obj["metadata"]
-        existing.setdefault("annotations", {})
-        existing.setdefault("labels", {})
-        save(existing)
-        print(f"secret/{obj['metadata']['name']} configured")
+        save(obj)
+        print(f"secret/{name} created")
         return
 
     if cmd == "annotate":
@@ -321,7 +370,7 @@ def main(argv):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-`, storeDir)
+`, storeDir, map[bool]string{true: "True", false: "False"}[opts.failGet], map[bool]string{true: "True", false: "False"}[opts.createAlreadyExists])
 
 	for _, name := range []string{"kubectl", "oc"} {
 		path := filepath.Join(binDir, name)

@@ -63,9 +63,9 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace f
 
 Flightctl uses Helm **pre-install/pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Password Secrets** — chart-managed DB/KV Secrets are created only if missing (existing passwords are never rotated).
+1. **Password Secrets** — an ensure Job creates chart-managed DB/KV Secrets only if missing (existing passwords are never rotated). On Helm upgrades from older charts, existing Secrets remain in the release manifests when visible via `lookup` so they are not deleted.
 2. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown (when the scale-down condition matches).
-3. **Migration dry-run** — validates database migrations to catch issues early.
+3. **Migration dry-run** — validates database migrations to catch issues early (`post-install` / `pre-upgrade`).
 4. **Database migration (expand-only)** — applies backward-compatible schema changes.
 5. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
@@ -83,7 +83,7 @@ upgradeHooks:
   databaseMigrationDryRun: true  # default true
 ```
 
-Note: Database migrations always run as `pre-install,pre-upgrade` hooks (install and upgrade).
+Note: Database migrations run as `post-install,pre-upgrade` hooks (after resources exist on install; before rollout on upgrade).
 
 Basic upgrade command:
 
@@ -349,7 +349,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
-| global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
+| global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: when the Route is visible, preserve whether externalCertificate is set; when lookup is empty, false. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
@@ -429,7 +429,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
-| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable DB migration dry-run as a pre-install/pre-upgrade hook |
+| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable DB migration dry-run as a post-install/pre-upgrade hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run scale-down job: "always", "never", or "chart" (default). "chart" scales only when Deployments are visible at render time and their helm.sh/chart label changed. Use "always" when cluster state is not available during templating. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |

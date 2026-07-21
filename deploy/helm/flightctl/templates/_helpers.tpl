@@ -601,8 +601,8 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- /*
 Determine whether to use externalCertificate on edge-terminated routes.
 Returns: "true" or "false"
-- "auto" (default): true when the Route is missing (or lookup is unavailable);
-  when the Route exists, preserve whether externalCertificate is already set.
+- "auto": when the Route is visible, preserve whether externalCertificate is set;
+  when lookup is empty/unavailable, return false (do not enable by guess).
 - "true": always use
 - "false": never use
 Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui") }}
@@ -617,9 +617,7 @@ Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict 
     {{- print "false" }}
   {{- else }}
     {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
-    {{- if not $existingRoute }}
-      {{- print "true" }}
-    {{- else if and $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+    {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
       {{- print "true" }}
     {{- else }}
       {{- print "false" }}
