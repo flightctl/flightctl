@@ -56,8 +56,11 @@ var (
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
-	Expect(err).ToNot(HaveOccurred())
+	// This suite only exercises the flightctl CLI against the device (config/status
+	// inspection) - it never switches the device's OS image or reboots it, so it doesn't need
+	// a real VM (see the container-backed-device-migration plan). Use a container-backed
+	// device instead.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -75,19 +78,9 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	needsVM := e2e.CurrentSpecNeedsVM()
-	if !needsVM {
-		harness.VM = nil
-	}
-
-	_, err := ensureFlightctlLogin(harness)
+	// Get a pristine container device from the pool and start the agent
+	err := harness.SetupContainerFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
-
-	if needsVM {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up VM from pool\n", workerID)
-		err = setupCLIWorkerVMWithRefreshedAgentConfig(workerID, harness)
-		Expect(err).ToNot(HaveOccurred())
-	}
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
