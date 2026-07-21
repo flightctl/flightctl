@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 
 	"github.com/flightctl/flightctl/pkg/log"
@@ -24,9 +25,11 @@ const (
 	persistentHandleStart = tpm2.TPMHandle(0x81008000)
 	persistentHandleEnd   = tpm2.TPMHandle(0x8100FFFF)
 
-	nvReadChunkSize = uint16(1024) // Maximum chunk size for NVRead operations
-	ekRSANVIndex    = gotpmclient.EKCertNVIndexRSA
-	ekECCNVIndex    = gotpmclient.EKCertNVIndexECC
+	// nvReadChunkSizeFallback is used when TPM_PT_NV_BUFFER_MAX cannot be queried.
+	// 512 bytes is safe across all known TPM implementations.
+	nvReadChunkSizeFallback = uint16(512)
+	ekRSANVIndex            = gotpmclient.EKCertNVIndexRSA
+	ekECCNVIndex            = gotpmclient.EKCertNVIndexECC
 
 	// TCG EK Credential Profile v2.6, Section 2.2.1.4 — NV indices for manufacturer EK templates.
 	ekRSATemplateNVIndex uint32 = 0x01C00004
@@ -738,12 +741,16 @@ func (s *tpmSession) readEKCertFromNVRAM(nvIndex uint32) ([]byte, error) {
 		}
 	}
 
-	// Read the certificate data using Owner hierarchy with chunking
+	// Read the certificate data using Owner hierarchy with chunking.
+	// Chunk size is capped to TPM_PT_NV_BUFFER_MAX to avoid TPM_RC_SIZE on
+	// TPMs that report a limit smaller than the previous hardcoded 1024 B
+	// (e.g. Infineon SLB 9670 with NV_BUFFER_MAX = 768 B).
 	var certData []byte
 	dataSize := nvPublic.DataSize
+	chunkMaxSize := s.nvBufferMax()
 
-	for offset := uint16(0); offset < dataSize; offset += nvReadChunkSize {
-		chunkSize := nvReadChunkSize
+	for offset := uint16(0); offset < dataSize; offset += chunkMaxSize {
+		chunkSize := chunkMaxSize
 		if offset+chunkSize > dataSize {
 			chunkSize = dataSize - offset
 		}
@@ -972,6 +979,39 @@ func (s *tpmSession) isStorageHierarchyAuthSet() (bool, error) {
 	}
 
 	return false, fmt.Errorf("TPM_PT_PERMANENT property not found")
+}
+
+// nvBufferMax returns the maximum NVRead chunk size supported by this TPM.
+// It queries TPM_PT_NV_BUFFER_MAX (TCG spec part 2, section 6.13). If the
+// property is unavailable the fallback value is returned so that NVRead
+// operations still succeed on non-conformant implementations.
+func (s *tpmSession) nvBufferMax() uint16 {
+	cmd := tpm2.GetCapability{
+		Capability:    tpm2.TPMCapTPMProperties,
+		Property:      uint32(tpm2.TPMPTNVBufferMax),
+		PropertyCount: 1,
+	}
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		s.log.Warnf("Failed to query TPM_PT_NV_BUFFER_MAX, using fallback %d: %v", nvReadChunkSizeFallback, err)
+		return nvReadChunkSizeFallback
+	}
+	data, err := resp.CapabilityData.Data.TPMProperties()
+	if err != nil {
+		s.log.Warnf("Failed to parse TPM_PT_NV_BUFFER_MAX response, using fallback %d: %v", nvReadChunkSizeFallback, err)
+		return nvReadChunkSizeFallback
+	}
+	for _, prop := range data.TPMProperty {
+		if prop.Property == tpm2.TPMPTNVBufferMax {
+			if prop.Value == 0 || prop.Value > math.MaxUint16 {
+				s.log.Warnf("TPM_PT_NV_BUFFER_MAX value %d out of range, using fallback %d", prop.Value, nvReadChunkSizeFallback)
+				return nvReadChunkSizeFallback
+			}
+			return uint16(prop.Value)
+		}
+	}
+	s.log.Warnf("TPM_PT_NV_BUFFER_MAX property not found in response, using fallback %d", nvReadChunkSizeFallback)
+	return nvReadChunkSizeFallback
 }
 
 func (s *tpmSession) generateStoragePassword() ([]byte, error) {
