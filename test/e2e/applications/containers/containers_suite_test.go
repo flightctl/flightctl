@@ -19,11 +19,14 @@ func TestContainers(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
+	auxFuture.Wait()
 	// This suite deploys quadlet container apps but never switches the device's OS image or
 	// reboots it, so it doesn't need a real VM (see the container-backed-device-migration plan).
 	// Use a container-backed device instead.
 	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
-	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
