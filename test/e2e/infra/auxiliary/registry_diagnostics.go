@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -80,6 +81,33 @@ func (r *Registry) startHealthMonitor(ctx context.Context) {
 	registryHealthMonitorOnce.Do(func() {
 		r.runHealthMonitor(ctx)
 	})
+}
+
+// StartStandaloneRegistryHealthMonitor starts the same monitor as startHealthMonitor,
+// but computes the registry's address itself instead of requiring a *Registry from
+// Get/StartServices. Some suites (e.g. rootless, see rootless_suite_test.go) never
+// call auxiliary.Get() at all - they only set up a VM/harness and rely on a registry
+// container created by a *different* suite process earlier in the same CI job (the
+// container outlives the process that created it - see reuse=true/SkipReaper). Those
+// suites otherwise get zero visibility from this diagnostic. Safe to call even if
+// this process also calls Get() elsewhere; only the first monitor actually starts.
+func StartStandaloneRegistryHealthMonitor(ctx context.Context) {
+	hostIP := GetHostIP()
+	r := &Registry{Port: registryHostPort}
+	if strings.Contains(hostIP, ":") {
+		r.URL = fmt.Sprintf("localhost:%s", r.Port)
+		r.Host = registryContainerName
+	} else {
+		r.Host = hostIP
+		r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	}
+	r.Authenticated = AuthenticatedEndpoint{
+		HostPort: net.JoinHostPort(r.Host, privateRegistryHostPort),
+		Port:     privateRegistryHostPort,
+		Username: defaultAuthUsername,
+		Password: defaultAuthPassword,
+	}
+	r.startHealthMonitor(ctx)
 }
 
 func (r *Registry) runHealthMonitor(ctx context.Context) {
