@@ -35,6 +35,12 @@ periodic:
     resourceSync:
       schedule:
         interval: 5s
+    dependencySync:
+      schedule:
+        interval: 5s
+    repositoryTester:
+      schedule:
+        interval: 5s
 alertExporter:
   image:
     image: localhost/flightctl-alert-exporter

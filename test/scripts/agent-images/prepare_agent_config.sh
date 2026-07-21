@@ -21,24 +21,29 @@ ensure_organization_set
 
 status_update_interval=0m2s
 spec_fetch_interval=0m2s
+enrollment_verify_interval=0m2s
 # Use external getopt for long options
-options=$(getopt -o h --long status-update-interval:,spec-fetch-interval:,help -n "$0" -- "$@")
+options=$(getopt -o h --long status-update-interval:,spec-fetch-interval:,enrollment-verify-interval:,help -n "$0" -- "$@")
 eval set -- "$options"
 while true; do
   case "$1" in
   -h|--help) echo "Usage: $0 --status-update-interval=0m2s"; exit 1 ;;
   --status-update-interval) status_update_interval=$2; shift 2 ;;
   --spec-fetch-interval) spec_fetch_interval=$2; shift 2 ;;
+  --enrollment-verify-interval) enrollment_verify_interval=$2; shift 2 ;;
   --) shift; break ;;
   *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
 
 # - Enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
+# - Enrollment-verify-interval controls the agent's own poll-for-approval backoff (default 10s in
+#   production); every e2e test that enrolls a device pays this once, so it's shortened here too.
 # - Include the custom system info collectors that were defined in the container image
 cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
+enrollment-verify-interval: $enrollment_verify_interval
 system-info-custom:
   - siteName
   - emptyValue

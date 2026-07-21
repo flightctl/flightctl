@@ -76,6 +76,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: 1.25.9
+          # setup-go's own built-in cache would otherwise restore/save the exact
+          # same ~/.cache/go-build and ~/go/pkg/mod as the "Restore/Save Go modules
+          # cache" steps below, redundantly. Worse, its save has no ref gate (see
+          # prune-ci-caches.yaml's "setup-go-" prefix), so it'd also re-introduce
+          # the "leaves an orphaned copy on every PR branch" problem the steps
+          # below were specifically split into restore/save to avoid.
+          cache: false
 
       - name: Checkout Code
         uses: actions/checkout@v4

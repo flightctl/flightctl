@@ -311,10 +311,17 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			// offline), the periodic healthcheck may briefly flip the device to
 			// Unknown before the first heartbeat lands. The key invariant is that
 			// the device stays on the original image and doesn't reboot (retry v11).
+			//
+			// 45s (not the original 2m): a spurious retry would show up as a BootID
+			// change the moment a re-deploy reboot starts, which doesn't need the full
+			// deploy+reboot cycle to observe - it only needs the reboot to begin. That's
+			// the same order of magnitude as other "prove nothing happens" stability
+			// windows in this package (see agent_prefetch_manager_test.go), not tied to
+			// any hardware/OS timing constant the way the deploy/reboot cycles above are.
 			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.SystemInfo.BootID == stableBootID
-			}, "2m")
+			}, "45s")
 			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
 
 			By("Recovering with a new good OS image after rollback (operator pushes a fix)")
@@ -465,10 +472,14 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				}
 				return true
 			}, TIMEOUT)
-			// A reasonable amount of time spent polling to ensure the spec doesn't change
+			// 45s: wontUpdatePolicy's cron ("0 0 <yesterday's day> <yesterday's month> *")
+			// won't match again for the rest of this test run, so this isn't waiting out a
+			// timer - it's a "the reconciler doesn't misapply despite the policy" stability
+			// check, same category as the 45s windows used for equivalent checks elsewhere
+			// (e.g. agent_prefetch_manager_test.go).
 			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1beta1.Device) bool {
 				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
-			}, "1m30s")
+			}, "45s")
 
 			By("Reducing the policies, the spec should be applied")
 			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
@@ -757,6 +768,30 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 	return logs
 }
 
+// fastGreenbootOverrideScript overrides the greenboot health check's Phase 1 timeout
+// and Phase 2 stability window (see packaging/greenboot/flightctl-agent-running-check.sh)
+// via /etc/greenboot/greenboot.conf, the same file used for GREENBOOT_MAX_BOOT_ATTEMPTS.
+// Production defaults are 150s/60s, calibrated for real hardware; these tests only need
+// to observe that rollback triggers and that stability is checked, not the exact
+// durations, so there's no fidelity lost by shortening them here.
+//
+// /etc is carried across bootc deployments via ostree's 3-way merge, so writing this to
+// the currently-booted deployment before triggering the v11 update also takes effect on
+// the v11 boot and the rollback boot that follows it.
+const fastGreenbootOverrideScript = `sudo mkdir -p /etc/greenboot
+cat <<'EOF' | sudo tee -a /etc/greenboot/greenboot.conf >/dev/null
+FLIGHTCTL_HEALTH_CHECK_TIMEOUT=10
+FLIGHTCTL_HEALTH_STABILITY_WINDOW=10
+FLIGHTCTL_HEALTH_POLL_INTERVAL=2
+EOF
+`
+
+func setFastGreenbootHealthTimeouts(harness *e2e.Harness) {
+	_, err := harness.VM.RunSSH([]string{"bash", "-lc", fastGreenbootOverrideScript}, nil)
+	Expect(err).NotTo(HaveOccurred())
+	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] appended greenboot.conf override: timeout=10s stability-window=10s poll-interval=2s")
+}
+
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),
 // waits for greenboot to roll the OS back to the initial image, and verifies OutOfDate.
 // When skipFallbackJournalAssert is false, also asserts FALLBACK in greenboot-healthcheck logs (greenboot-rs).
@@ -764,6 +799,7 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 // It returns the initial status OS image reference and the boot ID after rollback completes.
 func waitForGreenbootOSRollbackFromV11BrokenAgent(harness *e2e.Harness, deviceId string, skipFallbackJournalAssert bool) (initialStatusImage, postRollbackBootID string) {
 	GinkgoWriter.Printf("[waitForGreenbootOSRollbackFromV11BrokenAgent] deviceId=%s skipFallbackJournalAssert=%v\n", deviceId, skipFallbackJournalAssert)
+	setFastGreenbootHealthTimeouts(harness)
 	By("Getting initial device state")
 	dev, err := harness.GetDevice(deviceId)
 	Expect(err).NotTo(HaveOccurred())

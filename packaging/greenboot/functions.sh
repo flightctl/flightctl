@@ -10,10 +10,6 @@ SCRIPT_NAME=$(basename "$0")
 # Constants
 #
 
-# Static timeout for health check polling (in seconds).
-# This should be >= systemd's TimeoutStartSec (default ~90s).
-FLIGHTCTL_HEALTH_CHECK_TIMEOUT=150
-
 # Greenboot configuration file path
 GREENBOOT_CONF="/etc/greenboot/greenboot.conf"
 

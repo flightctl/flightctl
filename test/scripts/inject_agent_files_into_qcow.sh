@@ -82,6 +82,12 @@ if [[ "$SOURCE_REPO" != */* ]]; then
   fail "SOURCE_REPO must include registry and namespace (e.g. quay.io/flightctl)"
 fi
 SOURCE_REPO_PATH="${SOURCE_REPO#*/}"
+# quay.io/flightctl-tests holds fixture images referenced directly by e2e specs
+# (not built locally, so they don't go through SOURCE_REPO's bundle upload). Remap
+# it the same way so devices pull from the local mirror (see
+# MirrorExternalTestImages) instead of the real quay.io on every fresh VM.
+TESTS_SOURCE_REPO="quay.io/flightctl-tests"
+TESTS_SOURCE_REPO_PATH="${TESTS_SOURCE_REPO#*/}"
 
 # Auto-detect mirror registry from OCP ImageTagMirrorSet if not explicitly set
 if [[ -z "$MIRROR_REGISTRY" ]] && command -v oc &>/dev/null; then
@@ -251,8 +257,10 @@ write_registry_remap() {
   # Private registry is on port 5002 (same host, different port)
   local private_host="${REG_TLS_HOSTPORT%:*}"
   local private_dest="${private_host}:5002/${SOURCE_REPO_PATH}"
+  local tests_dest="${REG_TLS_HOSTPORT}/${TESTS_SOURCE_REPO_PATH}"
   log "Configuring registry remap $remap_file ($SOURCE_REPO -> $dest)"
   log "Configuring registry remap $remap_file (${SOURCE_REPO}-private -> $private_dest)"
+  log "Configuring registry remap $remap_file ($TESTS_SOURCE_REPO -> $tests_dest)"
   sudo install -d "$config_dir"
   sudo tee "$remap_file" >/dev/null <<EOF
 [[registry]]
@@ -262,6 +270,10 @@ location = "${dest}"
 [[registry]]
 prefix = "${SOURCE_REPO}-private"
 location = "${private_dest}"
+
+[[registry]]
+prefix = "${TESTS_SOURCE_REPO}"
+location = "${tests_dest}"
 EOF
   sudo chown root:root "$remap_file"
 }
