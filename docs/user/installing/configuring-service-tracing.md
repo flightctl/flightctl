@@ -61,15 +61,26 @@ Configure in `config.yaml` (for example `/etc/flightctl/service-config.yaml` on 
 ```yaml
 profiling:
   enabled: true
-  # port: 15691   # optional; defaults below
+  # port: 15691   # optional override for a single process only
 ```
 
-| Process | Default port | Endpoint |
-|---------|-------------:|----------|
-| `flightctl-api` | 15691 | `http://127.0.0.1:15691/debug/pprof/` |
-| `flightctl-worker` | 15692 | `http://127.0.0.1:15692/debug/pprof/` |
+One `profiling.enabled: true` in the shared service config turns pprof on for every long-running service that loads that config. Each process binds a **different default port** so they do not conflict on one host. Only set `profiling.port` when running a single service and you need a custom port.
 
-The server listens on `127.0.0.1` only. In containers, capture from inside the container (for example `podman exec`).
+| Process | Default port |
+|---------|-------------:|
+| Agent (`profiling-enabled` in agent config) | 15689 |
+| `flightctl-api` | 15691 |
+| `flightctl-worker` | 15692 |
+| `flightctl-periodic` | 15693 |
+| `flightctl-alert-exporter` | 15694 |
+| `flightctl-alertmanager-proxy` | 15695 |
+| `flightctl-remote-access` | 15696 |
+| `flightctl-imagebuilder-api` | 15697 |
+| `flightctl-imagebuilder-worker` | 15698 |
+| `flightctl-telemetry-gateway` | 15699 |
+| `flightctl-pam-issuer` | 15700 |
+
+Endpoints are `http://127.0.0.1:<port>/debug/pprof/`. The server listens on loopback only. In containers, capture from inside the container (for example `podman exec`).
 
 Capture a CPU profile while reproducing the issue, then open a flamegraph:
 

@@ -612,7 +612,8 @@ type TracingConfig struct {
 type ProfilingConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Port is the loopback TCP port for /debug/pprof (127.0.0.1 only).
-	// If unset or zero, flightctl-api defaults to 15691 and flightctl-worker to 15692.
+	// If unset or zero, each process uses its own default (see docs). Do not set
+	// a shared port when multiple services run on one host — they would conflict.
 	Port int `json:"port,omitempty"`
 }
 

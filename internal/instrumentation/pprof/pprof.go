@@ -13,11 +13,22 @@ import (
 )
 
 const (
+	// Agent loopback pprof port (agent config profiling-enabled).
 	pprofPortDefault = 15689
-	// DefaultPortAPI is the loopback pprof port for flightctl-api when profiling.port is unset.
-	DefaultPortAPI = 15691
-	// DefaultPortWorker is the loopback pprof port for flightctl-worker when profiling.port is unset.
-	DefaultPortWorker = 15692
+
+	// Default loopback ports when profiling.port is unset. Each long-running
+	// service must use a distinct port so they can share one service-config.yaml.
+	DefaultPortAPI                = 15691
+	DefaultPortWorker             = 15692
+	DefaultPortPeriodic           = 15693
+	DefaultPortAlertExporter      = 15694
+	DefaultPortAlertmanagerProxy  = 15695
+	DefaultPortRemoteAccess       = 15696
+	DefaultPortImageBuilderAPI    = 15697
+	DefaultPortImageBuilderWorker = 15698
+	DefaultPortTelemetryGateway   = 15699
+	DefaultPortPAMIssuer          = 15700
+
 	// /debug/pprof/profile
 	pprofCPUCapDefault = 30 * time.Second
 	// /debug/pprof/trace
