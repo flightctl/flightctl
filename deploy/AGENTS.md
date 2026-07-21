@@ -45,7 +45,7 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 The chart must render correctly with plain `helm template` (no live cluster, no Helm release state). Follow these rules when editing templates:
 
-- **Do not branch on** `.Release.IsInstall` or `.Release.IsUpgrade`. Prefer shared `pre-install,pre-upgrade` (and matching post-*) hooks, or values-driven conditionals.
+- **Do not branch on** `.Release.IsInstall` or `.Release.IsUpgrade`. Prefer shared hooks that work for both lifecycles (e.g. `post-install,pre-upgrade` for migrations that need regular resources first), or values-driven conditionals.
 - **Do not put `randAlphaNum` (or similar) into Secret/`stringData` that Helm re-applies every render.** Generate credentials in idempotent create-if-missing Jobs (see `flightctl-password-secrets.yaml`, encryption-key/cert Jobs). Existing password keys must never rotate on upgrade.
 - **Treat `lookup` as optional.** Empty/`nil` means “unknown / not visible”, not “resource missing with certainty”. Never treat a failed lookup as a chart-label change or as a reason to regenerate secrets. Prefer explicit values when discovery is required (`global.baseDomain`, auth URLs, `*SecretName`, etc.).
 - **Keep install friction low:** if the user omits Secrets/certs, Jobs should still create them. Do not require a special deploy mode or mandatory BYO secrets for the default path.

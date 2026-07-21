@@ -89,6 +89,9 @@ else
     exit 1
 fi
 
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
 target_namespaces() {
     echo "$NAMESPACE"
     if [[ -n "$INTERNAL_NAMESPACE" && "$INTERNAL_NAMESPACE" != "$NAMESPACE" ]]; then
@@ -146,16 +149,43 @@ find_secret_ns() {
     echo ""
 }
 
-apply_secret() {
+# Create secret from files; if it already exists, preserve and annotate (never overwrite data).
+create_secret_from_files() {
     local ns="$1"
     local name="$2"
     shift 2
+
+    if secret_exists "$ns" "$name"; then
+        echo "Secret $name already exists in $ns — preserving data, applying keep annotations"
+        annotate_keep "$ns" "$name"
+        return
+    fi
+
     echo "Creating secret $name in $ns"
-    "$K8S_CLI" create secret generic "$name" \
-        --namespace="$ns" \
-        "$@" \
-        --dry-run=client -o yaml | "$K8S_CLI" apply -f -
+    local out
+    set +e
+    out=$("$K8S_CLI" create secret generic "$name" --namespace="$ns" "$@" 2>&1)
+    local rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+        if echo "$out" | grep -qiE 'already exists|AlreadyExists'; then
+            echo "Secret $name appeared concurrently in $ns — preserving data, applying keep annotations"
+            annotate_keep "$ns" "$name"
+            return
+        fi
+        echo "Error: failed to create secret $name in $ns" >&2
+        echo "  Detail: $out" >&2
+        exit 1
+    fi
     annotate_keep "$ns" "$name"
+}
+
+write_file() {
+    local path="$1"
+    local value="$2"
+    umask 077
+    printf '%s' "$value" > "$path"
+    chmod 600 "$path"
 }
 
 preserve_or_create() {
@@ -164,6 +194,7 @@ preserve_or_create() {
     local source_ns
     local password=""
     local ns
+    local dir
 
     source_ns="$(find_secret_ns "$name")"
     if [[ -n "$source_ns" ]]; then
@@ -177,6 +208,8 @@ preserve_or_create() {
         password="$(generate_password)"
     fi
 
+    dir="$(mktemp -d "$WORKDIR/${name}.XXXXXX")"
+
     for ns in $(target_namespaces); do
         if secret_exists "$ns" "$name"; then
             echo "Secret $name already exists in $ns — preserving data, applying keep annotations"
@@ -185,35 +218,42 @@ preserve_or_create() {
         fi
         case "$name" in
             flightctl-db-admin-secret)
-                apply_secret "$ns" "$name" \
-                    --from-literal=masterUser=admin \
-                    --from-literal=masterPassword="$password"
+                write_file "$dir/masterUser" "admin"
+                write_file "$dir/masterPassword" "$password"
+                create_secret_from_files "$ns" "$name" \
+                    --from-file=masterUser="$dir/masterUser" \
+                    --from-file=masterPassword="$dir/masterPassword"
                 "$K8S_CLI" label secret "$name" -n "$ns" \
                     flightctl.service=flightctl-db-admin \
                     security.level=high-privilege \
                     --overwrite
                 ;;
             flightctl-db-app-secret)
-                apply_secret "$ns" "$name" \
-                    --from-literal=user=flightctl_app \
-                    --from-literal=userPassword="$password"
+                write_file "$dir/user" "flightctl_app"
+                write_file "$dir/userPassword" "$password"
+                create_secret_from_files "$ns" "$name" \
+                    --from-file=user="$dir/user" \
+                    --from-file=userPassword="$dir/userPassword"
                 "$K8S_CLI" label secret "$name" -n "$ns" \
                     flightctl.service=flightctl-db-app \
                     security.level=application \
                     --overwrite
                 ;;
             flightctl-db-migration-secret)
-                apply_secret "$ns" "$name" \
-                    --from-literal=migrationUser=flightctl_migrator \
-                    --from-literal=migrationPassword="$password"
+                write_file "$dir/migrationUser" "flightctl_migrator"
+                write_file "$dir/migrationPassword" "$password"
+                create_secret_from_files "$ns" "$name" \
+                    --from-file=migrationUser="$dir/migrationUser" \
+                    --from-file=migrationPassword="$dir/migrationPassword"
                 "$K8S_CLI" label secret "$name" -n "$ns" \
                     flightctl.service=flightctl-db-migration \
                     security.level=schema-privilege \
                     --overwrite
                 ;;
             flightctl-kv-secret)
-                apply_secret "$ns" "$name" \
-                    --from-literal=password="$password"
+                write_file "$dir/password" "$password"
+                create_secret_from_files "$ns" "$name" \
+                    --from-file=password="$dir/password"
                 "$K8S_CLI" label secret "$name" -n "$ns" \
                     flightctl.service=flightctl-kv \
                     --overwrite

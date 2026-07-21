@@ -63,9 +63,9 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace f
 
 Flightctl uses Helm **pre-install/pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Password Secrets** — chart-managed DB/KV Secrets are created only if missing (existing passwords are never rotated).
+1. **Password Secrets** — an ensure Job creates chart-managed DB/KV Secrets only if missing (existing passwords are never rotated). On Helm upgrades from older charts, existing Secrets remain in the release manifests when visible via `lookup` so they are not deleted.
 2. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown (when the scale-down condition matches).
-3. **Migration dry-run** — validates database migrations to catch issues early.
+3. **Migration dry-run** — validates database migrations to catch issues early (`post-install` / `pre-upgrade`).
 4. **Database migration (expand-only)** — applies backward-compatible schema changes.
 5. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
@@ -83,7 +83,7 @@ upgradeHooks:
   databaseMigrationDryRun: true  # default true
 ```
 
-Note: Database migrations always run as `pre-install,pre-upgrade` hooks (install and upgrade).
+Note: Database migrations run as `post-install,pre-upgrade` hooks (after resources exist on install; before rollout on upgrade).
 
 Basic upgrade command:
 
@@ -298,6 +298,24 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| deltaGeneration | object | `{"defaultRepository":{"caCrt":"","namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2,"timeout":"30m"}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration.defaultRepository.caCrt | string | `""` | Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt). |
+| deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
+| deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
+| deltaGeneration.defaultRepository.repository | string | `""` | Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace. |
+| deltaGeneration.defaultRepository.scheme | string | `""` | URL scheme for connecting to the registry. Allowed values: http, https. |
+| deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
+| deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
+| deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
+| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
+| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
+| deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
+| deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
+| deltaWorker.image.tag | string | `""` | Delta-worker image tag |
+| deltaWorker.resources | object | `{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Resource requests and limits for the delta-worker container |
+| encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
+| encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
+| encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
 | global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |
@@ -349,7 +367,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
-| global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
+| global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: when the Route is visible, preserve whether externalCertificate is set; when lookup is empty, false. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
@@ -384,15 +402,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
-| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
-| kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
-| kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
-| kv.image.tag | string | `"20250108"` | Redis image tag |
-| kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
-| kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
-| kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
-| kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
+| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260121"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
+| kv.fsGroup | string | `""` | File system group ID for Valkey pod security context |
+| kv.image.image | string | `"quay.io/sclorg/valkey-8-c10s"` | Valkey container image |
+| kv.image.pullPolicy | string | `""` | Image pull policy for Valkey container |
+| kv.image.tag | string | `"20260121"` | Valkey image tag |
+| kv.loglevel | string | `"warning"` | Valkey log level (debug, verbose, notice, warning) |
+| kv.maxmemory | string | `"1gb"` | Maximum memory usage for Valkey |
+| kv.maxmemoryPolicy | string | `"allkeys-lru"` | Valkey memory eviction policy |
+| kv.passwordSecretName | string | `""` | Secret containing password for Valkey (leave empty for auto-generation) |
 | periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
@@ -411,6 +429,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | remoteAccess.logLevel | string | `"info"` | Log level for the remote access service |
 | remoteAccess.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resource requests and limits for the remote access container |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
+| telemetryGateway.extraEnvs | list | `[]` | Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion. |
+| telemetryGateway.extraVolumeMounts | list | `[]` | Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections. |
+| telemetryGateway.extraVolumes | list | `[]` | Extra volumes for the telemetry gateway pod. |
+| telemetryGateway.forward | object | `{"endpoint":"","headers":{},"tls":{"caFile":"","certFile":"","insecureSkipTlsVerify":false,"keyFile":""}}` | Forward telemetry to an upstream OTLP collector. Uses OTLP/gRPC for bare host:port endpoints, OTLP/HTTP for http(s):// URLs. Header values support ${ENV_VAR} expansion for secret injection. |
+| telemetryGateway.forward.endpoint | string | `""` | Upstream OTLP endpoint (e.g. "collector:4317" for gRPC, "https://host/api/v2/otlp" for HTTP) |
+| telemetryGateway.forward.headers | object | `{}` | Custom HTTP headers for authentication (only used with OTLP/HTTP endpoints). Values support ${ENV_VAR} expansion — use extraEnvs with secretKeyRef to avoid storing tokens in the ConfigMap. |
+| telemetryGateway.forward.tls.caFile | string | `""` | Path to CA certificate file |
+| telemetryGateway.forward.tls.certFile | string | `""` | Path to client certificate file (for mTLS) |
+| telemetryGateway.forward.tls.insecureSkipTlsVerify | bool | `false` | Skip TLS certificate verification |
+| telemetryGateway.forward.tls.keyFile | string | `""` | Path to client key file (for mTLS) |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
@@ -428,23 +456,38 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.image.tag | string | `""` | UI container image tag |
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
-| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
-| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable DB migration dry-run as a pre-install/pre-upgrade hook |
+| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker","flightctl-delta-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
+| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable DB migration dry-run as a post-install/pre-upgrade hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run scale-down job: "always", "never", or "chart" (default). "chart" scales only when Deployments are visible at render time and their helm.sh/chart label changed. Use "always" when cluster state is not available during templating. |
-| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
+| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker","flightctl-delta-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerabilityReporting | object | `{"enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caCertConfigMapName":"","caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caCertConfigMapName":"","caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
+| vulnerabilityReporting.quay.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.quay.caFile | string | `""` | Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used. |
+| vulnerabilityReporting.quay.endpoint | string | `""` | Quay API base URL (e.g. "https://quay.io"). |
+| vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent Quay API requests. Defaults to 5 when unset. |
+| vulnerabilityReporting.quay.secretName | string | `""` | Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication. |
+| vulnerabilityReporting.quay.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
 | vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
+| vulnerabilityReporting.trustify.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.trustify.caFile | string | `""` | Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""}}` | Worker Configuration |
+| vulnerabilityReporting.trustify.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"renderTimeout":"60s","vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
+| worker.renderTimeout | string | `"60s"` | Time budget for a single device render operation including VM conversion and DB writes (default "60s") |
+| worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
+| worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
+| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |
+| worker.vmRender.passtWorkarounds | bool | `false` | Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images) |
 
 ## Environment-Specific Values Files
 
