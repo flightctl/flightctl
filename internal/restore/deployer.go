@@ -1329,16 +1329,65 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		return fmt.Errorf("failed to restore dump into %q: %w", tempDBName, err)
 	}
 
-	// Terminate active connections to the target database (escape single quotes to prevent SQL injection)
-	if err := k.execDBCommand(ctx, "postgres",
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
-	); err != nil {
-		k.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, err)
+	// Terminate active connections and rename the live database. ALTER DATABASE
+	// RENAME fails if any session is connected, so we retry: terminate stragglers,
+	// then attempt the rename, until it succeeds or we time out. Stale connections
+	// from just-terminated pods can linger briefly after StopServices returns.
+	k.log.Infof("Renaming %q → %q (will terminate stale connections and retry)", dbName, oldDBName)
+	renameDeadline := time.Now().Add(30 * time.Second)
+	var lastErr error
+	timeoutErr := func() error {
+		if lastErr != nil {
+			return fmt.Errorf("timed out after 30s waiting to rename %q to %q: %w", dbName, oldDBName, lastErr)
+		}
+		return fmt.Errorf("timed out after 30s waiting to rename %q to %q", dbName, oldDBName)
 	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled waiting to rename %q: %w", dbName, err)
+		}
+		remaining := time.Until(renameDeadline)
+		if remaining <= 0 {
+			return timeoutErr()
+		}
 
-	k.log.Infof("Renaming %q → %q", dbName, oldDBName)
-	if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, dbName, oldDBName)); err != nil {
-		return fmt.Errorf("failed to rename %q to %q: %w", dbName, oldDBName, err)
+		// Use a per-attempt context so a stuck kubectl exec cannot outlast the overall deadline.
+		attemptCtx, cancel := context.WithTimeout(ctx, remaining)
+		termErr := k.execDBCommand(attemptCtx, "postgres",
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
+		)
+		cancel()
+		if termErr != nil {
+			k.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, termErr)
+			lastErr = termErr
+		}
+
+		remaining = time.Until(renameDeadline)
+		if remaining <= 0 {
+			return timeoutErr()
+		}
+		attemptCtx, cancel = context.WithTimeout(ctx, remaining)
+		renameErr := k.execDBCommand(attemptCtx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, dbName, oldDBName))
+		cancel()
+		if renameErr == nil {
+			break
+		}
+		// Only retry for the expected "being accessed by other users" contention error.
+		// Any other failure (permission denied, missing DB, kubectl error, etc.) is returned immediately.
+		if !strings.Contains(renameErr.Error(), "being accessed by other users") {
+			return fmt.Errorf("failed to rename %q to %q: %w", dbName, oldDBName, renameErr)
+		}
+		lastErr = renameErr
+		k.log.Debugf("Rename of %q still blocked by active connections, retrying...", dbName)
+		retryWait := 500 * time.Millisecond
+		if rem := time.Until(renameDeadline); rem < retryWait {
+			retryWait = rem
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled waiting to rename %q: %w", dbName, ctx.Err())
+		case <-time.After(retryWait):
+		}
 	}
 	liveDBRenamed = true
 
