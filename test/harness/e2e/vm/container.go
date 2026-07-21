@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -101,9 +102,16 @@ func (c *ContainerDevice) buildRequest() testcontainers.ContainerRequest {
 		Image: c.cfg.Image,
 		Name:  c.cfg.Name,
 		Files: files,
-		// Host networking: the device needs to reach the exact same aux services (registry,
-		// API server) at the exact same addresses a VM would, with zero extra wiring - see
-		// deploy/agent-vm.mk's `make agent-container` target, which uses the same approach.
+		// Privileged: the device runs systemd as PID 1 and, for suites that deploy quadlet
+		// apps, a *nested* podman inside that - both need cgroup delegation and capabilities
+		// (SYS_ADMIN, etc.) an unprivileged container doesn't get. This is test infrastructure
+		// only, not production - the same trade-off "podman-in-podman"/systemd-in-container
+		// testing setups generally make. ContainerRequest.Privileged is deprecated in favor of
+		// HostConfigModifier, but does the exact same thing.
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.Privileged = true
+		},
+		// Network mode is set separately in Run via containers.WithNetwork - see that comment.
 		WaitingFor: wait.ForExec([]string{"systemctl", "is-active", "flightctl-agent.service"}).
 			WithStartupTimeout(containerReadyTimeout),
 	}
@@ -132,7 +140,16 @@ func (c *ContainerDevice) Run() error {
 	}
 
 	logrus.Infof("Starting device container %s (image %s)", c.cfg.Name, c.cfg.Image)
-	ct, err := containers.GenericStart(ctx, c.buildRequest(), false, containers.WithNetwork("host"))
+	// Join the same network aux services use (see containers.GetDockerNetwork), not a hardcoded
+	// "host" network: many devices run concurrently (one per Ginkgo worker, across LPT shards on
+	// the same runner), and each one's *nested* podman (for suites that deploy quadlet apps) may
+	// publish a fixed, test-hardcoded host port (e.g. 8080) - on host networking that port would
+	// collide across devices sharing the runner's network namespace, unlike VMs which each get a
+	// fully isolated network namespace for free. A dedicated bridge/kind network gives each
+	// device that same per-device isolation; aux services (registry, etc.) stay reachable via
+	// their host-published ports either way (see containers.GetHostIP - same mechanism VMs use).
+	ct, err := containers.GenericStart(ctx, c.buildRequest(), false,
+		containers.WithNetwork(containers.GetDockerNetwork()), containers.WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start device container %s: %w", c.cfg.Name, err)
 	}
