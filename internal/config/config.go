@@ -34,6 +34,7 @@ type Config struct {
 	Metrics                *metricsConfig             `json:"metrics,omitempty"`
 	CA                     *ca.Config                 `json:"ca,omitempty"`
 	Tracing                *TracingConfig             `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
 	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
 	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic               *periodicConfig            `json:"periodic,omitempty"`
@@ -604,6 +605,28 @@ type TracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"`
+}
+
+// ProfilingConfig enables the loopback-only Go pprof HTTP server for CPU/heap profiles.
+// Disabled by default. When enabled without Port, each process uses its own default port.
+type ProfilingConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// Port is the loopback TCP port for /debug/pprof (127.0.0.1 only).
+	// If unset or zero, flightctl-api defaults to 15691 and flightctl-worker to 15692.
+	Port int `json:"port,omitempty"`
+}
+
+// ProfilingEnabled reports whether service pprof profiling is turned on.
+func (c *Config) ProfilingEnabled() bool {
+	return c != nil && c.Profiling != nil && c.Profiling.Enabled
+}
+
+// ProfilingPort returns the configured pprof port, or defaultPort when unset.
+func (c *Config) ProfilingPort(defaultPort int) int {
+	if c != nil && c.Profiling != nil && c.Profiling.Port > 0 {
+		return c.Profiling.Port
+	}
+	return defaultPort
 }
 
 type gitOpsConfig struct {

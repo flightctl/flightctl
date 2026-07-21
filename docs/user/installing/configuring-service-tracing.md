@@ -51,3 +51,32 @@ This brings up the Jaeger web interface, where you can:
 - View spans and their durations
 - Inspect attributes, logs, and errors
 - Analyze request flow and timing across services and queues
+
+## Profiling (pprof)
+
+Flightctl can expose Go `pprof` endpoints on loopback for CPU and memory flamegraphs. Profiling is **disabled by default**.
+
+Configure in `config.yaml` (for example `/etc/flightctl/service-config.yaml` on quadlets):
+
+```yaml
+profiling:
+  enabled: true
+  # port: 15691   # optional; defaults below
+```
+
+| Process | Default port | Endpoint |
+|---------|-------------:|----------|
+| `flightctl-api` | 15691 | `http://127.0.0.1:15691/debug/pprof/` |
+| `flightctl-worker` | 15692 | `http://127.0.0.1:15692/debug/pprof/` |
+
+The server listens on `127.0.0.1` only. In containers, capture from inside the container (for example `podman exec`).
+
+Capture a CPU profile while reproducing the issue, then open a flamegraph:
+
+```bash
+curl -sS "http://127.0.0.1:15692/debug/pprof/profile?seconds=30" -o worker-cpu.pb.gz
+go tool pprof -http=:0 worker-cpu.pb.gz
+```
+
+> [!NOTE]
+> Leaving the pprof listener enabled has negligible cost. Capturing a CPU profile samples the process and adds overhead for the duration of the capture. Prefer a short capture window and a modest device count when profiling rollouts; do not use a full CPT-scale run solely for flamegraphs.

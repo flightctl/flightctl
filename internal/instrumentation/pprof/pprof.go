@@ -14,6 +14,10 @@ import (
 
 const (
 	pprofPortDefault = 15689
+	// DefaultPortAPI is the loopback pprof port for flightctl-api when profiling.port is unset.
+	DefaultPortAPI = 15691
+	// DefaultPortWorker is the loopback pprof port for flightctl-worker when profiling.port is unset.
+	DefaultPortWorker = 15692
 	// /debug/pprof/profile
 	pprofCPUCapDefault = 30 * time.Second
 	// /debug/pprof/trace
@@ -76,6 +80,20 @@ func WithTraceCap(d time.Duration) PprofOption {
 // The server binds exclusively to 127.0.0.1 for security.
 func NewPprofServer(log logrus.FieldLogger) *PprofServer {
 	return &PprofServer{log: log, opts: defaultPprofOptions()}
+}
+
+// StartInBackground starts the pprof server on loopback if enabled is true.
+// It returns immediately; the server stops when ctx is canceled.
+func StartInBackground(ctx context.Context, log logrus.FieldLogger, enabled bool, port int) {
+	if !enabled {
+		return
+	}
+	srv := NewPprofServer(log)
+	go func() {
+		if err := srv.Run(ctx, WithPort(port)); err != nil && log != nil {
+			log.WithError(err).Error("pprof server exited")
+		}
+	}()
 }
 
 // Run starts the pprof HTTP server and blocks until the provided context is canceled

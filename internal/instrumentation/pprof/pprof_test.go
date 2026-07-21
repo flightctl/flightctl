@@ -18,6 +18,9 @@ func TestDefaultPprofOptions(t *testing.T) {
 	if opts.port != pprofPortDefault {
 		t.Fatalf("default port = %d, want %d", opts.port, pprofPortDefault)
 	}
+	if DefaultPortAPI == pprofPortDefault || DefaultPortWorker == pprofPortDefault || DefaultPortAPI == DefaultPortWorker {
+		t.Fatalf("service default ports must be distinct from agent default and each other: api=%d worker=%d agent=%d", DefaultPortAPI, DefaultPortWorker, pprofPortDefault)
+	}
 	if opts.cpuCap != pprofCPUCapDefault {
 		t.Fatalf("default cpuCap = %v, want %v", opts.cpuCap, pprofCPUCapDefault)
 	}

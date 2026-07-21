@@ -14,6 +14,7 @@ import (
 	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -46,6 +47,9 @@ func main() {
 		}
 	}()
 
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	instpprof.StartInBackground(ctx, log, cfg.ProfilingEnabled(), cfg.ProfilingPort(instpprof.DefaultPortWorker))
+
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)
 	}
@@ -62,7 +66,6 @@ func main() {
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
