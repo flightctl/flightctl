@@ -829,7 +829,56 @@ func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnknownConfigName)
 }
 
-func TestRenderDevice_PermanentAppError(t *testing.T) {
+func TestRenderDevice_ExternalError_FleetOwned_NoAnnotations(t *testing.T) {
+	const (
+		deviceName      = "fleet-ext-err-device"
+		fleet           = "my-fleet"
+		templateVersion = "tv-1"
+		namespace       = "default"
+		secretName      = "my-secret"
+		mountPath       = "/etc/secret"
+	)
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	k8sConfigItem := makeK8sSecretConfigItem("k8s-cfg", namespace, secretName, mountPath)
+	configItems := []domain.ConfigProviderSpec{k8sConfigItem}
+	ownerStr := fmt.Sprintf("Fleet/%s", fleet)
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name:  lo.ToPtr(deviceName),
+			Owner: &ownerStr,
+			Annotations: &map[string]string{
+				domain.DeviceAnnotationTemplateVersion: templateVersion,
+			},
+		},
+		Spec: &domain.DeviceSpec{
+			Config: &configItems,
+		},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+
+	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+			require.Len(t, conditions, 1)
+			assert.Equal(t, domain.ConditionStatusFalse, conditions[0].Status)
+			assert.Contains(t, conditions[0].Message, "kubernetes API is not available")
+			return statusOK
+		})
+	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "kubernetes API is not available")
+}
+
+func TestRenderDevice_NonPermanentAppError(t *testing.T) {
 	const deviceName = "app-error-device"
 	orgId := uuid.New()
 	ctrl := gomock.NewController(t)
@@ -847,18 +896,7 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 
 	mockSvc := deviceservice.NewMockService(ctrl)
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
-
 	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
-
-	specHash := hashRenderedWithSpec(device.Spec)
-	mockSvc.EXPECT().UpdateDeviceAnnotations(
-		gomock.Any(), orgId, deviceName,
-		map[string]string{
-			domain.DeviceAnnotationRenderedSpecHash: specHash,
-		},
-		gomock.Nil(),
-	).Return(statusOK)
-
 	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 

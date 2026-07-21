@@ -209,7 +209,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	if renderErr != nil {
-		if !isRetryableRenderError(renderErr) {
+		if isPermanentRenderError(renderErr) {
 			t.markPermanentRenderFailure(ctx, specHash)
 		}
 		return t.setStatus(ctx, renderErr)
@@ -217,7 +217,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
-		if !isRetryableRenderError(err) {
+		if isPermanentRenderError(err) {
 			t.markPermanentRenderFailure(ctx, specHash)
 		}
 		return t.setStatus(ctx, err)
