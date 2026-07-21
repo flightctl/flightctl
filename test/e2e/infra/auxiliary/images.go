@@ -73,9 +73,6 @@ var externalTestImages = []string{
 // registry already has these from a previous run.
 func (s *Services) MirrorExternalTestImages(ctx context.Context) error {
 	logrus.Infof("Mirroring %d external test image(s) into registry %s", len(externalTestImages), s.Registry.URL)
-	// TEMPORARY DIAGNOSTIC marker, see registry_diagnostics.go: brackets this phase in
-	// registry-health.log so periodic probe results can be correlated against it.
-	logDiagnostic("MirrorExternalTestImages starting (%d images, concurrency=%d)", len(externalTestImages), uploadConcurrency)
 
 	sem := make(chan struct{}, uploadConcurrency)
 	errCh := make(chan error, len(externalTestImages))
@@ -86,13 +83,7 @@ func (s *Services) MirrorExternalTestImages(ctx context.Context) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			err := s.copyExternalImage(ctx, ref)
-			if err != nil {
-				logDiagnostic("MirrorExternalTestImages: %s FAILED: %v", ref, err)
-			} else {
-				logDiagnostic("MirrorExternalTestImages: %s done", ref)
-			}
-			errCh <- err
+			errCh <- s.copyExternalImage(ctx, ref)
 		}(ref)
 	}
 	wg.Wait()
@@ -100,12 +91,10 @@ func (s *Services) MirrorExternalTestImages(ctx context.Context) error {
 
 	for err := range errCh {
 		if err != nil {
-			logDiagnostic("MirrorExternalTestImages failed: %v", err)
 			return err
 		}
 	}
 	logrus.Info("External test image mirroring completed")
-	logDiagnostic("MirrorExternalTestImages completed successfully")
 	return nil
 }
 
@@ -165,16 +154,13 @@ func (s *Services) UploadImages(ctx context.Context) error {
 	// Each bundle is a .tar file (agent-images-bundle-*.tar and/or app-images-bundle.tar) containing many images.
 	logrus.Infof("Uploading %d bundle file(s) to registry %s (each bundle can contain many images)",
 		len(bundles), s.Registry.URL)
-	logDiagnostic("UploadImages starting (%d bundles)", len(bundles))
 	for _, bundle := range bundles {
 		logrus.Infof("Uploading bundle: %s", filepath.Base(bundle))
 		if err := s.uploadBundle(ctx, bundle); err != nil {
-			logDiagnostic("UploadImages failed on bundle %s: %v", filepath.Base(bundle), err)
 			return fmt.Errorf("failed to upload bundle %s: %w", bundle, err)
 		}
 	}
 	logrus.Info("Image bundle upload completed")
-	logDiagnostic("UploadImages completed")
 	return nil
 }
 

@@ -77,7 +77,6 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.Registry.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start registry: %w", err)
 			}
-			s.Registry.startHealthMonitor(ctx)
 			if !s.Registry.Reused {
 				if err := s.UploadImages(ctx); err != nil {
 					return nil, fmt.Errorf("failed to upload images: %w", err)
