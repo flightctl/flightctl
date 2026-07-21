@@ -2,6 +2,7 @@ package quadlets_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,12 @@ const (
 	defaultEventuallyTimeout         = 5 * time.Minute
 	defaultEventuallyPollingInterval = 250 * time.Millisecond
 )
+
+// containerCandidateLabel marks specs that never reboot the device, so BeforeEach below gives
+// them a container-backed device instead of a libvirt VM - see the
+// container-backed-device-migration plan. Only the "Inline quadlets with references and reboot"
+// context reboots the device mid-test and must stay on a VM.
+const containerCandidateLabel = "container-candidate"
 
 // Quadlet tests require a RHEL device with FlightCtl deployed via quadlets
 // (e.g. make deploy-quadlets-vm). Standard e2e VMs use podman-compose agent
@@ -48,7 +55,11 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
