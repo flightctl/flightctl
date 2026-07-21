@@ -28,6 +28,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// CleanupContainerFromPool performs standard harness cleanup and removes the container-backed
+// device from the global container pool for workerID. Mirrors Cleanup for the VM pool - needed by
+// callers (e.g. rollout's horizontal-scale devices) that create devices under custom, test-scoped
+// worker IDs which must be freed so a later spec reusing the same worker ID gets a fresh
+// container rather than a stale, already-deleted one still cached in the pool.
+func CleanupContainerFromPool(h *Harness, workerID int) {
+	h.Cleanup(false)
+	if err := RemoveContainerFromPool(workerID); err != nil {
+		logrus.Warnf("Failed to remove container device from pool: %v", err)
+	}
+}
+
 // NewTestHarnessWithContainerPool creates a new test harness with a container-backed device from
 // the container pool. Mirrors NewTestHarnessWithVMPool for the libvirt VM backend.
 func NewTestHarnessWithContainerPool(ctx context.Context, workerID int) (*Harness, error) {
