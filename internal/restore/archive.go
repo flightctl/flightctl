@@ -16,6 +16,45 @@ import (
 	"github.com/flightctl/flightctl/internal/backup"
 )
 
+// parseMajorMinor extracts the major and minor components from a version
+// string such as "v1.2.3", "1.2.0-dirty", or "v1.2.0-rc1". It strips a
+// leading "v", discards everything after a hyphen (pre-release/build
+// metadata), and splits on ".".
+func parseMajorMinor(ver string) (major, minor string, err error) {
+	ver = strings.TrimPrefix(ver, "v")
+	if idx := strings.IndexByte(ver, '-'); idx != -1 {
+		ver = ver[:idx]
+	}
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("cannot parse major.minor from version %q", ver)
+	}
+	return parts[0], parts[1], nil
+}
+
+// ValidateVersion checks that the archive's recorded version is compatible
+// with currentVersion. Compatibility means major and minor components match;
+// patch-level differences are allowed. Returns a descriptive error on
+// mismatch naming both versions.
+func ValidateVersion(metadata *backup.BackupMetadata, currentVersion string) error {
+	archMajor, archMinor, err := parseMajorMinor(metadata.Version)
+	if err != nil {
+		return fmt.Errorf("version mismatch: archive version %q is not parseable: %w", metadata.Version, err)
+	}
+	curMajor, curMinor, err := parseMajorMinor(currentVersion)
+	if err != nil {
+		return fmt.Errorf("version mismatch: current version %q is not parseable: %w", currentVersion, err)
+	}
+	if archMajor != curMajor || archMinor != curMinor {
+		return fmt.Errorf(
+			"version mismatch: archive was created by version %q but the current version is %q; restore requires matching major.minor versions",
+			metadata.Version,
+			currentVersion,
+		)
+	}
+	return nil
+}
+
 // verifyChecksum reads the SHA256 checksum file at archivePath+".sha256",
 // computes the SHA256 digest of the archive file, and returns an error if the
 // checksum file is missing, unreadable, malformed, or the digest does not match.
