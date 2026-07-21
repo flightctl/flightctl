@@ -1,6 +1,7 @@
 package rootless_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,6 +13,12 @@ import (
 
 // Rootless tests require a quadlet-capable VM (e.g. make deploy-quadlets-vm), same as quadlet tests.
 // Standard e2e VMs use podman-compose agent and do not support quadlet/rootless applications.
+
+// containerCandidateLabel marks specs that never reboot the device, so BeforeEach below gives
+// them a container-backed device instead of a libvirt VM - see the
+// container-backed-device-migration plan. The suite's other spec (checkpoint 87844) reboots the
+// device mid-test and must stay on a VM.
+const containerCandidateLabel = "container-candidate"
 
 func TestRootless(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -32,7 +39,12 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	var err error
+	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
 	Expect(err).ToNot(HaveOccurred())
