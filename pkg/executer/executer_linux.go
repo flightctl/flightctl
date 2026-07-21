@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -70,7 +71,11 @@ func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout str
 	if err := cmd.Run(); err != nil {
 		// handle timeout error
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return stdoutBytes.String(), context.DeadlineExceeded.Error(), 124
+			stderr := strings.TrimSpace(stderrBytes.String())
+			if stderr == "" {
+				stderr = context.DeadlineExceeded.Error()
+			}
+			return stdoutBytes.String(), stderr, 124
 		}
 		return stdoutBytes.String(), getErrorStr(err, &stderrBytes), getExitCode(err)
 	}
