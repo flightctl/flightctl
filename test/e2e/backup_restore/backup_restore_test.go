@@ -42,47 +42,42 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", e2e.NeedVMLabel), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needdevice"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
-			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
+			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has VM from BeforeEach (workerID). Create two more harnesses with
-			// VMs 1001, 1002. Each involves a full cold VM boot + pristine snapshot creation (~110-150s)
-			// keyed on its own worker ID, with no shared state beyond the VM pool's map (see
-			// VMPool.GetVMForWorker in vm_pool.go, which only holds its mutex for the map access, not
-			// for the boot itself) - so run the two setups concurrently instead of paying both costs
-			// sequentially.
+			// Main harness already has a device from BeforeEach (workerID). Create two more harnesses
+			// with their own devices. These devices only ever get their OS image spec compared, never
+			// actually applied via a real bootc switch/reboot, so container-backed devices are
+			// sufficient here. Setup is independent per worker ID — run concurrently.
 			workerID2 := GinkgoParallelProcess()*100 + 1
 			workerID3 := GinkgoParallelProcess()*100 + 2
 			var harness2, harness3 *e2e.Harness
 			g, _ := errgroup.WithContext(ctx)
 			g.Go(func() error {
 				var err error
-				harness2, err = e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+				harness2, err = e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 				if err != nil {
 					return err
 				}
 				harness2.SetTestContext(harness.GetTestContext())
-				return harness2.SetupVMFromPoolAndStartAgent(workerID2)
+				return harness2.SetupContainerFromPoolAndStartAgent(workerID2)
 			})
 			g.Go(func() error {
 				var err error
-				harness3, err = e2e.NewTestHarnessWithVMPool(ctx, workerID3)
+				harness3, err = e2e.NewTestHarnessWithContainerPool(ctx, workerID3)
 				if err != nil {
 					return err
 				}
 				harness3.SetTestContext(harness.GetTestContext())
-				return harness3.SetupVMFromPoolAndStartAgent(workerID3)
+				return harness3.SetupContainerFromPoolAndStartAgent(workerID3)
 			})
 			setupErr := g.Wait()
-			// Register cleanup for whichever harnesses came up, regardless of the other's outcome,
-			// mirroring the sequential code's "only clean up what was actually set up" behavior. A
-			// harness can be non-nil but only partially set up (NewTestHarnessWithVMPool succeeded,
-			// SetupVMFromPoolAndStartAgent failed), so key cleanup on non-nil rather than full readiness.
+			// Register cleanup for whichever harnesses came up, regardless of the other's outcome.
 			if harness2 != nil {
 				DeferCleanup(func() {
 					harness2.PrintAgentLogsIfFailed()
@@ -307,17 +302,17 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", e2e.NeedVMLabel), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needdevice"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+			harness2, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 			Expect(err).ToNot(HaveOccurred())
 			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
+			Expect(harness2.SetupContainerFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()
