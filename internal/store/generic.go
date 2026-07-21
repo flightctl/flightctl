@@ -71,24 +71,30 @@ func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
 }
 
 func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {
-	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil)
+	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, ModeCreateOnly, nil)
 	return updated, err
 }
 
+// fromAPI is accepted for interface compatibility with callers across all domain stores
+// but is no longer used internally; ownership/ACL enforcement for this resource has moved
+// to the service layer. Other domain stores still thread fromAPI through until their own
+// service-layer migration lands.
 func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
+	_ = fromAPI
 	updated, before, _, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeUpdateOnly, validationCallback)
 	})
 	return updated, before, err
 }
 
 func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
+	_ = fromAPI
 	return retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeCreateOrUpdate, validationCallback)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, bool, error) {
 	if resource == nil {
 		return nil, nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -140,7 +146,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 	if !exists {
 		retry, err = s.createResource(ctx, modelInst)
 	} else {
-		retry, err = s.updateResource(ctx, fromAPI, existing, modelInst, fieldsToUnset)
+		retry, err = s.updateResource(ctx, existing, modelInst, fieldsToUnset)
 	}
 	if err != nil {
 		return nil, existingAPIResource, creating, retry, err
@@ -181,9 +187,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	return false, nil
 }
 
-func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
-	_ = fromAPI
-
+func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, existing, resource P, fieldsToUnset []string) (bool, error) {
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
 		// Update the generation if the spec was updated
