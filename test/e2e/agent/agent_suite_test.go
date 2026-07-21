@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// containerCandidateLabel marks specs (via their outer Describe) that never switch the device's
+// OS image or reboot it, so BeforeEach below gives them a container-backed device instead of a
+// libvirt VM - see the container-backed-device-migration plan. Most of this suite's specs do
+// depend on real OS-switch/reboot semantics and must stay on VMs; only a few files opt in.
+const containerCandidateLabel = "container-candidate"
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
@@ -78,8 +85,13 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		// Get a pristine container device from the pool and start the agent
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		// Setup VM from pool, revert to pristine snapshot, and start agent
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
