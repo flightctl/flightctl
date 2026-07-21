@@ -56,7 +56,7 @@ jobs:
         run: echo "BUILDAH_CACHE_PATH=${TMPDIR:-/var/tmp}/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
 
       - name: Restore buildah cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
@@ -157,7 +157,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save buildah cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: github.ref == 'refs/heads/main'
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
@@ -227,7 +227,7 @@ jobs:
 
       - name: Restore Go cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -254,7 +254,7 @@ jobs:
           retention-days: 1
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         # Same key across every PR/branch (hashFiles('**/go.sum') rarely changes), but Actions
         # cache save is scoped per-ref, so an unconditional save here leaves one throwaway
         # ~1GB copy behind per PR/branch that nothing else can ever restore from and nothing
@@ -288,7 +288,7 @@ jobs:
 
       - name: Restore Go cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -315,7 +315,7 @@ jobs:
           retention-days: 1
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         # See the "Save Go cache" step in build-cli above for why this is main-only and
         # skips on cache-hit.
         if: always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true'
@@ -342,7 +342,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
