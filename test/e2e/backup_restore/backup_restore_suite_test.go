@@ -39,7 +39,8 @@ func TestBackupRestore(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	// Most specs only exercise backup/restore binaries against the cluster; VM pool is started on demand for needvm specs.
+	// Most specs only exercise backup/restore binaries against the cluster; a device is started
+	// on demand for needdevice specs.
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	auxSvcs = auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
@@ -55,8 +56,12 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	if slices.Contains(CurrentSpecReport().Labels(), "needvm") {
-		err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// These specs only need a device present to enroll/observe via the API (fleet rollout, RV
+	// comparisons) - the OS image on the fleet spec is only ever compared, never actually applied
+	// via a real bootc switch/reboot - so a container-backed device is sufficient (see the
+	// container-backed-device-migration plan).
+	if slices.Contains(CurrentSpecReport().Labels(), "needdevice") {
+		err := harness.SetupContainerFromPoolAndStartAgent(workerID)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
