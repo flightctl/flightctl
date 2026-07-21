@@ -28,7 +28,10 @@ var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(ctx)
 
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	// This suite only exercises fleet parameter template rendering on the device - it never
+	// switches the device's OS image or reboots it, so it doesn't need a real VM (see the
+	// container-backed-device-migration plan). Use a container-backed device instead.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 
 	auxSvcs = auxFuture.Wait()
 	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
@@ -58,8 +61,8 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Get a pristine container device from the pool and start the agent
+	err := harness.SetupContainerFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
