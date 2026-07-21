@@ -156,10 +156,32 @@ func (c *ContainerDevice) Run() error {
 	c.container = ct
 	c.started = true
 
+	if err := c.fixShadowPermissionsLocked(); err != nil {
+		logrus.Warnf("failed to fix /etc/shadow permissions in %s (sudo calls may fail): %v", c.cfg.Name, err)
+	}
+
 	if err := c.updateCATrustLocked(); err != nil {
 		logrus.Warnf("update-ca-trust inside %s failed (registry pulls may fail if a custom CA was injected): %v", c.cfg.Name, err)
 	}
 	return nil
+}
+
+// fixShadowPermissionsLocked works around a sudo/PAM failure specific to running this bootc image
+// as a plain container instead of booting it as a real VM: /etc/shadow ships mode 0000 (typical
+// for RHEL/CentOS Stream images, relying on callers having the CAP_DAC_READ_SEARCH/CAP_DAC_OVERRIDE
+// effective capability to read it), but sudo's account phase reads it through the setuid-root
+// unix_chkpwd helper, whose effective capability set is computed fresh from its own file
+// capabilities on exec - not inherited from the caller - so it ends up with none, regardless of
+// this container being --privileged (bounding-set capabilities from --privileged don't propagate
+// into a setuid exec's effective set either). The result is every "sudo ..." call (the same ones
+// the VM/SSH path already runs unmodified as the non-root "user" account) failing with "PAM
+// account management error: Authentication service cannot retrieve authentication info" before
+// even reaching the command. See https://github.com/linux-pam/linux-pam/issues/876. Loosening
+// /etc/shadow to normal owner-read permissions (as most non-RHEL distros ship it) sidesteps the
+// capability requirement entirely. Must be called with c.mu held and c.container set.
+func (c *ContainerDevice) fixShadowPermissionsLocked() error {
+	_, err := c.runExecWithUserContext(context.Background(), []string{"chmod", "0600", "/etc/shadow"}, nil, "")
+	return err
 }
 
 // updateCATrustLocked runs update-ca-trust inside the container when a CA anchor file was
