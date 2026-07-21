@@ -144,7 +144,7 @@ Database migrations are handled by dedicated tools and jobs:
 
 #### Helm Migration Configuration
 
-Helm install and upgrade use the same pre-install/pre-upgrade hooks for migration validation and execution:
+Helm install and upgrade use the same `pre-install` and `pre-upgrade` hooks for migration validation and execution:
 
 ```yaml
 # In values.yaml or via --set
