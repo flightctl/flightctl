@@ -41,20 +41,23 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needvm"), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needdevice"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
-			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
+			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has VM from BeforeEach (workerID). Create two more harnesses with VMs 1001, 1002.
+			// Main harness already has a device from BeforeEach (workerID). Create two more harnesses
+			// with their own devices. These devices only ever get their OS image spec compared, never
+			// actually applied via a real bootc switch/reboot, so container-backed devices are
+			// sufficient here (see the container-backed-device-migration plan).
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+			harness2, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 			Expect(err).ToNot(HaveOccurred())
 			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
+			Expect(harness2.SetupContainerFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()
@@ -62,10 +65,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})
 			workerID3 := GinkgoParallelProcess()*100 + 2
-			harness3, err := e2e.NewTestHarnessWithVMPool(ctx, workerID3)
+			harness3, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID3)
 			Expect(err).ToNot(HaveOccurred())
 			harness3.SetTestContext(harness.GetTestContext())
-			Expect(harness3.SetupVMFromPoolAndStartAgent(workerID3)).To(Succeed())
+			Expect(harness3.SetupContainerFromPoolAndStartAgent(workerID3)).To(Succeed())
 			DeferCleanup(func() {
 				harness3.PrintAgentLogsIfFailed()
 				harness3.CaptureDeploymentLogsIfFailed()
@@ -279,17 +282,17 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needvm"), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needdevice"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+			harness2, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 			Expect(err).ToNot(HaveOccurred())
 			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
+			Expect(harness2.SetupContainerFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()
