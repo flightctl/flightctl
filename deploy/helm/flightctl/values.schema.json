@@ -966,6 +966,33 @@
             "endpoint": { "type": "string" },
             "insecure": { "type": "boolean" }
           }
+        },
+        "profiling": {
+          "type": "object",
+          "description": "Optional pprof and/or Pyroscope profiling for long-running services",
+          "additionalProperties": false,
+          "properties": {
+            "pprof": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "port": { "type": "integer", "description": "Optional loopback pprof port override for a single process" }
+              }
+            },
+            "pyroscope": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "serverAddress": { "type": "string" },
+                "applicationName": { "type": "string" },
+                "basicAuthUser": { "type": "string" },
+                "basicAuthPassword": { "type": "string" },
+                "tenantID": { "type": "string" }
+              }
+            }
+          }
         }
       }
     }
