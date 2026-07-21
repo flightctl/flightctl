@@ -31,6 +31,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -199,7 +200,7 @@ func main() {
 			logger.Fatalf("Failed to shut down tracer: %v", err)
 		}
 	}()
-	instpprof.StartInBackground(ctx, logger, cfg.ProfilingEnabled(), cfg.ProfilingPort(instpprof.DefaultPortAlertmanagerProxy))
+	profiling.Start(ctx, logger, cfg, "flightctl-alertmanager-proxy", instpprof.DefaultPortAlertmanagerProxy)
 
 	if err := encryption.InitGlobalEncryption(logger, cfg); err != nil {
 		logger.Fatalf("initializing encryption: %v", err)

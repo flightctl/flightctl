@@ -607,9 +607,15 @@ type TracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
-// ProfilingConfig enables the loopback-only Go pprof HTTP server for CPU/heap profiles.
-// Disabled by default. When enabled without Port, each process uses its own default port.
+// ProfilingConfig selects how continuous/on-demand profiling is started.
+// pprof and pyroscope are independent; either, both, or neither may be enabled.
 type ProfilingConfig struct {
+	Pprof     *PprofProfilingConfig     `json:"pprof,omitempty"`
+	Pyroscope *PyroscopeProfilingConfig `json:"pyroscope,omitempty"`
+}
+
+// PprofProfilingConfig starts the loopback-only Go net/http/pprof server.
+type PprofProfilingConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Port is the loopback TCP port for /debug/pprof (127.0.0.1 only).
 	// If unset or zero, each process uses its own default (see docs). Do not set
@@ -617,17 +623,40 @@ type ProfilingConfig struct {
 	Port int `json:"port,omitempty"`
 }
 
-// ProfilingEnabled reports whether service pprof profiling is turned on.
-func (c *Config) ProfilingEnabled() bool {
-	return c != nil && c.Profiling != nil && c.Profiling.Enabled
+// PyroscopeProfilingConfig pushes profiles to a Grafana Pyroscope server.
+type PyroscopeProfilingConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// ServerAddress is required when enabled (e.g. "http://pyroscope:4040").
+	ServerAddress string `json:"serverAddress,omitempty"`
+	// ApplicationName overrides the process name sent to Pyroscope. When empty,
+	// each binary uses its own default (e.g. "flightctl-worker").
+	ApplicationName string `json:"applicationName,omitempty"`
+	// BasicAuthUser / BasicAuthPassword are optional (e.g. Grafana Cloud).
+	BasicAuthUser     string           `json:"basicAuthUser,omitempty"`
+	BasicAuthPassword api.SecureString `json:"basicAuthPassword,omitempty"`
+	// TenantID is optional multi-tenant Pyroscope header.
+	TenantID string `json:"tenantID,omitempty"`
 }
 
-// ProfilingPort returns the configured pprof port, or defaultPort when unset.
-func (c *Config) ProfilingPort(defaultPort int) int {
-	if c != nil && c.Profiling != nil && c.Profiling.Port > 0 {
-		return c.Profiling.Port
+// PprofProfilingEnabled reports whether the loopback pprof server should start.
+func (c *Config) PprofProfilingEnabled() bool {
+	return c != nil && c.Profiling != nil && c.Profiling.Pprof != nil && c.Profiling.Pprof.Enabled
+}
+
+// PprofProfilingPort returns the configured pprof port, or defaultPort when unset.
+func (c *Config) PprofProfilingPort(defaultPort int) int {
+	if c != nil && c.Profiling != nil && c.Profiling.Pprof != nil && c.Profiling.Pprof.Port > 0 {
+		return c.Profiling.Pprof.Port
 	}
 	return defaultPort
+}
+
+// PyroscopeProfilingConfig returns the pyroscope block when enabled, otherwise nil.
+func (c *Config) PyroscopeProfilingConfig() *PyroscopeProfilingConfig {
+	if c == nil || c.Profiling == nil || c.Profiling.Pyroscope == nil || !c.Profiling.Pyroscope.Enabled {
+		return nil
+	}
+	return c.Profiling.Pyroscope
 }
 
 type gitOpsConfig struct {

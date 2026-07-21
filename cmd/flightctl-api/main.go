@@ -21,6 +21,7 @@ import (
 	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -69,7 +70,7 @@ func main() {
 	}()
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	instpprof.StartInBackground(ctx, log, cfg.ProfilingEnabled(), cfg.ProfilingPort(instpprof.DefaultPortAPI))
+	profiling.Start(ctx, log, cfg, "flightctl-api", instpprof.DefaultPortAPI)
 
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)

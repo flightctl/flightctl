@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/pam_issuer_server"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -82,7 +83,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
-	instpprof.StartInBackground(ctx, log, cfg.ProfilingEnabled(), cfg.ProfilingPort(instpprof.DefaultPortPAMIssuer))
+	profiling.Start(ctx, log, cfg, "flightctl-pam-issuer", instpprof.DefaultPortPAMIssuer)
 
 	userdbDir := os.Getenv("USERDB_DIR")
 	if userdbDir == "" {
