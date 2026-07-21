@@ -122,6 +122,15 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
+	// Podman's insecure-registry config above is only read by the podman/skopeo CLI. On runners
+	// where testcontainers-go's docker client talks to an actual Docker daemon (not podman's
+	// docker-compatible socket) - e.g. pulling the flightctl-agent image directly from this
+	// registry for a ContainerDevice - the TLS handshake happens daemon-side, so it needs this
+	// registry's CA trusted the Docker way instead: a cert dropped in /etc/docker/certs.d, no
+	// daemon restart required. Harmless (and a no-op) on hosts with no Docker daemon at all.
+	if err := configureDockerRegistryTrust(r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
+		logrus.Warnf("Failed to configure Docker registry trust: %v", err)
+	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
 	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
@@ -316,6 +325,23 @@ func ensureRegistryCerts() (string, error) {
 	certFile.Close()
 	logrus.Infof("Generated registry certificate in %s (IP: %s)", certDir, hostIP)
 	return certDir, nil
+}
+
+// configureDockerRegistryTrust installs caCertPath as a trusted CA for registryURL under
+// /etc/docker/certs.d, the standard per-registry cert-trust mechanism Docker's daemon reads on
+// every pull - no daemon.json edit or daemon restart needed. Mirrors what
+// inject_agent_files_into_qcow.sh/buildAgentIdentityFiles already do for podman's equivalent
+// /etc/containers/certs.d inside VM/container-backed devices; this covers the host-side Docker
+// daemon pulling the device image itself (see ContainerDevice.Run).
+func configureDockerRegistryTrust(registryURL, caCertPath string) error {
+	certsDir := filepath.Join("/etc/docker/certs.d", registryURL)
+	if err := exec.Command("sudo", "mkdir", "-p", certsDir).Run(); err != nil { //nolint:gosec // G204: certsDir is built from our own registry URL/constants, not external input.
+		return fmt.Errorf("failed to create %s: %w", certsDir, err)
+	}
+	if err := exec.Command("sudo", "cp", caCertPath, filepath.Join(certsDir, "ca.crt")).Run(); err != nil { //nolint:gosec // G204: paths are our own registry cert path/constants, not external input.
+		return fmt.Errorf("failed to install CA cert into %s: %w", certsDir, err)
+	}
+	return nil
 }
 
 func configureInsecureRegistry(registryURL string) error {
