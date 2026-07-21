@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 )
@@ -79,7 +80,7 @@ func logDiagnostic(format string, args ...interface{}) {
 // same process) - only the first call actually starts the monitor.
 func (r *Registry) startHealthMonitor(ctx context.Context) {
 	registryHealthMonitorOnce.Do(func() {
-		r.runHealthMonitor(ctx)
+		r.runHealthMonitor(ctx, fmt.Sprintf("reused=%v", r.Reused))
 	})
 }
 
@@ -107,11 +108,38 @@ func StartStandaloneRegistryHealthMonitor(ctx context.Context) {
 		Username: defaultAuthUsername,
 		Password: defaultAuthPassword,
 	}
-	r.startHealthMonitor(ctx)
+	registryHealthMonitorOnce.Do(func() {
+		r.runHealthMonitor(ctx, "reused=unknown (standalone caller, doesn't call Registry.Start)")
+	})
 }
 
-func (r *Registry) runHealthMonitor(ctx context.Context) {
-	logDiagnostic("monitor started url=%s host=%s port=%s reused=%v", r.URL, r.Host, r.Port, r.Reused)
+// inspectContainerRuntime runs ps/port against a specific CLI (docker or podman)
+// regardless of which one containerRuntimeCLIName() would pick for this process, and
+// regardless of whether that binary/socket is even reachable (a failure here - e.g.
+// "Cannot connect to the Docker daemon" - is itself useful signal, not just a missing
+// container). See the comment on the DOCKER_HOST log line above for why both matter.
+func inspectContainerRuntime(cli string) {
+	nameFilter := func(name string) string { return containers.NamePSFilter(cli, name) }
+	if out, cmdErr := exec.Command(cli, "ps", "-a", //nolint:gosec // cli is a fixed literal ("docker"/"podman"); container names are fixed package constants
+		"--filter", nameFilter(registryContainerName),
+		"--filter", nameFilter(privateRegistryContainerName),
+		"--format", "{{.Names}} {{.Status}}").CombinedOutput(); cmdErr != nil {
+		logDiagnostic("%s ps failed: %v output=%s", cli, cmdErr, strings.TrimSpace(string(out)))
+	} else {
+		logDiagnostic("%s ps: %s", cli, strings.TrimSpace(string(out)))
+	}
+
+	for _, name := range []string{registryContainerName, privateRegistryContainerName} {
+		if out, cmdErr := exec.Command(cli, "port", name).CombinedOutput(); cmdErr != nil { //nolint:gosec // see above
+			logDiagnostic("%s port %s failed: %v output=%s", cli, name, cmdErr, strings.TrimSpace(string(out)))
+		} else {
+			logDiagnostic("%s port %s: %s", cli, name, strings.TrimSpace(string(out)))
+		}
+	}
+}
+
+func (r *Registry) runHealthMonitor(ctx context.Context, sourceLabel string) {
+	logDiagnostic("monitor started url=%s host=%s port=%s %s", r.URL, r.Host, r.Port, sourceLabel)
 
 	go func() {
 		client := &http.Client{
@@ -121,7 +149,15 @@ func (r *Registry) runHealthMonitor(ctx context.Context) {
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		}
-		cli := containerRuntimeCLIName()
+		// This process's selected runtime (whatever ConfigureDockerHost's socket probe
+		// found *in this process*, see docker_host.go). Rootless podman's per-user socket
+		// (/run/user/$UID/podman/podman.sock) can be transiently undetectable to a given
+		// process (e.g. XDG_RUNTIME_DIR not inherited, session timing) even while the
+		// container is alive and well under Podman - in which case this process would
+		// silently fall back to querying the real, unrelated dockerd and see nothing.
+		// So probe both CLIs unconditionally below rather than trusting this selection.
+		logDiagnostic("env DOCKER_HOST=%s XDG_RUNTIME_DIR=%s selected_cli=%s",
+			os.Getenv("DOCKER_HOST"), os.Getenv("XDG_RUNTIME_DIR"), containerRuntimeCLIName())
 		deadline := time.Now().Add(registryHealthCheckDuration)
 
 		probe := func(name, url string, withAuth bool) {
@@ -157,25 +193,10 @@ func (r *Registry) runHealthMonitor(ctx context.Context) {
 				probe("registry-auth", fmt.Sprintf("https://%s/v2/", r.Authenticated.HostPort), true)
 			}
 
-			if out, cmdErr := exec.Command(cli, "ps", "-a", //nolint:gosec // cli is podman|docker; container names are fixed package constants
-				"--filter", "name=^"+registryContainerName+"$",
-				"--filter", "name=^"+privateRegistryContainerName+"$",
-				"--format", "{{.Names}} {{.Status}}").CombinedOutput(); cmdErr != nil {
-				logDiagnostic("%s ps failed: %v output=%s", cli, cmdErr, strings.TrimSpace(string(out)))
-			} else {
-				logDiagnostic("%s ps: %s", cli, strings.TrimSpace(string(out)))
-			}
-
-			if out, cmdErr := exec.Command(cli, "port", registryContainerName).CombinedOutput(); cmdErr != nil { //nolint:gosec // see above
-				logDiagnostic("%s port %s failed: %v output=%s", cli, registryContainerName, cmdErr, strings.TrimSpace(string(out)))
-			} else {
-				logDiagnostic("%s port %s: %s", cli, registryContainerName, strings.TrimSpace(string(out)))
-			}
-
-			if out, cmdErr := exec.Command(cli, "port", privateRegistryContainerName).CombinedOutput(); cmdErr != nil { //nolint:gosec // see above
-				logDiagnostic("%s port %s failed: %v output=%s", cli, privateRegistryContainerName, cmdErr, strings.TrimSpace(string(out)))
-			} else {
-				logDiagnostic("%s port %s: %s", cli, privateRegistryContainerName, strings.TrimSpace(string(out)))
+			// Query both CLIs explicitly (not just containerRuntimeCLIName()'s pick) -
+			// see the comment above logDiagnostic("env DOCKER_HOST=...") for why.
+			for _, cli := range []string{"docker", "podman"} {
+				inspectContainerRuntime(cli)
 			}
 		}
 
