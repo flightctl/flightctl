@@ -88,25 +88,29 @@ helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} --namespa
 
 ### Upgrade Chart
 
-{{ .Name | title }} uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
+{{ .Name | title }} uses Helm **pre-install/pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
-2. **Migration dry-run** — validates database migrations to catch issues early.
-3. **Database migration (expand-only)** — applies backward-compatible schema changes.
-4. **Service update & restart** — workloads are updated to the new spec and rolled out.
+1. **Password Secrets** — chart-managed DB/KV Secrets are created only if missing (existing passwords are never rotated).
+2. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown (when the scale-down condition matches).
+3. **Migration dry-run** — validates database migrations to catch issues early.
+4. **Database migration (expand-only)** — applies backward-compatible schema changes.
+5. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
 Example upgrade hooks configuration:
 
 ```yaml
 upgradeHooks:
   scaleDown:
+    # "chart" (default): scale only when Deployments are visible and helm.sh/chart changed.
+    # Use "always" when cluster state is not available at template time.
+    condition: chart
     deployments:
       - flightctl-api
       - flightctl-worker
   databaseMigrationDryRun: true  # default true
 ```
 
-Note: On fresh installs, migrations run as a regular Job (not a hook).
+Note: Database migrations always run as `pre-install,pre-upgrade` hooks (install and upgrade).
 
 Basic upgrade command:
 

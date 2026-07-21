@@ -601,8 +601,8 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- /*
 Determine whether to use externalCertificate on edge-terminated routes.
 Returns: "true" or "false"
-- "auto" (default): use on fresh install; on upgrade, preserve existing behavior
-  by checking whether the specified route already has externalCertificate set.
+- "auto" (default): true when the Route is missing (or lookup is unavailable);
+  when the Route exists, preserve whether externalCertificate is already set.
 - "true": always use
 - "false": never use
 Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui") }}
@@ -616,15 +616,13 @@ Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict 
   {{- else if eq $val "false" }}
     {{- print "false" }}
   {{- else }}
-    {{- if $root.Release.IsInstall }}
+    {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
+    {{- if not $existingRoute }}
+      {{- print "true" }}
+    {{- else if and $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
       {{- print "true" }}
     {{- else }}
-      {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
-      {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
-        {{- print "true" }}
-      {{- else }}
-        {{- print "false" }}
-      {{- end }}
+      {{- print "false" }}
     {{- end }}
   {{- end }}
 {{- end }}
@@ -854,26 +852,22 @@ auth:
 {{- end }}
 
 {{- /*
-Ensure image names are OS-qualified for backward compatibility during helm upgrades.
-This helper migrates non-OS-qualified image names (from main branch) to OS-qualified names (PR branch).
+Ensure image names are OS-qualified.
+Migrates non-OS-qualified image names to OS-qualified names.
 For example: quay.io/flightctl/flightctl-api -> quay.io/flightctl/flightctl-api-el9
 
 Usage: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.api.image.image) }}
 */}}
 {{- define "flightctl.ensureOsQualifiedImage" -}}
-  {{- $root := .root -}}
   {{- $imageName := .imageName -}}
 
-  {{- /* Apply only for upgrades */ -}}
-  {{- if $root.Release.IsUpgrade -}}
-    {{- if hasPrefix "quay.io/flightctl/" $imageName -}}
-      {{- if not (or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName)) -}}
-        {{- $imageName = printf "%s-el9" $imageName -}}
-      {{- end -}}
-    {{- else if hasPrefix "registry.redhat.io/rhem/" $imageName -}}
-      {{- if not (or (hasSuffix "-rhel9" $imageName) (hasSuffix "-rhel10" $imageName)) -}}
-        {{- $imageName = printf "%s-rhel9" $imageName -}}
-      {{- end -}}
+  {{- if hasPrefix "quay.io/flightctl/" $imageName -}}
+    {{- if not (or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName)) -}}
+      {{- $imageName = printf "%s-el9" $imageName -}}
+    {{- end -}}
+  {{- else if hasPrefix "registry.redhat.io/rhem/" $imageName -}}
+    {{- if not (or (hasSuffix "-rhel9" $imageName) (hasSuffix "-rhel10" $imageName)) -}}
+      {{- $imageName = printf "%s-rhel9" $imageName -}}
     {{- end -}}
   {{- end -}}
 

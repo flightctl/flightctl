@@ -559,7 +559,7 @@ vulnerabilityReporting:
 # -- Upgrade hooks
 upgradeHooks:
   scaleDown:
-    # -- When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed.
+    # -- When to run scale-down job: "always", "never", or "chart" (default). "chart" scales only when Deployments are visible at render time and their helm.sh/chart label changed. Use "always" when cluster state is not available during templating.
     condition: chart
     # -- List of Deployments to scale down in order
     deployments:
@@ -567,5 +567,5 @@ upgradeHooks:
       - flightctl-worker
     # -- Timeout in seconds to wait for rollout per Deployment
     timeoutSeconds: 120
-  # -- Enable pre-upgrade DB migration dry-run as a hook
+  # -- Enable DB migration dry-run as a pre-install/pre-upgrade hook
   databaseMigrationDryRun: true

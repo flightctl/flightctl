@@ -61,25 +61,29 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace f
 
 ### Upgrade Chart
 
-Flightctl uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
+Flightctl uses Helm **pre-install/pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
 
-1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
-2. **Migration dry-run** — validates database migrations to catch issues early.
-3. **Database migration (expand-only)** — applies backward-compatible schema changes.
-4. **Service update & restart** — workloads are updated to the new spec and rolled out.
+1. **Password Secrets** — chart-managed DB/KV Secrets are created only if missing (existing passwords are never rotated).
+2. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown (when the scale-down condition matches).
+3. **Migration dry-run** — validates database migrations to catch issues early.
+4. **Database migration (expand-only)** — applies backward-compatible schema changes.
+5. **Service update & restart** — workloads are updated to the new spec and rolled out.
 
 Example upgrade hooks configuration:
 
 ```yaml
 upgradeHooks:
   scaleDown:
+    # "chart" (default): scale only when Deployments are visible and helm.sh/chart changed.
+    # Use "always" when cluster state is not available at template time.
+    condition: chart
     deployments:
       - flightctl-api
       - flightctl-worker
   databaseMigrationDryRun: true  # default true
 ```
 
-Note: On fresh installs, migrations run as a regular Job (not a hook).
+Note: Database migrations always run as `pre-install,pre-upgrade` hooks (install and upgrade).
 
 Basic upgrade command:
 
@@ -425,8 +429,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
-| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
-| upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
+| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable DB migration dry-run as a pre-install/pre-upgrade hook |
+| upgradeHooks.scaleDown.condition | string | `"chart"` | When to run scale-down job: "always", "never", or "chart" (default). "chart" scales only when Deployments are visible at render time and their helm.sh/chart label changed. Use "always" when cluster state is not available during templating. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | vulnerabilityReporting | object | `{"enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |

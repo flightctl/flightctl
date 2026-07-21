@@ -138,24 +138,24 @@ The quadlet deployment includes integrated user setup and migration:
 
 Database migrations are handled by dedicated tools and jobs:
 
-- **Helm**: Install runs a regular migration Job; upgrade runs a pre-upgrade dry-run first, then the migration Job if validation succeeds
+- **Helm**: Migrations run as `pre-install,pre-upgrade` hooks. When dry-run is enabled, a dry-run Job runs first, then the migration Job
 - **Quadlet deployments**: Migration runs during the deployment script
 - **Manual deployments**: Use the `flightctl-db-migrate` command
 
 #### Helm Migration Configuration
 
-Helm upgrades use pre-upgrade hooks for migration validation and execution:
+Helm install and upgrade use the same pre-install/pre-upgrade hooks for migration validation and execution:
 
 ```yaml
 # In values.yaml or via --set
 upgradeHooks:
-  databaseMigrationDryRun: true  # Enable pre-upgrade migration dry-run (default: true)
+  databaseMigrationDryRun: true  # Enable migration dry-run hook (default: true)
 ```
 
 **Migration Execution Order**:
 
-1. Pre-upgrade hook: migration dry-run (validation only). Any failure aborts the upgrade.
-2. Pre-upgrade hook: actual migration (expand-only/backward-compatible).
+1. Hook: migration dry-run (validation only), when `databaseMigrationDryRun` is true. Any failure aborts the release.
+2. Hook: actual migration (expand-only/backward-compatible).
 3. Helm applies the rest of the release changes.
 
 ### Manual Migration
