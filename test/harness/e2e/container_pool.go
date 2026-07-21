@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
@@ -154,23 +155,33 @@ func (p *ContainerPool) CleanupAll() error {
 }
 
 // GetContainerDeviceImage resolves the flightctl-agent bootc image to run for container-backed
-// devices: the same image test/scripts/agent-images/scripts/build.sh builds for the qcow2 (tagged
-// "${IMAGE_REPO}:base-${OS_ID}"), but pointed at the local registry mirror - see
-// copyImageFromBundle in test/e2e/infra/auxiliary/images.go, which is what actually pushes it
-// there during CI (registry host swapped in, image path/tag unchanged).
+// devices: the same "base" image test/scripts/agent-images/scripts/build.sh builds for the qcow2,
+// but pointed at the local registry mirror - see copyImageFromBundle in
+// test/e2e/infra/auxiliary/images.go, which is what actually pushes it there during CI (registry
+// host swapped in, image path/tag unchanged).
 //
-// Override with E2E_CONTAINER_DEVICE_IMAGE for local runs, or if a shard's actual pushed tag
-// doesn't match this default (see the container-backed-device-migration plan's Phase 1 note about
-// this needing live-CI confirmation).
+// The tag isn't just "base-${OS_ID}": build_and_qcow2.sh's bundle filter only bundles/pushes the
+// base-${OS_ID}-${TAG} alias (TAG being a git-describe string not otherwise available to this test
+// binary), so the exact tag is read back out of the agent image bundle itself via
+// auxiliary.ResolveAgentDeviceImageTag - see its doc comment. Falls back to the bare "base-${OS_ID}"
+// guess (best-effort, may not exist in the registry) only if that resolution fails, e.g. the bundle
+// isn't present for some local dev setup.
+//
+// Override with E2E_CONTAINER_DEVICE_IMAGE for local runs to bypass all of this.
 func GetContainerDeviceImage() string {
 	if img := os.Getenv(e2eContainerDeviceImageEnv); img != "" {
 		return img
 	}
 	osID := os.Getenv(e2eContainerDeviceOSIDEnv)
-	if osID == "" {
-		osID = defaultContainerDeviceOSID
+	tag, err := auxiliary.ResolveAgentDeviceImageTag(osID)
+	if err != nil {
+		if osID == "" {
+			osID = defaultContainerDeviceOSID
+		}
+		tag = "base-" + osID
+		fmt.Printf("⚠️  [ContainerPool] Failed to resolve exact agent device image tag from bundle (%v); falling back to %q\n", err, tag)
 	}
-	return fmt.Sprintf("%s:%s/%s:base-%s", containers.GetHostIP(), registryHostPort, defaultContainerDeviceImageRepoPath, osID)
+	return fmt.Sprintf("%s:%s/%s:%s", containers.GetHostIP(), registryHostPort, defaultContainerDeviceImageRepoPath, tag)
 }
 
 // GetAgentIdentityDir returns the directory holding the agent's enrollment bootstrap config and
