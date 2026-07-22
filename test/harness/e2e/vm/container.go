@@ -412,7 +412,21 @@ func (c *ContainerDevice) execCommandWithUserContext(ctx context.Context, inputA
 		args = append(args, "-u", user)
 	}
 	args = append(args, c.cfg.Name)
-	args = append(args, inputArgs...)
+	if len(inputArgs) == 0 {
+		args = append(args, "bash")
+	} else {
+		// Run through a shell instead of exec'ing inputArgs directly: vm.go's runJournalLogs/
+		// runServiceLogs (and plenty of call sites like WaitForFileInDevice) build inputArgs that
+		// rely on shell features - command substitution ($(...)), quoting, multi-line scripts -
+		// which only work if something interprets them as shell syntax. Over the real-SSH path
+		// (TestVM), that's implicit: ssh concatenates multiple command-line arguments with spaces
+		// and hands the whole string to the remote login shell (see ssh(1)). `<runtime> exec`
+		// has no such implicit shell, so replicate the same concatenate-then-shell-interpret
+		// behavior explicitly here rather than exec'ing inputArgs[0] with literal argv strings
+		// (which left "$(...)" uninterpreted and quote characters passed through literally -
+		// e.g. journalctl receiving a literal `"2026-01-02 15:04:05"` and failing to parse it).
+		args = append(args, "sh", "-c", strings.Join(inputArgs, " "))
+	}
 	return exec.CommandContext(ctx, cli, args...) // #nosec G204 - test code with controlled inputs, mirrors vm.go's ssh command building
 }
 
