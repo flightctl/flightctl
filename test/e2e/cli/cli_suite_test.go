@@ -73,7 +73,10 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
+
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
@@ -82,7 +85,7 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	// Get a pristine container device from the pool and start the agent
-	err := harness.SetupContainerFromPoolAndStartAgent(workerID)
+	err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
