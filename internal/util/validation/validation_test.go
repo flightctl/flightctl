@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -105,6 +106,7 @@ func TestDenyForbiddenDevicePath(t *testing.T) {
 			err := DenyForbiddenDevicePath(tt.path)
 			if tt.wantErr {
 				require.Error(t, err)
+				require.True(t, errors.Is(err, ErrForbiddenDevicePath), "all rejections must wrap ErrForbiddenDevicePath")
 			} else {
 				require.NoError(t, err)
 			}

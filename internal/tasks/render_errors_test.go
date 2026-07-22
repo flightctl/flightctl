@@ -14,8 +14,6 @@ import (
 )
 
 func TestIsPermanentRenderError(t *testing.T) {
-	require := require.New(t)
-
 	tests := []struct {
 		name     string
 		err      error
@@ -54,6 +52,11 @@ func TestIsPermanentRenderError(t *testing.T) {
 		{
 			name:     "When error wraps ErrForbiddenDevicePath it should return true",
 			err:      fmt.Errorf("invalid path from git config: %w", validation.ErrForbiddenDevicePath),
+			expected: true,
+		},
+		{
+			name:     "When error is a relative-path rejection from DenyForbiddenDevicePath it should return true",
+			err:      fmt.Errorf("invalid path from git config: %w", validation.DenyForbiddenDevicePath("relative/path")),
 			expected: true,
 		},
 		{
@@ -130,6 +133,7 @@ func TestIsPermanentRenderError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			result := isPermanentRenderError(tt.err)
 			require.Equal(tt.expected, result)
 		})

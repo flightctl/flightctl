@@ -878,7 +878,7 @@ func TestRenderDevice_ExternalError_FleetOwned_NoAnnotations(t *testing.T) {
 	assert.Contains(t, err.Error(), "kubernetes API is not available")
 }
 
-func TestRenderDevice_NonPermanentAppError(t *testing.T) {
+func TestRenderDevice_PermanentAppError(t *testing.T) {
 	const deviceName = "app-error-device"
 	orgId := uuid.New()
 	ctrl := gomock.NewController(t)
@@ -897,6 +897,16 @@ func TestRenderDevice_NonPermanentAppError(t *testing.T) {
 	mockSvc := deviceservice.NewMockService(ctrl)
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+
+	specHash := hashRenderedWithSpec(device.Spec)
+	mockSvc.EXPECT().UpdateDeviceAnnotations(
+		gomock.Any(), orgId, deviceName,
+		map[string]string{
+			domain.DeviceAnnotationRenderedSpecHash: specHash,
+		},
+		gomock.Nil(),
+	).Return(statusOK)
+
 	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
@@ -905,7 +915,7 @@ func TestRenderDevice_NonPermanentAppError(t *testing.T) {
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid application")
+	assert.ErrorIs(t, err, ErrUnknownApplicationType)
 }
 
 func makeK8sSecretConfigItem(configName, namespace, name, mountPath string) domain.ConfigProviderSpec {

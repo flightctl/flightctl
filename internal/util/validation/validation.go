@@ -261,11 +261,11 @@ func ValidateFileOrDirectoryPath(s *string, path string) []error {
 func DenyForbiddenDevicePath(p string) error {
 	// Only single absolute Linux paths are allowed in rendered configs
 	if p == "" || !filepath.IsAbs(p) {
-		return fmt.Errorf("invalid device path (must be absolute): %q", p)
+		return fmt.Errorf("%w: path must be absolute: %q", ErrForbiddenDevicePath, p)
 	}
 	// Reject PATH-like lists which could alter semantics downstream
 	if strings.ContainsRune(p, ':') {
-		return fmt.Errorf("invalid device path (must not contain ':'): %q", p)
+		return fmt.Errorf("%w: path must not contain ':': %q", ErrForbiddenDevicePath, p)
 	}
 	clean := filepath.Clean(p)
 

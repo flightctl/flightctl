@@ -407,7 +407,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to get app type: %w", ErrUnknownApplicationType, err)
 	}
 
 	switch appType {
@@ -422,7 +422,7 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 	case domain.AppTypeVm:
 		vmApp, parseErr := (*app).AsVmApplication()
 		if parseErr != nil {
-			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, parseErr)
+			return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, parseErr)
 		}
 		appName := vmApp.Name
 		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, kvStore)
@@ -434,11 +434,11 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, err)
 	}
 	appName, err := (*app).GetName()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to get app name: %w", ErrUnknownApplicationType, err)
 	}
 	return appName, app, nil
 }
