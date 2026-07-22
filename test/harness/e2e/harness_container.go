@@ -129,6 +129,9 @@ func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) error {
 
 	var lastErr error
 	for attempt := 1; attempt <= flightctlAgentStartAttempts; attempt++ {
+		// Best-effort: clears a stale "failed" state from a previous attempt so systemctl start
+		// isn't blocked by StartLimitBurst; errors are ignored because reset-failed legitimately
+		// fails/no-ops when the unit was never in a failed state (e.g. the first attempt).
 		_, _ = device.RunSSH([]string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil)
 		_, err := device.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
 		if err == nil {
