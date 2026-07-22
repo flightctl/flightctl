@@ -74,6 +74,14 @@ func GetOrCreateContainerPool(config ContainerPoolConfig) *ContainerPool {
 
 // GetContainerForWorker returns a container-backed device for the given worker ID, creating it
 // on-demand if it doesn't exist.
+//
+// Note: creation for a cache miss happens below outside p.mutex (container startup is slow and
+// shouldn't block other workers' map lookups), so a CleanupWorkerContainer/CleanupAll call
+// targeting the same workerID could in principle finish while a device is being created here and
+// then get clobbered by this call's own p.devices[workerID] = newDevice below. Neither cleanup
+// method is actually called anywhere today (see their doc comments), so this window isn't
+// currently reachable; if a caller starts invoking them concurrently with worker startup, this
+// needs an in-flight-creation barrier shared with those methods.
 func (p *ContainerPool) GetContainerForWorker(workerID int) (vm.TestVMInterface, error) {
 	p.mutex.RLock()
 	if d, exists := p.devices[workerID]; exists {
@@ -130,22 +138,36 @@ func (p *ContainerPool) createContainerForWorker(workerID int) (vm.TestVMInterfa
 	return device, nil
 }
 
-// CleanupWorkerContainer removes the container device for a specific worker, if any.
+// CleanupWorkerContainer removes the container device for a specific worker, if any. The pool
+// entry is only dropped once ForceDelete actually succeeds - on failure the device is left
+// tracked so a retry (e.g. a later CleanupAll) still has a handle on it, instead of leaking a
+// container that then collides with the next creation attempt for the same deterministic name.
+//
+// Not currently called anywhere (RemoveContainerFromPool + the harness's own device.ForceDelete
+// is the actual per-worker cleanup path - see CleanupContainerFromPool in harness_container.go);
+// kept as the ContainerPool-level counterpart to VMPool's equivalent. See GetContainerForWorker's
+// doc comment for the concurrency caveat that applies if this starts being invoked while workers
+// are still starting up.
 func (p *ContainerPool) CleanupWorkerContainer(workerID int) error {
 	p.mutex.Lock()
 	d, exists := p.devices[workerID]
-	if exists {
-		delete(p.devices, workerID)
-	}
 	p.mutex.Unlock()
 
 	if !exists {
 		return nil
 	}
-	return d.ForceDelete()
+	if err := d.ForceDelete(); err != nil {
+		return err
+	}
+
+	p.mutex.Lock()
+	delete(p.devices, workerID)
+	p.mutex.Unlock()
+	return nil
 }
 
-// CleanupAll removes every container device in the pool.
+// CleanupAll removes every container device in the pool. Devices whose ForceDelete fails are kept
+// in the pool (see CleanupWorkerContainer) so a later retry can still find and delete them.
 func (p *ContainerPool) CleanupAll() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -155,9 +177,10 @@ func (p *ContainerPool) CleanupAll() error {
 		if err := d.ForceDelete(); err != nil {
 			lastErr = fmt.Errorf("failed to delete container device for worker %d: %w", workerID, err)
 			fmt.Printf("⚠️  [ContainerPool] Worker %d: %v\n", workerID, err)
+			continue
 		}
+		delete(p.devices, workerID)
 	}
-	p.devices = make(map[int]vm.TestVMInterface)
 	return lastErr
 }
 
