@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -27,7 +29,21 @@ var (
 	invalidResource      = "invalid resource kind"
 	strictfipsruntimeTag = "X:strictfipsruntime"
 	applyOperation       = "apply"
+	unsetDiagnosticValue = "<unset>"
 )
+
+var versionDiagnosticEnvVars = []string{
+	"BREW_BUILD_URL",
+	"FLIGHTCTL_RPM",
+	"RPM_COPR",
+	"SOURCE_GIT_TAG",
+	"SOURCE_GIT_COMMIT",
+	"FLIGHTCTL_NS",
+	"FLIGHTCTL_INTERNAL_NS",
+	"FLIGHTCTL_EXTERNAL_NS",
+	"E2E_ENVIRONMENT",
+	"API_ENDPOINT",
+}
 
 type fleetTestManager struct {
 	harness          *e2e.Harness
@@ -514,7 +530,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Flightctl Version Checks", func() {
-		It("should show matching client and server versions", Label("79621", "sanity", "rpm-sanity", "client"), func() {
+		It("should show matching agent and server versions", Label("79621", "sanity", "rpm-sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -530,7 +546,9 @@ var _ = Describe("cli operation", func() {
 			GinkgoWriter.Printf("Agent version: %s\n", agentVersion)
 
 			By("Comparing versions")
-			// Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
+			if agentVersion != serverVersion {
+				logVersionMismatchDiagnostics(harness, clientVersion, serverVersion, agentVersion)
+			}
 			Expect(agentVersion).To(Equal(serverVersion), "agent and server versions should match")
 		})
 
@@ -1502,6 +1520,48 @@ func ExpectCompletion(h CLIRunner, args []string, expected string) {
 	Expect(strings.Join(lines, "\n")).To(ContainSubstring(expected),
 		"expected completion %q for args: flightctl %s\nFull output:\n%s",
 		expected, strings.Join(args, " "), out)
+}
+
+func logVersionMismatchDiagnostics(harness *e2e.Harness, clientVersion, serverVersion, agentVersion string) {
+	GinkgoWriter.Printf("Version mismatch diagnostics:\n")
+	GinkgoWriter.Printf("  Client version: %s\n", clientVersion)
+	GinkgoWriter.Printf("  Server version: %s\n", serverVersion)
+	GinkgoWriter.Printf("  Agent version: %s\n", agentVersion)
+
+	agentVersionInfo, err := harness.GetAgentVersionInfo()
+	if err != nil {
+		GinkgoWriter.Printf("  Agent version details error: %v\n", err)
+	} else {
+		GinkgoWriter.Printf("  Agent Git commit: %s\n", valueOrUnset(agentVersionInfo.GitCommit))
+		GinkgoWriter.Printf("  Raw agent version output:\n%s\n", agentVersionInfo.RawOutput)
+	}
+
+	providers := setup.GetDefaultProviders()
+	if providers == nil || providers.Infra == nil {
+		GinkgoWriter.Printf("  Infra provider: <unset>\n")
+	} else {
+		GinkgoWriter.Printf("  Environment type: %s\n", valueOrUnset(providers.Infra.GetEnvironmentType()))
+		GinkgoWriter.Printf("  Internal namespace: %s\n", valueOrUnset(providers.Infra.GetInternalNamespace()))
+		GinkgoWriter.Printf("  External namespace: %s\n", valueOrUnset(providers.Infra.GetExternalNamespace()))
+
+		apiImage, err := providers.Infra.GetServiceImage(infra.ServiceAPI)
+		if err != nil {
+			GinkgoWriter.Printf("  flightctl-api image error: %v\n", err)
+		} else {
+			GinkgoWriter.Printf("  flightctl-api image: %s\n", apiImage)
+		}
+	}
+
+	for _, envVar := range versionDiagnosticEnvVars {
+		GinkgoWriter.Printf("  %s: %s\n", envVar, valueOrUnset(os.Getenv(envVar)))
+	}
+}
+
+func valueOrUnset(value string) string {
+	if value == "" {
+		return unsetDiagnosticValue
+	}
+	return value
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.

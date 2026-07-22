@@ -503,6 +503,11 @@ func (f fakeInfraProvider) GetServiceEndpoint(infra.ServiceName) (string, int, e
 	return "", 0, errors.New("not implemented")
 }
 
+// GetServiceImage is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) GetServiceImage(infra.ServiceName) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 // ExposeService is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) ExposeService(infra.ServiceName, string) (string, func(), error) {
 	return "", func() {}, errors.New("not implemented")

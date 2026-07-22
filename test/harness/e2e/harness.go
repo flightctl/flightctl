@@ -96,6 +96,8 @@ const (
 	cliRateLimitServerReturned      = "server returned 429"
 	cliRateLimitExceeded            = "rate limit exceeded"
 	cliLoginRateLimitExceededOutput = "Login rate limit exceeded, please try again later"
+	agentVersionPrefix              = "Agent Version:"
+	agentGitCommitPrefix            = "Git Commit:"
 )
 
 const (
@@ -2425,31 +2427,51 @@ func (h *Harness) GetVersionsFromCLI() (clientVersion, serverVersion, agentVersi
 	return clientVersion, serverVersion, agentVersion, nil
 }
 
-// GetAgentVersion returns the agent version from the flightctl-agent version command
-func (h *Harness) GetAgentVersion() (string, error) {
+// AgentVersionInfo contains parsed and raw flightctl-agent version output.
+type AgentVersionInfo struct {
+	Version   string
+	GitCommit string
+	RawOutput string
+}
+
+// GetAgentVersionInfo returns the agent version details from the flightctl-agent version command.
+func (h *Harness) GetAgentVersionInfo() (AgentVersionInfo, error) {
 	if h.VM == nil {
-		return "", fmt.Errorf("VM is not initialized")
+		return AgentVersionInfo{}, fmt.Errorf("VM is not initialized")
 	}
 
 	// Run flightctl-agent version command on the VM
 	stdout, err := h.VM.RunSSH([]string{"flightctl-agent", "version"}, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to run flightctl-agent version: %w", err)
+		return AgentVersionInfo{}, fmt.Errorf("failed to run flightctl-agent version: %w", err)
 	}
 
 	output := stdout.String()
-	versionPrefix := "Agent Version:"
-	if !strings.Contains(output, versionPrefix) {
-		return "", fmt.Errorf("agent version not found in output: %s", output)
+	if !strings.Contains(output, agentVersionPrefix) {
+		return AgentVersionInfo{}, fmt.Errorf("agent version not found in output: %s", output)
 	}
 
 	// Extract version using the existing helper function
-	agentVersion := h.getVersionByPrefix(output, versionPrefix)
+	agentVersion := h.getVersionByPrefix(output, agentVersionPrefix)
 	if agentVersion == "" {
-		return "", fmt.Errorf("failed to parse agent version from output")
+		return AgentVersionInfo{}, fmt.Errorf("failed to parse agent version from output")
 	}
 
-	return agentVersion, nil
+	return AgentVersionInfo{
+		Version:   agentVersion,
+		GitCommit: h.getVersionByPrefix(output, agentGitCommitPrefix),
+		RawOutput: strings.TrimSpace(output),
+	}, nil
+}
+
+// GetAgentVersion returns the agent version from the flightctl-agent version command
+func (h *Harness) GetAgentVersion() (string, error) {
+	versionInfo, err := h.GetAgentVersionInfo()
+	if err != nil {
+		return "", err
+	}
+
+	return versionInfo.Version, nil
 }
 
 // GetAgentVersionFromLogs returns the agent version from the flightctl-agent service logs

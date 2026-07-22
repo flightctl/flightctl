@@ -57,6 +57,10 @@ type InfraProvider interface {
 	// For Quadlet: returns the configured host with the service's port
 	GetServiceEndpoint(service ServiceName) (host string, port int, err error)
 
+	// GetServiceImage returns the deployed container image reference for a named service.
+	// For K8s: reads the service deployment pod template. For Quadlet: inspects the running container.
+	GetServiceImage(service ServiceName) (string, error)
+
 	// ExposeService makes an internal service accessible from the test host.
 	// Use this for services not normally exposed externally (e.g., metrics endpoints).
 	// For K8s: starts port-forwarding and returns localhost URL + cleanup function

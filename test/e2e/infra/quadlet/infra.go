@@ -370,6 +370,25 @@ func (p *InfraProvider) GetServiceEndpoint(service infra.ServiceName) (string, i
 	return p.host, info.Port, nil
 }
 
+// GetServiceImage returns the image reference used by a Quadlet service container.
+func (p *InfraProvider) GetServiceImage(service infra.ServiceName) (string, error) {
+	info := GetServiceInfo(service)
+	if info.ContainerName == "" {
+		return "", fmt.Errorf("service %s has no container name", service)
+	}
+
+	output, err := p.runCommand("podman", "inspect", "--format", "{{if .ImageName}}{{.ImageName}}{{else}}{{.Config.Image}}{{end}}", info.ContainerName)
+	if err != nil {
+		return "", fmt.Errorf("inspect container %s: %w", info.ContainerName, err)
+	}
+
+	image := strings.TrimSpace(output)
+	if image == "" {
+		return "", fmt.Errorf("container %s image is empty", info.ContainerName)
+	}
+	return image, nil
+}
+
 // ExposeService makes an internal service accessible from the test host.
 // If the container already publishes the port (e.g. flightctl-api), returns that URL and a no-op cleanup.
 // Otherwise (e.g. Redis) starts a TCP forwarder from a local port to the container, using SSH for remote Quadlet hosts.

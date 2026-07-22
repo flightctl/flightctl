@@ -218,6 +218,30 @@ func (p *InfraProvider) GetServiceNamespaceAndMetadata(service infra.ServiceName
 	return info.ServiceName, info.Label, ns, nil
 }
 
+// GetServiceImage returns the image references from a service deployment.
+func (p *InfraProvider) GetServiceImage(service infra.ServiceName) (string, error) {
+	info, ns, err := p.getServiceInfo(service)
+	if err != nil {
+		return "", err
+	}
+
+	deployment, err := p.client.AppsV1().Deployments(ns).Get(context.Background(), info.ServiceName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get deployment %s/%s: %w", ns, info.ServiceName, err)
+	}
+
+	containers := deployment.Spec.Template.Spec.Containers
+	if len(containers) == 0 {
+		return "", fmt.Errorf("deployment %s/%s has no containers", ns, info.ServiceName)
+	}
+
+	images := make([]string, 0, len(containers))
+	for _, container := range containers {
+		images = append(images, fmt.Sprintf("%s=%s", container.Name, container.Image))
+	}
+	return strings.Join(images, ", "), nil
+}
+
 // resolveNamespace returns the actual namespace based on type (internal or external only).
 func (p *InfraProvider) resolveNamespace(nsType namespaceType) (string, error) {
 	switch nsType {
