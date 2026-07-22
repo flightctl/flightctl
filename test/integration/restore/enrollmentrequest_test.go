@@ -68,8 +68,7 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			_, st = s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, toApproveER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
-			internalCtx := context.WithValue(s.Ctx, consts.InternalRequestCtxKey, true)
-			_, st = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, alreadyAnnotatedER)
+			_, st = s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, alreadyAnnotatedER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			By("Debug: Verifying annotation was preserved")
@@ -205,14 +204,13 @@ var _ = Describe("EnrollmentRequest restore operations", func() {
 			er3Name := lo.FromPtr(er3.Metadata.Name)
 
 			By("creating enrollment requests")
-			internalCtx := context.WithValue(s.Ctx, consts.InternalRequestCtxKey, true)
-			_, status := s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er1)
+			_, status := s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, er1)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er2)
+			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, er2)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, s.OrgID, er3)
+			_, status = s.EnrollmentRequest.CreateEnrollmentRequest(s.Ctx, s.OrgID, er3)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			By("approving one enrollment request before restore")

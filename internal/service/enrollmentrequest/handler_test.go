@@ -277,6 +277,46 @@ func TestCreateEnrollmentRequest(t *testing.T) {
 		_, status := h.CreateEnrollmentRequest(context.Background(), uuid.New(), er)
 		require.Equal(t, statusBadRequestCode, status.Code)
 	})
+
+	t.Run("When managed metadata fields are set by the caller CreateEnrollmentRequestFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "untrusted-device"
+		er := domain.EnrollmentRequest{
+			ApiVersion: "v1beta1",
+			Kind:       "EnrollmentRequest",
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		_, status := CreateEnrollmentRequestFromUntrusted(context.Background(), h, uuid.New(), er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateEnrollmentRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "trusted-device"
+		er := domain.EnrollmentRequest{
+			ApiVersion: "v1beta1",
+			Kind:       "EnrollmentRequest",
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		_, status := h.CreateEnrollmentRequest(context.Background(), uuid.New(), er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
 }
 
 func TestListEnrollmentRequests(t *testing.T) {
@@ -329,6 +369,44 @@ func TestReplaceEnrollmentRequest(t *testing.T) {
 
 		_, status := h.ReplaceEnrollmentRequest(context.Background(), uuid.New(), cn, er)
 		require.Equal(t, statusBadRequestCode, status.Code)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceEnrollmentRequestFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-untrusted"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		_, status := ReplaceEnrollmentRequestFromUntrusted(context.Background(), h, orgId, cn, er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceEnrollmentRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-trusted"
+		er := domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.EnrollmentRequestSpec{Csr: csrPEM(t, cn)},
+		}
+
+		_, status := h.ReplaceEnrollmentRequest(context.Background(), orgId, cn, er)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
 	})
 }
 

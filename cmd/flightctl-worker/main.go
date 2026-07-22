@@ -67,7 +67,6 @@ func main() {
 		}
 	}()
 
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -312,10 +311,8 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 	}
 	if len(fleetsToRemove) > 0 {
 		log.Infof("Resource %s: found #%d fleets to remove. removing\n", resourceName, len(fleetsToRemove))
-		// Set ResourceSyncRequestCtxKey to allow resource sync to delete resources it owns
-		deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 		for _, fleetToRemove := range fleetsToRemove {
-			status := r.fleetSvc.DeleteFleet(deleteCtx, orgId, fleetToRemove)
+			status := r.fleetSvc.DeleteFleet(ctx, orgId, fleetToRemove, false)
 			if status.Code != http.StatusOK {
 				err := fmt.Errorf("resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
 				log.Error(err)
@@ -336,28 +333,22 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*domain.Fleet) error {
 	var errs []error
 	for _, resource := range resources {
-		// Create a context where InternalRequestCtxKey is false so that ReplaceFleet
-		// treats this as an external API request and calls NilOutManagedObjectMetaProperties,
-		// which will nil out annotations. This ensures annotations are not updated by ResourceSync.
-		// Annotations are managed by the service (e.g., fleet-controller/templateVersion)
-		// and should not be overwritten when syncing from YAML.
-		// Set ResourceSyncRequestCtxKey to allow resource sync to update resources it owns.
-		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
-		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedFleet, status := r.fleetSvc.ReplaceFleet(externalCtx, orgId, *resource.Metadata.Name, *resource)
+		// Sanitize the untrusted YAML and claim ownership before the single trusted
+		// write, instead of sanitize-write then owner-fixup-write: the sanitize step
+		// always clears Owner, so writing twice doubled every sync's DB writes and
+		// left the fleet observably unowned between them.
+		fleetToUpdate := *resource
+		if resource.Spec.Template.Metadata != nil {
+			templateMetaCopy := *resource.Spec.Template.Metadata
+			fleetToUpdate.Spec.Template.Metadata = &templateMetaCopy
+		}
+		fleetservice.SanitizeFleet(&fleetToUpdate)
+		fleetToUpdate.Metadata.Owner = owner
+		_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, fleetToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more fleets are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-		}
-
-		// Update the owner of the fleet if not already set
-		if updatedFleet != nil && util.DefaultIfNil(updatedFleet.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedFleet.Metadata.Owner = owner
-			_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *updatedFleet)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
@@ -776,22 +767,16 @@ func (r *ResourceSync) SyncCatalogs(ctx context.Context, log logrus.FieldLogger,
 func (r *ResourceSync) createOrUpdateCatalogs(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*domain.Catalog) error {
 	var errs []error
 	for _, resource := range resources {
-		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
-		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedCatalog, status := r.catalogSvc.ReplaceCatalog(externalCtx, orgId, *resource.Metadata.Name, *resource)
+		// See createOrUpdateMultiple: sanitize + claim ownership before the single
+		// write to avoid a double DB write and a transient unowned window.
+		catalogToUpdate := *resource
+		catalogservice.SanitizeCatalog(&catalogToUpdate)
+		catalogToUpdate.Metadata.Owner = owner
+		_, status := r.catalogSvc.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, catalogToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalogs are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-		}
-
-		// Set owner if not already set
-		if updatedCatalog != nil && util.DefaultIfNil(updatedCatalog.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedCatalog.Metadata.Owner = owner
-			_, status := r.catalogSvc.ReplaceCatalog(ctx, orgId, *resource.Metadata.Name, *updatedCatalog)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
@@ -903,23 +888,16 @@ func (r *ResourceSync) SyncCatalogItems(ctx context.Context, log logrus.FieldLog
 func (r *ResourceSync) createOrUpdateCatalogItems(ctx context.Context, orgId uuid.UUID, owner *string, items ...*domain.CatalogItem) error {
 	var errs []error
 	for _, item := range items {
-		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
-		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
-		updatedItem, status := r.catalogSvc.ReplaceCatalogItem(externalCtx, orgId, item.Metadata.Catalog, *item.Metadata.Name, *item)
+		// See createOrUpdateMultiple: sanitize + claim ownership before the single
+		// write to avoid a double DB write and a transient unowned window.
+		itemToUpdate := *item
+		catalogservice.SanitizeCatalogItem(&itemToUpdate)
+		itemToUpdate.Metadata.Owner = owner
+		_, status := r.catalogSvc.ReplaceCatalogItem(ctx, orgId, item.Metadata.Catalog, *item.Metadata.Name, itemToUpdate, false)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more catalog items are managed by a different resource"))
 			} else {
-				errs = append(errs, common.ApiStatusToErr(status))
-			}
-			continue
-		}
-
-		// Set owner if not already set
-		if updatedItem != nil && util.DefaultIfNil(updatedItem.Metadata.Owner, "") != util.DefaultIfNil(owner, "") {
-			updatedItem.Metadata.Owner = owner
-			_, status := r.catalogSvc.ReplaceCatalogItem(ctx, orgId, updatedItem.Metadata.Catalog, *updatedItem.Metadata.Name, *updatedItem)
-			if status.Code != http.StatusOK {
 				errs = append(errs, common.ApiStatusToErr(status))
 			}
 		}
@@ -933,9 +911,8 @@ func (r *ResourceSync) deleteStaleCatalogs(ctx context.Context, log logrus.Field
 		return nil
 	}
 	log.Infof("Resource %s: found #%d catalogs to remove. removing", resourceName, len(toRemove))
-	deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 	for _, catalogName := range toRemove {
-		status := r.catalogSvc.DeleteCatalog(deleteCtx, orgId, catalogName)
+		status := r.catalogSvc.DeleteCatalog(ctx, orgId, catalogName, false)
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to remove old catalog %s: %s", resourceName, catalogName, status.Message)
 			log.Error(err)
@@ -952,13 +929,12 @@ func (r *ResourceSync) deleteStaleCatalogItems(ctx context.Context, log logrus.F
 		return nil
 	}
 	log.Infof("Resource %s: found #%d catalog items to remove. removing", resourceName, len(toRemove))
-	deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 	for _, key := range toRemove {
 		parts := strings.SplitN(key, "/", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		status := r.catalogSvc.DeleteCatalogItem(deleteCtx, orgId, parts[0], parts[1])
+		status := r.catalogSvc.DeleteCatalogItem(ctx, orgId, parts[0], parts[1], false)
 		if status.Code != http.StatusOK {
 			err := fmt.Errorf("resource %s: failed to remove old catalog item %s: %s", resourceName, key, status.Message)
 			log.Error(err)

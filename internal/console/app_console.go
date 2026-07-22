@@ -9,7 +9,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
@@ -126,7 +125,7 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 			(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = newValue
 		}
 		m.log.Debugf("updating remote-session annotations for device %s", deviceName)
-		_, err = m.svc.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
+		_, err = m.svc.UpdateDevice(ctx, orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}

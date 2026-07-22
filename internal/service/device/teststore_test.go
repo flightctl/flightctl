@@ -32,6 +32,12 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	if err := json.Unmarshal(data, dst); err != nil {
 		panic(fmt.Sprintf("deepCopyDevice failed in test: %v", err))
 	}
+	// Status.LastSeen is tagged `json:"-"` (the real store persists it as its own DB
+	// column, not as part of the JSON status blob), so it doesn't survive the JSON
+	// round trip above; copy it explicitly to mirror real persistence.
+	if src.Status != nil && dst.Status != nil {
+		dst.Status.LastSeen = src.Status.LastSeen
+	}
 	return dst
 }
 
@@ -92,6 +98,11 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 			return nil, false, err
 		}
 	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if existed && device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	created := !existed
@@ -111,6 +122,11 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 		if err := validationCallback(ctx, old, device); err != nil {
 			return nil, err
 		}
+	}
+	// Mirrors the real generic store: fields left nil by the caller are preserved
+	// from the existing resource rather than wiped on update.
+	if device.Metadata.Owner == nil {
+		device.Metadata.Owner = old.Metadata.Owner
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d

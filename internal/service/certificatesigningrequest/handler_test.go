@@ -348,6 +348,42 @@ func TestCreateCertificateSigningRequest(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceCreated, fakeEvents.created[0].Reason)
 	})
 
+	t.Run("When managed metadata fields are set by the caller CreateCertificateSigningRequestFromUntrusted should clear them before creation", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "untrusted-csr"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+
+		_, status := CreateCertificateSigningRequestFromUntrusted(context.Background(), h, uuid.New(), csr)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller CreateCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "trusted-csr"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+
+		_, status := h.CreateCertificateSigningRequest(context.Background(), uuid.New(), csr)
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+
 	t.Run("When the device-management signer is used it should be rejected", func(t *testing.T) {
 		h, _, _, _, cfg := newTestHandler(t)
 		cn := "test-csr-rejected"
@@ -443,6 +479,102 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 	result, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, csr)
 	require.Equal(t, statusSuccessCode, status.Code)
 	require.NotNil(t, result)
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequestFromUntrusted should clear them before replacing", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-untrusted"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &csr
+
+		_, status := ReplaceCertificateSigningRequestFromUntrusted(context.Background(), h, orgId, cn, csr)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Nil(t, fakeStore.items[cn].Metadata.Owner)
+		require.Nil(t, fakeStore.items[cn].Metadata.Generation)
+	})
+
+	t.Run("When managed metadata fields are set by the caller ReplaceCertificateSigningRequest (trusted) should preserve them", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		orgId := uuid.New()
+		cn := "replace-trusted"
+		csr := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr(cn),
+				Owner:      lo.ToPtr("someone"),
+				Generation: lo.ToPtr(int64(5)),
+			},
+			Spec: domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &csr
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), orgId, cn, csr)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[cn].Metadata.Generation))
+	})
+}
+
+func TestReplaceCertificateSigningRequestOwnership(t *testing.T) {
+	owner := "Device/my-device"
+
+	t.Run("When replacing an owned CSR with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &existing
+
+		updated := existing
+		updated.Spec.Request = csrPEM(t, "different-cn")
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, updated)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When replacing an owned CSR with an unchanged spec it should succeed", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr-samespec"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &existing
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, existing)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+	})
+}
+
+func TestPatchCertificateSigningRequestOwnership(t *testing.T) {
+	owner := "Device/my-device"
+
+	t.Run("When patching an owned CSR's spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr-patch"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
+		}
+		fakeStore.items[cn] = &existing
+
+		var value interface{} = float64(3600)
+		patch := domain.PatchRequest{{Op: "add", Path: "/spec/expirationSeconds", Value: &value}}
+		_, status := h.PatchCertificateSigningRequest(context.Background(), uuid.New(), cn, patch)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
 }
 
 func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
