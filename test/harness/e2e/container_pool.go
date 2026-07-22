@@ -117,6 +117,13 @@ func (p *ContainerPool) createContainerForWorker(workerID int) (vm.TestVMInterfa
 		Files: files,
 	})
 	if err := device.RunAndWaitForSSH(); err != nil {
+		// The container name above is deterministic per worker, so a half-started container left
+		// behind here would collide with (and permanently block) every later creation attempt for
+		// this same worker - clean it up now rather than only on the redundant-device race path
+		// above.
+		if cleanupErr := device.ForceDelete(); cleanupErr != nil {
+			fmt.Printf("⚠️  [ContainerPool] Worker %d: Failed to cleanup container device %s after start failure: %v\n", workerID, name, cleanupErr)
+		}
 		return nil, fmt.Errorf("failed to start container device %s: %w", name, err)
 	}
 	fmt.Printf("✅ [ContainerPool] Worker %d: Container device %s started and ready\n", workerID, name)
