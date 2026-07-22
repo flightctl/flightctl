@@ -142,7 +142,7 @@ var (
 	}
 )
 
-var _ = Describe("SystemInfo label mapping", func() {
+var _ = Describe("SystemInfo label mapping", Label(containerCandidateLabel), func() {
 	var harness *e2e.Harness
 
 	BeforeEach(func() {

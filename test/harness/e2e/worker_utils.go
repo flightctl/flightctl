@@ -68,6 +68,45 @@ func SetupWorkerHarnessOrAbort() (*Harness, context.Context) {
 	return harness, ctx
 }
 
+// SetupWorkerHarnessWithContainerDevice sets up a container-backed device and harness for the
+// current worker. This should be called in BeforeSuite by suites that don't need a real
+// OS-image-switch/reboot device - see test/harness/e2e/harness_container.go's Container Device
+// Pattern doc comment and the container-backed-device-migration plan for which suites qualify.
+func SetupWorkerHarnessWithContainerDevice() (*Harness, context.Context, error) {
+	workerID := ginkgo.GinkgoParallelProcess()
+	logrus.Infof("🔄 [SetupWorkerHarnessWithContainerDevice] Worker %d: Setting up container device and harness", workerID)
+
+	suiteCtx := context.Background()
+
+	if _, err := SetupContainerForWorker(workerID); err != nil {
+		return nil, nil, fmt.Errorf("failed to setup container device for worker %d: %w", workerID, err)
+	}
+
+	harness, err := NewTestHarnessWithContainerPool(suiteCtx, workerID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create harness for worker %d: %w", workerID, err)
+	}
+
+	workerHarnesses.Store(workerID, harness)
+	workerContexts.Store(workerID, suiteCtx)
+
+	logrus.Infof("✅ [SetupWorkerHarnessWithContainerDevice] Worker %d: Container device and harness setup completed", workerID)
+	return harness, suiteCtx, nil
+}
+
+// SetupWorkerHarnessWithContainerDeviceOrAbort calls SetupWorkerHarnessWithContainerDevice and
+// exits the process on error - mirrors SetupWorkerHarnessOrAbort's fail-fast behavior for the VM path.
+func SetupWorkerHarnessWithContainerDeviceOrAbort() (*Harness, context.Context) {
+	harness, ctx, err := SetupWorkerHarnessWithContainerDevice()
+	if err != nil {
+		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
+		fmt.Fprint(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, E2ESetupAbortStderrMarker+"\n")
+		os.Exit(E2ESetupAbortExitCode)
+	}
+	return harness, ctx
+}
+
 // SetupWorkerHarnessWithoutVM sets up a harness for the current worker without VM.
 // This is useful for tests that only need API access and don't require a device/agent VM.
 // This should be called in BeforeSuite.

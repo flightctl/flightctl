@@ -46,15 +46,19 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				Skip(reason)
 			}
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
-			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
+			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has VM from BeforeEach (workerID). Create two more harnesses with VMs 1001, 1002.
+			// Main harness already has a VM from BeforeEach (workerID) - it's the one that goes
+			// through the real fleet OS rollout below. Create two more harnesses with their own
+			// devices; these are only ever enrolled/observed via the API and never put on a fleet
+			// that changes their OS image, so container-backed devices are sufficient here (see the
+			// container-backed-device-migration plan).
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+			harness2, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 			Expect(err).ToNot(HaveOccurred())
 			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
+			Expect(harness2.SetupContainerFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()
@@ -62,10 +66,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
 			})
 			workerID3 := GinkgoParallelProcess()*100 + 2
-			harness3, err := e2e.NewTestHarnessWithVMPool(ctx, workerID3)
+			harness3, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID3)
 			Expect(err).ToNot(HaveOccurred())
 			harness3.SetTestContext(harness.GetTestContext())
-			Expect(harness3.SetupVMFromPoolAndStartAgent(workerID3)).To(Succeed())
+			Expect(harness3.SetupContainerFromPoolAndStartAgent(workerID3)).To(Succeed())
 			DeferCleanup(func() {
 				harness3.PrintAgentLogsIfFailed()
 				harness3.CaptureDeploymentLogsIfFailed()
@@ -286,10 +290,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
-			harness2, err := e2e.NewTestHarnessWithVMPool(ctx, workerID2)
+			harness2, err := e2e.NewTestHarnessWithContainerPool(ctx, workerID2)
 			Expect(err).ToNot(HaveOccurred())
 			harness2.SetTestContext(harness.GetTestContext())
-			Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
+			Expect(harness2.SetupContainerFromPoolAndStartAgent(workerID2)).To(Succeed())
 			DeferCleanup(func() {
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()

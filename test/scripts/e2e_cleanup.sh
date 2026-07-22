@@ -107,4 +107,37 @@ else
     echo "⚠️  [Cleanup] Failed to search for temporary directories"
 fi
 
+# Clean up container-backed devices (see ContainerDevice) - these are plain podman/docker
+# containers, not libvirt domains, so virsh cleanup above never touches them.
+echo "🔄 [Cleanup] Finding flightctl e2e container-backed devices..."
+container_cli=""
+if command -v podman &>/dev/null; then
+    container_cli="podman"
+elif command -v docker &>/dev/null; then
+    container_cli="docker"
+fi
+
+if [[ -n "$container_cli" ]]; then
+    if container_names=$("$container_cli" ps -a --filter "name=flightctl-e2e-container-" --format "{{.Names}}" 2>/dev/null); then
+        if [[ -n "$container_names" ]]; then
+            echo "🔍 [Cleanup] Found flightctl e2e container-backed devices:"
+            echo "$container_names"
+            while IFS= read -r container_name; do
+                [[ -n "$container_name" ]] || continue
+                if "$container_cli" rm -f -v "$container_name" &>/dev/null; then
+                    echo "✅ [Cleanup] Successfully removed container device: $container_name"
+                else
+                    echo "⚠️  [Cleanup] Failed to remove container device: $container_name"
+                fi
+            done <<< "$container_names"
+        else
+            echo "✅ [Cleanup] No container-backed devices found"
+        fi
+    else
+        echo "⚠️  [Cleanup] Failed to list containers via $container_cli"
+    fi
+else
+    echo "⚠️  [Cleanup] Neither podman nor docker available - skipping container-backed device cleanup"
+fi
+
 echo "✅ [Cleanup] Global test cleanup completed"

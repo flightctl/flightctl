@@ -157,6 +157,56 @@ type manifestEntry struct {
 	RepoTags []string `json:"RepoTags"`
 }
 
+// ResolveAgentDeviceImageTag returns the exact "base" image tag (e.g.
+// "base-cs10-bootc-v1.3.0-main-332-g250be75c") that was actually bundled for a container-backed
+// device to pull, by reading it back out of the same agent-images-bundle-*.tar UploadImages just
+// pushed from (see uploadBundle/copyImageFromBundle above).
+//
+// This exists because build.sh tags every image with several local aliases
+// (${IMAGE_REPO}:base-${OS_ID}, :base-${TAG}, :base-${OS_ID}-${TAG}, :base), but
+// build_and_qcow2.sh's bundle.sh --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" only bundles (and
+// therefore only pushes to the registry) the aliases matching that pattern, i.e. just
+// base-${OS_ID}-${TAG} - the bare base-${OS_ID} alias container_pool.go used to assume is never
+// actually pushed, and ${TAG} (the git-describe version string) isn't otherwise propagated to the
+// test binary's env. Reading it out of the bundle instead of guessing keeps this self-consistent
+// with whatever UploadImages actually pushed.
+//
+// osIDHint, if non-empty, is used to pick the right bundle file when more than one exists on disk
+// (e.g. a local dev machine that built both cs9-bootc and cs10-bootc); CI only ever stages the one
+// bundle matching the current shard's os_id input, so it's optional there.
+func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
+	if strings.ContainsAny(osIDHint, `/\*?[]`) {
+		return "", fmt.Errorf("invalid os ID hint %q: must not contain path separators or glob metacharacters", osIDHint)
+	}
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+	pattern := agentBundlePattern
+	if osIDHint != "" {
+		pattern = fmt.Sprintf("agent-images-bundle-%s.tar", osIDHint)
+	}
+	agentArtifactsDir := filepath.Join(projectRoot, "bin", "agent-artifacts")
+	matches, err := filepath.Glob(filepath.Join(agentArtifactsDir, pattern))
+	if err != nil {
+		return "", fmt.Errorf("failed to glob agent image bundles: %w", err)
+	}
+	if len(matches) != 1 {
+		return "", fmt.Errorf("expected exactly one agent image bundle matching %s/%s, found %v", agentArtifactsDir, pattern, matches)
+	}
+
+	refs, err := extractImageRefs(matches[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to read image refs from bundle %s: %w", matches[0], err)
+	}
+	for _, ref := range refs {
+		if _, tag, ok := strings.Cut(ref, ":"); ok && strings.HasPrefix(tag, "base-") {
+			return tag, nil
+		}
+	}
+	return "", fmt.Errorf("no base-tagged image found in bundle %s (refs: %v)", matches[0], refs)
+}
+
 func parseManifestJSON(r io.Reader) ([]string, error) {
 	content, err := io.ReadAll(bufio.NewReader(r))
 	if err != nil {

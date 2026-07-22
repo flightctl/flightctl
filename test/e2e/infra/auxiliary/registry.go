@@ -122,6 +122,19 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
+	// Podman's insecure-registry config above is only read by the podman/skopeo CLI. On runners
+	// where testcontainers-go's docker client talks to an actual Docker daemon (not podman's
+	// docker-compatible socket) - e.g. pulling the flightctl-agent image directly from this
+	// registry for a ContainerDevice - the TLS handshake happens daemon-side, so it needs this
+	// registry's CA trusted the Docker way instead: a cert dropped in /etc/docker/certs.d, no
+	// daemon restart required. Required (not best-effort) when Docker is the selected backend,
+	// since every ContainerDevice image pull would otherwise fail later with a much less
+	// diagnosable x509 error; harmless no-op skip on Podman-only hosts, which never hit this path.
+	if containers.RuntimeCLIName() == "docker" {
+		if err := configureDockerRegistryTrust(ctx, r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
+			return fmt.Errorf("failed to configure Docker registry trust for %s: %w", r.URL, err)
+		}
+	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
 	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
@@ -316,6 +329,33 @@ func ensureRegistryCerts() (string, error) {
 	certFile.Close()
 	logrus.Infof("Generated registry certificate in %s (IP: %s)", certDir, hostIP)
 	return certDir, nil
+}
+
+// configureDockerRegistryTrust installs caCertPath as a trusted CA for registryURL under
+// /etc/docker/certs.d, the standard per-registry cert-trust mechanism Docker's daemon reads on
+// every pull - no daemon.json edit or daemon restart needed. Mirrors what
+// inject_agent_files_into_qcow.sh/buildAgentIdentityFiles already do for podman's equivalent
+// /etc/containers/certs.d inside VM/container-backed devices; this covers the host-side Docker
+// daemon pulling the device image itself (see ContainerDevice.Run).
+//
+// Runs both commands through ctx (Registry.Start's context) so a stuck sudo prompt or slow host
+// can't hang e2e setup past the caller's own cancellation/timeout; -n makes sudo fail fast instead
+// of blocking on a password prompt if passwordless sudo isn't configured for this command.
+func configureDockerRegistryTrust(ctx context.Context, registryURL, caCertPath string) error {
+	// registryURL is built from GetHostIP(), which honors an env var override (E2EAuxHostEnv) -
+	// reject anything that isn't a plain host:port before it reaches filepath.Join/sudo cp below,
+	// so a stray "../" can't make certsDir escape /etc/docker/certs.d.
+	if host, port, err := net.SplitHostPort(registryURL); err != nil || host == "" || port == "" || strings.ContainsAny(registryURL, `/\`) {
+		return fmt.Errorf("invalid registry URL %q: must be a plain host:port with no path separators", registryURL)
+	}
+	certsDir := filepath.Join("/etc/docker/certs.d", registryURL)
+	if err := exec.CommandContext(ctx, "sudo", "-n", "mkdir", "-p", certsDir).Run(); err != nil { //nolint:gosec // G204: certsDir is built from our own registry URL/constants, not external input.
+		return fmt.Errorf("failed to create %s: %w", certsDir, err)
+	}
+	if err := exec.CommandContext(ctx, "sudo", "-n", "cp", caCertPath, filepath.Join(certsDir, "ca.crt")).Run(); err != nil { //nolint:gosec // G204: paths are our own registry cert path/constants, not external input.
+		return fmt.Errorf("failed to install CA cert into %s: %w", certsDir, err)
+	}
+	return nil
 }
 
 func configureInsecureRegistry(registryURL string) error {

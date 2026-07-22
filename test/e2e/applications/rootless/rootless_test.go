@@ -317,7 +317,7 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		Expect(denied).To(BeEmpty(), "expected no AVC denials for flightctl/podman")
 	})
 
-	It("validates rootless workload execution: non-existent user, no home, privileged port, invalid username, no linger, empty runAs, duplicate name", Label("agent", "rootless", "87846"), func() {
+	It("validates rootless workload execution: non-existent user, no home, privileged port, invalid username, no linger, empty runAs, duplicate name", Label(containerCandidateLabel, "agent", "rootless", "87846"), func() {
 		By("Verify agent fails gracefully when specified user does not exist")
 		specNonexistent, err := e2e.NewQuadletInlineSpec(rootlessAppOCP87846PrivPort, userNonexistent87846, []string{"nginx.container"}, []string{rootlessNginxContainerContentWithPort(rootlessNginxImage, "8080")})
 		Expect(err).ToNot(HaveOccurred())

@@ -194,6 +194,23 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
+	return runJournalLogs(v.RunSSH, opts)
+}
+
+// GetServiceLogs returns the logs from the specified service using journalctl.
+// This method uses the systemd invocation ID to get logs from the latest service invocation.
+func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
+	return runServiceLogs(v.RunSSH, serviceName)
+}
+
+// runFunc matches RunSSH's signature. Shared by every TestVMInterface implementation (VMInLibvirt
+// via TestVM above, ContainerDevice in container.go) so journalctl/systemctl command construction
+// isn't duplicated per backend - only how the command actually reaches the device (ssh vs exec) differs.
+type runFunc func(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
+
+// runJournalLogs builds and runs the journalctl command described by opts via run (RunSSH or
+// equivalent). Shared implementation for JournalLogs across device backends.
+func runJournalLogs(run runFunc, opts JournalOpts) (string, error) {
 	args := []string{"sudo", "TZ=UTC", "journalctl", "--no-pager", "--no-hostname"}
 
 	if opts.Unit != "" {
@@ -218,16 +235,16 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 	}
 
 	logrus.Debugf("Reading journal logs with command: %s", strings.Join(args, " "))
-	stdout, err := v.RunSSH(args, nil)
+	stdout, err := run(args, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to read journal logs: %w", err)
 	}
 	return stdout.String(), nil
 }
 
-// GetServiceLogs returns the logs from the specified service using journalctl.
-// This method uses the systemd invocation ID to get logs from the latest service invocation.
-func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
+// runServiceLogs builds and runs the journalctl command for a single service's latest invocation
+// via run (RunSSH or equivalent). Shared implementation for GetServiceLogs across device backends.
+func runServiceLogs(run runFunc, serviceName string) (string, error) {
 	args := []string{
 		"sudo",
 		"journalctl",
@@ -236,7 +253,7 @@ func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
 	}
 
 	logrus.Infof("Reading service logs for %s with command: %s", serviceName, strings.Join(args, " "))
-	stdout, err := v.RunSSH(args, nil)
+	stdout, err := run(args, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to get service logs for %s: %w", serviceName, err)
 	}
