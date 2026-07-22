@@ -655,6 +655,10 @@ DDL
  - docs/user/installing/configuring-service-tracing.md
 https
 http
+CPT
+Pyroscope
+pyroscope
+flamegraphs
  - docs/user/installing/configuring-auth/auth-pam.md
 clientId
 clientSecret

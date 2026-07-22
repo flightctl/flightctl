@@ -11,6 +11,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	remoteaccessserver "github.com/flightctl/flightctl/internal/remote_access_server"
@@ -57,6 +59,7 @@ func main() {
 			log.Errorf("failed to shut down tracer: %v", err)
 		}
 	}()
+	profiling.Start(ctx, log, cfg, "flightctl-remote-access", instpprof.DefaultPortRemoteAccess)
 
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)
