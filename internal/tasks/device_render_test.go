@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -689,6 +691,231 @@ func TestRenderApplication_PreservesLifecycleFields(t *testing.T) {
 		assert.Equal(t, domain.ApplicationDesiredStateStopped, rendered.GetDesiredState())
 		assert.Equal(t, 2, rendered.GetRestartGeneration())
 	})
+}
+
+func TestRenderDevice_PermanentError(t *testing.T) {
+	const (
+		deviceName      = "test-device"
+		fleet           = "my-fleet"
+		templateVersion = "tv-1"
+	)
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	invalidConfig := []domain.ConfigProviderSpec{{}}
+	ownerStr := fmt.Sprintf("Fleet/%s", fleet)
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name:  lo.ToPtr(deviceName),
+			Owner: &ownerStr,
+			Annotations: &map[string]string{
+				domain.DeviceAnnotationTemplateVersion: templateVersion,
+			},
+		},
+		Spec: &domain.DeviceSpec{
+			Config: &invalidConfig,
+		},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+
+	specHash := hashRenderedWithSpec(device.Spec)
+	mockSvc.EXPECT().UpdateDeviceAnnotations(
+		gomock.Any(), orgId, deviceName,
+		map[string]string{
+			domain.DeviceAnnotationRenderedSpecHash:        specHash,
+			domain.DeviceAnnotationRenderedTemplateVersion: templateVersion,
+		},
+		gomock.Nil(),
+	).Return(statusOK)
+
+	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+			require.Len(t, conditions, 1)
+			assert.Equal(t, domain.ConditionStatusFalse, conditions[0].Status)
+			assert.Equal(t, "Invalid", conditions[0].Reason)
+			return statusOK
+		})
+	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownConfigName)
+}
+
+func TestRenderDevice_RetryableError(t *testing.T) {
+	const (
+		deviceName = "test-device"
+		namespace  = "default"
+		secretName = "my-secret"
+		mountPath  = "/etc/secret"
+	)
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	k8sConfigItem := makeK8sSecretConfigItem("k8s-cfg", namespace, secretName, mountPath)
+	configItems := []domain.ConfigProviderSpec{k8sConfigItem}
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Spec: &domain.DeviceSpec{
+			Config: &configItems,
+		},
+	}
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	mockK8S := k8sclient.NewMockK8SClient(ctrl)
+	mockK8S.EXPECT().GetSecret(gomock.Any(), namespace, secretName).Return(nil, fmt.Errorf("connection to apiserver: %w", io.EOF))
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockK8S, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EOF")
+}
+
+func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
+	const deviceName = "standalone-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	invalidConfig := []domain.ConfigProviderSpec{{}}
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Spec: &domain.DeviceSpec{
+			Config: &invalidConfig,
+		},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+
+	specHash := hashRenderedWithSpec(device.Spec)
+	mockSvc.EXPECT().UpdateDeviceAnnotations(
+		gomock.Any(), orgId, deviceName,
+		map[string]string{
+			domain.DeviceAnnotationRenderedSpecHash: specHash,
+		},
+		gomock.Nil(),
+	).Return(statusOK)
+
+	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
+	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownConfigName)
+}
+
+func TestRenderDevice_ExternalError_FleetOwned_NoAnnotations(t *testing.T) {
+	const (
+		deviceName      = "fleet-ext-err-device"
+		fleet           = "my-fleet"
+		templateVersion = "tv-1"
+		namespace       = "default"
+		secretName      = "my-secret"
+		mountPath       = "/etc/secret"
+	)
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	k8sConfigItem := makeK8sSecretConfigItem("k8s-cfg", namespace, secretName, mountPath)
+	configItems := []domain.ConfigProviderSpec{k8sConfigItem}
+	ownerStr := fmt.Sprintf("Fleet/%s", fleet)
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name:  lo.ToPtr(deviceName),
+			Owner: &ownerStr,
+			Annotations: &map[string]string{
+				domain.DeviceAnnotationTemplateVersion: templateVersion,
+			},
+		},
+		Spec: &domain.DeviceSpec{
+			Config: &configItems,
+		},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+
+	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
+			require.Len(t, conditions, 1)
+			assert.Equal(t, domain.ConditionStatusFalse, conditions[0].Status)
+			assert.Contains(t, conditions[0].Message, "kubernetes API is not available")
+			return statusOK
+		})
+	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "kubernetes API is not available")
+}
+
+func TestRenderDevice_PermanentAppError(t *testing.T) {
+	const deviceName = "app-error-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	invalidApp := []domain.ApplicationProviderSpec{{}}
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Spec: &domain.DeviceSpec{
+			Applications: &invalidApp,
+		},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+
+	specHash := hashRenderedWithSpec(device.Spec)
+	mockSvc.EXPECT().UpdateDeviceAnnotations(
+		gomock.Any(), orgId, deviceName,
+		map[string]string{
+			domain.DeviceAnnotationRenderedSpecHash: specHash,
+		},
+		gomock.Nil(),
+	).Return(statusOK)
+
+	mockSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
+	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownApplicationType)
 }
 
 func makeK8sSecretConfigItem(configName, namespace, name, mountPath string) domain.ConfigProviderSpec {
