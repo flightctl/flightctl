@@ -241,12 +241,18 @@ func buildAgentIdentityFiles() ([]vm.ContainerFile, error) {
 	// (system-wide TLS trust, needs update-ca-trust - see ContainerDevice.Run) and containers/certs.d
 	// (podman/skopeo's own registry-specific trust store, no update-ca-trust needed).
 	caCertPath := filepath.Join(util.GetTopLevelDir(), "bin", "e2e-certs", "pki", "CA", "ca.crt")
-	if _, err := os.Stat(caCertPath); err == nil {
+	switch _, err := os.Stat(caCertPath); {
+	case err == nil:
 		regHostPort := containers.GetHostIP() + ":" + registryHostPort
 		files = append(files,
 			vm.ContainerFile{HostPath: caCertPath, ContainerPath: "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt", Mode: 0644},
 			vm.ContainerFile{HostPath: caCertPath, ContainerPath: "/etc/containers/certs.d/" + regHostPort + "/ca.crt", Mode: 0644},
 		)
+	case os.IsNotExist(err):
+		// Expected for local/dev runs that haven't generated e2e certs yet - the registry-trust
+		// files above are best-effort, mirroring inject_agent_files_into_qcow.sh's own handling.
+	default:
+		return nil, fmt.Errorf("failed to stat CA cert %s: %w", caCertPath, err)
 	}
 
 	return files, nil
