@@ -521,6 +521,62 @@ func TestReplaceCertificateSigningRequest(t *testing.T) {
 	})
 }
 
+func TestReplaceCertificateSigningRequestOwnership(t *testing.T) {
+	owner := "Device/my-device"
+
+	t.Run("When replacing an owned CSR with a changed spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &existing
+
+		updated := existing
+		updated.Spec.Request = csrPEM(t, "different-cn")
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, updated)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+
+	t.Run("When replacing an owned CSR with an unchanged spec it should succeed", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr-samespec"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+		}
+		fakeStore.items[cn] = &existing
+
+		_, status := h.ReplaceCertificateSigningRequest(context.Background(), uuid.New(), cn, existing)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[cn].Metadata.Owner))
+	})
+}
+
+func TestPatchCertificateSigningRequestOwnership(t *testing.T) {
+	owner := "Device/my-device"
+
+	t.Run("When patching an owned CSR's spec it should return conflict", func(t *testing.T) {
+		h, fakeStore, _, _, _ := newTestHandler(t)
+		cn := "owned-csr-patch"
+		existing := domain.CertificateSigningRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(cn), Owner: lo.ToPtr(owner)},
+			Spec:     domain.CertificateSigningRequestSpec{SignerName: "enrollment", Request: csrPEM(t, cn), Usages: validUsages()},
+			Status:   &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}},
+		}
+		fakeStore.items[cn] = &existing
+
+		var value interface{} = float64(3600)
+		patch := domain.PatchRequest{{Op: "add", Path: "/spec/expirationSeconds", Value: &value}}
+		_, status := h.PatchCertificateSigningRequest(context.Background(), uuid.New(), cn, patch)
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
+	})
+}
+
 func TestUpdateCertificateSigningRequestApproval(t *testing.T) {
 	t.Run("When approving a pending CSR it should sign it", func(t *testing.T) {
 		h, fakeStore, _, _, cfg := newTestHandler(t)

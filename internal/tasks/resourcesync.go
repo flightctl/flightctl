@@ -338,6 +338,10 @@ func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UU
 		// always clears Owner, so writing twice doubled every sync's DB writes and
 		// left the fleet observably unowned between them.
 		fleetToUpdate := *resource
+		if resource.Spec.Template.Metadata != nil {
+			templateMetaCopy := *resource.Spec.Template.Metadata
+			fleetToUpdate.Spec.Template.Metadata = &templateMetaCopy
+		}
 		fleetservice.SanitizeFleet(&fleetToUpdate)
 		fleetToUpdate.Metadata.Owner = owner
 		_, status := r.fleetSvc.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, fleetToUpdate, false)

@@ -28,3 +28,10 @@ func CatalogSpecsAreEqual(c1, c2 CatalogSpec) bool {
 func CatalogItemSpecsAreEqual(c1, c2 CatalogItemSpec) bool {
 	return util.DeepEqualWithUnionHandling(reflect.ValueOf(c1), reflect.ValueOf(c2))
 }
+
+// CertificateSigningRequestSpecsAreEqual compares two CertificateSigningRequestSpec
+// objects for semantic equality, normalizing JSON round-trip artifacts such as nil
+// vs. empty maps (e.g. Extra).
+func CertificateSigningRequestSpecsAreEqual(c1, c2 CertificateSigningRequestSpec) bool {
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(c1), reflect.ValueOf(c2))
+}

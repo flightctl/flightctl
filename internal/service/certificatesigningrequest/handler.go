@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
@@ -272,6 +273,10 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	if certificateSigningRequestOwnershipConflict(currentObj, newObj) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
+	}
+
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
@@ -317,9 +322,28 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	return result, domain.StatusOK()
 }
 
+// certificateSigningRequestOwnershipConflict reports whether replacing/patching an owned
+// CSR's spec would let a caller other than its owner (e.g. the enrolling device) swap in a
+// different certificate request under the same name.
+func certificateSigningRequestOwnershipConflict(existing, incoming *domain.CertificateSigningRequest) bool {
+	if len(lo.FromPtr(existing.Metadata.Owner)) == 0 {
+		return false
+	}
+	return !domain.CertificateSigningRequestSpecsAreEqual(existing.Spec, incoming.Spec)
+}
+
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	if name != *csr.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	existing, getErr := h.store.Get(ctx, orgId, name)
+	if getErr != nil {
+		if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+			return nil, common.StoreErrorToApiStatus(getErr, false, domain.CertificateSigningRequestKind, &name)
+		}
+	} else if certificateSigningRequestOwnershipConflict(existing, &csr) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
 	}
 
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
