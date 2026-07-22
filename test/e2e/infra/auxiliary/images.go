@@ -175,6 +175,9 @@ type manifestEntry struct {
 // (e.g. a local dev machine that built both cs9-bootc and cs10-bootc); CI only ever stages the one
 // bundle matching the current shard's os_id input, so it's optional there.
 func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
+	if strings.ContainsAny(osIDHint, `/\*?[]`) {
+		return "", fmt.Errorf("invalid os ID hint %q: must not contain path separators or glob metacharacters", osIDHint)
+	}
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return "", fmt.Errorf("failed to get project root: %w", err)
