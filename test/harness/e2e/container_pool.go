@@ -20,12 +20,14 @@ const (
 	registryHostPort        = "5000"
 	privateRegistryHostPort = "5002"
 
-	// containerSourceRepo/containerTestsSourceRepo mirror SOURCE_REPO/TESTS_SOURCE_REPO in
-	// test/scripts/inject_agent_files_into_qcow.sh, so container-backed devices resolve
-	// quay.io/flightctl(-private)/... and quay.io/flightctl-tests/... to the same local mirrors
-	// VM-backed devices use.
-	containerSourceRepo      = "quay.io/flightctl"
-	containerTestsSourceRepo = "quay.io/flightctl-tests"
+	// containerSourceRepo mirrors SOURCE_REPO in test/scripts/inject_agent_files_into_qcow.sh, so
+	// container-backed devices resolve quay.io/flightctl(-private)/... to the same local mirrors
+	// VM-backed devices use. quay.io/flightctl-tests/... is deliberately left unmapped here too -
+	// inject_agent_files_into_qcow.sh doesn't remap it either (that only exists as an unmerged
+	// mirroring fix on a different branch), and the local registry never gets fixture images like
+	// quay.io/flightctl-tests/nginx pushed into it - remapping to it would just turn every "pull
+	// straight from quay.io" into a "manifest unknown" 404 against an empty path on the mirror.
+	containerSourceRepo = "quay.io/flightctl"
 
 	// defaultContainerDeviceImageRepoPath/defaultContainerDeviceOSID mirror
 	// test/scripts/agent-images/scripts/build.sh's IMAGE_REPO/OS_ID defaults, and
@@ -266,7 +268,6 @@ func buildRegistryRemapFile() vm.ContainerFile {
 	host := containers.GetHostIP()
 	dest := fmt.Sprintf("%s:%s/flightctl", host, registryHostPort)
 	privateDest := fmt.Sprintf("%s:%s/flightctl", host, privateRegistryHostPort)
-	testsDest := fmt.Sprintf("%s:%s/flightctl-tests", host, registryHostPort)
 
 	content := fmt.Sprintf(`[[registry]]
 prefix = "%s"
@@ -275,11 +276,7 @@ location = "%s"
 [[registry]]
 prefix = "%s-private"
 location = "%s"
-
-[[registry]]
-prefix = "%s"
-location = "%s"
-`, containerSourceRepo, dest, containerSourceRepo, privateDest, containerTestsSourceRepo, testsDest)
+`, containerSourceRepo, dest, containerSourceRepo, privateDest)
 
 	return vm.ContainerFile{
 		Content:       []byte(content),
