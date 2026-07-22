@@ -87,9 +87,10 @@ func NewContainerDevice(cfg ContainerDeviceConfig) *ContainerDevice {
 // filesystem podman/Docker have themselves already presented as overlayfs (which containers/storage
 // rejects outright: "'overlay' is not supported over overlayfs, a mount_program is required").
 // On a real VM the qcow2 root filesystem is a plain block device (ext4/xfs/btrfs), so this problem
-// doesn't exist there and only container-backed devices need the override. fuse-overlayfs ships in
-// the same centos-bootc base image this device image is built from (see
-// test/scripts/agent-images/containerfiles), so no extra dependency is introduced.
+// doesn't exist there and only container-backed devices need the override. fuse-overlayfs is
+// installed explicitly in the same base image this device image is built from (see
+// test/scripts/agent-images/containerfiles) - it's not part of the upstream centos-bootc/rhel-bootc
+// base, so relying on it "just being there" silently breaks the moment that assumption changes.
 const nestedPodmanStorageConf = `[storage]
 driver = "overlay"
 
