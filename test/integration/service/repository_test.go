@@ -88,7 +88,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 	Describe("CheckRepositoryOciTag", func() {
 		When("the repository does not exist", func() {
 			It("should return 404", func() {
-				_, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "nonexistent", "quay.io/myorg/myimage", "latest")
+				_, status := suite.Repository.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "nonexistent", "quay.io/myorg/myimage", "latest")
 				Expect(status.Code).To(Equal(int32(http.StatusNotFound)))
 			})
 		})
@@ -101,7 +101,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Type: api.GitRepoSpecTypeGit,
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("git-repo")},
@@ -109,7 +109,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				_, status = suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "git-repo", "quay.io/myorg/myimage", "latest")
+				_, status = suite.Repository.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "git-repo", "quay.io/myorg/myimage", "latest")
 				Expect(status.Code).To(Equal(int32(http.StatusBadRequest)))
 				Expect(status.Message).To(ContainSubstring("not OCI"))
 			})
@@ -127,7 +127,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Scheme:   lo.ToPtr(api.Http),
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("oci-repo")},
@@ -135,7 +135,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "known-tag")
+				result, status := suite.Repository.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "known-tag")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeTrue())
@@ -156,7 +156,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Scheme:   lo.ToPtr(api.Http),
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("oci-repo")},
@@ -164,7 +164,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "unknown-tag")
+				result, status := suite.Repository.CheckRepositoryOciTag(suite.Ctx, suite.OrgID, "oci-repo", "myimage", "unknown-tag")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeFalse())
@@ -176,7 +176,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 	Describe("CheckRepositoryOciImage", func() {
 		When("the repository does not exist", func() {
 			It("should return 404", func() {
-				_, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "nonexistent", "quay.io/myorg/myimage")
+				_, status := suite.Repository.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "nonexistent", "quay.io/myorg/myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusNotFound)))
 			})
 		})
@@ -189,7 +189,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Type: api.GitRepoSpecTypeGit,
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("git-repo-2")},
@@ -197,7 +197,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				_, status = suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "git-repo-2", "quay.io/myorg/myimage")
+				_, status = suite.Repository.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "git-repo-2", "quay.io/myorg/myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusBadRequest)))
 				Expect(status.Message).To(ContainSubstring("not OCI"))
 			})
@@ -215,7 +215,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Scheme:   lo.ToPtr(api.Http),
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("oci-repo")},
@@ -223,7 +223,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "oci-repo", "myimage")
+				result, status := suite.Repository.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "oci-repo", "myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeTrue())
@@ -242,7 +242,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 					Scheme:   lo.ToPtr(api.Http),
 				})
 				Expect(err).ToNot(HaveOccurred())
-				_, status := suite.Handler.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
+				_, status := suite.Repository.CreateRepository(suite.Ctx, suite.OrgID, api.Repository{
 					ApiVersion: "v1beta1",
 					Kind:       "Repository",
 					Metadata:   api.ObjectMeta{Name: lo.ToPtr("unreachable-oci-repo")},
@@ -250,7 +250,7 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				})
 				Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 
-				result, status := suite.Handler.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "unreachable-oci-repo", "myimage")
+				result, status := suite.Repository.CheckRepositoryOciImage(suite.Ctx, suite.OrgID, "unreachable-oci-repo", "myimage")
 				Expect(status.Code).To(Equal(int32(http.StatusOK)))
 				Expect(result).ToNot(BeNil())
 				Expect(result.Accessible).To(BeFalse())

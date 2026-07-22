@@ -276,7 +276,7 @@ var _ = Describe("CLI - device console", func() {
 		Expect(out).To(
 			And(
 				ContainSubstring("Usage:"),
-				ContainSubstring("flightctl console device/NAME [--app APP --remote-type TYPE] [-- COMMAND [ARG...]]"),
+				ContainSubstring("flightctl console device/NAME [-- COMMAND [ARG...]]"),
 			),
 		)
 

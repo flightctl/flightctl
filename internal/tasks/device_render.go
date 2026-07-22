@@ -17,7 +17,9 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/ignition"
@@ -45,8 +47,8 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(log, serviceHandler, k8sClient, kvStore, cfg, orgId, event)
+func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, k8sClient, kvStore, cfg, orgId, event)
 	if event.InvolvedObject.Kind == domain.DeviceKind {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -62,7 +64,8 @@ func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, serv
 
 type DeviceRenderLogic struct {
 	log             logrus.FieldLogger
-	serviceHandler  service.Service
+	deviceSvc       deviceservice.Service
+	repositorySvc   repositoryservice.Service
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
 	cfg             *config.Config
@@ -75,16 +78,17 @@ type DeviceRenderLogic struct {
 	vmConverter     VmConverterFn
 }
 
-func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
+func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
 	return DeviceRenderLogic{
-		log:            log,
-		serviceHandler: serviceHandler,
-		k8sClient:      k8sClient,
-		kvStore:        kvStore,
-		cfg:            cfg,
-		orgId:          orgId,
-		event:          event,
-		vmConverter:    defaultVmConverter,
+		log:           log,
+		deviceSvc:     deviceSvc,
+		repositorySvc: repositorySvc,
+		k8sClient:     k8sClient,
+		kvStore:       kvStore,
+		cfg:           cfg,
+		orgId:         orgId,
+		event:         event,
+		vmConverter:   defaultVmConverter,
 	}
 }
 
@@ -98,7 +102,7 @@ func (t DeviceRenderLogic) WithVmConverter(fn VmConverterFn) DeviceRenderLogic {
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
-	device, status := t.serviceHandler.GetDevice(ctx, t.orgId, t.event.InvolvedObject.Name)
+	device, status := t.deviceSvc.GetDevice(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
@@ -198,18 +202,24 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// This only applies to devices that don't belong to a fleet, because otherwise the fleet will be
 	// notified about changes to the repository.
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		status = t.serviceHandler.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, referencedRepos...)
+		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, referencedRepos...)
 		if status.Code != http.StatusOK {
 			return t.setStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
 		}
 	}
 
 	if renderErr != nil {
+		if isPermanentRenderError(renderErr) {
+			t.markPermanentRenderFailure(ctx, specHash)
+		}
 		return t.setStatus(ctx, renderErr)
 	}
 
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
+		if isPermanentRenderError(err) {
+			t.markPermanentRenderFailure(ctx, specHash)
+		}
 		return t.setStatus(ctx, err)
 	}
 
@@ -224,8 +234,22 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 
 	// forceUpdate tells the store layer to persist this render and bump the rendered version
 	// even though specHash is unchanged (see bypassHashCheck above).
-	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
-	return t.setStatus(ctx, service.ApiStatusToErr(status))
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
+	return t.setStatus(ctx, common.ApiStatusToErr(status))
+}
+
+func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, specHash string) {
+	annotations := map[string]string{
+		domain.DeviceAnnotationRenderedSpecHash: specHash,
+	}
+	if t.templateVersion != nil {
+		annotations[domain.DeviceAnnotationRenderedTemplateVersion] = *t.templateVersion
+	}
+
+	status := t.deviceSvc.UpdateDeviceAnnotations(ctx, t.orgId, t.event.InvolvedObject.Name, annotations, nil)
+	if status.Code != http.StatusOK {
+		t.log.Errorf("Failed writing render-failure annotations for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+	}
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
@@ -240,10 +264,10 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 		condition.Message = renderErr.Error()
 	}
 
-	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
+	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
-	} else if err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, t.orgId, t.event.InvolvedObject.Name); err != nil {
+	} else if err := t.deviceSvc.UpdateServerSideDeviceStatus(ctx, t.orgId, t.event.InvolvedObject.Name); err != nil {
 		t.log.Errorf("Failed updating device status for device %s/%s: %v", t.orgId, t.event.InvolvedObject.Name, err)
 	}
 	return renderErr
@@ -383,7 +407,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to get app type: %w", ErrUnknownApplicationType, err)
 	}
 
 	switch appType {
@@ -398,7 +422,7 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 	case domain.AppTypeVm:
 		vmApp, parseErr := (*app).AsVmApplication()
 		if parseErr != nil {
-			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, parseErr)
+			return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, parseErr)
 		}
 		appName := vmApp.Name
 		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, kvStore)
@@ -410,11 +434,11 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+		return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, err)
 	}
 	appName, err := (*app).GetName()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to get app name: %w", ErrUnknownApplicationType, err)
 	}
 	return appName, app, nil
 }
@@ -425,7 +449,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *dom
 		return nil, nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	repo, status := t.serviceHandler.GetRepository(ctx, t.orgId, gitSpec.GitRef.Repository)
+	repo, status := t.repositorySvc.GetRepository(ctx, t.orgId, gitSpec.GitRef.Repository)
 	if status.Code != http.StatusOK {
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, nil, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, gitSpec.GitRef.Repository, status.Message)
 	}
@@ -435,7 +459,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *dom
 
 	if t.ownerFleet == nil {
 		var hash string
-		ignition, hash, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, t.cfg)
+		ignition, hash, err = CloneGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, t.cfg)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, nil, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
@@ -621,7 +645,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	repo, status := t.serviceHandler.GetRepository(ctx, t.orgId, httpConfigProviderSpec.HttpRef.Repository)
+	repo, status := t.repositorySvc.GetRepository(ctx, t.orgId, httpConfigProviderSpec.HttpRef.Repository)
 	if status.Code != http.StatusOK {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, httpConfigProviderSpec.HttpRef.Repository, status.Message)
 	}
@@ -696,7 +720,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if httpData == nil {
-		httpData, err = sendHTTPrequest(repo.Spec, repoURL)
+		httpData, err = sendHTTPrequest(ctx, repo.Spec, repoURL)
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, nil, fmt.Errorf("failed fetching data: %w", err)
 		}
@@ -842,7 +866,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		revisionToClone = string(frozenHashBytes)
 	}
 
-	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, t.cfg)
+	ign, hash, err := CloneGitRepoToIgnition(ctx, repo, revisionToClone, path, t.cfg)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed cloning git: %w", err)
 	}

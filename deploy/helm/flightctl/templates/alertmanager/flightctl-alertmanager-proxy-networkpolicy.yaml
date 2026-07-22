@@ -1,0 +1,25 @@
+{{- if and .Values.alertManager .Values.alertManager.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flightctl-alertmanager-proxy-from-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager-proxy
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          policy-group.network.openshift.io/ingress: ""
+  podSelector:
+    matchLabels:
+      flightctl.service: flightctl-alertmanager-proxy
+  policyTypes:
+  - Ingress
+{{ end }}
+{{- end }}

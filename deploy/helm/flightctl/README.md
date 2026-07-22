@@ -225,13 +225,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertExporter.image.image | string | `"quay.io/flightctl/flightctl-alert-exporter-el9"` | Alert exporter container image |
 | alertExporter.image.pullPolicy | string | `""` | Image pull policy for alert exporter container |
 | alertExporter.image.tag | string | `""` | Alert exporter image tag |
-| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"},"selector":{"matchLabels":{}},"volumeName":""}` | Alertmanager Configuration |
 | alertmanager.additionalPVCLabels | string | `nil` | Additional labels for Alert Manager PVCs. |
 | alertmanager.additionalRouteLabels | string | `nil` | Additional labels for Alert Manager routes. |
 | alertmanager.enabled | bool | `true` | Enable Alertmanager for alert handling |
 | alertmanager.image.image | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
 | alertmanager.image.tag | string | `"v0.28.1"` | Alertmanager image tag |
+| alertmanager.selector.matchLabels | object | `{}` | Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection. |
+| alertmanager.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= the fixed `2Gi` this PVC requests, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: "" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV. |
 | alertmanagerProxy | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alertmanager-proxy-el9","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
 | alertmanagerProxy.enabled | bool | `true` | Enable Alertmanager proxy service |
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy-el9"` | Alertmanager proxy container image |
@@ -259,8 +261,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
-| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
+| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"selector":{"matchLabels":{}},"storage":{"size":"60Gi"},"volumeName":""},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
+| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"selector":{"matchLabels":{}},"storage":{"size":"60Gi"},"volumeName":""}` | Settings for builtin DB |
 | db.builtin.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
 | db.builtin.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.fsGroup | string | `""` | File system group ID for database pod security context |
@@ -272,7 +274,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.builtin.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
 | db.builtin.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
+| db.builtin.selector.matchLabels | object | `{}` | Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection. |
 | db.builtin.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
+| db.builtin.volumeName | string | `""` | Name of a specific pre-provisioned PersistentVolume to bind this PVC to. Only takes effect when the PVC is first created — changing this on an already-bound PVC will make `helm upgrade` fail, because Kubernetes forbids mutating volumeName after creation. Leave empty for normal (dynamic or best-fit static) binding. Note: the target PV's capacity must be >= `storage.size` above, or binding will fail. Setting this (or selector.matchLabels below) also makes the chart render storageClassName: "" on this PVC when global.storageClassName is left empty, so a cluster-default StorageClass can't get injected and mismatch the target PV. |
 | db.external.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. |
 | db.external.hostname | string | `""` | External database hostname |
 | db.external.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. |
@@ -343,13 +347,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
 | global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
-| global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
+| global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. Note: for a component that also sets volumeName or selector.matchLabels for static PV binding, leaving this empty makes the chart render storageClassName: "" for that PVC instead of omitting the field — see the volumeName comments below. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api-el9","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
 | imageBuilderApi.enabled | bool | `true` | Enable imagebuilder API service |
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"syft":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
 | imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker-el9"` | ImageBuilder Worker container image |
@@ -367,11 +371,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.sbom.purlTransform.enabled | bool | `true` | Normalize RPM PURLs (namespace/distro/qualifiers) before push/upload for advisory matching. |
 | imageBuilderWorker.sbom.pushToRegistry | bool | `true` | Attach the SBOM to the pushed image as an OCI 1.1 referrer artifact on the destination registry. |
 | imageBuilderWorker.sbom.uploadToTrustify | bool | `true` | Upload the SBOM to Trustify when vulnerability reporting is enabled and Trustify is configured (same settings as `vulnerabilityReporting` elsewhere in this chart). |
-| imageBuilderWorker.serviceImages | object | `{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"syft":{"image":"","skipTlsVerify":false}}` | Builder images (podman, bootc-image-builder, syft) and skip-TLS options |
+| imageBuilderWorker.serviceImages | object | `{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}}` | Builder images (podman, bootc-image-builder, syft) and skip-TLS options |
 | imageBuilderWorker.serviceImages.bootcImageBuilder.image | string | `""` | bootc-image-builder image (leave empty to use default). |
 | imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the bootc-image-builder image. |
 | imageBuilderWorker.serviceImages.podman.image | string | `""` | Podman builder image (leave empty to use default). |
 | imageBuilderWorker.serviceImages.podman.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Podman builder image. |
+| imageBuilderWorker.serviceImages.pullSecretName | string | `""` | Secret name containing registry credentials (auth.json) for pulling builder service images. Required when serviceImages are hosted in an authenticated or air-gapped registry. The secret must contain a key named `auth.json` in standard podman/Docker auth format. Mounted read-only at /root/.config/containers/auth.json inside the worker container. |
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |

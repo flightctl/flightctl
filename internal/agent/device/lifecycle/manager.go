@@ -50,6 +50,7 @@ type LifecycleManager struct {
 	enrollmentClient    client.Enrollment
 	defaultLabels       map[string]string
 	labelFromSystemInfo map[string]string
+	osMode              v1beta1.OsModeType
 	enrollmentCSR       []byte
 	statusManager       status.Manager
 	systemdClient       *client.Systemd
@@ -71,6 +72,7 @@ func NewManager(
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
 	labelFromSystemInfo map[string]string,
+	osMode v1beta1.OsModeType,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
@@ -89,6 +91,7 @@ func NewManager(
 		enrollmentCSR:        enrollmentCSR,
 		defaultLabels:        defaultLabels,
 		labelFromSystemInfo:  labelFromSystemInfo,
+		osMode:               osMode,
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
@@ -99,11 +102,11 @@ func NewManager(
 // Initialize ensures the device is enrolled to the management service.
 func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
-		if err := m.writeEnrollmentBanner(ctx); err != nil {
+		if err := m.enrollmentRequest(ctx, status); err != nil {
 			return err
 		}
 
-		if err := m.enrollmentRequest(ctx, status); err != nil {
+		if err := m.writeEnrollmentBanner(ctx); err != nil {
 			return err
 		}
 
@@ -440,6 +443,7 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			DeviceStatus:         deviceStatus,
 			Labels:               &enrollmentLabels,
 			KnownRenderedVersion: knownRenderedVersion,
+			OsMode:               &m.osMode,
 		},
 	}
 

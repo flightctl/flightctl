@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -18,10 +17,11 @@ func TestFieldSelector(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	// Setup VM and harness for this worker
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
+	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
@@ -30,17 +30,13 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
-
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
-	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })

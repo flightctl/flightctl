@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
-	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -21,21 +21,21 @@ const (
 )
 
 type Healthchecker struct {
-	log   logrus.FieldLogger
-	store store.Store
-	input chan heartbeatRequest
-	once  sync.Once
+	log         logrus.FieldLogger
+	deviceStore devicestore.Store
+	input       chan heartbeatRequest
+	once        sync.Once
 }
 
 type HealthChecksType struct {
 	util.Singleton[Healthchecker]
 }
 
-func (h *HealthChecksType) Initialize(ctx context.Context, store store.Store, log logrus.FieldLogger) {
+func (h *HealthChecksType) Initialize(ctx context.Context, deviceStore devicestore.Store, log logrus.FieldLogger) {
 	h.GetOrInit(&Healthchecker{
-		log:   log,
-		store: store,
-		input: make(chan heartbeatRequest, heartbeatChannelSize),
+		log:         log,
+		deviceStore: deviceStore,
+		input:       make(chan heartbeatRequest, heartbeatChannelSize),
 	}).Start(ctx)
 }
 
@@ -59,7 +59,7 @@ func (h *Healthchecker) save(ctx context.Context, orgId uuid.UUID, names []strin
 	}
 	ctx, span := startSpan(ctx, "HealthcheckDevice")
 	defer span.End()
-	err := h.store.Device().Healthcheck(ctx, orgId, names)
+	err := h.deviceStore.Healthcheck(ctx, orgId, names)
 	if err != nil {
 		h.log.Errorf("HealthcheckDevice failed for %s: %v", orgId, err)
 	}

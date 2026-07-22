@@ -172,7 +172,10 @@ func (m *monitor) Ensure(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	if _, ok := m.apps[appID]; ok {
+	if existing, ok := m.apps[appID]; ok {
+		// App is already installed; keep lifecycle intent in sync for status reporting.
+		existing.SetDesiredState(app.DesiredState())
+		existing.SetRestartGeneration(app.RestartGeneration())
 		return nil
 	}
 	m.apps[appID] = app
@@ -428,34 +431,6 @@ func (m *monitor) stopStreaming() error {
 
 	m.log.Infof("%s monitor stopped", m.name)
 	return nil
-}
-
-// executeActions executes queued actions grouped by app type.
-// The normalizeAppType function allows mapping app types (e.g., Container -> Quadlet).
-// Returns the drained actions for any post-processing by the caller.
-func (m *monitor) executeActions(ctx context.Context, normalizeAppType func(v1beta1.AppType) v1beta1.AppType) ([]lifecycle.Action, error) {
-	actions := m.drainActions()
-
-	groupedActions := make(map[v1beta1.AppType][]lifecycle.Action)
-	for i := range actions {
-		action := actions[i]
-		appType := action.AppType
-		if normalizeAppType != nil {
-			appType = normalizeAppType(appType)
-		}
-		if _, ok := m.handlers[appType]; !ok {
-			return actions, fmt.Errorf("%w: no action handler registered: %s", errors.ErrUnsupportedAppType, action.AppType)
-		}
-		groupedActions[appType] = append(groupedActions[appType], action)
-	}
-
-	for appType, typeActions := range groupedActions {
-		if err := m.handlers[appType].Execute(ctx, typeActions); err != nil {
-			return actions, err
-		}
-	}
-
-	return actions, nil
 }
 
 // Status returns the status of all monitored applications.

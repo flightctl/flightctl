@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -117,7 +118,7 @@ func TestGitSSHCloneWithFIPS(t *testing.T) {
 
 	// Attempt to clone the repository
 	// In FIPS mode WITH the fix, this should succeed by using FIPS-compliant algorithms
-	_, _, err = tasks.CloneGitRepo(repo, nil, nil, nil)
+	_, _, err = tasks.CloneGitRepo(context.Background(), repo, nil, nil, nil)
 
 	// With the fix implemented, SSH clone should succeed in FIPS mode
 	// The fix applies FIPS-compliant algorithms (ecdh-sha2-nistp*, diffie-hellman-group*-sha256)
@@ -185,7 +186,7 @@ func TestGitSSHCloneNonFIPS(t *testing.T) {
 	}
 
 	// In non-FIPS mode, this should work with default algorithms
-	_, _, err = tasks.CloneGitRepo(repo, nil, nil, nil)
+	_, _, err = tasks.CloneGitRepo(context.Background(), repo, nil, nil, nil)
 
 	// Note: This might still fail because we're using a minimal SSH server
 	// The important part is that it should NOT fail due to FIPS restrictions

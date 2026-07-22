@@ -17,7 +17,7 @@ func (h *TransportHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := h.serviceHandler.CreateFleet(r.Context(), transport.OrgIDFromContext(r.Context()), domainFleet)
+	body, status := h.fleet.CreateFleet(r.Context(), transport.OrgIDFromContext(r.Context()), domainFleet)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -25,7 +25,7 @@ func (h *TransportHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 // (GET /api/v1/fleets)
 func (h *TransportHandler) ListFleets(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListFleetsParams) {
 	domainParams := h.converter.Fleet().ListParamsToDomain(params)
-	body, status := h.serviceHandler.ListFleets(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	body, status := h.fleet.ListFleets(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.Fleet().ListFromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -33,7 +33,7 @@ func (h *TransportHandler) ListFleets(w http.ResponseWriter, r *http.Request, pa
 // (GET /api/v1/fleets/{name})
 func (h *TransportHandler) GetFleet(w http.ResponseWriter, r *http.Request, name string, params apiv1beta1.GetFleetParams) {
 	domainParams := h.converter.Fleet().GetParamsToDomain(params)
-	body, status := h.serviceHandler.GetFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainParams)
+	body, status := h.fleet.GetFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainParams)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -47,20 +47,20 @@ func (h *TransportHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, 
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := h.serviceHandler.ReplaceFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainFleet)
+	body, status := h.fleet.ReplaceFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainFleet)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/fleets/{name})
 func (h *TransportHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.fleet.DeleteFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	h.SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *TransportHandler) GetFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetFleetStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	body, status := h.fleet.GetFleetStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -74,7 +74,7 @@ func (h *TransportHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := h.serviceHandler.ReplaceFleetStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainFleet)
+	body, status := h.fleet.ReplaceFleetStatus(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainFleet)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -88,7 +88,7 @@ func (h *TransportHandler) PatchFleet(w http.ResponseWriter, r *http.Request, na
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.serviceHandler.PatchFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.fleet.PatchFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -101,14 +101,14 @@ func (h *TransportHandler) PatchFleetStatus(w http.ResponseWriter, r *http.Reque
 
 // (POST /api/v1/fleets/{name}/applications/{appname}/actions/stop)
 func (h *TransportHandler) StopFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
-	body, status := h.serviceHandler.StopFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
+	body, status := h.fleet.StopFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/fleets/{name}/applications/{appname}/actions/start)
 func (h *TransportHandler) StartFleetApplication(w http.ResponseWriter, r *http.Request, name string, appname string) {
-	body, status := h.serviceHandler.StartFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
+	body, status := h.fleet.StartFleetApplication(r.Context(), transport.OrgIDFromContext(r.Context()), name, appname)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

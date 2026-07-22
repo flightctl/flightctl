@@ -65,6 +65,7 @@ JSONL
 JWT
 Keycloak
 Klusterlet
+KubeVirt
 Kubernetes
 kustomize
 KVM
@@ -356,6 +357,9 @@ Issuer
 air-gapped
 vCPU
 vRAM
+WebSocket
+gRPC
+Proxy
 vDisk
 resolution
 Fedora
@@ -388,6 +392,8 @@ CRI-O
  air-gapped
  builder-worker.container
  imageBuilderWorker
+ serviceImages
+ pullSecretName
  bool
  imagebuilder
  repos
@@ -409,6 +415,10 @@ CRI-O
  ImageContentSourcePolicy
  walkthrough
  arg
+ - docs/user/references/cli-commands.md
+VNC
+stdin
+stdout
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
@@ -451,6 +461,17 @@ PVs
 k8s
 v1.35
 flightcontrol
+pre-provisioned
+PersistentVolumes
+PersistentVolume
+PersistentVolumeClaim
+fsync
+pre-create
+Pre-bind
+NFS
+claimRef
+matchLabels
+matchExpressions
  - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
@@ -468,8 +489,17 @@ setgid
 setuid
 TargetRevision
 undeploy
+undeploying
 unpackaged
 v3.4
+VNC
+VirtIO
+Hyper-V
+enlightenments
+hostDisk
+RDP
+ISO
+ISOs
 WorkDir
 10s
  - docs/user/using/managing-fleets.md
@@ -625,6 +655,10 @@ DDL
  - docs/user/installing/configuring-service-tracing.md
 https
 http
+CPT
+Pyroscope
+pyroscope
+flamegraphs
  - docs/user/installing/configuring-auth/auth-pam.md
 clientId
 clientSecret

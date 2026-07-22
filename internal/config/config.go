@@ -34,6 +34,7 @@ type Config struct {
 	Metrics                *metricsConfig             `json:"metrics,omitempty"`
 	CA                     *ca.Config                 `json:"ca,omitempty"`
 	Tracing                *TracingConfig             `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
 	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
 	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic               *periodicConfig            `json:"periodic,omitempty"`
@@ -41,6 +42,7 @@ type Config struct {
 	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
 	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -605,6 +607,58 @@ type TracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+// ProfilingConfig selects how continuous/on-demand profiling is started.
+// pprof and pyroscope are independent; either, both, or neither may be enabled.
+type ProfilingConfig struct {
+	Pprof     *PprofProfilingConfig     `json:"pprof,omitempty"`
+	Pyroscope *PyroscopeProfilingConfig `json:"pyroscope,omitempty"`
+}
+
+// PprofProfilingConfig starts the loopback-only Go net/http/pprof server.
+type PprofProfilingConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// Port is the loopback TCP port for /debug/pprof (127.0.0.1 only).
+	// If unset or zero, each process uses its own default (see docs). Do not set
+	// a shared port when multiple services run on one host — they would conflict.
+	Port int `json:"port,omitempty"`
+}
+
+// PyroscopeProfilingConfig pushes profiles to a Grafana Pyroscope server.
+type PyroscopeProfilingConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// ServerAddress is required when enabled (e.g. "http://pyroscope:4040").
+	ServerAddress string `json:"serverAddress,omitempty"`
+	// ApplicationName overrides the process name sent to Pyroscope. When empty,
+	// each binary uses its own default (e.g. "flightctl-worker").
+	ApplicationName string `json:"applicationName,omitempty"`
+	// BasicAuthUser / BasicAuthPassword are optional (e.g. Grafana Cloud).
+	BasicAuthUser     string           `json:"basicAuthUser,omitempty"`
+	BasicAuthPassword api.SecureString `json:"basicAuthPassword,omitempty"`
+	// TenantID is optional multi-tenant Pyroscope header.
+	TenantID string `json:"tenantID,omitempty"`
+}
+
+// PprofProfilingEnabled reports whether the loopback pprof server should start.
+func (c *Config) PprofProfilingEnabled() bool {
+	return c != nil && c.Profiling != nil && c.Profiling.Pprof != nil && c.Profiling.Pprof.Enabled
+}
+
+// PprofProfilingPort returns the configured pprof port, or defaultPort when unset.
+func (c *Config) PprofProfilingPort(defaultPort int) int {
+	if c != nil && c.Profiling != nil && c.Profiling.Pprof != nil && c.Profiling.Pprof.Port > 0 {
+		return c.Profiling.Pprof.Port
+	}
+	return defaultPort
+}
+
+// PyroscopeProfilingConfig returns the pyroscope block when enabled, otherwise nil.
+func (c *Config) PyroscopeProfilingConfig() *PyroscopeProfilingConfig {
+	if c == nil || c.Profiling == nil || c.Profiling.Pyroscope == nil || !c.Profiling.Pyroscope.Enabled {
+		return nil
+	}
+	return c.Profiling.Pyroscope
+}
+
 type gitOpsConfig struct {
 	// IgnoreResourceUpdates lists JSON pointer paths that should be ignored
 	// when comparing desired vs. live resources during GitOps sync.
@@ -723,6 +777,20 @@ type telemetryGatewayForwardTLS struct {
 	KeyFile               string `json:"keyFile,omitempty"`
 }
 
+// EncryptionKeyConfig defines a single encryption key with its identifier and file path.
+type EncryptionKeyConfig struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// EncryptionConfig holds encryption-at-rest key configuration.
+// Keys lists all available keys (for rotation support); ActiveKeyID selects which
+// key is used for new encryptions. Old keys remain available for decryption.
+type EncryptionConfig struct {
+	Keys        []EncryptionKeyConfig `json:"keys"`
+	ActiveKeyID string                `json:"activeKeyID"`
+}
+
 type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
@@ -816,6 +884,10 @@ func ClientConfigFile() string {
 
 func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
+}
+
+func EncryptionDir() string {
+	return filepath.Join(ConfigDir(), "encryption")
 }
 
 func NewDefault(opts ...ConfigOption) *Config {
@@ -933,6 +1005,15 @@ func NewDefault(opts ...ConfigOption) *Config {
 		},
 		Auth: &authConfig{
 			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+		},
+		Encryption: &EncryptionConfig{
+			Keys: []EncryptionKeyConfig{
+				{
+					ID:   "default",
+					Path: filepath.Join(EncryptionDir(), "key"),
+				},
+			},
+			ActiveKeyID: "default",
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())

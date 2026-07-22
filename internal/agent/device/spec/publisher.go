@@ -223,7 +223,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		n.log.Infof("New spec version received: %s -> %s", n.lastKnownVersion, newVersion)
 		n.lastKnownVersion = newVersion
 	} else {
-		n.log.Warnf("Received spec version %s is not greater than last known version %s, skipping...", newVersion, n.lastKnownVersion)
+		n.log.Debugf("Received rendered device with unchanged version %s (last known: %s)", newVersion, n.lastKnownVersion)
 	}
 
 	// notify all watchers of the new device spec

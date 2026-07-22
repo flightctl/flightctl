@@ -10,8 +10,11 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/service"
+	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	"github.com/flightctl/flightctl/test/util"
@@ -37,7 +40,7 @@ var _ = BeforeSuite(func() {
 var _ = Describe("Auth Config Integration Tests", func() {
 	var (
 		ctx            context.Context
-		serviceHandler service.Service
+		serviceHandler authproviderservice.Service
 		multiAuth      *authn.MultiAuth
 	)
 
@@ -48,7 +51,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		// Setup test database and service handler
 		_, _, db, err := testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		testStore := store.NewStore(db, log.WithField("pkg", "store"))
+		authProviderStore := authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 
 		// Add admin identity to context for auth provider operations
 		testOrg := &model.Organization{
@@ -66,7 +70,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
 		// Create service handler (it implements AuthProviderService interface)
-		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{}, false)
+		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+		serviceHandler = authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, log)
 
 		// Create a config with static OIDC provider to test production initialization path
 		cfg := config.NewDefault(

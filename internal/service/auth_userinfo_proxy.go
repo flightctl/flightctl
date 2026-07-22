@@ -2,16 +2,34 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
+	orgmodel "github.com/flightctl/flightctl/internal/org/model"
 )
 
 // AuthUserInfoProxy handles OIDC UserInfo requests by extracting identity from context
 type AuthUserInfoProxy struct {
 	authN common.AuthNMiddleware
+}
+
+var organizationApiVersion = fmt.Sprintf("%s/%s", domain.APIGroup, domain.OrganizationAPIVersion)
+
+// organizationModelToAPI converts a model.Organization to domain.Organization
+func organizationModelToAPI(org *orgmodel.Organization) domain.Organization {
+	name := org.ID.String()
+	return domain.Organization{
+		ApiVersion: organizationApiVersion,
+		Kind:       domain.OrganizationKind,
+		Metadata:   domain.ObjectMeta{Name: &name},
+		Spec: &domain.OrganizationSpec{
+			ExternalId:  &org.ExternalID,
+			DisplayName: &org.DisplayName,
+		},
+	}
 }
 
 // NewAuthUserInfoProxy creates a new auth userinfo proxy

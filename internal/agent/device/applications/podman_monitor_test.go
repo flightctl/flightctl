@@ -14,8 +14,10 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -1329,7 +1331,7 @@ func TestReduceActions_Consistency(t *testing.T) {
 }
 
 func TestPodmanMonitorResolveConsole(t *testing.T) {
-	newMonitor := func(t *testing.T) (*PodmanMonitor, *gomock.Controller) {
+	newMonitor := func(t *testing.T) (*PodmanMonitor, *executer.MockExecuter, *gomock.Controller) {
 		t.Helper()
 		ctrl := gomock.NewController(t)
 		testLog := log.NewPrefixLogger("test")
@@ -1347,12 +1349,12 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		var systemdFactory systemd.ManagerFactory = func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
 		var rwFactory fileio.ReadWriterFactory = func(_ v1beta1.Username) (fileio.ReadWriter, error) { return readWriter, nil }
 		m := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
-		return m, ctrl
+		return m, execMock, ctrl
 	}
 
 	t.Run("When the app is not tracked it should return errConsoleAppNotFound", func(t *testing.T) {
 		require := require.New(t)
-		m, ctrl := newMonitor(t)
+		m, _, ctrl := newMonitor(t)
 		defer ctrl.Finish()
 		_, err := m.resolveConsole("unknown-app", "serial")
 		require.ErrorIs(err, errConsoleAppNotFound)
@@ -1360,7 +1362,7 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 
 	t.Run("When the app is a non-VM type it should return an unsupported error", func(t *testing.T) {
 		require := require.New(t)
-		m, ctrl := newMonitor(t)
+		m, _, ctrl := newMonitor(t)
 		defer ctrl.Finish()
 		app := createTestApplicationWithType(require, "compose-app", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername, v1beta1.AppTypeCompose)
 		err := m.Ensure(t.Context(), app)
@@ -1370,9 +1372,9 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.Contains(err.Error(), "only VM apps support console")
 	})
 
-	t.Run("When the app is a VM but consoleType is not serial it should return an error", func(t *testing.T) {
+	t.Run("When the app is a VM but consoleType is unsupported it should return an error", func(t *testing.T) {
 		require := require.New(t)
-		m, ctrl := newMonitor(t)
+		m, _, ctrl := newMonitor(t)
 		defer ctrl.Finish()
 		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
 		err := m.Ensure(t.Context(), app)
@@ -1382,23 +1384,38 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.Contains(err.Error(), "unsupported console type")
 	})
 
-	t.Run("When the app is VM serial with a running workload it should return a session", func(t *testing.T) {
+	t.Run("When the app is VM serial with a running workload it should return a session that execs into the serial socket", func(t *testing.T) {
 		require := require.New(t)
-		m, ctrl := newMonitor(t)
+		m, execMock, ctrl := newMonitor(t)
 		defer ctrl.Finish()
 		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
 		err := m.Ensure(t.Context(), app)
 		require.NoError(err)
 		// The workload name comes from podman events and is the authoritative runtime name.
 		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+
+		// Asserting only NotNil would still pass if console-type routing regressed to
+		// always return the same session type. Assert the VNC-specific observable
+		// behavior instead: the underlying exec targets the serial socket, not the VNC one.
+		execMock.EXPECT().CommandContext(gomock.Any(), "podman", "exec", "-i", "systemd-my-vm-compute", "nc", "-U", "/var/run/kubevirt-private/default/virt-serial0").
+			DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+				return exec.CommandContext(ctx, "cat")
+			})
+
 		sess, err := m.resolveConsole("my-vm", "serial")
 		require.NoError(err)
 		require.NotNil(sess)
+
+		streamClient := appconsole.NewMockRouterService_StreamClient(ctrl)
+		streamClient.EXPECT().Recv().Return(nil, io.EOF).AnyTimes()
+		streamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+		streamClient.EXPECT().CloseSend().Return(nil).AnyTimes()
+		sess.Run(t.Context(), streamClient)
 	})
 
 	t.Run("When the app is VM serial with no running workload it should return an error", func(t *testing.T) {
 		require := require.New(t)
-		m, ctrl := newMonitor(t)
+		m, _, ctrl := newMonitor(t)
 		defer ctrl.Finish()
 		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
 		err := m.Ensure(t.Context(), app)
@@ -1406,5 +1423,173 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		_, err = m.resolveConsole("my-vm", "serial")
 		require.Error(err)
 		require.Contains(err.Error(), "no active compute container found")
+	})
+
+	t.Run("When the app is VM vnc with a running workload it should return a session that execs into the VNC socket", func(t *testing.T) {
+		require := require.New(t)
+		m, execMock, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+
+		// Asserting only NotNil would still pass if console-type routing regressed to
+		// always return the serial session. Assert the VNC-specific observable behavior
+		// instead: the underlying exec targets the VNC socket, not the serial one.
+		execMock.EXPECT().CommandContext(gomock.Any(), "podman", "exec", "-i", "systemd-my-vm-compute", "nc", "-U", "/var/run/kubevirt-private/default/virt-vnc").
+			DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+				return exec.CommandContext(ctx, "cat")
+			})
+
+		sess, err := m.resolveConsole("my-vm", "vnc")
+		require.NoError(err)
+		require.NotNil(sess)
+
+		streamClient := appconsole.NewMockRouterService_StreamClient(ctrl)
+		streamClient.EXPECT().Recv().Return(nil, io.EOF).AnyTimes()
+		streamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
+		streamClient.EXPECT().CloseSend().Return(nil).AnyTimes()
+		sess.Run(t.Context(), streamClient)
+	})
+
+	t.Run("When the app is VM vnc with no running workload it should return an error", func(t *testing.T) {
+		require := require.New(t)
+		m, _, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		_, err = m.resolveConsole("my-vm", "vnc")
+		require.Error(err)
+		require.Contains(err.Error(), "no active compute container found")
+	})
+}
+
+func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
+	const appName = "my-app"
+
+	appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
+	targetName := appID + "-flightctl-quadlet-app.target"
+
+	testCases := []struct {
+		name       string
+		appType    v1beta1.AppType
+		operation  func(m *PodmanMonitor, appID string) error
+		setupMocks func(*systemd.MockManager)
+		wantErr    bool
+	}{
+		{
+			name:    "When StopApp is called for a quadlet app it should stop the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StopApp is called for a container app it should stop the target via quadlet handler",
+			appType: v1beta1.AppTypeContainer,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StartApp is called for a quadlet app it should start the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StartApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Start(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When RestartApp is called for a quadlet app it should restart the target",
+			appType: v1beta1.AppTypeQuadlet,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.RestartApp(context.Background(), appID, 1)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Restart(gomock.Any(), targetName).Return(nil)
+			},
+		},
+		{
+			name:    "When StopApp is called for a VM app it should stop the target via quadlet handler",
+			appType: v1beta1.AppTypeVm,
+			operation: func(m *PodmanMonitor, appID string) error {
+				return m.StopApp(context.Background(), appID)
+			},
+			setupMocks: func(m *systemd.MockManager) {
+				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			testLog := log.NewPrefixLogger("test")
+			testLog.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			systemdMgr := systemd.NewMockManager(ctrl)
+			tc.setupMocks(systemdMgr)
+
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			podman := client.NewPodman(testLog, mockExec, rw, util.NewPollConfig())
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+
+			monitor := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
+
+			// Wire up a test app in the monitor's apps map
+			volumeManager, err := provider.NewVolumeManager(testLog, appName, tc.appType, v1beta1.CurrentProcessUsername, nil)
+			require.NoError(err)
+			app := &application{
+				id: appID,
+				status: &v1beta1.DeviceApplicationStatus{
+					Name:    appName,
+					AppType: tc.appType,
+				},
+				volume: volumeManager,
+			}
+			monitor.apps[app.ID()] = app
+
+			err = tc.operation(monitor, appID)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+
+	t.Run("When StopApp is called for an unknown appID it should return ErrAppNotFound", func(t *testing.T) {
+		require := require.New(t)
+		testLog := log.NewPrefixLogger("test")
+		monitor := NewPodmanMonitor(testLog, nil, nil, "", nil)
+		err := monitor.StopApp(context.Background(), "nonexistent-id")
+		require.ErrorIs(err, errors.ErrAppNotFound)
 	})
 }

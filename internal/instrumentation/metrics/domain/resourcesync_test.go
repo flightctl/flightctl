@@ -8,43 +8,16 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
-// Minimal mock store and ResourceSync for testing
-
-type MockResourceSyncStore struct {
-	results []store.CountByResourceSyncOrgAndStatusResult
-}
-
-func (m *MockResourceSyncStore) Device() store.Device                       { return nil }
-func (m *MockResourceSyncStore) EnrollmentRequest() store.EnrollmentRequest { return nil }
-func (m *MockResourceSyncStore) CertificateSigningRequest() store.CertificateSigningRequest {
-	return nil
-}
-func (m *MockResourceSyncStore) Fleet() store.Fleet                     { return nil }
-func (m *MockResourceSyncStore) TemplateVersion() store.TemplateVersion { return nil }
-func (m *MockResourceSyncStore) Repository() store.Repository           { return nil }
-func (m *MockResourceSyncStore) ResourceSync() store.ResourceSync {
-	return &MockResourceSync{results: m.results}
-}
-func (m *MockResourceSyncStore) Event() store.Event                               { return nil }
-func (m *MockResourceSyncStore) Checkpoint() store.Checkpoint                     { return nil }
-func (m *MockResourceSyncStore) Organization() store.Organization                 { return nil }
-func (m *MockResourceSyncStore) AuthProvider() store.AuthProvider                 { return nil }
-func (m *MockResourceSyncStore) Catalog() store.Catalog                           { return nil }
-func (m *MockResourceSyncStore) VulnerabilityFinding() store.VulnerabilityFinding { return nil }
-func (m *MockResourceSyncStore) SyncState() store.SyncState                       { return nil }
-func (m *MockResourceSyncStore) DependencyRef() store.DependencyRef               { return nil }
-func (m *MockResourceSyncStore) RunMigrations(context.Context) error              { return nil }
-func (m *MockResourceSyncStore) Close() error                                     { return nil }
-func (m *MockResourceSyncStore) CheckHealth(context.Context) error                { return nil }
-
+// MockResourceSync implements resourcesync.Store for testing
 type MockResourceSync struct {
-	results []store.CountByResourceSyncOrgAndStatusResult
+	results []resourcesyncstore.CountByResourceSyncOrgAndStatusResult
 }
 
 func (m *MockResourceSync) InitialMigration(ctx context.Context) error { return nil }
@@ -72,18 +45,18 @@ func (m *MockResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, re
 func (m *MockResourceSync) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
 	return 0, nil
 }
-func (m *MockResourceSync) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]store.CountByResourceSyncOrgAndStatusResult, error) {
+func (m *MockResourceSync) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]resourcesyncstore.CountByResourceSyncOrgAndStatusResult, error) {
 	return m.results, nil
 }
 
 func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
-	mockResults := []store.CountByResourceSyncOrgAndStatusResult{
+	mockResults := []resourcesyncstore.CountByResourceSyncOrgAndStatusResult{
 		{OrgID: "org1", Status: "Ready", Count: 2},
 		{OrgID: "org1", Status: "Progressing", Count: 1},
 		{OrgID: "org2", Status: "Ready", Count: 3},
 	}
 
-	mockStore := &MockResourceSyncStore{results: mockResults}
+	mockResourceSync := &MockResourceSync{results: mockResults}
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -95,7 +68,7 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}
 	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
-	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
+	collector := NewResourceSyncCollector(ctx, mockResourceSync, log, config)
 	time.Sleep(5 * time.Millisecond)
 
 	ch := make(chan prometheus.Metric, 100)
@@ -123,7 +96,7 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 
 func TestResourceSyncCollectorWithEmptyResults(t *testing.T) {
 	// Test the new behavior where empty results emit a default metric
-	mockStore := &MockResourceSyncStore{results: []store.CountByResourceSyncOrgAndStatusResult{}} // Empty results
+	mockResourceSync := &MockResourceSync{results: []resourcesyncstore.CountByResourceSyncOrgAndStatusResult{}} // Empty results
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -137,7 +110,7 @@ func TestResourceSyncCollectorWithEmptyResults(t *testing.T) {
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}
 	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
-	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
+	collector := NewResourceSyncCollector(ctx, mockResourceSync, log, config)
 	time.Sleep(5 * time.Millisecond)
 
 	// Test that metrics are collected even with empty results
@@ -164,7 +137,7 @@ func TestResourceSyncCollectorWithEmptyResults(t *testing.T) {
 
 func TestResourceSyncCollectorUpdateResourceSyncMetricsWithEmptyResults(t *testing.T) {
 	// Test the updateResourceSyncMetrics method directly with empty results
-	mockStore := &MockResourceSyncStore{results: []store.CountByResourceSyncOrgAndStatusResult{}} // Empty results
+	mockResourceSync := &MockResourceSync{results: []resourcesyncstore.CountByResourceSyncOrgAndStatusResult{}} // Empty results
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
@@ -178,7 +151,7 @@ func TestResourceSyncCollectorUpdateResourceSyncMetricsWithEmptyResults(t *testi
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}
 	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
-	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
+	collector := NewResourceSyncCollector(ctx, mockResourceSync, log, config)
 
 	// Call updateResourceSyncMetrics directly
 	collector.updateResourceSyncMetrics()

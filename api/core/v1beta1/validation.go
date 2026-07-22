@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1649,19 +1650,21 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("invalid parameter syntax: %v", err))
 	}
 
-	// Ensure template has only supported types
-	for _, node := range t.Root.Nodes {
-		allowedNodeTypes := []parse.NodeType{
-			parse.NodeText,   // Plain text
-			parse.NodeAction, // A non-control action such as a field evaluation
-		}
-		if !slices.Contains(allowedNodeTypes, node.Type()) {
-			return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("template contains unsupported elements: %s", node.String()))
-		}
+	// Ensure template has only supported types (recursively, to catch
+	// disallowed constructs nested inside conditionals).
+	if err := validateTemplateNodes(t.Root.Nodes, 0); err != nil {
+		return false, validation.FormatInvalidError(*s, path, err.Error())
 	}
 
-	// When the template is executed here, any missing label/annotation keys are evaluated to empty
-	// strings, so an empty map is fine.
+	// Validate field access paths statically across all branches, so that
+	// invalid references (e.g. .metadata.annotations) are caught even in
+	// conditional branches that a dummy render would not execute.
+	if err := validateTemplateFieldAccess(t.Root.Nodes, true); err != nil {
+		return false, validation.FormatInvalidError(*s, path, err.Error())
+	}
+
+	// Execute against a dummy device to catch remaining runtime errors
+	// (type mismatches, incorrect function usage, etc.).
 	dev := &Device{
 		Metadata: ObjectMeta{
 			Name:   lo.ToPtr("name"),
@@ -1674,6 +1677,157 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 		return false, validation.FormatInvalidError(*s, path, fmt.Sprintf("cannot apply parameters, possibly because they access invalid fields: %v", err))
 	}
 	return output != *s, allErrs
+}
+
+const maxTemplateNestingDepth = 10
+
+func validateTemplateNodes(nodes []parse.Node, depth int) error {
+	if depth > maxTemplateNestingDepth {
+		return fmt.Errorf("template exceeds maximum nesting depth of %d", maxTemplateNestingDepth)
+	}
+	for _, node := range nodes {
+		switch n := node.(type) {
+		case *parse.TextNode:
+		case *parse.ActionNode:
+		case *parse.IfNode:
+			if err := validateBranchNode(&n.BranchNode, depth+1); err != nil {
+				return err
+			}
+		case *parse.WithNode:
+			if err := validateBranchNode(&n.BranchNode, depth+1); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("template contains unsupported elements: %s", node.String())
+		}
+	}
+	return nil
+}
+
+func validateBranchNode(b *parse.BranchNode, depth int) error {
+	if b.List != nil {
+		if err := validateTemplateNodes(b.List.Nodes, depth); err != nil {
+			return fmt.Errorf("in branch body: %w", err)
+		}
+	}
+	if b.ElseList != nil {
+		if err := validateTemplateNodes(b.ElseList.Nodes, depth); err != nil {
+			return fmt.Errorf("in else branch: %w", err)
+		}
+	}
+	return nil
+}
+
+// validateTemplateFieldAccess walks every branch of the AST and checks that
+// field access paths reference only exposed device fields (.metadata.name and
+// .metadata.labels). The rootContext flag tracks whether the current dot (.)
+// is the root device map; inside a "with" body the dot is rebound, so
+// dot-relative field paths are not validated. However, $-rooted paths
+// (e.g. $.metadata.name) always reference the root and are validated
+// regardless of context.
+func validateTemplateFieldAccess(nodes []parse.Node, rootContext bool) error {
+	for _, node := range nodes {
+		switch n := node.(type) {
+		case *parse.ActionNode:
+			if err := validatePipeFieldPaths(n.Pipe, rootContext); err != nil {
+				return err
+			}
+		case *parse.IfNode:
+			if err := validatePipeFieldPaths(n.Pipe, rootContext); err != nil {
+				return err
+			}
+			if n.List != nil {
+				if err := validateTemplateFieldAccess(n.List.Nodes, rootContext); err != nil {
+					return err
+				}
+			}
+			if n.ElseList != nil {
+				if err := validateTemplateFieldAccess(n.ElseList.Nodes, rootContext); err != nil {
+					return err
+				}
+			}
+		case *parse.WithNode:
+			if err := validatePipeFieldPaths(n.Pipe, rootContext); err != nil {
+				return err
+			}
+			if n.List != nil {
+				if err := validateTemplateFieldAccess(n.List.Nodes, false); err != nil {
+					return err
+				}
+			}
+			if n.ElseList != nil {
+				if err := validateTemplateFieldAccess(n.ElseList.Nodes, rootContext); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validatePipeFieldPaths(pipe *parse.PipeNode, rootContext bool) error {
+	if pipe == nil {
+		return nil
+	}
+	for _, cmd := range pipe.Cmds {
+		for _, arg := range cmd.Args {
+			if field, ok := arg.(*parse.FieldNode); ok {
+				if rootContext {
+					if err := validateFieldPath(field.Ident); err != nil {
+						return err
+					}
+				} else if len(field.Ident) > 0 && field.Ident[0] == "metadata" {
+					return fmt.Errorf("template references root field inside 'with' body: .%s (use $.%s to access root fields)",
+						strings.Join(field.Ident, "."), strings.Join(field.Ident, "."))
+				}
+			}
+			if v, ok := arg.(*parse.VariableNode); ok && len(v.Ident) > 1 && v.Ident[0] == "$" {
+				if err := validateFieldPath(v.Ident[1:]); err != nil {
+					return err
+				}
+			}
+			if chain, ok := arg.(*parse.ChainNode); ok {
+				if err := validateChainFieldPaths(chain); err != nil {
+					return err
+				}
+			}
+			if nested, ok := arg.(*parse.PipeNode); ok {
+				if err := validatePipeFieldPaths(nested, rootContext); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateChainFieldPaths(chain *parse.ChainNode) error {
+	if len(chain.Field) > 0 {
+		return fmt.Errorf("template contains unsupported chained field access: %s", chain.String())
+	}
+	return nil
+}
+
+func validateFieldPath(ident []string) error {
+	if len(ident) == 0 {
+		return nil
+	}
+	if ident[0] != "metadata" || len(ident) < 2 {
+		return fmt.Errorf("template references unsupported field: .%s", strings.Join(ident, "."))
+	}
+	switch ident[1] {
+	case "name":
+		if len(ident) > 2 {
+			return fmt.Errorf("template references unsupported field: .%s", strings.Join(ident, "."))
+		}
+	case "labels":
+		if len(ident) > 3 {
+			return fmt.Errorf("template references unsupported field: .%s", strings.Join(ident, "."))
+		}
+	default:
+		return fmt.Errorf("template references unsupported field: .%s", strings.Join(ident, "."))
+	}
+	return nil
 }
 
 func validatePercentage(p Percentage) error {
@@ -1760,11 +1914,22 @@ func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider)
 	return allErrs
 }
 
+// validateAbsoluteURL returns an error if the value is not a valid absolute URL with a scheme and host.
+func validateAbsoluteURL(fieldName, value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%s must be a valid URL with scheme and host", fieldName)
+	}
+	return nil
+}
+
 func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
 		allErrs = append(allErrs, ErrIssuerRequired)
+	} else if err := validateAbsoluteURL("issuer", o.Issuer); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
@@ -1784,15 +1949,26 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 
 	if o.AuthorizationUrl == "" {
 		allErrs = append(allErrs, ErrAuthorizationUrlRequired)
+	} else if err := validateAbsoluteURL("authorizationUrl", o.AuthorizationUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.TokenUrl == "" {
 		allErrs = append(allErrs, ErrTokenUrlRequired)
+	} else if err := validateAbsoluteURL("tokenUrl", o.TokenUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.UserinfoUrl == "" {
 		allErrs = append(allErrs, ErrUserinfoUrlRequired)
+	} else if err := validateAbsoluteURL("userinfoUrl", o.UserinfoUrl); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+	if o.Issuer != nil && *o.Issuer != "" {
+		if err := validateAbsoluteURL("issuer", *o.Issuer); err != nil {
+			allErrs = append(allErrs, err)
+		}
 	}
 
 	// Validate introspection field is present

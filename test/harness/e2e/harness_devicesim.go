@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
@@ -360,7 +361,7 @@ func (h *Harness) WaitForSimulatorEnrollmentRequest(testID, alias string, timeou
 
 // findEnrollmentRequestBySpecLabels finds an enrollment request by its test-id and alias labels.
 func (h *Harness) findEnrollmentRequestBySpecLabels(testID, alias string) (string, bool, error) {
-	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, nil)
+	resp, err := h.listEnrollmentRequestsWithRetry()
 	if err != nil {
 		return "", false, err
 	}
@@ -389,7 +390,7 @@ func (h *Harness) findEnrollmentRequestBySpecLabels(testID, alias string) (strin
 // deleteEnrollmentRequestsBySpecTestID deletes pending enrollment requests whose
 // spec.labels include the given test-id (e.g. from devicesimulator --skip-auto-approve).
 func (h *Harness) deleteEnrollmentRequestsBySpecTestID(testID string) error {
-	resp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, nil)
+	resp, err := h.listEnrollmentRequestsWithRetry()
 	if err != nil {
 		return err
 	}
@@ -417,6 +418,30 @@ func (h *Harness) deleteEnrollmentRequestsBySpecTestID(testID string) error {
 		logrus.Debugf("Successfully deleted enrollment request: %s", name)
 	}
 	return nil
+}
+
+// listEnrollmentRequestsWithRetry lists enrollment requests with bounded 429 retries.
+func (h *Harness) listEnrollmentRequestsWithRetry() (*apiclient.ListEnrollmentRequestsResponse, error) {
+	ctx := h.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var resp *apiclient.ListEnrollmentRequestsResponse
+	var err error
+	for attempt := 1; attempt <= cliRateLimitRetryAttempts; attempt++ {
+		resp, err = h.Client.ListEnrollmentRequestsWithResponse(ctx, nil)
+		if err != nil || resp == nil || resp.StatusCode() != http.StatusTooManyRequests || attempt == cliRateLimitRetryAttempts {
+			return resp, err
+		}
+		logrus.Warnf("ListEnrollmentRequests hit API rate limit, retrying attempt %d/%d in %s", attempt+1, cliRateLimitRetryAttempts, cliRateLimitRetryDelay)
+		select {
+		case <-ctx.Done():
+			return resp, ctx.Err()
+		case <-time.After(cliRateLimitRetryDelay):
+		}
+	}
+	return resp, err
 }
 
 // StopAllSimulators stops all running simulator commands, logging warnings on failure.

@@ -36,6 +36,30 @@ func TestModelSchemaSelectors(t *testing.T) {
 	}
 }
 
+func TestDeviceOsModeSelector(t *testing.T) {
+	name := selector.NewSelectorName("status.capabilities.osMode")
+	var device Device
+
+	field, err := device.ResolveSelector(name)
+	if err != nil {
+		t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
+	}
+	if field.Type != selector.String {
+		t.Errorf("Type = %v, want String", field.Type)
+	}
+	if field.FieldType != "jsonb" {
+		t.Errorf("FieldType = %q, want jsonb", field.FieldType)
+	}
+	wantFieldName := "status -> 'capabilities' ->> 'osMode'"
+	if field.FieldName != wantFieldName {
+		t.Errorf("FieldName = %q, want %q", field.FieldName, wantFieldName)
+	}
+
+	if !device.ListSelectors().Contains(name) {
+		t.Errorf("ListSelectors() missing %q", name)
+	}
+}
+
 func verifySchema(schemaName string, apischema any, selectors selectorToTypeMap) error {
 	schema := scanAPISchema(schemaName, apischema)
 	for s, typ := range selectors {

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
@@ -35,7 +37,7 @@ func New(
 	}
 }
 
-func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error {
+func (s *Server) Run(ctx context.Context, checkpointSvc checkpointservice.Service, organizationSvc organizationservice.Service, eventSvc eventservice.Service) error {
 	logger := s.log.WithFields(logrus.Fields{
 		"component": "alert_exporter_server",
 	})
@@ -51,7 +53,7 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 	// Start uptime tracking
 	go s.updateUptimeMetric(ctx)
 
-	alertExporter := NewAlertExporter(s.log, serviceHandler, s.cfg)
+	alertExporter := NewAlertExporter(s.log, checkpointSvc, organizationSvc, eventSvc, s.cfg)
 
 	// Handle shutdown gracefully
 	sigCh := make(chan os.Signal, 1)

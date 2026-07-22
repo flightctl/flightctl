@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control Alert Exporter service
 PartOf=flightctl.target
-After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service
-Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service flightctl-certs-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-alert-exporter
@@ -15,6 +15,7 @@ Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
 Volume=/etc/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
 [Service]

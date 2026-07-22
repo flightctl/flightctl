@@ -478,13 +478,15 @@ func TestCreateArchive(t *testing.T) {
 
 // mockDeployer is a test implementation of the Deployer interface
 type mockDeployer struct {
-	deploymentType     DeploymentType
-	backupDBError      error
-	backupPKIError     error
-	backupConfigError  error
-	backupDBCalled     bool
-	backupPKICalled    bool
-	backupConfigCalled bool
+	deploymentType             DeploymentType
+	backupDBError              error
+	backupPKIError             error
+	backupEncryptionKeysError  error
+	backupConfigError          error
+	backupDBCalled             bool
+	backupPKICalled            bool
+	backupEncryptionKeysCalled bool
+	backupConfigCalled         bool
 }
 
 func (m *mockDeployer) Type() DeploymentType {
@@ -517,6 +519,19 @@ func (m *mockDeployer) BackupPKI(ctx context.Context, outputDir string) error {
 	return os.WriteFile(filepath.Join(pkiDir, "ca.crt"), []byte("mock cert"), 0600)
 }
 
+func (m *mockDeployer) BackupEncryptionKeys(ctx context.Context, outputDir string) error {
+	m.backupEncryptionKeysCalled = true
+	if m.backupEncryptionKeysError != nil {
+		return m.backupEncryptionKeysError
+	}
+	// Create mock encryption key backup
+	encDir := filepath.Join(outputDir, "encryption")
+	if err := os.MkdirAll(encDir, 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(encDir, "flightctl-encryption-key.yaml"), []byte("mock encryption key"), 0600)
+}
+
 func (m *mockDeployer) BackupConfig(ctx context.Context, outputDir string) error {
 	m.backupConfigCalled = true
 	if m.backupConfigError != nil {
@@ -547,6 +562,7 @@ func TestPerformBackup(t *testing.T) {
 				// Verify all deployer methods were called
 				require.True(t, deployer.backupDBCalled, "BackupDatabase should be called")
 				require.True(t, deployer.backupPKICalled, "BackupPKI should be called")
+				require.True(t, deployer.backupEncryptionKeysCalled, "BackupEncryptionKeys should be called")
 				require.True(t, deployer.backupConfigCalled, "BackupConfig should be called")
 
 				// Verify archive was created
@@ -559,6 +575,7 @@ func TestPerformBackup(t *testing.T) {
 				require.FileExists(t, filepath.Join(extractDir, "metadata.json"))
 				require.FileExists(t, filepath.Join(extractDir, "db", "dump.sql"))
 				require.FileExists(t, filepath.Join(extractDir, "pki", "ca.crt"))
+				require.FileExists(t, filepath.Join(extractDir, "encryption", "flightctl-encryption-key.yaml"))
 
 				// Verify metadata includes database
 				metadataBytes, err := os.ReadFile(filepath.Join(extractDir, "metadata.json"))
@@ -627,6 +644,25 @@ func TestPerformBackup(t *testing.T) {
 			wantErr: true,
 			validate: func(t *testing.T, deployer *mockDeployer, archivePath string) {
 				require.Equal(t, "", archivePath)
+			},
+		},
+		{
+			name: "When BackupEncryptionKeys fails it should return error and skip config",
+			setup: func(t *testing.T) (*mockDeployer, string) {
+				deployer := &mockDeployer{
+					deploymentType:            DeploymentTypeKubernetes,
+					backupEncryptionKeysError: errors.New("encryption key access denied"),
+				}
+				outputDir := t.TempDir()
+				return deployer, outputDir
+			},
+			wantErr: true,
+			validate: func(t *testing.T, deployer *mockDeployer, archivePath string) {
+				require.Equal(t, "", archivePath)
+				require.True(t, deployer.backupDBCalled, "BackupDatabase should be called before encryption keys")
+				require.True(t, deployer.backupPKICalled, "BackupPKI should be called before encryption keys")
+				require.True(t, deployer.backupEncryptionKeysCalled, "BackupEncryptionKeys should be called")
+				require.False(t, deployer.backupConfigCalled, "BackupConfig should NOT be called after encryption key failure")
 			},
 		},
 	}

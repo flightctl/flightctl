@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
@@ -64,14 +65,14 @@ func newTestImageExportWithImageBuildRef(name string, imageBuildRef string) *api
 
 var _ = Describe("ImageExportStore", func() {
 	var (
-		log           *logrus.Logger
-		ctx           context.Context
-		orgId         uuid.UUID
-		storeInst     store.Store
-		mainStoreInst flightctlstore.Store
-		cfg           *config.Config
-		dbName        string
-		db            *gorm.DB
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		storeInst         store.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -82,19 +83,18 @@ var _ = Describe("ImageExportStore", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		mainStoreInst = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
 		// Create test organization (required for foreign key constraint)
 		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
+		err = testutilpkg.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		_ = mainStoreInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -158,7 +158,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org for isolation test
 			wrongOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, wrongOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, wrongOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImageExport().Get(ctx, wrongOrgId, "org-test")
@@ -201,7 +201,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org for isolation test
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := storeInst.ImageExport().List(ctx, otherOrgId, flightctlstore.ListParams{})
@@ -431,7 +431,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			// Create another org
 			otherOrgId := uuid.New()
-			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			err = testutilpkg.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with same name in second org

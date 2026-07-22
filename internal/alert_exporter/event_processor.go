@@ -9,21 +9,27 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
 type EventProcessor struct {
-	log     *logrus.Logger
-	handler service.Service
+	log             *logrus.Logger
+	organizationSvc organizationservice.Service
+	checkpointSvc   checkpointservice.Service
+	eventSvc        eventservice.Service
 }
 
-func NewEventProcessor(log *logrus.Logger, handler service.Service) *EventProcessor {
+func NewEventProcessor(log *logrus.Logger, organizationSvc organizationservice.Service, checkpointSvc checkpointservice.Service, eventSvc eventservice.Service) *EventProcessor {
 	return &EventProcessor{
-		log:     log,
-		handler: handler,
+		log:             log,
+		organizationSvc: organizationSvc,
+		checkpointSvc:   checkpointSvc,
+		eventSvc:        eventSvc,
 	}
 }
 
@@ -45,7 +51,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 	})
 
 	// Get all organizations
-	orgs, status := e.handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	orgs, status := e.organizationSvc.ListOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code != http.StatusOK {
 		logger.WithFields(logrus.Fields{
 			"status_code": status.Code,
@@ -106,7 +112,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 
 	// Fetch the current time from the DB to know where to
 	// start from in the next iteration.
-	timestamp, status := e.handler.GetDatabaseTime(ctx)
+	timestamp, status := e.checkpointSvc.GetDatabaseTime(ctx)
 	if status.Code != http.StatusOK {
 		logger.WithFields(logrus.Fields{
 			"status_code": status.Code,
@@ -162,7 +168,7 @@ func (e *EventProcessor) processOrganizationEvents(ctx context.Context, orgID uu
 		pageLogger := logger.WithField("page_number", totalPages)
 
 		// List the events since the last checkpoint for this organization
-		events, status := e.handler.ListEvents(ctx, orgID, params)
+		events, status := e.eventSvc.ListEvents(ctx, orgID, params)
 		if status.Code != http.StatusOK {
 			pageLogger.WithFields(logrus.Fields{
 				"status_code": status.Code,

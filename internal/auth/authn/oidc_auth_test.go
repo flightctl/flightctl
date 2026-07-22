@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -301,4 +302,87 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 // Helper function to create string pointers
 func stringPtr(s string) *string {
 	return &s
+}
+
+// TestOIDCAuth_ensureDiscovery_TrailingSlash verifies that ensureDiscovery correctly builds
+// the OIDC discovery URL when the configured issuer has a trailing slash.
+// The server-side fix uses provider.DiscoveryURL which normalizes the issuer, so these
+// tests must all pass. They document the expected correct behavior.
+func TestOIDCAuth_ensureDiscovery_TrailingSlash(t *testing.T) {
+	tests := []struct {
+		name         string
+		issuerSuffix string
+		validPath    string
+	}{
+		{
+			name:         "When issuer has no trailing slash it should fetch the correct discovery endpoint",
+			issuerSuffix: "",
+			validPath:    "/.well-known/openid-configuration",
+		},
+		{
+			name:         "When issuer has a trailing slash it should fetch the correct discovery endpoint without double slash",
+			issuerSuffix: "/",
+			validPath:    "/.well-known/openid-configuration",
+		},
+		{
+			name:         "When issuer has a realm path with trailing slash it should fetch the correct discovery endpoint",
+			issuerSuffix: "/realms/myrealm/",
+			validPath:    "/realms/myrealm/.well-known/openid-configuration",
+		},
+		{
+			name:         "When issuer has a realm path without trailing slash it should fetch the correct discovery endpoint",
+			issuerSuffix: "/realms/myrealm",
+			validPath:    "/realms/myrealm/.well-known/openid-configuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var requestedPaths []string
+
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				requestedPaths = append(requestedPaths, r.URL.Path)
+				mu.Unlock()
+
+				if r.URL.Path != tt.validPath {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				response := OIDCServerResponse{
+					JwksUri: server.URL + "/jwks",
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+
+			issuer := server.URL + tt.issuerSuffix
+			spec := api.OIDCProviderSpec{
+				Issuer:   issuer,
+				ClientId: "test-client",
+			}
+
+			log := logrus.New()
+			log.SetLevel(logrus.ErrorLevel)
+
+			oidcAuth, err := NewOIDCAuth(api.ObjectMeta{}, spec, nil, log)
+			require.NoError(t, err)
+
+			err = oidcAuth.ensureDiscovery(context.Background())
+			require.NoError(t, err, "ensureDiscovery should succeed for issuer %q", issuer)
+
+			mu.Lock()
+			paths := append([]string{}, requestedPaths...)
+			mu.Unlock()
+
+			require.NotEmpty(t, paths, "Expected at least one request to the discovery server")
+			for _, path := range paths {
+				assert.NotContains(t, path, "//",
+					"Discovery request path must not contain double slash (issuer: %q, path: %q)", issuer, path)
+			}
+		})
+	}
 }

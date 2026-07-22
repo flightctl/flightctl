@@ -7,12 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // dbAppSecret creates a fake flightctl-db-app-secret for use in tests.
@@ -416,4 +420,131 @@ func TestKubernetesDeployer_BackupConfig_LabelFiltering(t *testing.T) {
 
 	otherPath := filepath.Join(outputDir, "config", "helm-release-other-app.yaml")
 	require.NoFileExists(t, otherPath)
+}
+
+func TestKubernetesDeployer_BackupEncryptionKeys_MissingSecret(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	fakeClient := fake.NewSimpleClientset()
+	deployer := NewKubernetesDeployer(log, WithNamespace("flightctl"), WithClientset(fakeClient))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+
+	require.NoError(t, err, "missing encryption key should not be an error")
+
+	encDir := filepath.Join(outputDir, "encryption")
+	_, statErr := os.Stat(encDir)
+	require.True(t, os.IsNotExist(statErr), "encryption directory should not be created when secret is missing")
+}
+
+func TestKubernetesDeployer_BackupEncryptionKeys_Success(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	encSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      encryptionKeySecretName,
+			Namespace: "flightctl",
+		},
+		Data: map[string][]byte{
+			"key": []byte("supersecretkey"),
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(encSecret)
+	deployer := NewKubernetesDeployer(log, WithNamespace("flightctl"), WithClientset(fakeClient))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+	require.NoError(t, err)
+
+	yamlPath := filepath.Join(outputDir, "encryption", encryptionKeySecretName+".yaml")
+	require.FileExists(t, yamlPath)
+
+	stat, err := os.Stat(yamlPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), stat.Mode().Perm(), "encryption key YAML should have 0600 permissions")
+
+	content, err := os.ReadFile(yamlPath)
+	require.NoError(t, err)
+	require.Contains(t, string(content), encryptionKeySecretName)
+}
+
+func TestKubernetesDeployer_BackupEncryptionKeys_DirectoryPermissions(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	encSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      encryptionKeySecretName,
+			Namespace: "flightctl",
+		},
+		Data: map[string][]byte{
+			"key": []byte("key"),
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(encSecret)
+	deployer := NewKubernetesDeployer(log, WithNamespace("flightctl"), WithClientset(fakeClient))
+	ctx := context.Background()
+	outputDir := t.TempDir()
+
+	require.NoError(t, deployer.BackupEncryptionKeys(ctx, outputDir))
+
+	encDir := filepath.Join(outputDir, "encryption")
+	stat, err := os.Stat(encDir)
+	require.NoError(t, err)
+	require.True(t, stat.IsDir())
+	require.Equal(t, os.FileMode(0700), stat.Mode().Perm(), "encryption directory should have 0700 permissions")
+}
+
+func TestKubernetesDeployer_BackupEncryptionKeys_CleanupOnError(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	encSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      encryptionKeySecretName,
+			Namespace: "flightctl",
+		},
+		Data: map[string][]byte{
+			"key": []byte("key"),
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(encSecret)
+	deployer := NewKubernetesDeployer(log, WithNamespace("flightctl"), WithClientset(fakeClient))
+	ctx := context.Background()
+
+	outputDir := t.TempDir()
+	encDir := filepath.Join(outputDir, "encryption")
+	require.NoError(t, os.MkdirAll(encDir, 0700))
+	yamlPath := filepath.Join(encDir, encryptionKeySecretName+".yaml")
+	require.NoError(t, os.MkdirAll(yamlPath, 0700))
+
+	err := deployer.BackupEncryptionKeys(ctx, outputDir)
+	require.Error(t, err, "should fail when YAML path is a directory")
+
+	_, statErr := os.Stat(encDir)
+	require.True(t, os.IsNotExist(statErr), "encryption directory should be cleaned up on error")
+}
+
+func TestKubernetesDeployer_BackupEncryptionKeys_APIErrorReturned(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	fakeClient := fake.NewSimpleClientset()
+	fakeClient.PrependReactor("get", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("API server unavailable")
+	})
+
+	deployer := NewKubernetesDeployer(log, WithNamespace("flightctl"), WithClientset(fakeClient))
+	outputDir := t.TempDir()
+
+	err := deployer.BackupEncryptionKeys(context.Background(), outputDir)
+	require.Error(t, err, "non-NotFound API errors must be returned, not swallowed")
+	require.ErrorContains(t, err, "API server unavailable")
+
+	encDir := filepath.Join(outputDir, "encryption")
+	_, statErr := os.Stat(encDir)
+	require.True(t, os.IsNotExist(statErr), "encryption directory should not be created on API error")
 }

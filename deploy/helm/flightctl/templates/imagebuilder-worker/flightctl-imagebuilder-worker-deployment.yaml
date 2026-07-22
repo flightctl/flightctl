@@ -82,6 +82,9 @@ spec:
               name: flightctl-ca-bundle
               subPath: ca-bundle.crt
               readOnly: true
+            - mountPath: /root/.flightctl/encryption
+              name: flightctl-encryption-key
+              readOnly: true
             - mountPath: /var/tmp/flightctl-builds
               name: flightctl-builds
               readOnly: false
@@ -125,7 +128,13 @@ spec:
               name: rhsm-ca
               readOnly: true
             {{- end }}
-              
+            {{- if .Values.imageBuilderWorker.serviceImages.pullSecretName }}
+            - mountPath: /root/.config/containers/auth.json
+              name: service-images-pull-secret
+              subPath: auth.json
+              readOnly: true
+            {{- end }}
+
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           {{- with .Values.imageBuilderWorker.resources }}
           resources:
@@ -152,6 +161,10 @@ spec:
         - name: flightctl-ca-bundle
           secret:
             secretName: flightctl-ca-bundle
+        - name: flightctl-encryption-key
+          secret:
+            secretName: flightctl-encryption-key
+            defaultMode: 0400
         - name: flightctl-builds
           hostPath:
             path: /var/tmp/flightctl-builds
@@ -193,6 +206,11 @@ spec:
         - name: rhsm-ca
           secret:
             secretName: {{ .Values.imageBuilderWorker.rhsmCaSecretName }}
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.serviceImages.pullSecretName }}
+        - name: service-images-pull-secret
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.serviceImages.pullSecretName }}
         {{- end }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

@@ -10,8 +10,10 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/uuid"
@@ -22,23 +24,27 @@ type gitLsRemoteFunc func(ctx context.Context, repoURL string, refs []string,
 	auth transport.AuthMethod) (map[string]string, error)
 
 type DependencySyncGit struct {
-	log            logrus.FieldLogger
-	serviceHandler service.Service
-	cfg            *config.Config
-	lsRemote       gitLsRemoteFunc
-	maxConcurrent  int
-	metrics        *periodic.DependencySyncCollector
+	log              logrus.FieldLogger
+	dependencyrefSvc dependencyrefservice.Service
+	eventSvc         eventservice.Service
+	syncstateSvc     syncstateservice.Service
+	cfg              *config.Config
+	lsRemote         gitLsRemoteFunc
+	maxConcurrent    int
+	metrics          *periodic.DependencySyncCollector
 }
 
-func NewDependencySyncGit(log logrus.FieldLogger, serviceHandler service.Service,
+func NewDependencySyncGit(log logrus.FieldLogger, dependencyrefSvc dependencyrefservice.Service, eventSvc eventservice.Service, syncstateSvc syncstateservice.Service,
 	cfg *config.Config, metrics *periodic.DependencySyncCollector) *DependencySyncGit {
 	return &DependencySyncGit{
-		log:            log,
-		serviceHandler: serviceHandler,
-		cfg:            cfg,
-		lsRemote:       GitLsRemote,
-		maxConcurrent:  10,
-		metrics:        metrics,
+		log:              log,
+		dependencyrefSvc: dependencyrefSvc,
+		eventSvc:         eventSvc,
+		syncstateSvc:     syncstateSvc,
+		cfg:              cfg,
+		lsRemote:         GitLsRemote,
+		maxConcurrent:    10,
+		metrics:          metrics,
 	}
 }
 
@@ -60,7 +66,7 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 	pollInterval := d.cfg.GetDependenciesSyncPollInterval()
 	probeStart := time.Now()
 
-	probes, status := d.serviceHandler.ListDueGitDependencies(ctx, orgId, pollInterval)
+	probes, status := d.dependencyrefSvc.ListDueGitDependencies(ctx, orgId, pollInterval)
 	if status.Code != http.StatusOK {
 		d.log.Errorf("failed listing due git dependencies: %s", status.Message)
 		return
@@ -125,7 +131,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	}
 
 	repo := &domain.Repository{Spec: spec}
-	auth, err := GetAuth(repo, d.cfg)
+	auth, err := GetAuth(ctx, repo, d.cfg)
 	if err != nil {
 		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)
 		return nil
@@ -192,13 +198,13 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 			for _, fleetName := range r.probe.FleetNames {
 				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.probeErr)
 				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
+					d.eventSvc.CreateEvent(ctx, orgId, event)
 				}
 			}
 			for _, deviceName := range r.probe.DeviceNames {
 				event := common.GetDependencySyncProbeFailedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.probeErr)
 				if event != nil {
-					d.serviceHandler.CreateEvent(ctx, orgId, event)
+					d.eventSvc.CreateEvent(ctx, orgId, event)
 				}
 			}
 			continue
@@ -212,13 +218,13 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 		for _, fleetName := range r.probe.FleetNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.FleetKind, fleetName, r.resourceKey, r.newSHA)
 			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
+				d.eventSvc.CreateEvent(ctx, orgId, event)
 			}
 		}
 		for _, deviceName := range r.probe.DeviceNames {
 			event := common.GetDependencyChangeDetectedEvent(ctx, domain.DeviceKind, deviceName, r.resourceKey, r.newSHA)
 			if event != nil {
-				d.serviceHandler.CreateEvent(ctx, orgId, event)
+				d.eventSvc.CreateEvent(ctx, orgId, event)
 			}
 		}
 	}
@@ -252,14 +258,14 @@ func (d *DependencySyncGit) reconcile(ctx context.Context, orgId uuid.UUID, resu
 	}
 
 	if len(upsertStates) > 0 {
-		if st := d.serviceHandler.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
+		if st := d.syncstateSvc.BulkUpsertSyncState(ctx, orgId, upsertStates); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk upserting sync states: %s", st.Message)
 			return
 		}
 	}
 
 	if len(unchangedKeys) > 0 {
-		if st := d.serviceHandler.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
+		if st := d.syncstateSvc.BulkUpdateSyncStateLastCheckedAt(ctx, orgId, unchangedKeys, now); st.Code != http.StatusOK {
 			d.log.Errorf("failed bulk updating last_checked_at: %s", st.Message)
 		}
 	}

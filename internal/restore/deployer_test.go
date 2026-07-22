@@ -18,9 +18,11 @@ import (
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/yaml"
 )
 
@@ -269,6 +271,95 @@ func buildExtractDirWithPKI(t *testing.T, files map[string]os.FileMode) string {
 		require.NoError(t, os.WriteFile(filepath.Join(pkiDir, name), []byte("mock-pki-content"), mode))
 	}
 	return dir
+}
+
+func TestCopyDirSecure(t *testing.T) {
+	log, _ := test.NewNullLogger()
+
+	t.Run("When source has regular files it should copy them to destination", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "a.txt"), []byte("aaa"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(src, "b.txt"), []byte("bbb"), 0600))
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 2, count)
+
+		data, err := os.ReadFile(filepath.Join(dst, "a.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "aaa", string(data))
+
+		data, err = os.ReadFile(filepath.Join(dst, "b.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "bbb", string(data))
+	})
+
+	t.Run("When source has files it should preserve their permissions", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "secret.key"), []byte("key"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(src, "public.crt"), []byte("cert"), 0644))
+
+		_, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+
+		info, err := os.Stat(filepath.Join(dst, "secret.key"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+
+		info, err = os.Stat(filepath.Join(dst, "public.crt"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0644), info.Mode().Perm())
+	})
+
+	t.Run("When source has subdirectories it should recreate them with contents", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		subDir := filepath.Join(src, "sub", "nested")
+		require.NoError(t, os.MkdirAll(subDir, 0750))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "deep.txt"), []byte("deep"), 0600))
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		data, err := os.ReadFile(filepath.Join(dst, "sub", "nested", "deep.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "deep", string(data))
+	})
+
+	t.Run("When source contains a symlink it should return an error", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "real.txt"), []byte("real"), 0600))
+		require.NoError(t, os.Symlink(filepath.Join(src, "real.txt"), filepath.Join(src, "link.txt")))
+
+		_, err := copyDirSecure(context.Background(), src, dst, log)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "non-regular")
+	})
+
+	t.Run("When context is cancelled it should return early", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(src, "file.txt"), []byte("data"), 0600))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := copyDirSecure(ctx, src, dst, log)
+		require.Error(t, err)
+	})
+
+	t.Run("When source is empty it should return zero count", func(t *testing.T) {
+		src := t.TempDir()
+		dst := t.TempDir()
+
+		count, err := copyDirSecure(context.Background(), src, dst, log)
+		require.NoError(t, err)
+		require.Equal(t, 0, count)
+	})
 }
 
 // TestPodmanRestoreDeployer_RestorePKI validates the behavioral contracts
@@ -861,4 +952,475 @@ kv:
 	require.Equal(t, uint(dbInternalPort), cfg.Database.Port)
 	require.Equal(t, "flightctl-kv", cfg.KV.Hostname)
 	require.Equal(t, uint(kvInternalPort), cfg.KV.Port)
+}
+
+// buildExtractDirWithEncryption creates an extract directory containing an encryption/
+// subdirectory with the given files (filename → content). Returns the extract directory path.
+func buildExtractDirWithEncryption(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	encDir := filepath.Join(dir, "encryption")
+	require.NoError(t, os.MkdirAll(encDir, 0700))
+	for name, content := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(encDir, name), []byte(content), 0600))
+	}
+	return dir
+}
+
+// buildExtractDirWithEncryptionSecret creates an extract directory with an encryption/
+// subdirectory containing a Secret YAML file. Returns the extract directory and a fresh
+// fake clientset for verifying post-restore cluster state.
+func buildExtractDirWithEncryptionSecret(t *testing.T, secret *corev1.Secret) (string, kubernetes.Interface) {
+	t.Helper()
+	dir := t.TempDir()
+	encDir := filepath.Join(dir, "encryption")
+	require.NoError(t, os.MkdirAll(encDir, 0700))
+	data, err := json.Marshal(secret)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(encDir, secret.Name+".yaml"), data, 0600))
+	return dir, fake.NewSimpleClientset()
+}
+
+// TestPodmanRestoreDeployer_RestoreEncryptionKeys validates the behavioral contracts
+// of PodmanRestoreDeployer.RestoreEncryptionKeys.
+func TestPodmanRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupDir    func(t *testing.T) string
+		setupDest   func(t *testing.T, destDir string)
+		wantErr     bool
+		errContains string
+		verify      func(t *testing.T, destDir string)
+	}{
+		{
+			name: "When encryption dir is absent from archive it should skip silently",
+			setupDir: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			verify: func(t *testing.T, destDir string) {
+				entries, err := os.ReadDir(destDir)
+				require.NoError(t, err)
+				require.Empty(t, entries, "destination should remain empty")
+			},
+		},
+		{
+			name: "When encryption dir exists it should copy all files to destination",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithEncryption(t, map[string]string{
+					"encryption.key": "secret-key-data",
+				})
+			},
+			verify: func(t *testing.T, destDir string) {
+				require.FileExists(t, filepath.Join(destDir, "encryption.key"))
+				data, err := os.ReadFile(filepath.Join(destDir, "encryption.key"))
+				require.NoError(t, err)
+				require.Equal(t, "secret-key-data", string(data))
+			},
+		},
+		{
+			name: "When encryption dir exists it should preserve file permissions",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithEncryption(t, map[string]string{
+					"encryption.key": "key-data",
+				})
+			},
+			verify: func(t *testing.T, destDir string) {
+				info, err := os.Stat(filepath.Join(destDir, "encryption.key"))
+				require.NoError(t, err)
+				require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+			},
+		},
+		{
+			name: "When encryption dir contains a symlink it should return an error and leave destination unchanged",
+			setupDir: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				encDir := filepath.Join(dir, "encryption")
+				require.NoError(t, os.MkdirAll(encDir, 0700))
+				target := filepath.Join(encDir, "encryption.key")
+				require.NoError(t, os.WriteFile(target, []byte("key"), 0600))
+				require.NoError(t, os.Symlink(target, filepath.Join(encDir, "key-link")))
+				return dir
+			},
+			wantErr:     true,
+			errContains: "non-regular",
+			verify: func(t *testing.T, destDir string) {
+				entries, err := os.ReadDir(destDir)
+				require.NoError(t, err)
+				require.Empty(t, entries, "destination should remain unchanged after failed restore")
+			},
+		},
+		{
+			name: "When encryption dir contains a symlink it should preserve existing destination files",
+			setupDir: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				encDir := filepath.Join(dir, "encryption")
+				require.NoError(t, os.MkdirAll(encDir, 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(encDir, "good.key"), []byte("new-key"), 0600))
+				require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(encDir, "evil-link")))
+				return dir
+			},
+			setupDest: func(t *testing.T, destDir string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(destDir, "existing.key"), []byte("original-key"), 0600))
+			},
+			wantErr:     true,
+			errContains: "non-regular",
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "existing.key"))
+				require.NoError(t, err, "pre-existing file should survive failed restore")
+				require.Equal(t, "original-key", string(data))
+			},
+		},
+		{
+			name: "When encryption dir is empty it should return an error and leave destination unchanged",
+			setupDir: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "encryption"), 0700))
+				return dir
+			},
+			setupDest: func(t *testing.T, destDir string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(destDir, "existing.key"), []byte("live-key"), 0600))
+			},
+			wantErr:     true,
+			errContains: "empty",
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "existing.key"))
+				require.NoError(t, err, "pre-existing key should survive failed restore of empty archive")
+				require.Equal(t, "live-key", string(data))
+			},
+		},
+		{
+			name: "When existing destination has files it should replace them and leave no backup behind",
+			setupDir: func(t *testing.T) string {
+				return buildExtractDirWithEncryption(t, map[string]string{
+					"new.key": "new-key-data",
+				})
+			},
+			setupDest: func(t *testing.T, destDir string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(destDir, "old.key"), []byte("old-key-data"), 0600))
+			},
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "new.key"))
+				require.NoError(t, err)
+				require.Equal(t, "new-key-data", string(data))
+				require.NoFileExists(t, filepath.Join(destDir, "old.key"), "old files should not survive the swap")
+				_, err = os.Stat(destDir + ".bak")
+				require.True(t, os.IsNotExist(err), ".bak directory should be cleaned up after successful swap")
+			},
+		},
+		{
+			name: "When encryption dir contains subdirectories it should create them and copy nested files",
+			setupDir: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				subDir := filepath.Join(dir, "encryption", "sub")
+				require.NoError(t, os.MkdirAll(subDir, 0700))
+				require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.key"), []byte("nested-key"), 0600))
+				return dir
+			},
+			verify: func(t *testing.T, destDir string) {
+				data, err := os.ReadFile(filepath.Join(destDir, "sub", "nested.key"))
+				require.NoError(t, err)
+				require.Equal(t, "nested-key", string(data))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log, _ := test.NewNullLogger()
+			destDir := t.TempDir()
+			if tt.setupDest != nil {
+				tt.setupDest(t, destDir)
+			}
+			d := NewPodmanRestoreDeployer(log, WithEncryptionDestPath(destDir))
+			err := d.RestoreEncryptionKeys(context.Background(), tt.setupDir(t))
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					require.ErrorContains(t, err, tt.errContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.verify != nil {
+				tt.verify(t, destDir)
+			}
+		})
+	}
+}
+
+// TestKubernetesRestoreDeployer_RestoreEncryptionKeys validates the behavioral contracts
+// of KubernetesRestoreDeployer.RestoreEncryptionKeys.
+func TestKubernetesRestoreDeployer_RestoreEncryptionKeys(t *testing.T) {
+	const ns = "flightctl"
+
+	t.Run("When encryption dir is absent from archive it should skip silently", func(t *testing.T) {
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err := d.RestoreEncryptionKeys(context.Background(), t.TempDir())
+		require.NoError(t, err)
+	})
+
+	t.Run("When encryption key yaml exists it should create the Secret in the cluster", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("supersecret")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("supersecret"), got.Data["key"])
+	})
+
+	t.Run("When internal namespace differs it should duplicate the Secret", func(t *testing.T) {
+		const internalNS = "flightctl-internal"
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("dualns")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreInternalNamespace(internalNS),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		gotRelease, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("dualns"), gotRelease.Data["key"])
+
+		gotInternal, err := cs.CoreV1().Secrets(internalNS).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("dualns"), gotInternal.Data["key"])
+	})
+
+	t.Run("When internal namespace apply fails it should return an error after release namespace succeeds", func(t *testing.T) {
+		const internalNS = "flightctl-internal"
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("partial-fail")},
+		}
+
+		dir := t.TempDir()
+		encDir := filepath.Join(dir, "encryption")
+		require.NoError(t, os.MkdirAll(encDir, 0700))
+		data, err := json.Marshal(secret)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(encDir, "flightctl-encryption-key.yaml"), data, 0600))
+
+		cs := fake.NewSimpleClientset()
+		cs.PrependReactor("create", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if action.GetNamespace() == internalNS {
+				return true, nil, fmt.Errorf("simulated internal namespace failure")
+			}
+			return false, nil, nil
+		})
+		cs.PrependReactor("update", "secrets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if action.GetNamespace() == internalNS {
+				return true, nil, fmt.Errorf("simulated internal namespace failure")
+			}
+			return false, nil, nil
+		})
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreInternalNamespace(internalNS),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err = d.RestoreEncryptionKeys(context.Background(), dir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to apply encryption key Secret to internal namespace")
+
+		gotRelease, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err, "Release namespace Secret should have been created before the failure")
+		require.Equal(t, []byte("partial-fail"), gotRelease.Data["key"])
+	})
+
+	t.Run("When internal namespace equals release namespace it should not duplicate", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("singlelns")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreInternalNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("singlelns"), got.Data["key"])
+	})
+
+	t.Run("When encryption yaml has no namespace it should use the deployer namespace", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key"},
+			Data:       map[string][]byte{"key": []byte("no-ns-key")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, "flightctl-encryption-key", got.Name)
+	})
+
+	t.Run("When encryption yaml contains invalid content it should return an error", func(t *testing.T) {
+		dir := t.TempDir()
+		encDir := filepath.Join(dir, "encryption")
+		require.NoError(t, os.MkdirAll(encDir, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(encDir, "flightctl-encryption-key.yaml"), []byte("{not: valid: yaml: ["), 0600))
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err := d.RestoreEncryptionKeys(context.Background(), dir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to unmarshal encryption key Secret")
+	})
+
+	t.Run("When encryption yaml has unexpected secret name it should return an error", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "wrong-secret-name", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("some-key")},
+		}
+		dir := t.TempDir()
+		encDir := filepath.Join(dir, "encryption")
+		require.NoError(t, os.MkdirAll(encDir, 0700))
+		data, err := yaml.Marshal(secret)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(encDir, "flightctl-encryption-key.yaml"), data, 0600))
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err = d.RestoreEncryptionKeys(context.Background(), dir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "unexpected Secret name")
+	})
+
+	t.Run("When encryption yaml has no data it should return an error", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+		}
+		dir := t.TempDir()
+		encDir := filepath.Join(dir, "encryption")
+		require.NoError(t, os.MkdirAll(encDir, 0700))
+		data, err := yaml.Marshal(secret)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(encDir, "flightctl-encryption-key.yaml"), data, 0600))
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(fake.NewSimpleClientset()),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		err = d.RestoreEncryptionKeys(context.Background(), dir)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "has no data")
+	})
+
+	t.Run("When encryption yaml has a different namespace it should apply to the deployer namespace", func(t *testing.T) {
+		secret := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: "other-namespace"},
+			Data:       map[string][]byte{"key": []byte("forced-ns-key")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, secret)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("forced-ns-key"), got.Data["key"])
+
+		_, err = cs.CoreV1().Secrets("other-namespace").Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.Error(t, err, "Secret should NOT be created in the archived namespace")
+	})
+
+	t.Run("When existing secret exists it should update it", func(t *testing.T) {
+		existing := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("old-key")},
+		}
+		updated := &corev1.Secret{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{Name: "flightctl-encryption-key", Namespace: ns},
+			Data:       map[string][]byte{"key": []byte("new-key")},
+		}
+		extractDir, cs := buildExtractDirWithEncryptionSecret(t, updated)
+		_, err := cs.CoreV1().Secrets(ns).Create(context.Background(), existing, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		log, _ := test.NewNullLogger()
+		d := NewKubernetesRestoreDeployer(log,
+			WithRestoreNamespace(ns),
+			WithRestoreClientset(cs),
+			WithRestoreRestConfig(&rest.Config{}),
+		)
+		require.NoError(t, d.RestoreEncryptionKeys(context.Background(), extractDir))
+
+		got, err := cs.CoreV1().Secrets(ns).Get(context.Background(), "flightctl-encryption-key", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []byte("new-key"), got.Data["key"])
+	})
 }

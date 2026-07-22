@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -9,10 +10,11 @@ import (
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 )
 
-func sendHTTPrequest(repoSpec domain.RepositorySpec, repoURL string) ([]byte, error) {
-	req, err := http.NewRequest("GET", repoURL, nil)
+func sendHTTPrequest(ctx context.Context, repoSpec domain.RepositorySpec, repoURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -46,6 +48,7 @@ func sendHTTPrequest(repoSpec domain.RepositorySpec, repoURL string) ([]byte, er
 }
 
 func buildHttpRepoRequestAuth(repoHttpSpec domain.HttpRepoSpec, req *http.Request) (*http.Request, *tls.Config, error) {
+	ctx := req.Context()
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -56,18 +59,34 @@ func buildHttpRepoRequestAuth(repoHttpSpec domain.HttpRepoSpec, req *http.Reques
 	}
 
 	if repoHttpSpec.HttpConfig.Username != nil && repoHttpSpec.HttpConfig.Password != nil {
-		req.SetBasicAuth(*repoHttpSpec.HttpConfig.Username, *repoHttpSpec.HttpConfig.Password)
+		decryptedPassword, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*repoHttpSpec.HttpConfig.Password))
+		if err != nil {
+			return nil, tlsConfig, fmt.Errorf("decrypt HTTP password: %w", err)
+		}
+		req.SetBasicAuth(*repoHttpSpec.HttpConfig.Username, string(decryptedPassword))
 	}
 	if repoHttpSpec.HttpConfig.Token != nil {
-		req.Header.Set("Authorization", "Bearer "+*repoHttpSpec.HttpConfig.Token)
+		decryptedToken, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*repoHttpSpec.HttpConfig.Token))
+		if err != nil {
+			return nil, tlsConfig, fmt.Errorf("decrypt HTTP token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+string(decryptedToken))
 	}
 	if repoHttpSpec.HttpConfig.TlsCrt != nil && repoHttpSpec.HttpConfig.TlsKey != nil {
-		cert, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsCrt)
+		decryptedCrt, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*repoHttpSpec.HttpConfig.TlsCrt))
+		if err != nil {
+			return nil, tlsConfig, fmt.Errorf("decrypt TLS cert: %w", err)
+		}
+		cert, err := base64.StdEncoding.DecodeString(string(decryptedCrt))
 		if err != nil {
 			return nil, tlsConfig, err
 		}
 
-		key, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsKey)
+		decryptedKey, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*repoHttpSpec.HttpConfig.TlsKey))
+		if err != nil {
+			return nil, tlsConfig, fmt.Errorf("decrypt TLS key: %w", err)
+		}
+		key, err := base64.StdEncoding.DecodeString(string(decryptedKey))
 		if err != nil {
 			return nil, tlsConfig, err
 		}

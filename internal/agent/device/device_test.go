@@ -537,6 +537,7 @@ func TestRollbackDevice(t *testing.T) {
 				policyManager,
 				readWriter,
 				mockOSClient,
+				v1beta1.OsModeImage,
 				poll.NewConfig(time.Second, 1.5),
 				func() error { return nil },
 				mockAuditLogger,

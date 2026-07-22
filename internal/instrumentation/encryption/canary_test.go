@@ -7,6 +7,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestCanaryManager_EnsureCanary_CreatesNew(t *testing.T) {
@@ -170,7 +174,7 @@ func TestCanaryManager_ValidateAll_DecryptFails(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: []byte("enc:v1:default:BROKEN-BASE64!!!"),
 	}
-	_ = store.Save(brokenCanary)
+	require.NoError(t, store.Save(brokenCanary))
 
 	// Validate should catch the error
 	results, err := canaryMgr.ValidateAll(ctx)
@@ -197,7 +201,7 @@ func TestCanaryManager_ValidateAll_PlaintextMismatch(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: encrypted,
 	}
-	_ = store.Save(wrongCanary)
+	require.NoError(t, store.Save(wrongCanary))
 
 	canaryMgr := NewCanaryManager(mgr, store)
 
@@ -260,8 +264,7 @@ func TestMemoryCanaryStore_SaveAndGet(t *testing.T) {
 		EncryptedValue: []byte("enc:v1:test-key:abc123"),
 	}
 
-	err := store.Save(canary)
-	require.NoError(t, err)
+	require.NoError(t, store.Save(canary))
 
 	retrieved, err := store.Get("v1", "test-key")
 	require.NoError(t, err)
@@ -280,7 +283,7 @@ func TestMemoryCanaryStore_SaveUpdates(t *testing.T) {
 		KeyID:          "test-key",
 		EncryptedValue: []byte("first"),
 	}
-	_ = store.Save(canary1)
+	require.NoError(t, store.Save(canary1))
 
 	// Save again with same key, different value
 	canary2 := &Canary{
@@ -288,7 +291,7 @@ func TestMemoryCanaryStore_SaveUpdates(t *testing.T) {
 		KeyID:          "test-key",
 		EncryptedValue: []byte("second"),
 	}
-	_ = store.Save(canary2)
+	require.NoError(t, store.Save(canary2))
 
 	// Should have updated, not created duplicate
 	retrieved, _ := store.Get("v1", "test-key")
@@ -313,11 +316,178 @@ func TestMemoryCanaryStore_GetAll_Multiple(t *testing.T) {
 	canary2 := &Canary{Strategy: "v1", KeyID: "key2"}
 	canary3 := &Canary{Strategy: "v2", KeyID: "key1"}
 
-	_ = store.Save(canary1)
-	_ = store.Save(canary2)
-	_ = store.Save(canary3)
+	require.NoError(t, store.Save(canary1))
+	require.NoError(t, store.Save(canary2))
+	require.NoError(t, store.Save(canary3))
 
 	all, err := store.GetAll()
 	require.NoError(t, err)
 	assert.Len(t, all, 3)
+}
+
+func TestCanaryManager_ValidateAll_CreatesSpans(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	store := newMemoryCanaryStore()
+	canaryMgr := NewCanaryManager(mgr, store)
+
+	ctx := context.Background()
+
+	// Create a canary
+	err := canaryMgr.EnsureCanary(ctx, "v1", "default")
+	require.NoError(t, err)
+
+	// Clear spans from EnsureCanary
+	spanRecorder.Reset()
+
+	// Validate all canaries
+	results, err := canaryMgr.ValidateAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "ok", results[0].Status)
+
+	// Verify spans were created (canary-validate + decrypt)
+	spans := spanRecorder.Ended()
+	require.GreaterOrEqual(t, len(spans), 1, "Should create at least one span")
+
+	// Find the canary-validate span
+	var validateSpan sdktrace.ReadOnlySpan
+	found := false
+	for _, span := range spans {
+		if span.Name() == "canary-validate" {
+			validateSpan = span
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "Should have canary-validate span")
+
+	// Verify attributes
+	attrs := validateSpan.Attributes()
+	assertCanaryHasAttribute(t, attrs, "encryption.operation", "canary_validate")
+	assertCanaryHasAttribute(t, attrs, "encryption.strategy", "v1")
+	assertCanaryHasAttribute(t, attrs, "encryption.key_id", "default")
+	assertCanaryHasAttribute(t, attrs, "encryption.result", "success")
+}
+
+func TestCanaryManager_ValidateAll_ErrorSpan(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	store := newMemoryCanaryStore()
+	canaryMgr := NewCanaryManager(mgr, store)
+
+	ctx := context.Background()
+
+	// Create broken canary
+	brokenCanary := &Canary{
+		Strategy:       "v1",
+		KeyID:          "default",
+		EncryptedValue: []byte("enc:v1:default:BROKEN-BASE64!!!"),
+	}
+	require.NoError(t, store.Save(brokenCanary))
+
+	// Validate should catch the error
+	results, err := canaryMgr.ValidateAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "failed", results[0].Status)
+
+	// Verify error span was created
+	spans := spanRecorder.Ended()
+	require.GreaterOrEqual(t, len(spans), 1, "Should create at least one span")
+
+	// Find the canary-validate span
+	var validateSpan sdktrace.ReadOnlySpan
+	found := false
+	for _, span := range spans {
+		if span.Name() == "canary-validate" {
+			validateSpan = span
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "Should have canary-validate error span")
+
+	// Verify error attributes
+	attrs := validateSpan.Attributes()
+	assertCanaryHasAttribute(t, attrs, "encryption.result", "error")
+}
+
+func TestCanaryManager_ValidateAll_MismatchSpan(t *testing.T) {
+	// Setup span exporter
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	defer otel.SetTracerProvider(prevProvider)
+
+	mgr := createTestManager(t)
+	store := newMemoryCanaryStore()
+	canaryMgr := NewCanaryManager(mgr, store)
+
+	ctx := context.Background()
+
+	// Create canary with wrong plaintext that decrypts successfully but doesn't match expected value
+	wrongPlaintext := []byte("wrong-canary-value")
+	encrypted, err := mgr.Encrypt(ctx, wrongPlaintext)
+	require.NoError(t, err)
+
+	wrongCanary := &Canary{
+		Strategy:       "v1",
+		KeyID:          "default",
+		EncryptedValue: encrypted,
+	}
+	require.NoError(t, store.Save(wrongCanary))
+
+	// Clear spans from encryption
+	spanRecorder.Reset()
+
+	// Validate should catch the mismatch
+	results, err := canaryMgr.ValidateAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "mismatch", results[0].Status)
+
+	// Verify mismatch span was created
+	spans := spanRecorder.Ended()
+	require.GreaterOrEqual(t, len(spans), 1, "Should create at least one span")
+
+	// Find the canary-validate span
+	var validateSpan sdktrace.ReadOnlySpan
+	found := false
+	for _, span := range spans {
+		if span.Name() == "canary-validate" {
+			validateSpan = span
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "Should have canary-validate mismatch span")
+
+	// Verify error attributes (mismatch is recorded as error)
+	attrs := validateSpan.Attributes()
+	assertCanaryHasAttribute(t, attrs, "encryption.result", "error")
+}
+
+// assertCanaryHasAttribute checks if attributes contain the expected key-value pair
+func assertCanaryHasAttribute(t *testing.T, attrs []attribute.KeyValue, key, value string) {
+	t.Helper()
+	for _, attr := range attrs {
+		if string(attr.Key) == key && attr.Value.AsString() == value {
+			return
+		}
+	}
+	t.Errorf("Expected attribute %s=%s not found in %v", key, value, attrs)
 }

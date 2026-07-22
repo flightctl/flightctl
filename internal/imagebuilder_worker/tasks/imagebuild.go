@@ -21,8 +21,9 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -467,21 +468,16 @@ type EnrollmentCredentialGenerator interface {
 // This function is exported for testing purposes
 func GenerateContainerfile(
 	ctx context.Context,
-	mainStore store.Store,
+	repositoryStore repositorystore.Store,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
 	// Create a temporary consumer for testing purposes
-	var serviceHandler *service.ServiceHandler
-	if sh, ok := credentialGenerator.(*service.ServiceHandler); ok {
-		serviceHandler = sh
-	}
 	c := &Consumer{
-		mainStore:      mainStore,
-		serviceHandler: serviceHandler,
-		log:            log,
+		repositoryStore: repositoryStore,
+		log:             log,
 	}
 	return c.generateContainerfileWithGenerator(ctx, orgID, imageBuild, credentialGenerator, log)
 }
@@ -517,7 +513,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	spec := imageBuild.Spec
 
 	// Load the source repository to get the registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Source.Repository)
+	repo, err := c.repositoryStore.Get(ctx, orgID, spec.Source.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source repository: %w", err)
 	}
@@ -962,7 +958,7 @@ func (c *Consumer) loginToRegistry(
 
 // getOciRepoSpec retrieves and validates a repository as OCI type, returning its spec.
 func (c *Consumer) getOciRepoSpec(ctx context.Context, orgID uuid.UUID, repoName string, repoRole string) (*coredomain.OciRepoSpec, error) {
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, repoName)
+	repo, err := c.repositoryStore.Get(ctx, orgID, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get %s repository: %w", repoRole, err)
 	}
@@ -1079,7 +1075,11 @@ func (c *Consumer) buildImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
+			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			if decErr != nil {
+				return fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
 			}
 		}
@@ -1191,7 +1191,11 @@ func (c *Consumer) pushImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
+			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			if decErr != nil {
+				return "", "", fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
 				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}

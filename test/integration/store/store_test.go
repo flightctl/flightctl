@@ -5,7 +5,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/model"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -53,11 +55,11 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
-			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			for _, orgID := range []uuid.UUID{org1ID, org2ID} {
-				catalog, err := freshStore.Catalog().Get(freshCtx, orgID, domain.DefaultCatalogName)
+				catalog, err := catalogStore.Get(freshCtx, orgID, domain.DefaultCatalogName)
 				Expect(err).ToNot(HaveOccurred(), "org %s should have a default catalog after upgrade", orgID)
 				Expect(*catalog.Metadata.Name).To(Equal(domain.DefaultCatalogName))
 				Expect(*catalog.Spec.DisplayName).To(Equal(domain.DefaultCatalogDisplayName))
@@ -85,16 +87,16 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Spec:     model.MakeJSONField(domain.CatalogSpec{DisplayName: &customDisplayName}),
 			}).Error).To(Succeed())
 
-			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
-			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// Org with no prior catalog should have received a default catalog.
-			catalog, err := freshStore.Catalog().Get(freshCtx, orgWithoutCatalogID, domain.DefaultCatalogName)
+			catalog, err := catalogStore.Get(freshCtx, orgWithoutCatalogID, domain.DefaultCatalogName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*catalog.Metadata.Name).To(Equal(domain.DefaultCatalogName))
 
 			// Org that already had a catalog should still have exactly one catalog.
-			catalogs, err := freshStore.Catalog().List(freshCtx, orgWithCatalogID, store.ListParams{})
+			catalogs, err := catalogStore.List(freshCtx, orgWithCatalogID, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(catalogs.Items).To(HaveLen(1), "org with an existing catalog must not receive an additional default catalog")
 			Expect(*catalogs.Items[0].Metadata.Name).To(Equal("my-custom-catalog"))
@@ -122,16 +124,16 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Spec:     model.MakeJSONField(domain.CatalogSpec{}),
 			}).Error).To(Succeed())
 
-			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
-			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// The org only had owned catalogs, so the backfill must add the default one.
-			defaultCatalog, err := freshStore.Catalog().Get(freshCtx, orgID, domain.DefaultCatalogName)
+			defaultCatalog, err := catalogStore.Get(freshCtx, orgID, domain.DefaultCatalogName)
 			Expect(err).ToNot(HaveOccurred(), "org with only owned catalogs should receive a default catalog")
 			Expect(*defaultCatalog.Metadata.Name).To(Equal(domain.DefaultCatalogName))
 
 			// The owned catalog must still be there – nothing was deleted.
-			catalogs, err := freshStore.Catalog().List(freshCtx, orgID, store.ListParams{})
+			catalogs, err := catalogStore.List(freshCtx, orgID, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(catalogs.Items).To(HaveLen(2), "org should have both the owned catalog and the new default catalog")
 		})
@@ -149,31 +151,173 @@ var _ = Describe("DataStore Migration Tests", func() {
 				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
 			}()
 
-			freshStore := store.NewStore(freshGormDb, freshLog.WithField("pkg", "store"))
+			catalogStore := catalogstore.NewCatalogStore(freshGormDb, freshLog.WithField("pkg", "catalog-store"))
 
 			// First migration: creates schema, backfills catalogs, records migration key.
-			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
 
 			// Verify the default catalog was created for the default org.
-			_, err = freshStore.Catalog().Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
+			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Simulate the user intentionally deleting the default catalog.
 			noopCallback := store.RemoveOwnerCallback(func(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ string) error {
 				return nil
 			})
-			Expect(freshStore.Catalog().Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback, nil)).To(Succeed())
+			Expect(catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback, nil)).To(Succeed())
 
 			// Confirm it is gone.
-			_, err = freshStore.Catalog().Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
+			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
 			Expect(err).To(HaveOccurred(), "default catalog should be absent after deletion")
 
-			// Simulate a server restart: RunMigrations runs again.
-			Expect(freshStore.RunMigrations(freshCtx)).To(Succeed())
+			// Simulate a server restart: migrations run again.
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
 
 			// The catalog must not have been recreated because the migration key is already recorded.
-			_, err = freshStore.Catalog().Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
+			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
 			Expect(err).To(HaveOccurred(), "default catalog deleted by user must not be recreated on restart")
+		})
+	})
+
+	Context("Auth provider URL normalization", func() {
+		It("When upgrading, it should strip trailing slashes from stored OIDC and OAuth2 URL fields", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			oidcSpec := domain.AuthProviderSpec{}
+			Expect(oidcSpec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
+				Issuer:       "HTTPS://IdP.Example.COM/Realm/Master/",
+				ClientId:     "oidc-client",
+			})).To(Succeed())
+			Expect(db.Create(&model.AuthProvider{
+				Resource: model.Resource{OrgID: orgID, Name: "legacy-oidc"},
+				Spec:     model.MakeJSONField(oidcSpec),
+			}).Error).To(Succeed())
+
+			oauth2Introspection := &domain.OAuth2Introspection{}
+			Expect(oauth2Introspection.FromRfc7662IntrospectionSpec(domain.Rfc7662IntrospectionSpec{
+				Type: domain.IntrospectionTypeRfc7662,
+				Url:  "https://idp.example.com/introspect",
+			})).To(Succeed())
+			oauth2Spec := domain.AuthProviderSpec{}
+			Expect(oauth2Spec.FromOAuth2ProviderSpec(domain.OAuth2ProviderSpec{
+				ProviderType:     domain.Oauth2,
+				AuthorizationUrl: "HTTPS://IdP.Example.COM/oauth2/authorize/",
+				TokenUrl:         "HTTPS://IdP.Example.COM/token/",
+				UserinfoUrl:      "HTTPS://IdP.Example.COM/userinfo/",
+				ClientId:         "oauth2-client",
+				Introspection:    oauth2Introspection,
+			})).To(Succeed())
+			Expect(db.Create(&model.AuthProvider{
+				Resource: model.Resource{OrgID: orgID, Name: "legacy-oauth2"},
+				Spec:     model.MakeJSONField(oauth2Spec),
+			}).Error).To(Succeed())
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			var oidcRow model.AuthProvider
+			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oidc").First(&oidcRow).Error).To(Succeed())
+			gotOIDC, err := oidcRow.Spec.Data.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotOIDC.Issuer).To(Equal("https://idp.example.com/Realm/Master"))
+
+			var oauth2Row model.AuthProvider
+			Expect(db.Where("org_id = ? AND name = ?", orgID, "legacy-oauth2").First(&oauth2Row).Error).To(Succeed())
+			gotOAuth2, err := oauth2Row.Spec.Data.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotOAuth2.AuthorizationUrl).To(Equal("https://idp.example.com/oauth2/authorize"))
+			Expect(gotOAuth2.TokenUrl).To(Equal("https://idp.example.com/token"))
+			Expect(gotOAuth2.UserinfoUrl).To(Equal("https://idp.example.com/userinfo"))
+		})
+
+		It("When two providers would collide after normalization, migration should fail", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			for _, nameIssuer := range []struct {
+				name   string
+				issuer string
+			}{
+				{name: "oidc-a", issuer: "https://idp.example.com"},
+				{name: "oidc-b", issuer: "HTTPS://IdP.Example.COM/"},
+			} {
+				spec := domain.AuthProviderSpec{}
+				Expect(spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+					ProviderType: domain.Oidc,
+					Issuer:       nameIssuer.issuer,
+					ClientId:     "same-client",
+				})).To(Succeed())
+				Expect(db.Create(&model.AuthProvider{
+					Resource: model.Resource{OrgID: orgID, Name: nameIssuer.name},
+					Spec:     model.MakeJSONField(spec),
+				}).Error).To(Succeed())
+			}
+
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("would share issuer"))
+		})
+
+		It("When two providers differ only by host case, migration should fail on collision", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+			Expect(db.Where("key = ?", "normalize_auth_provider_urls_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			for _, nameIssuer := range []struct {
+				name   string
+				issuer string
+			}{
+				{name: "oidc-lower", issuer: "https://idp.example.com"},
+				{name: "oidc-upper", issuer: "https://IdP.Example.COM"},
+			} {
+				spec := domain.AuthProviderSpec{}
+				Expect(spec.FromOIDCProviderSpec(domain.OIDCProviderSpec{
+					ProviderType: domain.Oidc,
+					Issuer:       nameIssuer.issuer,
+					ClientId:     "same-client",
+				})).To(Succeed())
+				Expect(db.Create(&model.AuthProvider{
+					Resource: model.Resource{OrgID: orgID, Name: nameIssuer.name},
+					Spec:     model.MakeJSONField(spec),
+				}).Error).To(Succeed())
+			}
+
+			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("would share issuer"))
 		})
 	})
 })

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,4 +103,60 @@ func TestGetDependencySyncProbeFailedEvent(t *testing.T) {
 			require.Equal(t, tc.errMsg, details.Error)
 		})
 	}
+}
+
+func TestComputeResourceUpdatedDetails(t *testing.T) {
+	t.Run("When generation changes it should report a Spec update", func(t *testing.T) {
+		old := domain.ObjectMeta{Name: lo.ToPtr("x"), Generation: lo.ToPtr(int64(1))}
+		newM := domain.ObjectMeta{Name: lo.ToPtr("x"), Generation: lo.ToPtr(int64(2))}
+		details := ComputeResourceUpdatedDetails(old, newM)
+		require.NotNil(t, details)
+		require.Contains(t, details.UpdatedFields, domain.Spec)
+	})
+
+	t.Run("When labels change it should report a Labels update", func(t *testing.T) {
+		old := domain.ObjectMeta{Name: lo.ToPtr("x"), Labels: lo.ToPtr(map[string]string{"a": "1"})}
+		newM := domain.ObjectMeta{Name: lo.ToPtr("x"), Labels: lo.ToPtr(map[string]string{"a": "2"})}
+		details := ComputeResourceUpdatedDetails(old, newM)
+		require.NotNil(t, details)
+		require.Contains(t, details.UpdatedFields, domain.Labels)
+	})
+
+	t.Run("When owner changes it should report an Owner update with previous/new owner", func(t *testing.T) {
+		old := domain.ObjectMeta{Name: lo.ToPtr("x"), Owner: lo.ToPtr("owner1")}
+		newM := domain.ObjectMeta{Name: lo.ToPtr("x"), Owner: lo.ToPtr("owner2")}
+		details := ComputeResourceUpdatedDetails(old, newM)
+		require.NotNil(t, details)
+		require.Contains(t, details.UpdatedFields, domain.Owner)
+		require.Equal(t, lo.ToPtr("owner1"), details.PreviousOwner)
+		require.Equal(t, lo.ToPtr("owner2"), details.NewOwner)
+	})
+
+	t.Run("When nothing changes it should return nil", func(t *testing.T) {
+		old := domain.ObjectMeta{Name: lo.ToPtr("x"), Generation: lo.ToPtr(int64(1))}
+		details := ComputeResourceUpdatedDetails(old, old)
+		require.Nil(t, details)
+	})
+}
+
+func TestCastResources(t *testing.T) {
+	t.Run("When both resources are nil it should return ok=true with nil pointers", func(t *testing.T) {
+		oldTyped, newTyped, ok := CastResources[domain.Device](nil, nil)
+		require.True(t, ok)
+		require.Nil(t, oldTyped)
+		require.Nil(t, newTyped)
+	})
+
+	t.Run("When both resources are the correct type it should return ok=true", func(t *testing.T) {
+		device := &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")}}
+		oldTyped, newTyped, ok := CastResources[domain.Device](device, device)
+		require.True(t, ok)
+		require.Same(t, device, oldTyped)
+		require.Same(t, device, newTyped)
+	})
+
+	t.Run("When a resource has the wrong type it should return ok=false", func(t *testing.T) {
+		_, _, ok := CastResources[domain.Device]("not-a-device", nil)
+		require.False(t, ok)
+	})
 }

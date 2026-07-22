@@ -499,6 +499,105 @@ func TestBuildPipelinePhases(t *testing.T) {
 	})
 }
 
+// TestHasPositiveDuration covers the substring/positive-duration lookup used
+// to detect no-op runs.
+func TestHasPositiveDuration(t *testing.T) {
+	t.Run("When a matching key has a positive duration it should return true", func(t *testing.T) {
+		require.True(t, hasPositiveDuration(map[string]float64{"e2e-tests_cs10": 120, "build-rpms": 0}, "e2e-test"))
+	})
+
+	t.Run("When no key matches the substring it should return false", func(t *testing.T) {
+		require.False(t, hasPositiveDuration(map[string]float64{"build-rpms": 90}, "e2e-test"))
+	})
+
+	t.Run("When the matching key has a zero duration it should return false", func(t *testing.T) {
+		require.False(t, hasPositiveDuration(map[string]float64{"e2e-tests_cs10": 0}, "e2e-test"))
+	})
+}
+
+// TestAggregateRawJobsExcludesNoOpRuns verifies that a run which concluded
+// "success" without ever running the e2e suite — e.g. a push whose
+// changed-files filter matched nothing, so every substantive job shows as
+// GitHub-conclusion "skipped" (identical start/end timestamps) while a
+// trivial gate job still passes in seconds — is excluded from wall time and
+// tracked separately instead of polluting the average with a near-zero
+// duration.
+func TestAggregateRawJobsExcludesNoOpRuns(t *testing.T) {
+	genuineRun := rawRunEntry{
+		RunID:      1,
+		RunURL:     "https://github.com/flightctl/flightctl/actions/runs/1",
+		Date:       "2026-01-01",
+		StartedAt:  "2026-01-01T08:00:00Z",
+		Conclusion: "success",
+		Jobs: []rawJobEntry{
+			{Name: "build-images-and-charts", StartedAt: "2026-01-01T08:00:00Z", CompletedAt: "2026-01-01T08:10:00Z"},
+			{Name: "e2e-tests (cs10, 1)", StartedAt: "2026-01-01T08:10:00Z", CompletedAt: "2026-01-01T08:40:00Z"},
+		},
+	}
+	noOpRun := rawRunEntry{
+		RunID:      2,
+		RunURL:     "https://github.com/flightctl/flightctl/actions/runs/2",
+		Date:       "2026-01-02",
+		StartedAt:  "2026-01-02T09:00:00Z",
+		Conclusion: "success",
+		Jobs: []rawJobEntry{
+			{Name: "compute-tag", StartedAt: "2026-01-02T09:00:00Z", CompletedAt: "2026-01-02T09:00:05Z"},
+			{Name: "e2e-tests", StartedAt: "2026-01-02T09:00:08Z", CompletedAt: "2026-01-02T09:00:08Z"},
+			{Name: "e2e", StartedAt: "2026-01-02T09:00:19Z", CompletedAt: "2026-01-02T09:00:21Z"},
+		},
+	}
+
+	agg := aggregateRawJobs([]rawRunEntry{genuineRun, noOpRun})
+
+	t.Run("When a run never executed the e2e suite it should be excluded from wall times", func(t *testing.T) {
+		require.Len(t, agg.wallTimes, 1, "only the genuine run should contribute a wall time")
+	})
+
+	t.Run("When a run never executed the e2e suite it should be tracked as a no-op run", func(t *testing.T) {
+		require.Len(t, agg.noOpRuns, 1)
+		require.Equal(t, int64(2), agg.noOpRuns[0].RunID)
+	})
+}
+
+// TestComputeReportExcludesNoOpRunsFromPreTestFailures verifies that no-op
+// runs are not double-counted as "pre-test failures" — they never ran, they
+// didn't fail before running.
+func TestComputeReportExcludesNoOpRunsFromPreTestFailures(t *testing.T) {
+	jobsFile := rawJobsFile{
+		Meta: collectMeta{AnalyzedRuns: 2},
+		Runs: []rawRunEntry{
+			{
+				RunID:      1,
+				RunURL:     "https://github.com/flightctl/flightctl/actions/runs/1",
+				Date:       "2026-01-01",
+				StartedAt:  "2026-01-01T08:00:00Z",
+				Conclusion: "success",
+				Jobs: []rawJobEntry{
+					{Name: "e2e-tests (cs10, 1)", StartedAt: "2026-01-01T08:00:00Z", CompletedAt: "2026-01-01T08:30:00Z"},
+				},
+			},
+			{
+				RunID:      2,
+				RunURL:     "https://github.com/flightctl/flightctl/actions/runs/2",
+				Date:       "2026-01-02",
+				StartedAt:  "2026-01-02T09:00:00Z",
+				Conclusion: "success",
+				Jobs: []rawJobEntry{
+					{Name: "e2e-tests", StartedAt: "2026-01-02T09:00:08Z", CompletedAt: "2026-01-02T09:00:08Z"},
+				},
+			},
+		},
+	}
+	// Neither run has JUnit artifacts in this fixture; only run 1 (genuine)
+	// should end up flagged as a pre-test failure.
+	report := computeReport(jobsFile, nil, nil, 10)
+
+	require.Equal(t, 1, report.NoOpRunCount)
+	require.Equal(t, int64(2), report.NoOpRunRefs[0].RunID)
+	require.Equal(t, 1, report.PreTestFailureCount)
+	require.Equal(t, int64(1), report.PreTestFailureRefs[0].RunID)
+}
+
 // TestRenderHTML exercises the render path using fixture raw files.
 func TestRenderHTML(t *testing.T) {
 	var jobsFile rawJobsFile

@@ -6,6 +6,9 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -18,14 +21,15 @@ import (
 
 var _ = Describe("TemplateVersion", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		storeInst store.Store
-		tvStore   store.TemplateVersion
-		cfg       *config.Config
-		dbName    string
-		db        *gorm.DB
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		tvStore           templateversionstore.Store
+		fleetStore        fleetstore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -34,16 +38,16 @@ var _ = Describe("TemplateVersion", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
-		tvStore = storeInst.TemplateVersion()
+		tvStore = templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
-		err = testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -55,7 +59,7 @@ var _ = Describe("TemplateVersion", func() {
 		})
 
 		It("Create duplicate error", func() {
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.0", nil)
@@ -65,12 +69,12 @@ var _ = Describe("TemplateVersion", func() {
 
 		It("List with paging", func() {
 			numResources := 5
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{}
-			allTemplateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, listParams)
+			allTemplateVersions, err := tvStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(allTemplateVersions.Items)).To(Equal(numResources))
 			allNames := make([]string, numResources)
@@ -80,7 +84,7 @@ var _ = Describe("TemplateVersion", func() {
 
 			foundNames := make([]string, numResources)
 			listParams.Limit = 2
-			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, listParams)
+			templateVersions, err := tvStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(2))
 			Expect(*templateVersions.Metadata.RemainingItemCount).To(Equal(int64(3)))
@@ -90,7 +94,7 @@ var _ = Describe("TemplateVersion", func() {
 			cont, err := store.ParseContinueString(templateVersions.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			templateVersions, err = storeInst.TemplateVersion().List(ctx, orgId, listParams)
+			templateVersions, err = tvStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(2))
 			Expect(*templateVersions.Metadata.RemainingItemCount).To(Equal(int64(1)))
@@ -100,7 +104,7 @@ var _ = Describe("TemplateVersion", func() {
 			cont, err = store.ParseContinueString(templateVersions.Metadata.Continue)
 			Expect(err).ToNot(HaveOccurred())
 			listParams.Continue = cont
-			templateVersions, err = storeInst.TemplateVersion().List(ctx, orgId, listParams)
+			templateVersions, err = tvStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(1))
 			Expect(templateVersions.Metadata.RemainingItemCount).To(BeNil())
@@ -114,35 +118,35 @@ var _ = Describe("TemplateVersion", func() {
 
 		It("Delete fleet deletes its templateVersions", func() {
 			numResources := 5
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
-			err = testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			err = testutil.CreateTestOrganization(ctx, organizationStore, otherOrgId)
 			Expect(err).ToNot(HaveOccurred())
 
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), otherOrgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, otherOrgId, "myfleet", nil, nil)
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", nil)
+			err = fleetStore.Delete(ctx, otherOrgId, "myfleet", nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
+			templateVersions, err := tvStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(numResources))
 
-			templateVersions, err = storeInst.TemplateVersion().List(ctx, otherOrgId, store.ListParams{})
+			templateVersions, err = tvStore.List(ctx, otherOrgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(templateVersions.Items)).To(Equal(0))
 		})
 
 		It("Get templateVersion success", func() {
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
-			templateVersion, err := storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
+			templateVersion, err := tvStore.Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*templateVersion.Metadata.Name).To(Equal("1.0.1"))
 			Expect(*templateVersion.Metadata.Owner).To(Equal("Fleet/myfleet"))
@@ -150,48 +154,48 @@ var _ = Describe("TemplateVersion", func() {
 		})
 
 		It("Get templateVersion - not found errors", func() {
-			_, err := storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
+			_, err := tvStore.Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
-			_, err = storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
+			_, err = tvStore.Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			badOrgId, _ := uuid.NewUUID()
-			_, err = storeInst.TemplateVersion().Get(ctx, badOrgId, "myfleet", "1.0.1")
+			_, err = tvStore.Get(ctx, badOrgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete templateVersion success", func() {
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
-			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1", nil)
+			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
-			_, err = storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
+			_, err = tvStore.Get(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(flterrors.ErrResourceNotFound))
 		})
 
 		It("Delete templateVersion success when not found", func() {
-			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1", nil)
+			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
 		})
 
 		It("Get latest", func() {
-			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.2", nil)
 			Expect(err).ToNot(HaveOccurred())
-			tv, err := storeInst.TemplateVersion().GetLatest(ctx, orgId, "myfleet")
+			tv, err := tvStore.GetLatest(ctx, orgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*tv.Metadata.Name).To(Equal("1.0.2"))
 		})

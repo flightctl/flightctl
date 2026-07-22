@@ -117,7 +117,7 @@ var _ = Describe("Device Agent behavior", func() {
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
-				er, status := h.ServiceHandler.GetEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				er, status := h.EnrollmentRequest.GetEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
 				Expect(status.Code).To(BeEquivalentTo(200))
 				Expect(er.Status.Conditions).ToNot(BeEmpty())
 
@@ -183,7 +183,7 @@ var _ = Describe("Device Agent behavior", func() {
 				}
 				mockSecret(h.GetMockK8sClient(), secrets)
 				fleet := getTestFleet("fleet.yaml")
-				_, status := h.ServiceHandler.CreateFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleet)
+				_, status := h.Fleet.CreateFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleet)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				approval := testutil.TestEnrollmentApproval()
 				approval.Labels = &map[string]string{"fleet": "default"}
@@ -250,7 +250,7 @@ var _ = Describe("Device Agent behavior", func() {
 
 				// Wait for rollout to complete and agent to report a rendered version (avoids racing with worker: we need store to have a version before we bump it).
 				Eventually(func() string {
-					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					d, st := h.Device.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
 					Expect(st.Code).To(BeEquivalentTo(200))
 					if d.Status != nil && d.Status.Config.RenderedVersion != "" {
 						return d.Status.Config.RenderedVersion
@@ -261,16 +261,16 @@ var _ = Describe("Device Agent behavior", func() {
 				// Update rendered once via the service so the rendered bus is notified (agent will see new version).
 				cfg, err := createMinimalRenderedConfig("config-v1")
 				Expect(err).ToNot(HaveOccurred())
-				st := h.ServiceHandler.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil, false)
+				st := h.Device.UpdateRenderedDevice(h.Context, orgID, deviceName, cfg, "", "hash1", nil, false)
 				Expect(st.Code).To(BeEquivalentTo(200))
-				renderedDev, getErr := (*h.Store).Device().GetRendered(h.Context, orgID, deviceName, nil, "")
+				renderedDev, getErr := h.DeviceStore.GetRendered(h.Context, orgID, deviceName, nil, "")
 				Expect(getErr).ToNot(HaveOccurred())
 				renderedVersion := renderedDev.Version()
 				Expect(renderedVersion).ToNot(BeEmpty())
 
 				// Wait for agent to poll and report that version.
 				Eventually(func() string {
-					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					d, st := h.Device.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
 					Expect(st.Code).To(BeEquivalentTo(200))
 					if d.Status != nil && d.Status.Config.RenderedVersion != "" {
 						return d.Status.Config.RenderedVersion
@@ -279,7 +279,7 @@ var _ = Describe("Device Agent behavior", func() {
 				}, TIMEOUT, POLLING).Should(Equal(renderedVersion))
 
 				// Record original agent-reported status (e.g. OS) so we can verify the agent restores it after we overwrite.
-				devBefore, _ := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+				devBefore, _ := h.Device.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
 				Expect(devBefore.Status).ToNot(BeNil())
 				originalOsImage := devBefore.Status.Os.Image
 				GinkgoWriter.Printf("ConflictPaused test: recorded original Os.Image=%q (renderedVersion=%s)\n", originalOsImage, renderedVersion)
@@ -287,7 +287,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// Manually overwrite reported status so we can verify the agent pushes and restores the real one.
 				overwrittenDevice := *devBefore
 				overwrittenDevice.Status.Os.Image = "fake-os-overwritten-by-test"
-				_, replaceSt := h.ServiceHandler.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice)
+				_, replaceSt := h.Device.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice)
 				Expect(replaceSt.Code).To(BeEquivalentTo(200))
 				GinkgoWriter.Printf("ConflictPaused test: overwrote device status Os.Image to fake value\n")
 
@@ -297,7 +297,7 @@ var _ = Describe("Device Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 				serviceVersion := strconv.FormatInt(ver-1, 10)
 
-				err = (*h.Store).Device().UpdateAnnotations(h.Context, orgID, deviceName, map[string]string{
+				err = h.DeviceStore.UpdateAnnotations(h.Context, orgID, deviceName, map[string]string{
 					v1beta1.DeviceAnnotationAwaitingReconnect: "true",
 					v1beta1.DeviceAnnotationRenderedVersion:   serviceVersion,
 				}, nil)
@@ -315,7 +315,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// Agent's next GetRenderedDevice(knownVersion=renderedVersion) will get 200 + ConflictPaused, invalidate lastStatus, and push on next sync.
 				// Verify that the agent's status overwrites our fake value and restores the original (e.g. OS image).
 				Eventually(func() string {
-					d, st := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
+					d, st := h.Device.GetDevice(h.AuthenticatedContext(h.Context), orgID, deviceName)
 					Expect(st.Code).To(BeEquivalentTo(200))
 					if d.Status == nil {
 						return ""
@@ -356,7 +356,7 @@ var _ = Describe("Device Agent behavior", func() {
 				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
 
 				// Sanity: enrollment approved and server returned an initial certificate.
-				er, status := h.ServiceHandler.GetEnrollmentRequest(
+				er, status := h.EnrollmentRequest.GetEnrollmentRequest(
 					h.AuthenticatedContext(h.Context),
 					org.DefaultID,
 					deviceName,
@@ -413,7 +413,7 @@ var _ = Describe("Device Agent behavior", func() {
 				GinkgoWriter.Printf("Waiting for device %s systemInfo fields to update\n", deviceName)
 
 				Eventually(func() []string {
-					dev, status := h.ServiceHandler.GetDevice(
+					dev, status := h.Device.GetDevice(
 						h.AuthenticatedContext(h.Context),
 						org.DefaultID,
 						deviceName,
@@ -476,7 +476,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// wait for CSR to be created by agent
 				var csr v1beta1.CertificateSigningRequest
 				Eventually(func() bool {
-					list, status := h.ServiceHandler.ListCertificateSigningRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListCertificateSigningRequestsParams{})
+					list, status := h.CertificateSigningRequest.ListCertificateSigningRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListCertificateSigningRequestsParams{})
 					if status.Code != int32(200) || list == nil {
 						return false
 					}
@@ -549,7 +549,7 @@ var _ = Describe("Device Agent behavior", func() {
 
 			// Ensure device is not already decommissioning (race condition in CI)
 			Eventually(func() bool {
-				currentDev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				currentDev, status := h.Device.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
 				// Fail fast on server errors (404, 500, etc) instead of retrying and masking them
 				Expect(status.Code).To(Equal(int32(200)), "GetDevice should return 200 OK")
 				return currentDev.Spec == nil || currentDev.Spec.Decommissioning == nil
@@ -560,7 +560,7 @@ var _ = Describe("Device Agent behavior", func() {
 			decommissionRequest := v1beta1.DeviceDecommission{
 				Target: v1beta1.DeviceDecommissionTargetTypeUnenroll,
 			}
-			_, status := h.ServiceHandler.DecommissionDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, decommissionRequest)
+			_, status := h.Device.DecommissionDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, decommissionRequest)
 			if status.Code != http.StatusOK {
 				GinkgoWriter.Printf("DecommissionDevice failed with status %d: %v\n", status.Code, status)
 			}
@@ -611,7 +611,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1beta1.Enrollment
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
-	dev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+	dev, status := h.Device.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
 	Expect(status.Code).To(BeEquivalentTo(200))
 	return dev
 }
@@ -621,12 +621,12 @@ func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1be
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
 
 	// Approve
-	_, status := h.ServiceHandler.ApproveEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *approval)
+	_, status := h.EnrollmentRequest.ApproveEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *approval)
 	Expect(status.Code).To(BeEquivalentTo(200))
 }
 
 func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
-	list, status := h.ServiceHandler.ListEnrollmentRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListEnrollmentRequestsParams{})
+	list, status := h.EnrollmentRequest.ListEnrollmentRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListEnrollmentRequestsParams{})
 	Expect(status.Code).To(BeEquivalentTo(200))
 
 	if list == nil || len(list.Items) == 0 {

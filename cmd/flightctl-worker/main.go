@@ -10,8 +10,12 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -44,16 +48,25 @@ func main() {
 		}
 	}()
 
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	profiling.Start(ctx, log, cfg, "flightctl-worker", instpprof.DefaultPortWorker)
+
+	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
+		log.Fatalf("initializing encryption: %v", err)
+	}
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
@@ -88,6 +101,12 @@ func main() {
 			}
 		}
 
+		if encMgr := encryption.GlobalManager(); encMgr != nil {
+			encCollector := encmetrics.NewEncryptionCollector(encMgr)
+			encMgr.SetMetricsRecorder(encCollector)
+			collectors = append(collectors, encCollector)
+		}
+
 		if len(collectors) > 0 {
 			go func() {
 				if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
@@ -98,7 +117,7 @@ func main() {
 		}
 	}
 
-	server := workerserver.New(cfg, log, store, provider, k8sClient, workerCollector)
+	server := workerserver.New(cfg, log, db, provider, k8sClient, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

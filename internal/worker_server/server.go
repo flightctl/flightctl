@@ -12,19 +12,31 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
-	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type Server struct {
 	cfg            *config.Config
 	log            logrus.FieldLogger
-	store          store.Store
+	db             *gorm.DB
 	queuesProvider queues.Provider
 	k8sClient      k8sclient.K8SClient
 	workerMetrics  *worker.WorkerCollector
@@ -34,7 +46,7 @@ type Server struct {
 func New(
 	cfg *config.Config,
 	log logrus.FieldLogger,
-	store store.Store,
+	db *gorm.DB,
 	queuesProvider queues.Provider,
 	k8sClient k8sclient.K8SClient,
 	workerMetrics *worker.WorkerCollector,
@@ -42,7 +54,7 @@ func New(
 	return &Server{
 		cfg:            cfg,
 		log:            log,
-		store:          store,
+		db:             db,
 		queuesProvider: queuesProvider,
 		k8sClient:      k8sClient,
 		workerMetrics:  workerMetrics,
@@ -74,10 +86,23 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache.Start()
 	defer orgCache.Stop()
 
-	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
+	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
+	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
+	templateVersionStore := templateversionstore.NewTemplateVersionStore(s.db, s.log.WithField("pkg", "templateversion-store"))
+	dependencyRefStore := dependencyrefstore.NewDependencyRefStore(s.db, s.log.WithField("pkg", "dependencyref-store"))
+	repositoryStore := repositorystore.NewRepositoryStore(s.db, s.log.WithField("pkg", "repository-store"))
+	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
+	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", s.log))
+	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
+	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
+	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
+
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

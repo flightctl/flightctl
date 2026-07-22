@@ -29,11 +29,17 @@ import (
 //
 // This approach preserves namespaces — unlike skopeo sync --src yaml --dest dir
 // which strips namespace prefixes from directory names.
-func BundleImages(ctx context.Context, pairs []ImagePair, bundleDir string, exec executer.Executer) error {
+// BundleImages copies each image in pairs into bundleDir/images/ using skopeo.
+// It returns the subset of pairs that were successfully bundled alongside any
+// error describing which images failed.  Callers must use the returned slice
+// (not the original pairs) when generating the import script, so that the
+// script only references images that are actually present in the bundle.
+func BundleImages(ctx context.Context, pairs []ImagePair, bundleDir string, exec executer.Executer) ([]ImagePair, error) {
 	imagesDir := filepath.Join(bundleDir, "images")
 	logInfo("Bundling %d images to %s...", len(pairs), imagesDir)
 
 	var failed []string
+	var bundled []ImagePair
 	for i, p := range pairs {
 		// Strip the source registry host to get the namespace/name:tag path.
 		// "quay.io/flightctl/flightctl-api-el9:latest" → "flightctl/flightctl-api-el9:latest"
@@ -59,13 +65,15 @@ func BundleImages(ctx context.Context, pairs []ImagePair, bundleDir string, exec
 		if exitCode != 0 {
 			logError("skopeo copy failed for %s: %s — continuing", p.Source, strings.TrimSpace(stderr))
 			failed = append(failed, p.Source)
+			continue
 		}
+		bundled = append(bundled, p)
 	}
 
 	if len(failed) > 0 {
-		return fmt.Errorf("%d image(s) failed to bundle: %s", len(failed), strings.Join(failed, ", "))
+		return bundled, fmt.Errorf("%d image(s) failed to bundle: %s", len(failed), strings.Join(failed, ", "))
 	}
-	return nil
+	return bundled, nil
 }
 
 // DownloadRPMs fetches RPMs into bundleDir/rpms/ using one of two strategies:

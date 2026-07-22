@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -220,4 +222,139 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 		mockWriter,
 	)
 	require.NoError(t, err)
+}
+
+func TestCompose_LifecycleHandler(t *testing.T) {
+	const testAppID = "test-id"
+	const testPath = "/test/compose/path"
+
+	testAction := Action{
+		ID:   testAppID,
+		Name: "test-app",
+		Path: testPath,
+	}
+
+	testCases := []struct {
+		name       string
+		operation  func(c *Compose, action Action) error
+		setupMocks func(*executer.MockExecuter, *fileio.MockReadWriter)
+		wantErr    bool
+	}{
+		{
+			name: "When Stop is called it should run podman compose stop without removing containers",
+			operation: func(c *Compose, action Action) error {
+				return c.Stop(context.Background(), action)
+			},
+			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman",
+					[]string{"compose", "-p", testAppID, "stop"},
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "When Stop fails it should propagate the error",
+			operation: func(c *Compose, action Action) error {
+				return c.Stop(context.Background(), action)
+			},
+			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman",
+					[]string{"compose", "-p", testAppID, "stop"},
+				).Return("", "error stopping", 1)
+			},
+			wantErr: true,
+		},
+		{
+			name: "When Start is called it should run podman compose up",
+			operation: func(c *Compose, action Action) error {
+				return c.Start(context.Background(), action)
+			},
+			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman", gomock.Any(),
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "When Restart is called it should stop then start",
+			operation: func(c *Compose, action Action) error {
+				return c.Restart(context.Background(), action)
+			},
+			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				// Stop
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman",
+					[]string{"compose", "-p", testAppID, "stop"},
+				).Return("", "", 0)
+				// Start (UpFromWorkDir)
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman", gomock.Any(),
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "When Restart stop phase fails it should return error without starting",
+			operation: func(c *Compose, action Action) error {
+				return c.Restart(context.Background(), action)
+			},
+			setupMocks: func(mockExec *executer.MockExecuter, _ *fileio.MockReadWriter) {
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), testPath, "podman",
+					[]string{"compose", "-p", testAppID, "stop"},
+				).Return("", "stop failed", 1)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockRW := fileio.NewMockReadWriter(ctrl)
+			tc.setupMocks(mockExec, mockRW)
+
+			// Create a docker-compose.yaml in the test path so UpFromWorkDir can discover it.
+			tmpDir := t.TempDir()
+			composeDir := tmpDir + testPath
+			require.NoError(os.MkdirAll(composeDir, 0o755))
+			require.NoError(os.WriteFile(composeDir+"/docker-compose.yaml", []byte("services: {}"), 0o600))
+
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, mockExec, readWriter, testutil.NewPollConfig())
+			podmanFactory := func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			rwFactory := func(user api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			compose := NewCompose(logger, rwFactory, podmanFactory)
+			err := tc.operation(compose, testAction)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+
+	t.Run("When podman factory fails Stop should return error", func(t *testing.T) {
+		require := require.New(t)
+		podmanFactory := func(user api.Username) (*client.Podman, error) {
+			return nil, fmt.Errorf("factory error")
+		}
+		compose := NewCompose(log.NewPrefixLogger("test"), nil, podmanFactory)
+		err := compose.Stop(context.Background(), testAction)
+		require.Error(err)
+	})
 }

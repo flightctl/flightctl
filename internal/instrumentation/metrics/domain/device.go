@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -22,7 +23,7 @@ type DeviceCollector struct {
 	// System update status metrics
 	devicesUpdateGauge *prometheus.GaugeVec
 
-	store          store.Store
+	deviceStore    devicestore.Store
 	log            logrus.FieldLogger
 	mu             sync.RWMutex
 	ctx            context.Context
@@ -31,7 +32,7 @@ type DeviceCollector struct {
 }
 
 // NewDeviceCollector creates a DeviceCollector.
-func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *DeviceCollector {
+func NewDeviceCollector(ctx context.Context, deviceStore devicestore.Store, log logrus.FieldLogger, cfg *config.Config) *DeviceCollector {
 	interval := cfg.Metrics.DeviceCollector.TickerInterval
 
 	collector := &DeviceCollector{
@@ -53,7 +54,7 @@ func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.Field
 			Help: "Total number of devices managed (by system update status)",
 		}, []string{"organization_id", "fleet", "status"}),
 
-		store:          store,
+		deviceStore:    deviceStore,
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: time.Duration(interval),
@@ -106,19 +107,19 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	// Get all data first before acquiring lock
-	summaryResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, c.cfg.Metrics.DeviceCollector.GroupByFleet)
+	summaryResults, err := c.deviceStore.CountByOrgAndStatus(ctx, nil, devicestore.DeviceStatusTypeSummary, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device summary status counts")
 		return
 	}
 
-	applicationResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeApplication, c.cfg.Metrics.DeviceCollector.GroupByFleet)
+	applicationResults, err := c.deviceStore.CountByOrgAndStatus(ctx, nil, devicestore.DeviceStatusTypeApplication, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device application status counts")
 		return
 	}
 
-	updateResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeUpdate, c.cfg.Metrics.DeviceCollector.GroupByFleet)
+	updateResults, err := c.deviceStore.CountByOrgAndStatus(ctx, nil, devicestore.DeviceStatusTypeUpdate, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device update status counts")
 		return
@@ -134,7 +135,7 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 	c.devicesUpdateGauge.Reset()
 
 	// Helper function to set metrics with proper label handling
-	setMetrics := func(gauge *prometheus.GaugeVec, results []store.CountByOrgAndStatusResult) {
+	setMetrics := func(gauge *prometheus.GaugeVec, results []devicestore.CountByOrgAndStatusResult) {
 		if len(results) == 0 {
 			// Always emit at least one metric to indicate "no devices" rather than "metric absent"
 			gauge.WithLabelValues("unknown", "unknown", "none").Set(0)

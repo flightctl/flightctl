@@ -7,7 +7,10 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -59,18 +62,21 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			orgId := uuid.New()
 			log := logrus.New()
 
-			mockService := service.NewMockService(ctrl)
+			mockFleetSvc := fleetservice.NewMockService(ctrl)
+			mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			mockRepositorySvc := repositoryservice.NewMockService(ctrl)
 			mockK8SClient := k8sclient.NewMockK8SClient(ctrl)
 
 			// Mock GetFleet to return our test fleet
-			mockService.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
 
 			// Mock OverwriteFleetRepositoryRefs to succeed
-			mockService.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+			mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Mock CreateTemplateVersion to capture the immediateRollout parameter
 			var capturedImmediateRollout bool
-			mockService.EXPECT().CreateTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
 					capturedImmediateRollout = immediateRollout
 					return &domain.TemplateVersion{
@@ -81,16 +87,16 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 				})
 
 			// Mock UpdateFleetAnnotations to succeed
-			mockService.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+			mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Mock UpdateToOutOfDateByOwner to succeed
-			mockService.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 			// Mock UpdateFleetConditions to succeed
-			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create FleetValidateLogic instance
-			logic := NewFleetValidateLogic(log, mockService, mockK8SClient, orgId, event)
+			logic := NewFleetValidateLogic(log, mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgId, event)
 
 			// Execute
 			err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())

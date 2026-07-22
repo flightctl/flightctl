@@ -101,6 +101,7 @@ help:
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
+	@echo "    verify-rpm-install: verify package-mode and image-mode RPM install paths (requires podman, bin/rpm)"
 	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
@@ -485,6 +486,10 @@ rpmlint-ci:
 .PHONY: check-rpmlint
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
+
+.PHONY: verify-rpm-install
+verify-rpm-install: bin/.rpm
+	go test -v -count=1 -timeout 15m ./test/packaging/...
 
 .output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps

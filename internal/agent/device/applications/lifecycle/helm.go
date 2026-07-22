@@ -19,6 +19,7 @@ const (
 )
 
 var _ ActionHandler = (*HelmHandler)(nil)
+var _ LifecycleHandler = (*HelmHandler)(nil)
 
 // ExecutableResolver resolves the path to an executable binary.
 type ExecutableResolver interface {
@@ -187,6 +188,57 @@ func (h *HelmHandler) update(ctx context.Context, action *Action, versionConfig 
 
 	h.log.Infof("Upgraded helm release: %s", releaseName)
 	return nil
+}
+
+// Stop scales all Deployments and StatefulSets belonging to the Helm release to 0 replicas.
+// Uses the "agent.flightctl.io/app=<action.ID>" label to identify the release's workloads.
+// DaemonSets, Jobs, CronJobs, and standalone Pods are not scaled and remain running; releases
+// composed only of Deployments/StatefulSets are fully supported.
+func (h *HelmHandler) Stop(ctx context.Context, action Action) error {
+	kubeconfigPath, err := h.clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return fmt.Errorf("resolving kubeconfig: %w: %w", errors.ErrKubernetesAppsDisabled, err)
+	}
+
+	helmSpec := h.getHelmSpec(&action)
+	labelSelector := fmt.Sprintf("%s=%s", helm.AppLabelKey, action.ID)
+
+	if err := h.clients.Kube().ScaleWorkloadsByLabel(ctx, helmSpec.Namespace, labelSelector, 0, client.WithKubeKubeconfig(kubeconfigPath)); err != nil {
+		return fmt.Errorf("stopping %s: %w", action.Name, err)
+	}
+
+	h.log.Infof("Stopped helm release: %s", action.Name)
+	return nil
+}
+
+// Start re-applies the Helm chart via "helm upgrade --install", which restores replicas
+// to the chart-defined counts after a stop operation.
+func (h *HelmHandler) Start(ctx context.Context, action Action) error {
+	kubeconfigPath, err := h.clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return fmt.Errorf("resolving kubeconfig: %w: %w", errors.ErrKubernetesAppsDisabled, err)
+	}
+
+	versionConfig, err := h.setupHelmVersionConfig(ctx, kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("setting up post-renderer: %w", err)
+	}
+	defer versionConfig.cleanup()
+
+	if err := h.add(ctx, &action, versionConfig); err != nil {
+		return err
+	}
+
+	h.log.Infof("Started helm release: %s", action.Name)
+	return nil
+}
+
+// Restart scales all workloads to 0 then re-applies the chart to restore replica counts.
+func (h *HelmHandler) Restart(ctx context.Context, action Action) error {
+	if err := h.Stop(ctx, action); err != nil {
+		return fmt.Errorf("stopping for restart: %w", err)
+	}
+	return h.Start(ctx, action)
 }
 
 func (h *HelmHandler) getHelmSpec(action *Action) HelmSpec {

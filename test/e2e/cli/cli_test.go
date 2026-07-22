@@ -979,7 +979,7 @@ var _ = Describe("cli login", func() {
 		By("failing when no arguments are provided")
 		out, err = harness.CLI("edit")
 		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 0"))
+		Expect(out).To(ContainSubstring("Error: you must specify a resource to edit (TYPE NAME or TYPE/NAME)"))
 
 		By("failing on invalid resource kind (numeric)")
 		out, err = harness.CLI("edit", "1234")

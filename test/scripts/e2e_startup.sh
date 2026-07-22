@@ -27,27 +27,45 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
     if ! "${FLIGHTCTL_BIN}" get device -o name &>/dev/null; then
         echo "🔄 [Startup] CLI not configured, attempting login..."
         
-        # Check if we're in Quadlet/PAM mode
+        # Check if we're in Quadlet mode
         if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]]; then
-            echo "🔄 [Startup] Setting up PAM admin user for Quadlet environment..."
-            PAM_USER="${E2E_PAM_USER:-admin}"
-            PAM_PASS="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
-            # Dup stderr to fd 3 so run_on_quadlet trace (in test/scripts/functions) survives per-call 2>/dev/null.
-            exec 3>&2
-            setup_pam_admin_user || echo "⚠️  [Startup] Warning: PAM admin user setup did not complete (see messages above)"
+            PAM_LOGIN_NEEDED=true
+            # Check if AAP token is provided for Quadlet AAP authentication
+            if [[ -n "${E2E_AAP_TOKEN:-}" ]]; then
+                echo "🔄 [Startup] Using AAP token authentication for Quadlet environment..."
+                if LOGIN_OUTPUT=$("${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify --token "${E2E_AAP_TOKEN}" 2>&1); then
+                    echo "✅ [Startup] CLI login successful with AAP token"
+                    PAM_LOGIN_NEEDED=false
+                else
+                    echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with AAP token"
+                    echo "    Login error output:"
+                    echo "${LOGIN_OUTPUT}" | sed 's/^/    /'
+                    echo "    Falling back to PAM login."
+                fi
+            fi
 
-            # Login with PAM credentials (capture output so we can print the exact error on failure)
-            set +e
-            LOGIN_OUTPUT=$("${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify -u "${PAM_USER}" -p "${PAM_PASS}" 2>&1)
-            LOGIN_EXIT=$?
-            set -e
-            if [[ "${LOGIN_EXIT}" -ne 0 ]]; then
-                echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with PAM user '${PAM_USER}'"
-                echo "    Login error output:"
-                echo "${LOGIN_OUTPUT}" | sed 's/^/    /'
-                echo "    Tests may fail if CLI is not configured."
-            else
-                echo "✅ [Startup] CLI login successful with PAM user '${PAM_USER}'"
+            if [[ "${PAM_LOGIN_NEEDED}" == "true" ]]; then
+                # PAM mode
+                echo "🔄 [Startup] Setting up PAM admin user for Quadlet environment..."
+                PAM_USER="${E2E_PAM_USER:-admin}"
+                PAM_PASS="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
+                # Dup stderr to fd 3 so run_on_quadlet trace (in test/scripts/functions) survives per-call 2>/dev/null.
+                exec 3>&2
+                setup_pam_admin_user || echo "⚠️  [Startup] Warning: PAM admin user setup did not complete (see messages above)"
+
+                # Login with PAM credentials (capture output so we can print the exact error on failure)
+                set +e
+                LOGIN_OUTPUT=$("${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify -u "${PAM_USER}" -p "${PAM_PASS}" 2>&1)
+                LOGIN_EXIT=$?
+                set -e
+                if [[ "${LOGIN_EXIT}" -ne 0 ]]; then
+                    echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with PAM user '${PAM_USER}'"
+                    echo "    Login error output:"
+                    echo "${LOGIN_OUTPUT}" | sed 's/^/    /'
+                    echo "    Tests may fail if CLI is not configured."
+                else
+                    echo "✅ [Startup] CLI login successful with PAM user '${PAM_USER}'"
+                fi
             fi
         else
             # Non-Quadlet (K8s) - try no-auth first, then token login (e.g. after deploy, token may be expired)

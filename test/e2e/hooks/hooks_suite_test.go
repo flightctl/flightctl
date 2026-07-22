@@ -24,9 +24,10 @@ func TestHooks(t *testing.T) {
 var auxSvcs *auxiliary.Services
 
 var _ = BeforeSuite(func() {
-	auxSvcs = auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+	auxSvcs = auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {

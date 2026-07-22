@@ -15,7 +15,7 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	ibstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
-	mainstore "github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -243,34 +243,7 @@ func (d *dummyCatalogItemWriter) GetItem(catalogName, itemName string) *coredoma
 	return d.items[catalogName+"/"+itemName]
 }
 
-// dummyCoreStore wraps dummyCatalogItemWriter to satisfy mainstore.Store for catalog reads.
-type dummyCoreStore struct {
-	writer *dummyCatalogItemWriter
-}
-
-func (s *dummyCoreStore) Catalog() mainstore.Catalog { return &dummyCatalogStoreAdapter{s.writer} }
-
-func (s *dummyCoreStore) Device() mainstore.Device                       { panic("not used") }
-func (s *dummyCoreStore) EnrollmentRequest() mainstore.EnrollmentRequest { panic("not used") }
-func (s *dummyCoreStore) CertificateSigningRequest() mainstore.CertificateSigningRequest {
-	panic("not used")
-}
-func (s *dummyCoreStore) Fleet() mainstore.Fleet                               { panic("not used") }
-func (s *dummyCoreStore) TemplateVersion() mainstore.TemplateVersion           { panic("not used") }
-func (s *dummyCoreStore) Repository() mainstore.Repository                     { panic("not used") }
-func (s *dummyCoreStore) ResourceSync() mainstore.ResourceSync                 { panic("not used") }
-func (s *dummyCoreStore) Event() mainstore.Event                               { panic("not used") }
-func (s *dummyCoreStore) Checkpoint() mainstore.Checkpoint                     { panic("not used") }
-func (s *dummyCoreStore) Organization() mainstore.Organization                 { panic("not used") }
-func (s *dummyCoreStore) AuthProvider() mainstore.AuthProvider                 { panic("not used") }
-func (s *dummyCoreStore) VulnerabilityFinding() mainstore.VulnerabilityFinding { panic("not used") }
-func (s *dummyCoreStore) DependencyRef() mainstore.DependencyRef               { panic("not used") }
-func (s *dummyCoreStore) SyncState() mainstore.SyncState                       { panic("not used") }
-func (s *dummyCoreStore) RunMigrations(ctx context.Context) error              { return nil }
-func (s *dummyCoreStore) CheckHealth(ctx context.Context) error                { return nil }
-func (s *dummyCoreStore) Close() error                                         { return nil }
-
-// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to mainstore.Catalog.
+// dummyCatalogStoreAdapter bridges dummyCatalogItemWriter to catalogstore.Store.
 type dummyCatalogStoreAdapter struct {
 	w *dummyCatalogItemWriter
 }
@@ -623,7 +596,7 @@ func (s *testIBStore) Close() error                                { return nil 
 
 func newTestConsumer(
 	svc *testIBService,
-	coreStore mainstore.Store,
+	catalogStore catalogstore.Store,
 ) *Consumer {
 	ibStore := &testIBStore{
 		builds:     svc.builds,
@@ -633,7 +606,7 @@ func newTestConsumer(
 	return &Consumer{
 		store:               ibStore,
 		imageBuilderService: svc,
-		mainStore:           coreStore,
+		catalogStore:        catalogStore,
 		log:                 log.InitLogs(),
 	}
 }
@@ -660,7 +633,7 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -668,7 +641,7 @@ func TestEvaluator_NewCatalogItem(t *testing.T) {
 	promotion := makeWaitingPromotion("promo-1", "build-1", "my-catalog", "my-app", "1.0.0")
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
 
 	requirePromotionReasonWorker(t, svc.promotions, "promo-1", domain.ImagePromotionConditionReasonCompleted)
@@ -691,7 +664,7 @@ func TestEvaluator_NewCatalogItemWithDisplayName(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -716,7 +689,7 @@ func TestEvaluator_NewCatalogItemWithDisplayName(t *testing.T) {
 		conditionMessageForReasonWorker(domain.ImagePromotionConditionReasonWaitingForArtifacts))
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
 
 	item := catalogWriter.GetItem("my-catalog", "my-app")
@@ -735,7 +708,7 @@ func TestEvaluator_ExportsPending(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	build := makeCompletedBuild("build-1", "sha256:aabb")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -759,7 +732,7 @@ func TestEvaluator_ExportsPending(t *testing.T) {
 		conditionMessageForReasonWorker(domain.ImagePromotionConditionReasonWaitingForArtifacts))
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
 
 	// Still waiting for export.
@@ -779,7 +752,7 @@ func TestEvaluator_ExportsReady(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("my-catalog")
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	build := makeCompletedBuild("build-2", "sha256:ccdd")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -806,7 +779,7 @@ func TestEvaluator_ExportsReady(t *testing.T) {
 		conditionMessageForReasonWorker(domain.ImagePromotionConditionReasonWaitingForArtifacts))
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
 
 	requirePromotionReasonWorker(t, svc.promotions, "promo-ready", domain.ImagePromotionConditionReasonCompleted)
@@ -827,14 +800,14 @@ func TestEvaluator_FailPromotionsForBuild(t *testing.T) {
 
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	for i, name := range []string{"promo-a", "promo-b"} {
 		p := makeWaitingPromotion(name, "build-fail", "cat", "item"+string(rune('a'+i)), "1.0.0")
 		_, _ = svc.promotions.Create(ctx, orgID, p)
 	}
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	err := consumer.failPromotionsForBuild(ctx, orgID, "build-fail",
 		domain.ImagePromotionConditionReasonBuildFailed, "build failed")
 	require.NoError(t, err)
@@ -852,7 +825,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 	svc := newTestIBService(orgID)
 	catalogWriter := newDummyCatalogItemWriter()
 	catalogWriter.AddCatalog("cat")
-	coreStore := &dummyCoreStore{writer: catalogWriter}
+	catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 	// Pre-populate the CatalogItem with version 1.0.0.
 	systemCategory := coredomain.CatalogItemCategorySystem
@@ -869,7 +842,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 			},
 		},
 	}
-	_, _ = coreStore.Catalog().CreateItem(ctx, orgID, "cat", existingItem)
+	_, _ = catalogStore.CreateItem(ctx, orgID, "cat", existingItem)
 
 	build := makeCompletedBuild("build-3", "sha256:eeff")
 	_, _ = svc.builds.Create(ctx, orgID, build)
@@ -886,7 +859,7 @@ func TestEvaluator_AppendVersion(t *testing.T) {
 	setPromotionReadyCondition(promotion, domain.ImagePromotionConditionReasonWaitingForArtifacts, "")
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-	consumer := newTestConsumer(svc, coreStore)
+	consumer := newTestConsumer(svc, catalogStore)
 	require.NoError(consumer.evaluateAndTransition(ctx, orgID, promotion, build))
 
 	requirePromotionReasonWorker(t, svc.promotions, "promo-append", domain.ImagePromotionConditionReasonCompleted)
@@ -931,7 +904,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		coreStore := &dummyCoreStore{writer: catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -939,7 +912,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		promotion := makePublishingPromotion("promo", "build-1", "cat", "my-app", "1.0.0")
 		_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+		require.NoError(t, newTestConsumer(svc, catalogStore).evaluateAndTransition(ctx, orgID, promotion, build))
 
 		requirePromotionReasonWorker(t, svc.promotions, "promo", domain.ImagePromotionConditionReasonCompleted)
 		require.NotNil(t, catalogWriter.GetItem("cat", "my-app"))
@@ -949,7 +922,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		coreStore := &dummyCoreStore{writer: catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -975,7 +948,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		promotion := makePublishingPromotion("promo", "build-1", "cat", "my-app", "1.0.0")
 		_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+		require.NoError(t, newTestConsumer(svc, catalogStore).evaluateAndTransition(ctx, orgID, promotion, build))
 
 		requirePromotionReasonWorker(t, svc.promotions, "promo", domain.ImagePromotionConditionReasonCompleted)
 	})
@@ -984,7 +957,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		svc := newTestIBService(orgID)
 		catalogWriter := newDummyCatalogItemWriter()
 		catalogWriter.AddCatalog("cat")
-		coreStore := &dummyCoreStore{writer: catalogWriter}
+		catalogStore := &dummyCatalogStoreAdapter{catalogWriter}
 
 		build := makeCompletedBuild("build-1", "sha256:aabb")
 		_, _ = svc.builds.Create(ctx, orgID, build)
@@ -1010,7 +983,7 @@ func TestEvaluator_PublishingRetry(t *testing.T) {
 		promotion := makePublishingPromotion("promo", "build-1", "cat", "my-app", "1.0.0")
 		_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
-		require.NoError(t, newTestConsumer(svc, coreStore).evaluateAndTransition(ctx, orgID, promotion, build))
+		require.NoError(t, newTestConsumer(svc, catalogStore).evaluateAndTransition(ctx, orgID, promotion, build))
 
 		requirePromotionReasonWorker(t, svc.promotions, "promo", domain.ImagePromotionConditionReasonFailed)
 	})

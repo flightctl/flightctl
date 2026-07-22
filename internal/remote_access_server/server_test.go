@@ -2,12 +2,17 @@ package remote_access_server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -103,5 +108,88 @@ func TestServerStream_MissingSessionID(t *testing.T) {
 	}
 	if code := status.Code(err); code != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", code)
+	}
+}
+
+// scriptedStreamServer is a stubStreamServer whose Recv() replays a fixed
+// sequence of StreamRequest messages, then blocks until the test's context
+// is cancelled (mimicking a live gRPC stream that has nothing left to say).
+type scriptedStreamServer struct {
+	stubStreamServer
+	mu   sync.Mutex
+	msgs []*pb.StreamRequest
+	idx  int
+}
+
+func (s *scriptedStreamServer) Recv() (*pb.StreamRequest, error) {
+	s.mu.Lock()
+	if s.idx < len(s.msgs) {
+		msg := s.msgs[s.idx]
+		s.idx++
+		s.mu.Unlock()
+		return msg, nil
+	}
+	s.mu.Unlock()
+	<-s.ctx.Done()
+	return nil, io.EOF
+}
+
+func TestPipeStreamToChannel_AgentError_RoutesToErrChNotPayloadCh(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	stream := &scriptedStreamServer{
+		stubStreamServer: stubStreamServer{ctx: ctx},
+		msgs: []*pb.StreamRequest{
+			{Payload: []byte("hello")},
+			{Error: "app is not a VM workload"},
+		},
+	}
+
+	srv := &Server{log: logrus.New()}
+	ch := make(chan []byte, 4)
+	errCh := make(chan string, 1)
+
+	done := make(chan struct{})
+	go func() {
+		srv.pipeStreamToChannel(ctx, stream, ch, errCh)
+		close(done)
+	}()
+
+	// The leading payload message must still be forwarded on ch before the error.
+	select {
+	case payload := <-ch:
+		assert.Equal(t, []byte("hello"), payload)
+	case <-time.After(time.Second):
+		t.Fatal("expected the payload preceding the error to be forwarded on ch")
+	}
+
+	select {
+	case agentErr := <-errCh:
+		assert.Equal(t, "app is not a VM workload", agentErr)
+	case <-time.After(time.Second):
+		t.Fatal("expected the agent error to be forwarded on errCh")
+	}
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond, "expected pipeStreamToChannel to return after reporting the error")
+
+	// ch must be left open (never closed) on the error path so a consumer racing on
+	// a select over both channels cannot observe a spurious close instead of the error.
+	select {
+	case _, ok := <-ch:
+		if !ok {
+			t.Fatal("ch must not be closed on the agent-error path")
+		}
+		t.Fatal("unexpected additional payload on ch")
+	default:
 	}
 }

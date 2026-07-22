@@ -46,6 +46,18 @@ const (
 	GrpcClientNameKey       = "client-name"
 	GrpcSelectedProtocolKey = "selected-protocol"
 	GrpcAppNameKey          = "app-name"
+	// GrpcSessionErrorKey carries a session-level failure (e.g. the requested application
+	// does not exist) discovered by the agent before it can select a protocol. Sent instead
+	// of (never alongside) GrpcSelectedProtocolKey so the server can fail the session before
+	// upgrading the client's connection, rather than reporting the error only after upgrade.
+	GrpcSessionErrorKey = "session-error"
+
+	// AppConsoleErrorCloseCode is the WebSocket close status code the flightctl-remote-access
+	// service uses to signal an application console session-level failure (e.g. the requested
+	// application does not exist), as opposed to a normal end of session. It is in the
+	// 4000-4999 range reserved by RFC 6455 for private use. Shared between
+	// internal/remote_access_server (sender) and internal/cli (receiver).
+	AppConsoleErrorCloseCode = 4001
 
 	// Tasks
 	TaskQueue           = "task-queue"

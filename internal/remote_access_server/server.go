@@ -20,7 +20,14 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
+	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
@@ -29,6 +36,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"gorm.io/gorm"
 )
 
 // Server provides the flightctl-remote-access service: a WebSocket HTTP server
@@ -39,14 +47,14 @@ type Server struct {
 	cfg            *config.Config
 	caBundleCerts  []*x509.Certificate
 	serverCerts    *crypto.TLSCertificateConfig
-	dataStore      store.Store
-	publisher      console.RenderedVersionPublisher
+	db             *gorm.DB
+	notifier       console.ConsoleEventNotifier
 	pendingStreams *sync.Map
 }
 
-// storeAppConsoleService adapts store.Device to console.AppConsoleDeviceService.
+// storeAppConsoleService adapts devicestore.Store to console.AppConsoleDeviceService.
 type storeAppConsoleService struct {
-	deviceStore store.Device
+	deviceStore devicestore.Store
 }
 
 func (s *storeAppConsoleService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
@@ -65,8 +73,8 @@ func New(
 	cfg *config.Config,
 	caBundleCerts []*x509.Certificate,
 	serverCerts *crypto.TLSCertificateConfig,
-	dataStore store.Store,
-	publisher console.RenderedVersionPublisher,
+	db *gorm.DB,
+	notifier console.ConsoleEventNotifier,
 ) (*Server, error) {
 	if cfg.RemoteAccessService == nil {
 		return nil, fmt.Errorf("remoteAccessService config section is required")
@@ -76,8 +84,8 @@ func New(
 		cfg:            cfg,
 		caBundleCerts:  caBundleCerts,
 		serverCerts:    serverCerts,
-		dataStore:      dataStore,
-		publisher:      publisher,
+		db:             db,
+		notifier:       notifier,
 		pendingStreams: &sync.Map{},
 	}, nil
 }
@@ -105,9 +113,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer agentListener.Close()
 
+	authProviderStore := authproviderstore.NewAuthProviderStore(s.db, s.log.WithField("pkg", "authprovider-store"))
+	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
+	organizationStore := organizationstore.NewOrganizationStore(s.db)
+	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
+	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
+	eventsSvc := events.NewServiceHandler(eventStore, nil, s.log)
+
 	// Auth — matches imagebuilder-api: tracing-wrapped store-backed service,
 	// InitMultiAuth, then Start(ctx) in a goroutine with an error channel.
-	authProviderSvc := service.WrapWithTracing(service.NewAuthProviderServiceHandler(s.dataStore, s.log))
+	authProviderSvc := authproviderservice.WrapWithTracing(authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, s.log))
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderSvc)
 	if err != nil {
 		return fmt.Errorf("initializing authentication: %w", err)
@@ -137,8 +152,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Identity mapper.
-	orgProvisioner := service.NewOrgProvisioner(s.dataStore, s.log)
-	identityMapper := service.NewIdentityMapper(s.dataStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(catalogStore, s.log)
+	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, s.log)
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
@@ -156,8 +171,8 @@ func (s *Server) Run(ctx context.Context) error {
 	pb.RegisterRouterServiceServer(grpcServer, s)
 
 	// App console.
-	svc := &storeAppConsoleService{deviceStore: s.dataStore.Device()}
-	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.publisher)
+	svc := &storeAppConsoleService{deviceStore: deviceStore}
+	appConsoleMgr := console.NewAppConsoleSessionManager(svc, s.log, s, s.notifier)
 	appConsoleHandler := NewAppConsoleHandler(s.log, appConsoleMgr)
 
 	// HTTP router — mirrors flightctl-api: AuthN → IdentityMapping → OrgExtraction → AuthZ.
@@ -167,7 +182,7 @@ func (s *Server) Run(ctx context.Context) error {
 		if hc != nil && hc.Enabled {
 			r.Method(http.MethodGet, hc.LivenessPath, apiserver.HealthzHandler())
 			r.Method(http.MethodGet, hc.ReadinessPath,
-				apiserver.ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.dataStore))
+				apiserver.ReadyzHandler(time.Duration(hc.ReadinessTimeout), &store.DBHealthChecker{DB: s.db}))
 		}
 	})
 	r.Group(func(r chi.Router) {

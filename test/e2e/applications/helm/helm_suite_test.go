@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -17,8 +16,9 @@ func TestHelm(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	auxiliary.Get(context.Background())
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	_, _, err := e2e.SetupWorkerHarness()
+	auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
 })
 

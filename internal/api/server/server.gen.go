@@ -2903,6 +2903,14 @@ func (siw *ServerInterfaceWrapper) GetDeviceApplicationConsole(w http.ResponseWr
 		return
 	}
 
+	// ------------- Optional query parameter "force" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "force", r.URL.Query(), &params.Force)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "force", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDeviceApplicationConsole(w, r, name, appname, params)
 	}))

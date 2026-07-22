@@ -73,7 +73,11 @@ func (m *VersionManager) key(orgId uuid.UUID, name string) string {
 	return fmt.Sprintf("v1/%s/device/%s/rendered", orgId.String(), name)
 }
 
-func (m *VersionManager) subscribe(orgId uuid.UUID, name string, notifier chan string) {
+func (m *VersionManager) consolePendingKey(orgId uuid.UUID, name string) string {
+	return fmt.Sprintf("v1/%s/device/%s/console-pending", orgId.String(), name)
+}
+
+func (m *VersionManager) subscribe(orgId uuid.UUID, name string, notifier chan Notification) {
 	m.subscribers.Store(m.key(orgId, name), notifier)
 }
 
@@ -81,30 +85,42 @@ func (m *VersionManager) unsubscribe(orgId uuid.UUID, name string) {
 	m.subscribers.Delete(m.key(orgId, name))
 }
 
-func (m *VersionManager) WaitForNewVersion(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion string) (bool, string, error) {
-	ch := make(chan string, 1)
+// WaitForNotification blocks until a Notification occurs, then returns it.
+// Returns (Notification{}, false, nil) on timeout — caller should return 204.
+func (m *VersionManager) WaitForNotification(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion string) (Notification, bool, error) {
+	ch := make(chan Notification, 1)
 	m.subscribe(orgId, name, ch)
 	defer m.unsubscribe(orgId, name)
+
 	b, err := m.kvStore.Get(ctx, m.key(orgId, name))
 	if err != nil {
-		return false, "", fmt.Errorf("failed to get rendered version from kvstore: %v", err)
+		return Notification{}, false, fmt.Errorf("failed to get rendered version from kvstore: %v", err)
 	}
 	var currentRenderedVersion string
 	if b != nil {
 		currentRenderedVersion = string(b)
 	}
-	if currentRenderedVersion == knownRenderedVersion {
-		timeout := time.NewTimer(m.renderedWaitTimeout)
-		defer timeout.Stop()
-		select {
-		case <-ctx.Done():
-			return false, currentRenderedVersion, ctx.Err()
-		case <-timeout.C:
-			return false, currentRenderedVersion, nil
-		case currentRenderedVersion = <-ch:
-		}
+	if currentRenderedVersion != knownRenderedVersion {
+		return Notification{Type: NotificationTypeSpecUpdated, RenderedVersion: currentRenderedVersion}, true, nil
 	}
-	return true, currentRenderedVersion, nil
+
+	pending, err := m.kvStore.Get(ctx, m.consolePendingKey(orgId, name))
+	if err != nil {
+		m.log.Warnf("WaitForNotification: failed to check console notification for %s/%s: %v", orgId, name, err)
+	} else if pending != nil {
+		return Notification{Type: NotificationTypeConsole}, true, nil
+	}
+
+	timeout := time.NewTimer(m.renderedWaitTimeout)
+	defer timeout.Stop()
+	select {
+	case <-ctx.Done():
+		return Notification{}, false, ctx.Err()
+	case <-timeout.C:
+		return Notification{}, false, nil
+	case n := <-ch:
+		return n, true, nil
+	}
 }
 
 func (m *VersionManager) StoreAndNotify(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error {
@@ -126,25 +142,39 @@ func (m *VersionManager) StoreAndNotify(ctx context.Context, orgId uuid.UUID, na
 		return fmt.Errorf("failed to store rendered version: %w", err)
 	}
 	if valueSet {
-		if err := m.broadcaster.Publish(ctx, orgId, name, renderedVersion); err != nil {
+		if err := m.broadcaster.Publish(ctx, orgId, name, Notification{Type: NotificationTypeSpecUpdated, RenderedVersion: renderedVersion}); err != nil {
 			return fmt.Errorf("failed to broadcast rendered version: %w", err)
 		}
 	}
 	return nil
 }
 
-func (m *VersionManager) consumeHandler(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error {
+// NotifyConsole sets the console-pending KV flag and publishes a console notification
+// so that a waiting GetRenderedDevice long-poll is unblocked immediately.
+func (m *VersionManager) NotifyConsole(ctx context.Context, orgId uuid.UUID, name string) error {
+	if _, err := m.kvStore.SetNX(ctx, m.consolePendingKey(orgId, name), []byte("1")); err != nil {
+		return fmt.Errorf("failed to set console notification: %w", err)
+	}
+	return m.broadcaster.Publish(ctx, orgId, name, Notification{Type: NotificationTypeConsole})
+}
+
+// ClearConsoleNotification removes the console-pending KV flag after the agent has been woken.
+func (m *VersionManager) ClearConsoleNotification(ctx context.Context, orgId uuid.UUID, name string) error {
+	return m.kvStore.Delete(ctx, m.consolePendingKey(orgId, name))
+}
+
+func (m *VersionManager) consumeHandler(ctx context.Context, orgId uuid.UUID, name string, n Notification) error {
 	notifier, ok := m.subscribers.Load(m.key(orgId, name))
 	if !ok {
 		return nil
 	}
-	ch, isChan := notifier.(chan string)
+	ch, isChan := notifier.(chan Notification)
 	if !isChan {
 		m.log.Errorf("GetRenderedDevice: notifier for %s/%s is not a channel, skipping notification", orgId, name)
 		return nil
 	}
 	select {
-	case ch <- renderedVersion:
+	case ch <- n:
 	default:
 		m.log.Warnf("GetRenderedDevice: channel for %s/%s is full, skipping notification", orgId, name)
 	}

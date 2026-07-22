@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
@@ -405,7 +406,11 @@ func (c *Consumer) executeExport(
 	if exportSource.OciRepoSpec.OciAuth != nil {
 		dockerAuth, err := exportSource.OciRepoSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistryForExport(ctx, worker, registryHostname, dockerAuth.Username, dockerAuth.Password, exportSource.OciRepoSpec, log); err != nil {
+			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			if decErr != nil {
+				return "", cleanup, fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
+			if err := c.loginToRegistryForExport(ctx, worker, registryHostname, dockerAuth.Username, string(decryptedPassword), exportSource.OciRepoSpec, log); err != nil {
 				return "", cleanup, fmt.Errorf("failed to login to registry: %w", err)
 			}
 		}
@@ -961,7 +966,7 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 	}
 
 	// Get repository and extract OCI spec (common for both source types)
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, repoName)
+	repo, err := c.repositoryStore.Get(ctx, orgID, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get repository %q: %w", repoName, err)
 	}
@@ -1084,7 +1089,7 @@ func (c *Consumer) pushArtifact(
 	}
 
 	// Get destination repository for authentication and to get registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
+	repo, err := c.repositoryStore.Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
 	if err != nil {
 		return fmt.Errorf("failed to load destination repository: %w", err)
 	}
@@ -1122,7 +1127,7 @@ func (c *Consumer) pushArtifact(
 	statusUpdater.reportOutput([]byte("Starting artifact push to destination registry\n"))
 
 	// Create repository reference (no tag needed - referrer will be discoverable via referrers API)
-	repoRef, err := oci.BuildOciRepoRef(&ociSpec, destRef)
+	repoRef, err := oci.BuildOciRepoRef(ctx, &ociSpec, destRef)
 	if err != nil {
 		return fmt.Errorf("failed to configure OCI repository reference: %w", err)
 	}

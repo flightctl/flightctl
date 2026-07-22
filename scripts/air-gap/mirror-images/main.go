@@ -205,10 +205,11 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 		Dest:   destRegistry + "/library/registry:2",
 	})
 
-	if err := BundleImages(ctx, bundleImages, tmpDir, exec); err != nil {
+	bundled, err := BundleImages(ctx, bundleImages, tmpDir, exec)
+	if err != nil {
 		logWarn("Some images failed to bundle: %v", err)
 	}
-	if err := WriteImportScript(tmpDir, bundleImages, variant); err != nil {
+	if err := WriteImportScript(tmpDir, bundled, variant); err != nil {
 		return fmt.Errorf("write import script: %w", err)
 	}
 	if bundleRPMs {

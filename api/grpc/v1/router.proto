@@ -15,6 +15,11 @@ service RouterService {
 message StreamRequest {
   bytes payload = 1;
   bool closed = 2;
+  // error carries a session-level failure (e.g. the requested application does not
+  // exist) that the server must not relay as console payload data. When set, this is
+  // the only meaningful field on the message and the stream is expected to close
+  // immediately after.
+  string error = 3;
 }
 
 message StreamResponse {

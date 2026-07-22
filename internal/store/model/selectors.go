@@ -19,6 +19,7 @@ var (
 		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
 		selector.NewSelectorName("status.updated.status"):             selector.String,
 		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
+		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,

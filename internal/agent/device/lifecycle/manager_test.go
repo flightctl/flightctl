@@ -225,6 +225,135 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 	}
 }
 
+func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMocks  func(*client.MockEnrollment, *identity.MockProvider, *fileio.MockReadWriter)
+		expectError string
+	}{
+		{
+			name: "When enrollment request creation fails it should not write the QR banner",
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
+				mockIdentity.EXPECT().HasCertificate().Return(false)
+				mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+				mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, errors.New("connection refused")).AnyTimes()
+				// WriteFile for the banner must NOT be called
+			},
+			expectError: "creating enrollment request",
+		},
+		{
+			name: "When enrollment request succeeds it should write the QR banner",
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
+				mockIdentity.EXPECT().HasCertificate().Return(false)
+				mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+				mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, nil)
+				// Banner file should be written after successful enrollment request
+				mockReadWriter.EXPECT().WriteFile(BannerFile, gomock.Any(), gomock.Any()).Return(nil)
+				// Then verifyEnrollment is called — return denied to end the loop quickly
+				mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-device").Return(&v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
+							{Type: "Denied", Reason: "test", Message: "test"},
+						},
+					},
+				}, nil)
+			},
+			expectError: "enrollment request denied",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockEnrollment := client.NewMockEnrollment(ctrl)
+			mockIdentity := identity.NewMockProvider(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			manager := &LifecycleManager{
+				deviceName:           "test-device",
+				enrollmentUIEndpoint: "http://localhost:9001",
+				enrollmentClient:     mockEnrollment,
+				identityProvider:     mockIdentity,
+				deviceReadWriter:     mockReadWriter,
+				systemdClient:        client.NewSystemd(nil, ""),
+				backoff: wait.Backoff{
+					Steps:    1,
+					Duration: time.Millisecond,
+				},
+				log: log.NewPrefixLogger("test"),
+			}
+
+			tt.setupMocks(mockEnrollment, mockIdentity, mockReadWriter)
+
+			ctx := context.Background()
+			err := manager.Initialize(ctx, &v1beta1.DeviceStatus{})
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.expectError)
+		})
+	}
+}
+
+func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
+	tests := []struct {
+		name           string
+		osMode         v1beta1.OsModeType
+		expectedOsMode *v1beta1.OsModeType
+	}{
+		{
+			name:           "When osMode is image it should include osMode in enrollment request",
+			osMode:         v1beta1.OsModeImage,
+			expectedOsMode: ptr(v1beta1.OsModeImage),
+		},
+		{
+			name:           "When osMode is package it should include osMode in enrollment request",
+			osMode:         v1beta1.OsModePackage,
+			expectedOsMode: ptr(v1beta1.OsModePackage),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockEnrollment := client.NewMockEnrollment(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			manager := &LifecycleManager{
+				deviceName:       "test-device",
+				enrollmentCSR:    []byte("test-csr"),
+				enrollmentClient: mockEnrollment,
+				deviceReadWriter: mockReadWriter,
+				osMode:           tt.osMode,
+				backoff: wait.Backoff{
+					Steps:    1,
+					Duration: time.Millisecond,
+				},
+				log: log.NewPrefixLogger("test"),
+			}
+
+			mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+			var capturedReq v1beta1.EnrollmentRequest
+			mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).
+				Do(func(_ context.Context, req v1beta1.EnrollmentRequest, _ ...any) {
+					capturedReq = req
+				}).Return(nil, nil)
+
+			ctx := context.Background()
+			err := manager.enrollmentRequest(ctx, &v1beta1.DeviceStatus{})
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedOsMode, capturedReq.Spec.OsMode)
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
 func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 	tests := []struct {
 		name                string

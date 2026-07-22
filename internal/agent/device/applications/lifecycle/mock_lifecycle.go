@@ -53,6 +53,71 @@ func (mr *MockActionHandlerMockRecorder) Execute(ctx, actions any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockActionHandler)(nil).Execute), ctx, actions)
 }
 
+// MockLifecycleHandler is a mock of LifecycleHandler interface.
+type MockLifecycleHandler struct {
+	ctrl     *gomock.Controller
+	recorder *MockLifecycleHandlerMockRecorder
+}
+
+// MockLifecycleHandlerMockRecorder is the mock recorder for MockLifecycleHandler.
+type MockLifecycleHandlerMockRecorder struct {
+	mock *MockLifecycleHandler
+}
+
+// NewMockLifecycleHandler creates a new mock instance.
+func NewMockLifecycleHandler(ctrl *gomock.Controller) *MockLifecycleHandler {
+	mock := &MockLifecycleHandler{ctrl: ctrl}
+	mock.recorder = &MockLifecycleHandlerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockLifecycleHandler) EXPECT() *MockLifecycleHandlerMockRecorder {
+	return m.recorder
+}
+
+// Restart mocks base method.
+func (m *MockLifecycleHandler) Restart(ctx context.Context, action Action) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Restart", ctx, action)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Restart indicates an expected call of Restart.
+func (mr *MockLifecycleHandlerMockRecorder) Restart(ctx, action any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Restart", reflect.TypeOf((*MockLifecycleHandler)(nil).Restart), ctx, action)
+}
+
+// Start mocks base method.
+func (m *MockLifecycleHandler) Start(ctx context.Context, action Action) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Start", ctx, action)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Start indicates an expected call of Start.
+func (mr *MockLifecycleHandlerMockRecorder) Start(ctx, action any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockLifecycleHandler)(nil).Start), ctx, action)
+}
+
+// Stop mocks base method.
+func (m *MockLifecycleHandler) Stop(ctx context.Context, action Action) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Stop", ctx, action)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockLifecycleHandlerMockRecorder) Stop(ctx, action any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockLifecycleHandler)(nil).Stop), ctx, action)
+}
+
 // MockActionSpec is a mock of ActionSpec interface.
 type MockActionSpec struct {
 	ctrl     *gomock.Controller

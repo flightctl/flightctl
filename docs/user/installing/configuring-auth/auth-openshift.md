@@ -16,7 +16,7 @@ Flight Control API server integrates with OpenShift OAuth by:
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
 - **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
-- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
+- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories; application lifecycle (start/stop/restart); device and application console; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
 - **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer-<namespace>`** - Access to enrollmentrequests, certificate signing requests; view imagebuilds and imageexports; download imageexports
 

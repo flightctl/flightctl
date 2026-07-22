@@ -41,7 +41,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow"), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needvm"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
@@ -279,7 +279,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow"), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needvm"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}

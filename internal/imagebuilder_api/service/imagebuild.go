@@ -13,9 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
-	mainstore "github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service/events"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -69,10 +69,10 @@ type ImageBuildService interface {
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
 	store                 store.ImageBuildStore
-	repositoryStore       mainstore.Repository
+	repositoryStore       repositorystore.Store
 	imageExportService    ImageExportService
 	imagePromotionService ImagePromotionService
-	eventHandler          *internalservice.EventHandler
+	eventSvc              events.Service
 	queueProducer         queues.QueueProducer
 	kvStore               kvstore.KVStore
 	cfg                   *config.ImageBuilderServiceConfig
@@ -80,13 +80,13 @@ type imageBuildService struct {
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore repositorystore.Store, imageExportService ImageExportService, imagePromotionService ImagePromotionService, eventSvc events.Service, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
 		store:                 s,
 		repositoryStore:       repositoryStore,
 		imageExportService:    imageExportService,
 		imagePromotionService: imagePromotionService,
-		eventHandler:          eventHandler,
+		eventSvc:              eventSvc,
 		queueProducer:         queueProducer,
 		kvStore:               kvStore,
 		cfg:                   cfg,
@@ -126,10 +126,10 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	}
 	// Create event separately (no transaction)
 	var event *coredomain.Event
-	if result != nil && s.eventHandler != nil {
+	if result != nil && s.eventSvc != nil {
 		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, coredomain.ResourceKind(string(domain.ResourceKindImageBuild)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
 		if event != nil {
-			s.eventHandler.CreateEvent(ctx, orgId, event)
+			s.eventSvc.CreateEvent(ctx, orgId, event)
 		}
 	}
 
@@ -464,8 +464,8 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 	)
 
 	// Publish a core event for audit/observability.
-	if s.eventHandler != nil {
-		s.eventHandler.CreateEvent(ctx, orgId, event)
+	if s.eventSvc != nil {
+		s.eventSvc.CreateEvent(ctx, orgId, event)
 	}
 
 	// Enqueue a worker event for terminal states that require downstream action:

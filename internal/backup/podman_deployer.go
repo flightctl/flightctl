@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 type PodmanDeployer struct {
 	log               logrus.FieldLogger
 	pkiPath           string // Optional: if empty, defaults to "/etc/flightctl/pki"
+	encryptionPath    string // Optional: if empty, defaults to "/etc/flightctl/encryption"
 	serviceConfigPath string // Optional: if empty, defaults to "/etc/flightctl/service-config.yaml"
 	dbContainerName   string
 	dbName            string
@@ -31,6 +33,13 @@ type PodmanDeployerOption func(*PodmanDeployer)
 func WithPKIPath(path string) PodmanDeployerOption {
 	return func(d *PodmanDeployer) {
 		d.pkiPath = path
+	}
+}
+
+// WithEncryptionPath sets the encryption key source directory path.
+func WithEncryptionPath(path string) PodmanDeployerOption {
+	return func(d *PodmanDeployer) {
+		d.encryptionPath = path
 	}
 }
 
@@ -98,6 +107,9 @@ func NewPodmanDeployer(log logrus.FieldLogger, opts ...PodmanDeployerOption) *Po
 	}
 	if d.pkiPath == "" {
 		d.pkiPath = "/etc/flightctl/pki"
+	}
+	if d.encryptionPath == "" {
+		d.encryptionPath = "/etc/flightctl/encryption"
 	}
 	if d.serviceConfigPath == "" {
 		d.serviceConfigPath = "/etc/flightctl/service-config.yaml"
@@ -216,7 +228,7 @@ func copyDirPreservePerms(src, dst string, ctx context.Context, log logrus.Field
 
 		// Reject symlinks to prevent path traversal attacks and undefined behavior
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlinks not supported in PKI directory: %s", relPath)
+			return fmt.Errorf("symlinks not supported in backup directory: %s", relPath)
 		}
 
 		// Handle directories
@@ -276,7 +288,7 @@ func (p *PodmanDeployer) BackupPKI(ctx context.Context, outputDir string) error 
 	p.log.Infof("Starting PKI backup from %s...", pkiSrcDir)
 
 	// Create destination directory
-	if err := os.MkdirAll(pkiDstDir, pkiDirMode); err != nil {
+	if err := os.MkdirAll(pkiDstDir, sensitiveDataDirMode); err != nil {
 		return fmt.Errorf("failed to create PKI output directory: %w", err)
 	}
 
@@ -300,6 +312,47 @@ func (p *PodmanDeployer) BackupPKI(ctx context.Context, outputDir string) error 
 	return nil
 }
 
+// BackupEncryptionKeys backs up the data-at-rest encryption key directory.
+// Copies <encryptionPath>/ to <outputDir>/encryption/, preserving file permissions.
+// Never returns an error for a missing encryption directory — a warning is logged
+// so the operator knows encrypted fields will be unrecoverable from this backup.
+func (p *PodmanDeployer) BackupEncryptionKeys(ctx context.Context, outputDir string) (retErr error) {
+	encSrcDir := p.encryptionPath
+
+	if _, err := os.Stat(encSrcDir); os.IsNotExist(err) {
+		p.log.Warnf("Encryption key directory not found at %s — skipping. If this deployment uses data-at-rest encryption, encrypted database fields will be unrecoverable from this backup.", encSrcDir)
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to access encryption key directory %s: %w", encSrcDir, err)
+	}
+
+	p.log.Infof("Starting encryption key backup from %s...", encSrcDir)
+
+	encDstDir := filepath.Join(outputDir, "encryption")
+	if err := os.MkdirAll(encDstDir, sensitiveDataDirMode); err != nil {
+		return fmt.Errorf("failed to create encryption output directory: %w", err)
+	}
+
+	// Clean up encryption directory on error to avoid leaving partial sensitive data on disk.
+	success := false
+	defer func() {
+		if !success {
+			if cleanupErr := os.RemoveAll(encDstDir); cleanupErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("failed to clean up partial encryption backup at %s: %w", encDstDir, cleanupErr))
+			}
+		}
+	}()
+
+	fileCount, err := copyDirPreservePerms(encSrcDir, encDstDir, ctx, p.log)
+	if err != nil {
+		return fmt.Errorf("failed to copy encryption directory: %w", err)
+	}
+
+	p.log.Infof("Encryption key backup completed. Backed up %d files from %s", fileCount, encSrcDir)
+	success = true
+	return nil
+}
+
 // BackupConfig backs up service configuration files for Podman deployments.
 // Copies /etc/flightctl/service-config.yaml to <outputDir>/config/service-config.yaml.
 // Exports PAM Issuer volume to <outputDir>/volumes/pam-issuer-etc.tar.
@@ -308,7 +361,7 @@ func (p *PodmanDeployer) BackupPKI(ctx context.Context, outputDir string) error 
 func (p *PodmanDeployer) BackupConfig(ctx context.Context, outputDir string) error {
 	// Create config directory
 	configDir := filepath.Join(outputDir, "config")
-	if err := os.MkdirAll(configDir, pkiDirMode); err != nil {
+	if err := os.MkdirAll(configDir, sensitiveDataDirMode); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -334,7 +387,7 @@ func (p *PodmanDeployer) BackupConfig(ctx context.Context, outputDir string) err
 
 	// Backup PAM Issuer volume (optional component)
 	volumesDir := filepath.Join(outputDir, "volumes")
-	if err := os.MkdirAll(volumesDir, pkiDirMode); err != nil {
+	if err := os.MkdirAll(volumesDir, sensitiveDataDirMode); err != nil {
 		return fmt.Errorf("failed to create volumes directory: %w", err)
 	}
 

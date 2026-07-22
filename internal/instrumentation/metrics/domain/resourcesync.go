@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -15,16 +16,16 @@ import (
 type ResourceSyncCollector struct {
 	resourceSyncsGauge *prometheus.GaugeVec
 
-	store          store.Store
-	log            logrus.FieldLogger
-	mu             sync.RWMutex
-	ctx            context.Context
-	tickerInterval time.Duration
-	cfg            *config.Config
+	resourceSyncStore resourcesyncstore.Store
+	log               logrus.FieldLogger
+	mu                sync.RWMutex
+	ctx               context.Context
+	tickerInterval    time.Duration
+	cfg               *config.Config
 }
 
 // NewResourceSyncCollector creates a ResourceSyncCollector.
-func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *ResourceSyncCollector {
+func NewResourceSyncCollector(ctx context.Context, resourceSyncStore resourcesyncstore.Store, log logrus.FieldLogger, cfg *config.Config) *ResourceSyncCollector {
 	interval := cfg.Metrics.ResourceSyncCollector.TickerInterval
 
 	collector := &ResourceSyncCollector{
@@ -32,11 +33,11 @@ func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus
 			Name: "flightctl_resourcesyncs",
 			Help: "Total number of resource syncs managed",
 		}, []string{"organization_id", "status"}),
-		store:          store,
-		log:            log,
-		ctx:            ctx,
-		tickerInterval: time.Duration(interval),
-		cfg:            cfg,
+		resourceSyncStore: resourceSyncStore,
+		log:               log,
+		ctx:               ctx,
+		tickerInterval:    time.Duration(interval),
+		cfg:               cfg,
 	}
 
 	collector.log.Info("Starting resourcesync metrics collector with interval", "interval", interval)
@@ -82,7 +83,7 @@ func (c *ResourceSyncCollector) updateResourceSyncMetrics() {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	// Get resource sync counts grouped by org and status
-	resourceSyncCounts, err := c.store.ResourceSync().CountByOrgAndStatus(ctx, nil, nil)
+	resourceSyncCounts, err := c.resourceSyncStore.CountByOrgAndStatus(ctx, nil, nil)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get resource sync counts for metrics")
 		return

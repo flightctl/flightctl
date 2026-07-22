@@ -1,0 +1,178 @@
+---
+# ServiceAccount for the encryption key generator Job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-encryption-key-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+
+---
+# Role with minimal permissions for encryption key secret management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-encryption-key-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["flightctl-encryption-key"]
+    verbs: ["patch", "update"]
+
+---
+# RoleBinding to grant permissions to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-encryption-key-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-encryption-key-generator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-encryption-key-generator
+
+{{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+---
+# Role with permissions for encryption key secret in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-encryption-key-generator
+  namespace: {{ .Values.global.internalNamespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["flightctl-encryption-key"]
+    verbs: ["patch", "update"]
+
+---
+# RoleBinding to grant permissions to the ServiceAccount in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-encryption-key-generator
+  namespace: {{ .Values.global.internalNamespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-encryption-key-generator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-encryption-key-generator
+{{- end }}
+
+---
+# ConfigMap containing the encryption key generation script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-encryption-key-generator-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  generate-encryption-key.sh: |
+{{ .Files.Get "scripts/generate-encryption-key.sh" | nindent 4 }}
+
+---
+# Job to generate encryption key and create Kubernetes secret
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-encryption-key-generator-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-encryption-key-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+        flightctl.service: flightctl-encryption-key-generator
+    spec:
+      serviceAccountName: flightctl-encryption-key-generator
+      restartPolicy: Never
+      containers:
+      - name: encryption-key-generator
+        image: "{{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}"
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+        command:
+        - /bin/bash
+        - /scripts/generate-encryption-key.sh
+        - --encryption-dir
+        - /tmp/encryption
+        - --namespace
+        - {{ .Release.Namespace }}
+        {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+        - --internal-namespace
+        - {{ .Values.global.internalNamespace }}
+        {{- end }}
+        - --create-k8s-secrets
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        - name: encryption-workdir
+          mountPath: /tmp/encryption
+      volumes:
+      - name: scripts
+        configMap:
+          name: flightctl-encryption-key-generator-script
+          defaultMode: 0755
+      - name: encryption-workdir
+        emptyDir: {}
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}

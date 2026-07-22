@@ -85,6 +85,15 @@ dev:
     gitserver: 3222
     registry: 5000
     imagebuilderApi: 8445
+    remoteAccess: 3444
+    remoteAccessAgent: 7444
   tracing:
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
     insecure: true
+  # Profiling is off by default. Uncomment to enable loopback pprof and/or Pyroscope.
+  # profiling:
+  #   pprof:
+  #     enabled: true
+  #   pyroscope:
+  #     enabled: true
+  #     serverAddress: http://pyroscope:4040

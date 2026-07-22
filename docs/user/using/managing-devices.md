@@ -656,11 +656,20 @@ The following table shows the application runtimes and formats supported by Flig
 |-------------------------------------------------------------------------------|-----------|-------------------|
 | Helm chart (via [Helm](https://helm.sh/))                                     | OCI Image | OCI registry      |
 
+### Runtime: **Virtual machine** (KVM)
+
+| Specification              | Format            | Source / Delivery              |
+|----------------------------|-------------------|--------------------------------|
+| Virtual machine definition | Unpackaged inline | Inline in device specification |
+
 > [!NOTE]
 > Compose applications require `podman-compose` to be installed on the device.
 
 > [!NOTE]
-> `quadlet` and `container` applications require podman version 5.0 or above.
+> `quadlet`, `container`, and `vm` applications require podman version 5.0 or above.
+
+> [!NOTE]
+> `vm` applications require the `/dev/kvm` device node to be present on the device. This requires CPU virtualization extensions (Intel VT-x or AMD-V) and the `kvm` kernel module to be loaded.
 
 > [!NOTE]
 > Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
@@ -674,7 +683,7 @@ To deploy an application to a device, create a new entry in the "applications" s
 |-----------|---------------------------------------------------------------------------------------------------------------------------------|
 | Name      | A user-defined name for the application. This will be used when the web UI and CLI list applications.                           |
 | Image     | A reference to an application package in an OCI registry.                                                                       |
-| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`.                              |
+| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`, `vm`.                       |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -687,6 +696,8 @@ For each application in the "applications" section of the device's specification
 | Error       | All containers failed. |
 | Unknown     | Application started, no containers observed. |
 | Completed   | All containers have completed successfully. |
+| Stopping    | The application was stopped and is shutting down its containers. |
+| Stopped     | The application was stopped and has no running containers. |
 
 ### Managing Applications on the Web UI
 
@@ -712,6 +723,254 @@ spec:
       WORDPRESS_DB_PASSWORD: "password"
 [...]
 ```
+
+### Managing Application Lifecycle
+
+In addition to deploying, updating, or undeploying applications through the device specification, you can start, stop, or restart a deployed application on demand, without changing the specification. This is useful for temporarily taking an application out of service, or for triggering a restart to recover from an issue.
+
+Use the `flightctl app stop`, `flightctl app start`, and `flightctl app restart` commands to control an application without changing the device or fleet specification. See the [`flightctl app start`](../references/cli-commands.md#flightctl-app-start), [`flightctl app stop`](../references/cli-commands.md#flightctl-app-stop), and [`flightctl app restart`](../references/cli-commands.md#flightctl-app-restart) CLI reference pages for command syntax, flags, and examples.
+
+> [!NOTE]
+> Restarting an application is only supported on individual devices, not on fleets.
+
+Stopping or starting an application on a fleet sets a fleet-wide default that applies to every device currently in the fleet, and to any device that joins the fleet later. If you separately stop or start the same application directly on one of those devices, that device-level action takes precedence over the fleet-wide default for that device, until you issue another fleet-level action.
+
+While an application is stopped, its status is reported as `Stopped`. Starting it again returns it to the normal `Preparing`/`Starting`/`Running` progression.
+
+### VM applications
+
+VM applications deploy virtual machines on the device. You define the VM using an inline manifest file; Flight Control handles the conversion and deployment automatically.
+
+Flight Control manages the lifecycle of a VM application — deploying, starting, stopping, and restarting the virtual machine — but does not manage anything running inside the VM. Managing the VM's content and workloads is left to you, using whatever tooling you would otherwise use for that, for example Ansible Automation Platform (AAP), or by connecting to the VM directly.
+
+#### Device requirements
+
+The device must have hardware virtualization support:
+
+| Requirement | Description |
+|-------------|-------------|
+| `/dev/kvm`  | Hardware virtualization device node. Requires CPU virtualization extensions (Intel VT-x or AMD-V) and the `kvm` kernel module to be loaded. |
+
+The VM runtime is included in the device OS image. You do not need to install it separately.
+
+> [!NOTE]
+> When an OS update is pending, the agent defers validation. This allows you to deploy VM applications alongside an OS image that includes the VM runtime. The agent applies the OS update and reboots first, then validates and deploys applications.
+
+#### VM application specification
+
+To deploy a VM application, add an entry to the `applications` section of the device specification with `appType: vm`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | Required. Application name. Must match `metadata.name` inside the `vm.yaml` file. |
+| `appType` | Must be `vm` for VM applications. |
+| `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
+| `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
+
+> [!NOTE]
+> The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly.
+
+> [!NOTE]
+> The `spec.running` field in `vm.yaml` is ignored. Use [application lifecycle](#managing-application-lifecycle) commands (`flightctl app start` / `stop` / `restart`) to control whether the VM is running.
+
+#### Examples
+
+##### Fedora
+
+This example deploys a Fedora guest from a public container disk image and publishes SSH on host port `2222`:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: fedora-vm
+      appType: vm
+      publishPorts:
+        - "2222:22"
+      inline:
+        - path: vm.yaml
+          content: |
+            apiVersion: kubevirt.io/v1
+            kind: VirtualMachine
+            metadata:
+              name: fedora-vm
+            spec:
+              running: true
+              template:
+                spec:
+                  domain:
+                    devices:
+                      disks:
+                        - name: containerdisk
+                          disk:
+                            bus: virtio
+                    resources:
+                      requests:
+                        memory: 1Gi
+                  volumes:
+                    - name: containerdisk
+                      containerDisk:
+                        image: quay.io/containerdisks/fedora:40
+```
+
+##### Windows
+
+This example installs a Windows guest from ISOs staged on the device (`hostDisk`), with a blank root disk, VirtIO drivers media, UEFI firmware, Hyper-V enlightenments, and a TPM. The Hyper-V settings in the manifest are guest enlightenments exposed for Windows compatibility and performance; the VM still runs on KubeVirt/KVM on the device, not on Microsoft Hyper-V, and they do not enable nested virtualization.
+
+Because each `hostDisk` path must already exist on every target device, this `hostDisk` layout is mainly for manual or illustrative setups. For production or larger-scale deployments, pull the ISOs from an OCI registry (for example as a `containerDisk`) instead. RDP is published on host port `3389`:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: windows-vm
+      appType: vm
+      publishPorts:
+        - "3389:3389"
+      inline:
+        - path: vm.yaml
+          content: |
+            apiVersion: kubevirt.io/v1
+            kind: VirtualMachine
+            metadata:
+              name: windows-vm
+            spec:
+              running: true
+              dataVolumeTemplates:
+              - metadata:
+                  name: rootdisk
+                spec:
+                  source:
+                    blank: {}
+                  storage:
+                    resources:
+                      requests:
+                        storage: 60Gi
+              template:
+                spec:
+                  domain:
+                    firmware:
+                      bootloader:
+                        efi:
+                          secureBoot: false
+                    cpu:
+                      cores: 2
+                      sockets: 1
+                      threads: 1
+                    features:
+                      acpi:
+                        enabled: true
+                      apic:
+                        enabled: true
+                      hyperv:
+                        relaxed:    { enabled: true }
+                        vapic:      { enabled: true }
+                        spinlocks:  { enabled: true, spinlocks: 8191 }
+                        vpindex:    { enabled: true }
+                        runtime:    { enabled: true }
+                        synic:      { enabled: true }
+                        synictimer: { enabled: true, direct: { enabled: true } }
+                        reset:      { enabled: true }
+                        frequencies: { enabled: true }
+                        tlbflush:   { enabled: true }
+                        ipi:        { enabled: true }
+                        stimer:     { enabled: true }
+                    clock:
+                      utc: {}
+                      timer:
+                        hpet: { present: false }
+                        pit: { tickPolicy: delay }
+                        rtc: { tickPolicy: catchup }
+                        hyperv: { present: true }
+                    devices:
+                      autoattachMemBalloon: false
+                      disks:
+                      - disk:
+                          bus: virtio
+                        cache: writeback
+                        dedicatedIOThread: true
+                        name: rootdisk
+                        bootOrder: 2
+                      - cdrom:
+                          bus: sata
+                          readonly: true
+                        name: windows-iso
+                        bootOrder: 1
+                      - cdrom:
+                          bus: sata
+                          readonly: true
+                        name: virtio-drivers
+                      interfaces:
+                      - masquerade: {}
+                        name: default
+                        model: virtio
+                        ports:
+                        - port: 3389
+                      inputs:
+                      - type: tablet
+                        bus: usb
+                        name: tablet
+                      tpm: {}
+                    memory:
+                      guest: 4Gi
+                    resources: {}
+                  networks:
+                  - name: default
+                    pod: {}
+                  volumes:
+                  - name: rootdisk
+                    dataVolume:
+                      name: rootdisk
+                  - name: windows-iso
+                    hostDisk:
+                      path: /path/to/Win11.iso
+                      type: DiskOrFail
+                  - name: virtio-drivers
+                    hostDisk:
+                      path: /path/to/virtio-win.iso
+                      type: DiskOrFail
+```
+
+> [!NOTE]
+> In this example the Windows installation ISO and VirtIO drivers ISO are referenced via `hostDisk` paths on the device. Replace `/path/to/...` with the locations where you have staged those files, or change the volumes to pull the ISOs from an OCI registry instead.
+
+#### VM application status
+
+The agent reports the following status values for a VM application:
+
+| Status Field | Description |
+| ------------ |-------------|
+| Preparing | The agent is pulling OCI images required by the VM before starting it. |
+| Starting | The VM has been submitted to the system and is initializing. |
+| Running | The virtual machine is running and accepting workloads. |
+| Error | The VM failed to start or terminated with an error. Check the device events for details. |
+| Unknown | The VM was submitted but no running state has been observed yet. |
+| Completed | The VM exited cleanly. |
+| Stopping | The VM was stopped with `flightctl app stop` and is shutting down. |
+| Stopped | The VM was stopped with `flightctl app stop` and is no longer running. |
+
+#### VM restart behavior
+
+The `spec.running` field in the KubeVirt `VirtualMachine` manifest is ignored. Flight Control controls whether the VM is running through application lifecycle actions instead.
+
+By default, a deployed VM application is kept running and is automatically restarted if it crashes or is stopped unexpectedly. To stop, start, or restart a VM application on demand, use `flightctl app stop`, `flightctl app start`, and `flightctl app restart`. See [Managing Application Lifecycle](#managing-application-lifecycle).
+
+#### Accessing a VM Application Console
+
+A VM application is not otherwise reachable over the network, so a user with the appropriate authorization (`get` permission on the `devices/applications/console` resource) can connect to its serial or VNC console through the agent. This works even if the device is behind a NAT or has a dynamic IP address.
+
+Use the `flightctl app console` command to open a serial or VNC console to a VM application. See the [`flightctl app console`](../references/cli-commands.md#flightctl-app-console) CLI reference page for command syntax, flags, and examples.
+
+Only one console session — serial or VNC — is allowed per application at a time. If you attempt to connect while another session is already active, the command fails unless you pass `--force`, which takes over the existing session and disconnects it.
+
+> [!NOTE]
+> A VNC console session additionally supports only one connected viewer. The command exits once that viewer disconnects; run it again to start a new session.
 
 ### Helm Applications
 

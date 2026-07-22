@@ -10,19 +10,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/crypto"
 )
-
-// defaultKeyFile returns the default path for the v1 encryption key file.
-// This is $HOME/.flightctl/encryption/key (e.g., /root/.flightctl/encryption/key).
-func defaultKeyFile() string {
-	return filepath.Join(config.ConfigDir(), "encryption", "key")
-}
 
 // V1Strategy implements AES-256-GCM encryption.
 // Format: keyID:base64(nonce||ciphertext||tag)
@@ -43,34 +36,42 @@ func newV1Strategy() *V1Strategy {
 	}
 }
 
-// NewV1Strategy loads a single encryption key from environment variable or file.
-// Priority: FLIGHTCTL_ENCRYPTION_KEY env var > defaultKeyFile()
-// The key is registered with keyID "default".
-func NewV1Strategy() (*V1Strategy, error) {
+// NewV1Strategy creates a V1 (AES-256-GCM) strategy from the application config.
+// Keys are loaded from cfg.Encryption; ActiveKeyID selects the key for new
+// encryptions while the rest remain available for decryption (rotation).
+func NewV1Strategy(cfg *config.Config) (*V1Strategy, error) {
+	if cfg == nil || cfg.Encryption == nil || len(cfg.Encryption.Keys) == 0 {
+		return nil, fmt.Errorf("no encryption keys configured")
+	}
+
+	encCfg := cfg.Encryption
+
 	strategy := newV1Strategy()
 
-	var encodedKey string
-	keyPath := defaultKeyFile()
-
-	// Try environment variable first
-	if envKey := os.Getenv("FLIGHTCTL_ENCRYPTION_KEY"); envKey != "" {
-		encodedKey = strings.TrimSpace(envKey)
-	} else {
-		// Try default key file
-		keyBytes, err := os.ReadFile(keyPath)
-		if err != nil {
-			return nil, fmt.Errorf("read key file %s: %w", keyPath, err)
+	seen := make(map[string]bool, len(encCfg.Keys))
+	for _, keyCfg := range encCfg.Keys {
+		if seen[keyCfg.ID] {
+			return nil, fmt.Errorf("duplicate encryption key ID %q in config", keyCfg.ID)
 		}
-		encodedKey = strings.TrimSpace(string(keyBytes))
+		seen[keyCfg.ID] = true
+		keyBytes, err := os.ReadFile(keyCfg.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read key file %s for key %s: %w", keyCfg.Path, keyCfg.ID, err)
+		}
+
+		key, err := crypto.DecodeAES256Key(strings.TrimSpace(string(keyBytes)))
+		if err != nil {
+			return nil, fmt.Errorf("decode encryption key %s: %w", keyCfg.ID, err)
+		}
+
+		isActive := keyCfg.ID == encCfg.ActiveKeyID
+		if err := strategy.AddKey(keyCfg.ID, key, isActive); err != nil {
+			return nil, err
+		}
 	}
 
-	key, err := crypto.DecodeAES256Key(encodedKey)
-	if err != nil {
-		return nil, fmt.Errorf("decode encryption key: %w", err)
-	}
-
-	if err := strategy.AddKey("default", key, true); err != nil {
-		return nil, err
+	if strategy.activeKey == "" {
+		return nil, fmt.Errorf("activeKeyID %q does not match any configured key", encCfg.ActiveKeyID)
 	}
 
 	return strategy, nil
@@ -117,7 +118,7 @@ func (s *V1Strategy) SetActiveKey(keyID string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.keys[keyID]; !exists {
-		return fmt.Errorf("key %s not registered in v1 strategy", keyID)
+		return fmt.Errorf("%w: key %s in v1 strategy", ErrKeyNotFound, keyID)
 	}
 	s.activeKey = keyID
 	return nil
@@ -202,7 +203,7 @@ func (s *V1Strategy) ParseBody(body []byte) (*ParsedEncrypted, error) {
 	// Parse keyID:payload format
 	parts := strings.SplitN(str, ":", 2)
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid v1 format: expected keyID:base64data, got %q", str)
+		return nil, fmt.Errorf("invalid v1 format: expected keyID:base64data")
 	}
 
 	keyID := parts[0]

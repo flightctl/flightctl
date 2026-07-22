@@ -13,7 +13,12 @@ import (
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/events"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -35,7 +40,10 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		log                 *logrus.Logger
 		ctx                 context.Context
 		orgID               uuid.UUID
-		mainStore           flightctlstore.Store
+		organizationStore   organizationstore.Store
+		repositoryStore     repositorystore.Store
+		catalogStore        catalogstore.Store
+		eventStore          eventstore.Store
 		imageBuilderStore   imagebuilderstore.Store
 		imageBuilderService service.Service
 		consumer            *tasks.Consumer
@@ -63,23 +71,26 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", flightctlstore.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		mainStore = flightctlstore.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
+		repositoryStore = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		catalogStore = catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
+		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 
 		// Create imagebuilder store on the same db connection
 		imageBuilderStore = imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 
 		// Create test organization (required for foreign key constraint)
 		orgID = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStore, orgID)
+		err = testutilpkg.CreateTestOrganization(ctx, organizationStore, orgID)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create required repositories for ImageBuild/ImageExport tests with unique test-id-based names
-		_, err = createOCIRepository(ctx, mainStore.Repository(), orgID, testRepoName, "quay.io", nil)
+		_, err = createOCIRepository(ctx, repositoryStore, orgID, testRepoName, "quay.io", nil)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = createOCIRepository(ctx, mainStore.Repository(), orgID, sourceRepoName, "quay.io", nil)
+		_, err = createOCIRepository(ctx, repositoryStore, orgID, sourceRepoName, "quay.io", nil)
 		Expect(err).ToNot(HaveOccurred())
 		// Create output-repo with ReadWrite access mode (required for ImageExport destination)
-		outputRepo, err := createOCIRepository(ctx, mainStore.Repository(), orgID, outputRepoName, "quay.io", nil)
+		outputRepo, err := createOCIRepository(ctx, repositoryStore, orgID, outputRepoName, "quay.io", nil)
 		Expect(err).ToNot(HaveOccurred())
 		// Update output-repo to have ReadWrite access mode
 		ociSpec, err := outputRepo.Spec.AsOciRepoSpec()
@@ -87,7 +98,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		ociSpec.AccessMode = lo.ToPtr(v1beta1.ReadWrite)
 		err = outputRepo.Spec.FromOciRepoSpec(ociSpec)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = mainStore.Repository().Update(ctx, orgID, outputRepo, flightctlstore.EventCallback(func(context.Context, v1beta1.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
+		_, err = repositoryStore.Update(ctx, orgID, outputRepo, flightctlstore.EventCallback(func(context.Context, v1beta1.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 		}))
 		Expect(err).ToNot(HaveOccurred())
 
@@ -101,12 +112,14 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		testdb.ApplyIntegrationConnectionOverrides(cfg)
 
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, catalogStore, repositoryStore, events.NewServiceHandler(eventStore, nil, log), nil, kvStoreInst, log)
 
 		// Create consumer
 		consumer = tasks.NewConsumer(
 			imageBuilderStore,
-			mainStore,
+			organizationStore,
+			repositoryStore,
+			catalogStore,
 			kvStoreInst,
 			nil, // serviceHandler
 			imageBuilderService,
@@ -117,7 +130,6 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		_ = mainStore.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 

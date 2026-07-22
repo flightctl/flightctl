@@ -17,46 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockStore is a mock implementation of store.Store for testing
-type mockStore struct {
+// mockRepositoryStore is a mock implementation of repositorystore.Store for testing
+type mockRepositoryStore struct {
 	repositories map[string]*v1beta1.Repository
 }
 
-func newMockStore() *mockStore {
-	return &mockStore{
+func newMockRepositoryStore() *mockRepositoryStore {
+	return &mockRepositoryStore{
 		repositories: make(map[string]*v1beta1.Repository),
 	}
 }
 
-func (m *mockStore) Repository() store.Repository {
-	return &mockRepositoryStore{store: m}
-}
-
-func (m *mockStore) Device() store.Device                                       { return nil }
-func (m *mockStore) EnrollmentRequest() store.EnrollmentRequest                 { return nil }
-func (m *mockStore) CertificateSigningRequest() store.CertificateSigningRequest { return nil }
-func (m *mockStore) Fleet() store.Fleet                                         { return nil }
-func (m *mockStore) TemplateVersion() store.TemplateVersion                     { return nil }
-func (m *mockStore) ResourceSync() store.ResourceSync                           { return nil }
-func (m *mockStore) Event() store.Event                                         { return nil }
-func (m *mockStore) Checkpoint() store.Checkpoint                               { return nil }
-func (m *mockStore) Organization() store.Organization                           { return nil }
-func (m *mockStore) AuthProvider() store.AuthProvider                           { return nil }
-func (m *mockStore) Catalog() store.Catalog                                     { return nil }
-func (m *mockStore) VulnerabilityFinding() store.VulnerabilityFinding           { return nil }
-func (m *mockStore) SyncState() store.SyncState                                 { return nil }
-func (m *mockStore) DependencyRef() store.DependencyRef                         { return nil }
-func (m *mockStore) RunMigrations(context.Context) error                        { return nil }
-func (m *mockStore) CheckHealth(context.Context) error                          { return nil }
-func (m *mockStore) Close() error                                               { return nil }
-
-// mockRepositoryStore is a mock implementation of store.Repository
-type mockRepositoryStore struct {
-	store *mockStore
-}
-
 func (m *mockRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Repository, error) {
-	repo, ok := m.store.repositories[name]
+	repo, ok := m.repositories[name]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
 	}
@@ -216,8 +189,8 @@ func TestContainerfileTemplate(t *testing.T) {
 }
 
 func TestGenerateContainerfile_LateBinding(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
@@ -226,7 +199,7 @@ func TestGenerateContainerfile_LateBinding(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -247,8 +220,8 @@ func TestGenerateContainerfile_LateBinding(t *testing.T) {
 }
 
 func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "early")
@@ -257,7 +230,7 @@ func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -279,7 +252,7 @@ func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
 }
 
 func TestGenerateContainerfile_RepositoryNotFound(t *testing.T) {
-	mockStore := newMockStore()
+	repoStore := newMockRepositoryStore()
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
 
@@ -287,7 +260,7 @@ func TestGenerateContainerfile_RepositoryNotFound(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	_, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	_, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "repository")
@@ -295,22 +268,22 @@ func TestGenerateContainerfile_RepositoryNotFound(t *testing.T) {
 }
 
 func TestGenerateContainerfile_NilImageBuild(t *testing.T) {
-	mockStore := newMockStore()
+	repoStore := newMockRepositoryStore()
 	mockServiceHandler := newMockServiceHandler()
 
 	ctx := context.Background()
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	_, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, nil, logger)
+	_, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, nil, logger)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot be nil")
 }
 
 func TestGenerateContainerfile_InvalidBindingType(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
@@ -322,15 +295,15 @@ func TestGenerateContainerfile_InvalidBindingType(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	_, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	_, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "binding type")
 }
 
 func TestGenerateContainerfile_ServiceHandlerError(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := &mockServiceHandler{
 		generateError: fmt.Errorf("failed to generate credential"),
@@ -341,15 +314,15 @@ func TestGenerateContainerfile_ServiceHandlerError(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	_, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	_, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "agent config")
 }
 
 func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
@@ -363,7 +336,7 @@ func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -383,8 +356,8 @@ func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
 }
 
 func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
@@ -394,7 +367,7 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 	orgID := uuid.New()
 	logger := log.InitLogs()
 
-	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)

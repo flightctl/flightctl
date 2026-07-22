@@ -16,8 +16,28 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
-	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
+	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
+	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
+	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
+	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
+	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
@@ -26,26 +46,27 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
 type Server struct {
-	cfg   *config.Config
-	log   logrus.FieldLogger
-	store store.Store
+	cfg *config.Config
+	log logrus.FieldLogger
+	db  *gorm.DB
 }
 
 // New returns a new instance of a flightctl server.
 func New(
 	cfg *config.Config,
 	log logrus.FieldLogger,
-	store store.Store,
+	db *gorm.DB,
 ) *Server {
 	return &Server{
-		cfg:   cfg,
-		log:   log,
-		store: store,
+		cfg: cfg,
+		log: log,
+		db:  db,
 	}
 }
 
@@ -87,7 +108,30 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache.Start()
 	defer orgCache.Stop()
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, false))
+	repositoryStore := repositorystore.NewRepositoryStore(s.db, s.log.WithField("pkg", "repository-store"))
+	fleetStore := fleetstore.NewFleetStore(s.db, s.log.WithField("pkg", "fleet-store"))
+	resourceSyncStore := resourcesyncstore.NewResourceSyncStore(s.db, s.log.WithField("pkg", "resourcesync-store"))
+	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
+	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
+	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
+	checkpointStore := checkpointstore.NewCheckpointStore(s.db, s.log.WithField("pkg", "checkpoint-store"))
+	organizationStore := organizationstore.NewOrganizationStore(s.db)
+	dependencyRefStore := dependencyrefstore.NewDependencyRefStore(s.db, s.log.WithField("pkg", "dependencyref-store"))
+	syncStateStore := syncstatestore.NewSyncStateStore(s.db, s.log.WithField("pkg", "syncstate-store"))
+	vulnerabilityFindingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(s.db, s.log.WithField("pkg", "vulnerabilityfinding-store"))
+
+	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+
+	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", s.log))
+	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
+	checkpointSvc := checkpointservice.WrapWithTracing(checkpointservice.NewServiceHandler(checkpointStore))
+	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
+	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
+	syncstateSvc := syncstateservice.WrapWithTracing(syncstateservice.NewServiceHandler(syncStateStore))
 
 	var secretInformerClientset kubernetes.Interface
 	if s.cfg.Periodic != nil && s.cfg.Periodic.ClusterLevelSecretAccess {
@@ -122,8 +166,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
-	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil, s.store.VulnerabilityFinding(), vulnClient, depSyncMetrics)
+	// Initialize the task executors.
+	periodicTaskExecutors := InitializeTaskExecutors(s.log,
+		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
+		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
+		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -155,7 +202,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Periodic task publisher
 	publisherConfig := PeriodicTaskPublisherConfig{
 		Log:            s.log,
-		OrgService:     serviceHandler,
+		OrgService:     organizationSvc,
 		TasksMetadata:  MergeTasksWithConfig(s.cfg),
 		ChannelManager: channelManager,
 		WorkerClient:   workerClient,
@@ -195,7 +242,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if secretInformerClientset != nil {
-		secretSync := tasks.NewDependencySyncSecret(s.log, serviceHandler, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
+		secretSync := tasks.NewDependencySyncSecret(s.log, dependencyrefSvc, eventSvc, syncstateSvc, s.cfg.Periodic.ReleaseNamespace, depSyncMetrics)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

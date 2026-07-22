@@ -7,7 +7,9 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -21,12 +23,13 @@ import (
 
 var _ = Describe("OrganizationStore Integration Tests", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		storeInst store.Store
-		cfg       *config.Config
-		dbName    string
-		db        *gorm.DB
+		log               *logrus.Logger
+		ctx               context.Context
+		organizationStore organizationstore.Store
+		catalogStore      catalogstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -35,17 +38,17 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		storeInst = store.NewStore(db, log.WithField("pkg", "store"))
+		organizationStore = organizationstore.NewOrganizationStore(db)
+		catalogStore = catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
 	})
 
 	AfterEach(func() {
-		_ = storeInst.Close()
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	Context("Organization Store", func() {
 		It("Should create a default organization during initial migration", func() {
-			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+			orgs, err := organizationStore.List(ctx, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(1))
 			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
@@ -54,7 +57,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 		})
 
 		It("When initial migration runs, it should seed the default catalog for the default organization", func() {
-			catalog, err := storeInst.Catalog().Get(ctx, store.NullOrgId, domain.DefaultCatalogName)
+			catalog, err := catalogStore.Get(ctx, store.NullOrgId, domain.DefaultCatalogName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(catalog).ToNot(BeNil())
 			Expect(*catalog.Metadata.Name).To(Equal(domain.DefaultCatalogName))
@@ -62,10 +65,10 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 		})
 
 		It("When initial migration runs again, it should not duplicate the default catalog", func() {
-			err := storeInst.Organization().InitialMigration(ctx)
+			err := organizationStore.InitialMigration(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			catalogs, err := storeInst.Catalog().List(ctx, store.NullOrgId, store.ListParams{})
+			catalogs, err := catalogStore.List(ctx, store.NullOrgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			defaultCatalogs := 0
 			for _, c := range catalogs.Items {
@@ -87,7 +90,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				ExternalID:  externalID,
 			}
 
-			createdOrg, err := storeInst.Organization().Create(ctx, org)
+			createdOrg, err := organizationStore.Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdOrg).ToNot(BeNil())
 			Expect(createdOrg.ID).To(Equal(orgID))
@@ -105,7 +108,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				ExternalID:  externalID,
 			}
 
-			createdOrg, err := storeInst.Organization().Create(ctx, org)
+			createdOrg, err := organizationStore.Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdOrg).ToNot(BeNil())
 			Expect(createdOrg.ID).ToNot(Equal(uuid.Nil))
@@ -127,13 +130,13 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				ExternalID:  externalID2,
 			}
 
-			_, err := storeInst.Organization().Create(ctx, org1)
+			_, err := organizationStore.Create(ctx, org1)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = storeInst.Organization().Create(ctx, org2)
+			_, err = organizationStore.Create(ctx, org2)
 			Expect(err).ToNot(HaveOccurred())
 
-			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+			orgs, err := organizationStore.List(ctx, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(3))
 
@@ -159,7 +162,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				// DisplayName is intentionally left empty
 			}
 
-			createdOrg, err := storeInst.Organization().Create(ctx, org)
+			createdOrg, err := organizationStore.Create(ctx, org)
 
 			Expect(err).To(HaveOccurred())
 			Expect(createdOrg).To(BeNil())
@@ -173,13 +176,13 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			u4 := uuid.MustParse("00000000-0000-0000-0000-000000000044")
 
 			// Insert four orgs
-			_, err := storeInst.Organization().Create(ctx, &model.Organization{ID: u1, DisplayName: "Org-11", ExternalID: "ext-11"})
+			_, err := organizationStore.Create(ctx, &model.Organization{ID: u1, DisplayName: "Org-11", ExternalID: "ext-11"})
 			Expect(err).ToNot(HaveOccurred())
-			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u2, DisplayName: "Org-22", ExternalID: "ext-22"})
+			_, err = organizationStore.Create(ctx, &model.Organization{ID: u2, DisplayName: "Org-22", ExternalID: "ext-22"})
 			Expect(err).ToNot(HaveOccurred())
-			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u3, DisplayName: "Org-33", ExternalID: "ext-33"})
+			_, err = organizationStore.Create(ctx, &model.Organization{ID: u3, DisplayName: "Org-33", ExternalID: "ext-33"})
 			Expect(err).ToNot(HaveOccurred())
-			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u4, DisplayName: "Org-44", ExternalID: "ext-44"})
+			_, err = organizationStore.Create(ctx, &model.Organization{ID: u4, DisplayName: "Org-44", ExternalID: "ext-44"})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Filter to a subset: u2, u3, u4 (3 items)
@@ -187,7 +190,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// List should return all matching items (no pagination)
-			list, err := storeInst.Organization().List(ctx, store.ListParams{FieldSelector: fs})
+			list, err := organizationStore.List(ctx, store.ListParams{FieldSelector: fs})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(list)).To(Equal(3))
 
@@ -208,7 +211,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				{DisplayName: "Upsert Org 1", ExternalID: "upsert-ext-1"},
 				{DisplayName: "Upsert Org 2", ExternalID: "upsert-ext-2"},
 			}
-			result, err := storeInst.Organization().UpsertMany(ctx, orgsToUpsert)
+			result, err := organizationStore.UpsertMany(ctx, orgsToUpsert)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).To(HaveLen(2))
 			byExternalID := make(map[string]*model.Organization)
@@ -227,7 +230,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				{DisplayName: "Different Name 1", ExternalID: "upsert-ext-1"},
 				{DisplayName: "Different Name 2", ExternalID: "upsert-ext-2"},
 			}
-			resultAgain, err := storeInst.Organization().UpsertMany(ctx, orgsAgain)
+			resultAgain, err := organizationStore.UpsertMany(ctx, orgsAgain)
 			Expect(err).ToNot(HaveOccurred(), "UpsertMany on conflict must not error (EDM-3438)")
 			Expect(resultAgain).To(HaveLen(2))
 			byExternalIDAgain := make(map[string]*model.Organization)
@@ -277,7 +280,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			const numConcurrentCalls = 10
 			errChan := make(chan error, numConcurrentCalls)
 
-			orgStore := store.NewOrganization(freshGormDb)
+			orgStore := organizationstore.NewOrganizationStore(freshGormDb)
 			for i := 0; i < numConcurrentCalls; i++ {
 				go func() {
 					err := orgStore.InitialMigration(freshCtx)
@@ -312,7 +315,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			func(parallel bool, runs int) {
 				errChan := make(chan error, runs)
 				run := func() {
-					errChan <- storeInst.Organization().InitialMigration(ctx)
+					errChan <- organizationStore.InitialMigration(ctx)
 				}
 
 				if parallel {
@@ -333,7 +336,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 				}
 
 				// Verify still only one default organization exists
-				orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+				orgs, err := organizationStore.List(ctx, store.ListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(orgs).To(HaveLen(1), "Should still have exactly one default organization")
 				Expect(orgs[0].ID).To(Equal(store.NullOrgId))
