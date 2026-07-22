@@ -29,12 +29,10 @@ const (
 	// straight from quay.io" into a "manifest unknown" 404 against an empty path on the mirror.
 	containerSourceRepo = "quay.io/flightctl"
 
-	// defaultContainerDeviceImageRepoPath/defaultContainerDeviceOSID mirror
-	// test/scripts/agent-images/scripts/build.sh's IMAGE_REPO/OS_ID defaults, and
-	// copyImageFromBundle's local-registry retagging (registry host swapped in, path kept) - see
-	// GetContainerDeviceImage.
+	// defaultContainerDeviceImageRepoPath mirrors test/scripts/agent-images/scripts/build.sh's
+	// IMAGE_REPO default, and copyImageFromBundle's local-registry retagging (registry host
+	// swapped in, path kept) - see GetContainerDeviceImage.
 	defaultContainerDeviceImageRepoPath = "flightctl/flightctl-device"
-	defaultContainerDeviceOSID          = "cs9-bootc"
 
 	// e2eContainerDeviceImageEnv overrides the resolved image; e2eContainerDeviceOSIDEnv overrides
 	// just the OS_ID portion of the default (see GetContainerDeviceImage).
@@ -172,25 +170,22 @@ func (p *ContainerPool) CleanupAll() error {
 // The tag isn't just "base-${OS_ID}": build_and_qcow2.sh's bundle filter only bundles/pushes the
 // base-${OS_ID}-${TAG} alias (TAG being a git-describe string not otherwise available to this test
 // binary), so the exact tag is read back out of the agent image bundle itself via
-// auxiliary.ResolveAgentDeviceImageTag - see its doc comment. Falls back to the bare "base-${OS_ID}"
-// guess (best-effort, may not exist in the registry) only if that resolution fails, e.g. the bundle
-// isn't present for some local dev setup.
+// auxiliary.ResolveAgentDeviceImageTag - see its doc comment. The bare "base-${OS_ID}" alias is
+// never pushed to the registry (see ResolveAgentDeviceImageTag's doc comment), so a resolution
+// failure is returned rather than guessed at - silently falling back to that tag would just trade
+// a clear error here for a confusing "manifest unknown" pull failure once the device starts.
 //
 // Override with E2E_CONTAINER_DEVICE_IMAGE for local runs to bypass all of this.
-func GetContainerDeviceImage() string {
+func GetContainerDeviceImage() (string, error) {
 	if img := os.Getenv(e2eContainerDeviceImageEnv); img != "" {
-		return img
+		return img, nil
 	}
 	osID := os.Getenv(e2eContainerDeviceOSIDEnv)
 	tag, err := auxiliary.ResolveAgentDeviceImageTag(osID)
 	if err != nil {
-		if osID == "" {
-			osID = defaultContainerDeviceOSID
-		}
-		tag = "base-" + osID
-		fmt.Printf("⚠️  [ContainerPool] Failed to resolve exact agent device image tag from bundle (%v); falling back to %q\n", err, tag)
+		return "", fmt.Errorf("failed to resolve agent device image tag from bundle: %w", err)
 	}
-	return fmt.Sprintf("%s:%s/%s:%s", containers.GetHostIP(), registryHostPort, defaultContainerDeviceImageRepoPath, tag)
+	return fmt.Sprintf("%s:%s/%s:%s", containers.GetHostIP(), registryHostPort, defaultContainerDeviceImageRepoPath, tag), nil
 }
 
 // GetAgentIdentityDir returns the directory holding the agent's enrollment bootstrap config and
@@ -289,7 +284,11 @@ location = "%s"
 // returns a container-backed device for the worker. Devices are created on-demand if they don't
 // already exist in the pool.
 func SetupContainerForWorker(workerID int) (vm.TestVMInterface, error) {
-	pool := GetOrCreateContainerPool(ContainerPoolConfig{Image: GetContainerDeviceImage()})
+	image, err := GetContainerDeviceImage()
+	if err != nil {
+		return nil, err
+	}
+	pool := GetOrCreateContainerPool(ContainerPoolConfig{Image: image})
 	return pool.GetContainerForWorker(workerID)
 }
 
