@@ -1177,6 +1177,11 @@ const (
 	// replicas after being scaled down before StopServices returns an error.
 	stopWaitTimeout  = 5 * time.Minute
 	stopWaitInterval = 3 * time.Second
+
+	// renameTimeout is the maximum time to retry ALTER DATABASE RENAME while
+	// stale connections from just-terminated pods are still open.
+	renameTimeout       = 30 * time.Second
+	renameRetryInterval = 500 * time.Millisecond
 )
 
 // StopServices scales FlightCtl deployments to zero replicas, recording the
@@ -1334,13 +1339,13 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 	// then attempt the rename, until it succeeds or we time out. Stale connections
 	// from just-terminated pods can linger briefly after StopServices returns.
 	k.log.Infof("Renaming %q → %q (will terminate stale connections and retry)", dbName, oldDBName)
-	renameDeadline := time.Now().Add(30 * time.Second)
+	renameDeadline := time.Now().Add(renameTimeout)
 	var lastErr error
 	timeoutErr := func() error {
 		if lastErr != nil {
-			return fmt.Errorf("timed out after 30s waiting to rename %q to %q: %w", dbName, oldDBName, lastErr)
+			return fmt.Errorf("timed out after %s waiting to rename %q to %q: %w", renameTimeout, dbName, oldDBName, lastErr)
 		}
-		return fmt.Errorf("timed out after 30s waiting to rename %q to %q", dbName, oldDBName)
+		return fmt.Errorf("timed out after %s waiting to rename %q to %q", renameTimeout, dbName, oldDBName)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -1379,7 +1384,7 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		}
 		lastErr = renameErr
 		k.log.Debugf("Rename of %q still blocked by active connections, retrying...", dbName)
-		retryWait := 500 * time.Millisecond
+		retryWait := renameRetryInterval
 		if rem := time.Until(renameDeadline); rem < retryWait {
 			retryWait = rem
 		}
