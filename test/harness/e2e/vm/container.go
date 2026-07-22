@@ -81,8 +81,29 @@ func NewContainerDevice(cfg ContainerDeviceConfig) *ContainerDevice {
 	return &ContainerDevice{cfg: cfg}
 }
 
+// nestedPodmanStorageConf overrides the device's own /etc/containers/storage.conf so podman
+// running *inside* this container (the flightctl-agent's own image pulls/prefetch, and nested
+// podman for quadlet-app suites) doesn't try to layer the "overlay" graph driver on top of a
+// filesystem podman/Docker have themselves already presented as overlayfs (which containers/storage
+// rejects outright: "'overlay' is not supported over overlayfs, a mount_program is required").
+// On a real VM the qcow2 root filesystem is a plain block device (ext4/xfs/btrfs), so this problem
+// doesn't exist there and only container-backed devices need the override. fuse-overlayfs ships in
+// the same centos-bootc base image this device image is built from (see
+// test/scripts/agent-images/containerfiles), so no extra dependency is introduced.
+const nestedPodmanStorageConf = `[storage]
+driver = "overlay"
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+`
+
 func (c *ContainerDevice) buildRequest() testcontainers.ContainerRequest {
-	files := make([]testcontainers.ContainerFile, 0, len(c.cfg.Files))
+	files := make([]testcontainers.ContainerFile, 0, len(c.cfg.Files)+1)
+	files = append(files, testcontainers.ContainerFile{
+		ContainerFilePath: "/etc/containers/storage.conf",
+		FileMode:          0644,
+		Reader:            strings.NewReader(nestedPodmanStorageConf),
+	})
 	for _, f := range c.cfg.Files {
 		mode := f.Mode
 		if mode == 0 {
