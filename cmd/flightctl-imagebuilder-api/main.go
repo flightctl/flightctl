@@ -11,6 +11,8 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
@@ -39,6 +41,7 @@ func main() {
 			log.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
+	profiling.Start(ctx, log, cfg, "flightctl-imagebuilder-api", instpprof.DefaultPortImageBuilderAPI)
 
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)
