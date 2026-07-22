@@ -42,7 +42,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needdevice"), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needvm"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
@@ -50,10 +50,11 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has a device from BeforeEach (workerID). Create two more harnesses
-			// with their own devices. These devices only ever get their OS image spec compared, never
-			// actually applied via a real bootc switch/reboot, so container-backed devices are
-			// sufficient here. Setup is independent per worker ID — run concurrently.
+			// Main harness already has a VM from BeforeEach (workerID) - it's the one that goes
+			// through the real fleet OS rollout below. Create two more harnesses with their own
+			// devices; these are only ever enrolled/observed via the API and never put on a fleet
+			// that changes their OS image, so container-backed devices are sufficient here.
+			// Setup is independent per worker ID — run concurrently.
 			workerID2 := GinkgoParallelProcess()*100 + 1
 			workerID3 := GinkgoParallelProcess()*100 + 2
 			var harness2, harness3 *e2e.Harness
@@ -302,7 +303,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 		})
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
-		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needdevice"), func() {
+		It("backup during update in progress, restore then devices reach Online", Label("89194", "slow", "needvm"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
