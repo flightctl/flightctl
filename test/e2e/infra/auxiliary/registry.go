@@ -334,6 +334,12 @@ func ensureRegistryCerts() (string, error) {
 // /etc/containers/certs.d inside VM/container-backed devices; this covers the host-side Docker
 // daemon pulling the device image itself (see ContainerDevice.Run).
 func configureDockerRegistryTrust(registryURL, caCertPath string) error {
+	// registryURL is built from GetHostIP(), which honors an env var override (E2EAuxHostEnv) -
+	// reject anything that isn't a plain host:port before it reaches filepath.Join/sudo cp below,
+	// so a stray "../" can't make certsDir escape /etc/docker/certs.d.
+	if host, port, err := net.SplitHostPort(registryURL); err != nil || host == "" || port == "" || strings.ContainsAny(registryURL, `/\`) {
+		return fmt.Errorf("invalid registry URL %q: must be a plain host:port with no path separators", registryURL)
+	}
 	certsDir := filepath.Join("/etc/docker/certs.d", registryURL)
 	if err := exec.Command("sudo", "mkdir", "-p", certsDir).Run(); err != nil { //nolint:gosec // G204: certsDir is built from our own registry URL/constants, not external input.
 		return fmt.Errorf("failed to create %s: %w", certsDir, err)
