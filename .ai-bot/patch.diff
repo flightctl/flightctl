@@ -1,0 +1,88 @@
+diff --git a/libs/ui-components/src/components/Catalog/CatalogPage.css b/libs/ui-components/src/components/Catalog/CatalogPage.css
+index a14a2fd..e2d75cd 100644
+--- a/libs/ui-components/src/components/Catalog/CatalogPage.css
++++ b/libs/ui-components/src/components/Catalog/CatalogPage.css
+@@ -8,3 +8,23 @@
+   flex-shrink: 0;
+   overflow-wrap: break-word;
+ }
++
++.fctl-catalog-page__list-page {
++  display: flex;
++  flex-direction: column;
++}
++
++.fctl-catalog-page__content {
++  display: flex;
++  flex-direction: column;
++  flex: 1;
++}
++
++.fctl-catalog-page__body {
++  display: flex;
++  flex: 1;
++}
++
++.fctl-catalog-page__split {
++  flex: 1;
++}
+diff --git a/libs/ui-components/src/components/Catalog/CatalogPage.tsx b/libs/ui-components/src/components/Catalog/CatalogPage.tsx
+index 5bacf79..f3c7d48 100644
+--- a/libs/ui-components/src/components/Catalog/CatalogPage.tsx
++++ b/libs/ui-components/src/components/Catalog/CatalogPage.tsx
+@@ -215,7 +215,7 @@ export const CatalogPageContent = ({
+   return (
+     <>
+       <ListPageBody error={error || catalogErr} loading={isLoading || catalogLoading}>
+-        <div>
++        <div className="fctl-catalog-page__content">
+           <CatalogPageToolbar
+             {...catalogFilter}
+             pagination={pagination}
+@@ -234,8 +234,8 @@ export const CatalogPageContent = ({
+               </div>
+             </PageSection>
+           ) : (
+-            <PageSection hasBodyWrapper={false} type="wizard">
+-              <Split hasGutter>
++            <PageSection hasBodyWrapper={false} type="wizard" className="fctl-catalog-page__body">
++              <Split hasGutter className="fctl-catalog-page__split">
+                 <SplitItem className="fctl-catalog-page fctl-catalog-page__filters">
+                   <DescriptionList>
+                     <DescriptionListGroup>
+@@ -453,6 +453,8 @@ const CatalogPage = () => {
+       <ListPage
+         title={t('Software Catalog')}
+         description={t('Browse and manage catalog items available for deployment to your fleets and devices.')}
++        isFilled
++        className="fctl-catalog-page__list-page"
+       >
+         <CatalogPageContent
+           canInstall={canEditFleet || canEditDevice}
+diff --git a/libs/ui-components/src/components/ListPage/ListPage.tsx b/libs/ui-components/src/components/ListPage/ListPage.tsx
+index 06b520e..fee0d94 100644
+--- a/libs/ui-components/src/components/ListPage/ListPage.tsx
++++ b/libs/ui-components/src/components/ListPage/ListPage.tsx
+@@ -7,11 +7,20 @@ type ListPageProps = {
+   description?: string;
+   headingLevel?: TitleProps['headingLevel'];
+   children: React.ReactNode;
++  isFilled?: boolean;
++  className?: string;
+ };
+ 
+-const ListPage: React.FC<ListPageProps> = ({ title, description, headingLevel = 'h1', children }) => {
++const ListPage: React.FC<ListPageProps> = ({
++  title,
++  description,
++  headingLevel = 'h1',
++  children,
++  isFilled,
++  className,
++}) => {
+   return (
+-    <PageSection hasBodyWrapper={false}>
++    <PageSection hasBodyWrapper={false} isFilled={isFilled} className={className}>
+       <Stack hasGutter>
+         <StackItem>
+           <Title headingLevel={headingLevel} size="3xl" data-testid="list-page-title">
