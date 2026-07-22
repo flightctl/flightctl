@@ -77,8 +77,6 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 
@@ -86,9 +84,11 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 		// Get a pristine container device from the pool and start the agent
 		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	} else {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
 		// Setup VM from pool, revert to pristine snapshot, and start agent
 		err = harness.SetupVMFromPoolAndStartAgent(workerID)
 	}

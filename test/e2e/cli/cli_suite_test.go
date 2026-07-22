@@ -53,7 +53,7 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)

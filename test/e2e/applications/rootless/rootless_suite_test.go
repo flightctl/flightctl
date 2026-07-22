@@ -34,15 +34,15 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
 	var err error
 	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with container device from pool\n", workerID)
 		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	} else {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
 		err = harness.SetupVMFromPoolAndStartAgent(workerID)
 	}
 	Expect(err).ToNot(HaveOccurred())
