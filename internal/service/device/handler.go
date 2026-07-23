@@ -537,10 +537,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
 		return domain.StatusOK()
 	}
-	err = h.UpdateServerSideDeviceStatus(ctx, orgId, name)
-	if err != nil {
-		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-	}
+	// Status refresh is owned by device-render setStatus (avoids a duplicate write).
 
 	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
 	if err != nil {
