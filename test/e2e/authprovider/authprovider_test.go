@@ -309,6 +309,11 @@ var _ = Describe("Auth provider browser login", func() {
 			err = configureQuadletPAMRedirectURIForTest(callbackPort)
 			Expect(err).ToNot(HaveOccurred(), "PAM redirect URI should be configured for the test callback port")
 
+			By("waiting for the public API endpoint after the PAM redirect config restart")
+			Eventually(func() error {
+				return checkAPIEndpointReady(ctx, apiEndpoint)
+			}).WithTimeout(loginFlowTimeout).WithPolling(authProviderPollingInterval).Should(Succeed())
+
 			err = runProviderBrowserLoginFlowWithAuthRateRetry(ctx, harness, apiEndpoint, scenario.providerName, scenario.username, scenario.password, callbackPort)
 			Expect(err).ToNot(HaveOccurred(), "PAM browser login should complete successfully")
 
@@ -576,6 +581,36 @@ func restartPAMIssuerAndAPI(lifecycle infra.ServiceLifecycleProvider) error {
 		if err := lifecycle.WaitForReady(service, loginFlowTimeout); err != nil {
 			return fmt.Errorf("wait for %s after restart: %w", service, err)
 		}
+	}
+	return nil
+}
+
+// checkAPIEndpointReady verifies the externally reachable API endpoint is accepting requests.
+func checkAPIEndpointReady(ctx context.Context, apiEndpoint string) error {
+	if strings.TrimSpace(apiEndpoint) == "" {
+		return fmt.Errorf("API endpoint is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiEndpoint, "/")+"/readyz", nil)
+	if err != nil {
+		return fmt.Errorf("build API readiness request: %w", err)
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: nil,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // E2E readiness uses self-signed local endpoints.
+				MinVersion:         tls.VersionTLS12,
+			},
+		},
+		Timeout: authConfigHTTPTimeout,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s/readyz: %w", strings.TrimRight(apiEndpoint, "/"), err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("GET %s/readyz returned %d", strings.TrimRight(apiEndpoint, "/"), resp.StatusCode)
 	}
 	return nil
 }
