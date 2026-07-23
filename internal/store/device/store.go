@@ -61,7 +61,9 @@ type Store interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
+	// UpdateStatus persists device status. When previous is non-nil it is used as the
+	// pre-update snapshot for event callbacks and the store does not re-fetch the device.
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
@@ -827,20 +829,21 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	}, nil
 }
 
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
 	var oldDevice domain.Device
 	name := lo.FromPtr(resource.Metadata.Name)
-	device, err := s.Get(ctx, orgId, name)
-	if err != nil {
-		s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
-	} else if device != nil {
-		// Capture old device with deep copy
-		var devices []domain.Device
-		devices = append(devices, *device)
-		oldDevice = devices[0]
+	if previous != nil {
+		oldDevice = *previous
+	} else {
+		device, err := s.Get(ctx, orgId, name)
+		if err != nil {
+			s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
+		} else if device != nil {
+			oldDevice = *device
+		}
 	}
 
-	device, err = s.genericStore.UpdateStatus(ctx, orgId, resource)
+	device, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
 	return device, err
 }
@@ -1292,9 +1295,14 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
 	}
 
-	// Set new conditions
+	changed := false
 	for _, condition := range conditions {
-		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+		if domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
 	}
 
 	// Update using the original pattern with specific field updates and optimistic locking

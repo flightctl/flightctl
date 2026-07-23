@@ -132,9 +132,12 @@ func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 	return true, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
-	old := s.devices[name]
+	old := previous
+	if old == nil {
+		old = s.devices[name]
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	if eventCallback != nil {
@@ -297,10 +300,20 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	if d.Status == nil {
 		d.Status = lo.ToPtr(domain.NewDeviceStatus())
 	}
-	oldConditions := d.Status.Conditions
-	d.Status.Conditions = conditions
+	oldConditions := append([]domain.Condition(nil), d.Status.Conditions...)
+	newConditions := append([]domain.Condition(nil), d.Status.Conditions...)
+	changed := false
+	for _, condition := range conditions {
+		if domain.SetStatusCondition(&newConditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	d.Status.Conditions = newConditions
 	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, conditions)
+		callback(ctx, orgId, d, oldConditions, newConditions)
 	}
 	return nil
 }

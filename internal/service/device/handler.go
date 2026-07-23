@@ -321,7 +321,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	deviceToStore.Status = incomingDevice.Status
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated, originalDevice)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -477,8 +477,9 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	previous := snapshotDeviceForStatusUpdate(device)
 	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
-		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 			return err
@@ -492,13 +493,28 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	if err != nil {
 		return err
 	}
+	previous := snapshotDeviceForStatusUpdate(device)
 	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
 	if err != nil {
 		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 		return err
 	}
 	return nil
+}
+
+// snapshotDeviceForStatusUpdate copies the device enough that in-place status mutations
+// in UpdateServiceSideStatus do not alter the pre-update snapshot used for events.
+func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
+	if device == nil {
+		return nil
+	}
+	previous := *device
+	if device.Status != nil {
+		status := *device.Status
+		previous.Status = &status
+	}
+	return &previous
 }
 
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
@@ -521,10 +537,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
 		return domain.StatusOK()
 	}
-	err = h.UpdateServerSideDeviceStatus(ctx, orgId, name)
-	if err != nil {
-		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-	}
+	// Status refresh is owned by device-render setStatus (avoids a duplicate write).
 
 	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
 	if err != nil {
