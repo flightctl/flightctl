@@ -1559,7 +1559,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev1, err := deviceStore.Get(ctx, suite.OrgID, device1Name)
 			Expect(err).ToNot(HaveOccurred())
 			dev1.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev1, nil)
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev1, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 2: Before cutoff, Unknown → should not be returned
@@ -1575,7 +1575,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev2, err := deviceStore.Get(ctx, suite.OrgID, device2Name)
 			Expect(err).ToNot(HaveOccurred())
 			dev2.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev2, nil)
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev2, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 3: After cutoff, Online → should not be returned
@@ -1593,7 +1593,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev3.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			dev3.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			dev3.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev3, nil)
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev3, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Device 4: Before cutoff, Online → should be returned (disconnected)
@@ -1611,7 +1611,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			dev4.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			dev4.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			dev4.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev4, nil)
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev4, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			params := api.ListDevicesParams{

@@ -132,9 +132,12 @@ func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 	return true, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
-	old := s.devices[name]
+	old := previous
+	if old == nil {
+		old = s.devices[name]
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	if eventCallback != nil {
