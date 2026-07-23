@@ -3,7 +3,6 @@ package model
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/stretchr/testify/require"
 )
@@ -50,8 +49,8 @@ func TestNormalizeCapabilityCounts(t *testing.T) {
 func TestDeviceOsModeCountKey(t *testing.T) {
 	t.Parallel()
 
-	image := v1beta1.OsModeImage
-	packageMode := v1beta1.OsModePackage
+	image := domain.OsModeImage
+	packageMode := domain.OsModePackage
 
 	tests := []struct {
 		name   string
@@ -71,14 +70,14 @@ func TestDeviceOsModeCountKey(t *testing.T) {
 		{
 			name: "When osMode is image it should return image",
 			status: &domain.DeviceStatus{
-				Capabilities: &v1beta1.DeviceCapabilities{OsMode: &image},
+				Capabilities: &domain.DeviceCapabilities{OsMode: &image},
 			},
 			want: "image",
 		},
 		{
 			name: "When osMode is package it should return package",
 			status: &domain.DeviceStatus{
-				Capabilities: &v1beta1.DeviceCapabilities{OsMode: &packageMode},
+				Capabilities: &domain.DeviceCapabilities{OsMode: &packageMode},
 			},
 			want: "package",
 		},
