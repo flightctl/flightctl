@@ -91,7 +91,7 @@ var _ = Describe("DeviceConnection", func() {
 			// Create devices that have checked in recently
 			for i := 1; i <= 3; i++ {
 				deviceName := fmt.Sprintf("connected-device-%d", i)
-				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil)
 
 				// Get the device and update its status
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
@@ -99,7 +99,7 @@ var _ = Describe("DeviceConnection", func() {
 
 				// Set device status to online
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set a recent last seen time directly in the database
@@ -127,7 +127,7 @@ var _ = Describe("DeviceConnection", func() {
 			// Create devices that haven't checked in for a while
 			for i := 1; i <= 3; i++ {
 				deviceName := fmt.Sprintf("disconnected-device-%d", i)
-				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil)
 
 				// Get the device and update its status
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
@@ -137,7 +137,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set an old last seen time directly in the database (more than DeviceDisconnectedTimeout ago)
@@ -169,7 +169,7 @@ var _ = Describe("DeviceConnection", func() {
 			// Create connected devices
 			for i := 1; i <= 2; i++ {
 				deviceName := fmt.Sprintf("connected-%d", i)
-				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil)
 
 				// Get the device and update its status
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
@@ -178,7 +178,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set a recent last seen time directly in the database
@@ -190,7 +190,7 @@ var _ = Describe("DeviceConnection", func() {
 			// Create disconnected devices
 			for i := 1; i <= 3; i++ {
 				deviceName := fmt.Sprintf("disconnected-%d", i)
-				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil)
 
 				// Get the device and update its status
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
@@ -199,7 +199,7 @@ var _ = Describe("DeviceConnection", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set an old last seen time directly in the database
@@ -238,7 +238,7 @@ var _ = Describe("DeviceConnection", func() {
 		BeforeEach(func() {
 			// Create a device that's right at the disconnection threshold
 			deviceName := "threshold-device"
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil)
 
 			// Get the device and update its status
 			device, err := deviceStore.Get(ctx, orgId, deviceName)
@@ -246,7 +246,7 @@ var _ = Describe("DeviceConnection", func() {
 
 			// Set device status to online
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set last seen to exactly the disconnection timeout directly in the database
@@ -270,13 +270,13 @@ var _ = Describe("DeviceConnection", func() {
 		BeforeEach(func() {
 			// Create a mix of devices with different last seen times
 			// Recent device
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "recent-device", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "recent-device", nil, nil)
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")
 			Expect(err).ToNot(HaveOccurred())
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set a recent last seen time directly in the database
@@ -285,13 +285,13 @@ var _ = Describe("DeviceConnection", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Old device
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "old-device", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "old-device", nil, nil)
 			oldDevice, err := deviceStore.Get(ctx, orgId, "old-device")
 			Expect(err).ToNot(HaveOccurred())
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set an old last seen time directly in the database

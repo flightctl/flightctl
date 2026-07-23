@@ -232,7 +232,7 @@ var _ = Describe("DeviceStore create", func() {
 					d.Status.Capabilities = nil
 					expectedOsModeMap[model.CapabilityCountUnknown]++
 				}
-				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
+				_, err = devStore.UpdateStatus(ctx, orgId, d, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			allDevices, err = devStore.List(ctx, orgId, devicestore.DeviceListParams{})
@@ -325,9 +325,9 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("List with status.capabilities.osMode field filter", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-package", nil, nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-image", nil, nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-absent", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-package", nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-image", nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "osmode-absent", nil, nil)
 
 			setOsMode := func(name string, mode *api.OsModeType) {
 				status := api.NewDeviceStatus()
@@ -338,7 +338,7 @@ var _ = Describe("DeviceStore create", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}
-				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -413,9 +413,9 @@ var _ = Describe("DeviceStore create", func() {
 			findingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(db, log.WithField("pkg", "vulnerabilityfinding-store"))
 
 			// Create devices with OS image digests
-			testutil.CreateTestDevice(ctx, devStore, orgId, "device-with-cve", nil, nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "device-without-cve", nil, nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "device-no-digest", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-with-cve", nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-without-cve", nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-no-digest", nil, nil)
 
 			// Set OS digests for two devices
 			digest1 := "sha256:aaaa1111"
@@ -490,8 +490,8 @@ var _ = Describe("DeviceStore create", func() {
 			findingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(db, log.WithField("pkg", "vulnerabilityfinding-store"))
 			digest := "sha256:cve-fs-digest"
 
-			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-enrolled", nil, nil, nil)
-			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-not-enrolled", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-enrolled", nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "device-cve-fs-not-enrolled", nil, nil)
 
 			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-enrolled", digest)
 			setDeviceOsDigest(ctx, devStore, orgId, "device-cve-fs-not-enrolled", digest)
@@ -499,7 +499,7 @@ var _ = Describe("DeviceStore create", func() {
 			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
 			Expect(err).ToNot(HaveOccurred())
 			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
-			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
+			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
@@ -814,7 +814,7 @@ var _ = Describe("DeviceStore create", func() {
 				Status: &status,
 			}
 			api.SetStatusCondition(&device.Status.Conditions, condition)
-			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -1159,7 +1159,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("GetRendered", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "dev", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev", nil, nil)
 
 			// No rendered version
 			_, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
@@ -1225,7 +1225,7 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("UpdateRendered forceUpdate bypasses the specUnchanged short-circuit", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-force-update", nil, nil)
 
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())

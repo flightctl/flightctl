@@ -263,7 +263,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -275,7 +275,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
+					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}

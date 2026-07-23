@@ -115,34 +115,34 @@ var _ = Describe("FleetStore create", func() {
 					Capabilities: &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)},
 				},
 			}
-			_, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-4")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			device.Status.Capabilities = nil
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-5")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
