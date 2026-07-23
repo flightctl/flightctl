@@ -52,7 +52,10 @@ func isTransientStreamError(err error) bool {
 	}
 	if errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.EPIPE) ||
-		errors.Is(err, net.ErrClosed) {
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, ErrLogStreamUnexpectedClose) {
 		return true
 	}
 	// tls.alert is unexported so there is no sentinel to use with errors.Is

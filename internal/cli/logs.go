@@ -193,7 +193,9 @@ func isTransientStreamError(err error) bool {
 	}
 	if errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.EPIPE) ||
-		errors.Is(err, net.ErrClosed) {
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	// tls.alert is unexported so there is no sentinel to use with errors.Is.
@@ -201,7 +203,8 @@ func isTransientStreamError(err error) bool {
 	// Also check for unexpected stream close which we generate ourselves.
 	errStr := err.Error()
 	return strings.Contains(errStr, "tls: bad record MAC") ||
-		strings.Contains(errStr, "stream closed unexpectedly")
+		strings.Contains(errStr, "stream closed unexpectedly") ||
+		strings.Contains(errStr, "unexpected EOF")
 }
 
 // handleSSEStream processes Server-Sent Events stream
