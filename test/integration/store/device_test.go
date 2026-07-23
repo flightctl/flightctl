@@ -209,6 +209,7 @@ var _ = Describe("DeviceStore create", func() {
 			expectedApplicationMap := make(map[string]int64)
 			expectedSummaryMap := make(map[string]int64)
 			expectedUpdatedMap := make(map[string]int64)
+			expectedOsModeMap := make(map[string]int64)
 			for i := range allDevices.Items {
 				d := &allDevices.Items[i]
 				applicationStatus := fmt.Sprintf("application-%d", i)
@@ -220,6 +221,17 @@ var _ = Describe("DeviceStore create", func() {
 				updatedStatus := fmt.Sprintf("updated-%d", i)
 				d.Status.Updated.Status = api.DeviceUpdatedStatusType(updatedStatus)
 				expectedUpdatedMap[updatedStatus] = expectedUpdatedMap[updatedStatus] + 1
+				switch i {
+				case 0:
+					d.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
+					expectedOsModeMap[string(api.OsModeImage)]++
+				case 1:
+					d.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
+					expectedOsModeMap[string(api.OsModePackage)]++
+				default:
+					d.Status.Capabilities = nil
+					expectedOsModeMap[model.CapabilityCountUnknown]++
+				}
 				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
@@ -229,6 +241,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
 			Expect(allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
 			Expect(allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevices.Summary.Capabilities).ToNot(BeNil())
+			Expect(allDevices.Summary.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*allDevices.Summary.Capabilities.OsMode).To(Equal(expectedOsModeMap))
 			Expect(allDevices.Summary.Total).To(Equal(int64(3)))
 
 			allDevicesSummary, err := devStore.Summary(ctx, orgId, store.ListParams{})
@@ -236,6 +251,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(allDevicesSummary.ApplicationStatus).To(Equal(expectedApplicationMap))
 			Expect(allDevicesSummary.SummaryStatus).To(Equal(expectedSummaryMap))
 			Expect(allDevicesSummary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(allDevicesSummary.Capabilities).ToNot(BeNil())
+			Expect(allDevicesSummary.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*allDevicesSummary.Capabilities.OsMode).To(Equal(expectedOsModeMap))
 			Expect(allDevicesSummary.Total).To(Equal(int64(3)))
 		})
 
