@@ -11,6 +11,7 @@ import (
 
 // EncryptionHandlers maps model type name to its encryption handler.
 // This registry is used by the GORM encryption plugin to know how to encrypt each model.
+// Kinds registered here must also appear in EncryptionFieldPaths.
 func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 	return map[string]encryption.ModelEncryptHandler{
 		domain.RepositoryKind:   encryptRepository,
@@ -36,6 +37,43 @@ var repositoryEncryptPaths = [][]string{
 // OpenShift, AAP).
 var authProviderEncryptPaths = [][]string{
 	{"clientSecret"},
+}
+
+// EncryptionFieldPaths is the single source of truth for which JSON paths must be
+// encrypted at rest for each resource kind. GORM write-path handlers, migration,
+// and any other encryption consumer must derive protected fields from here (or the
+// package-level path vars above that back this map) — never duplicate path lists.
+func EncryptionFieldPaths() map[string][][]string {
+	return map[string][][]string{
+		domain.RepositoryKind:   copyEncryptPaths(repositoryEncryptPaths),
+		domain.AuthProviderKind: copyEncryptPaths(authProviderEncryptPaths),
+	}
+}
+
+// EncryptPathsForKind returns a copy of the protected JSON paths for kind.
+func EncryptPathsForKind(kind string) ([][]string, bool) {
+	paths, ok := EncryptionFieldPaths()[kind]
+	return paths, ok
+}
+
+// RepositoryEncryptPaths returns a copy of the JSON paths encrypted for Repository specs.
+func RepositoryEncryptPaths() [][]string {
+	paths, _ := EncryptPathsForKind(domain.RepositoryKind)
+	return paths
+}
+
+// AuthProviderEncryptPaths returns a copy of the JSON paths encrypted for AuthProvider specs.
+func AuthProviderEncryptPaths() [][]string {
+	paths, _ := EncryptPathsForKind(domain.AuthProviderKind)
+	return paths
+}
+
+func copyEncryptPaths(paths [][]string) [][]string {
+	out := make([][]string, len(paths))
+	for i, path := range paths {
+		out[i] = append([]string(nil), path...)
+	}
+	return out
 }
 
 func encryptRepository(ctx context.Context, v interface{}, encrypt encryption.EncryptFunc) error {
