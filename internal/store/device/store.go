@@ -1295,9 +1295,14 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
 	}
 
-	// Set new conditions
+	changed := false
 	for _, condition := range conditions {
-		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+		if domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
 	}
 
 	// Update using the original pattern with specific field updates and optimistic locking

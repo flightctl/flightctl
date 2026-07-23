@@ -300,10 +300,20 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	if d.Status == nil {
 		d.Status = lo.ToPtr(domain.NewDeviceStatus())
 	}
-	oldConditions := d.Status.Conditions
-	d.Status.Conditions = conditions
+	oldConditions := append([]domain.Condition(nil), d.Status.Conditions...)
+	newConditions := append([]domain.Condition(nil), d.Status.Conditions...)
+	changed := false
+	for _, condition := range conditions {
+		if domain.SetStatusCondition(&newConditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	d.Status.Conditions = newConditions
 	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, conditions)
+		callback(ctx, orgId, d, oldConditions, newConditions)
 	}
 	return nil
 }

@@ -565,11 +565,19 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{
-		{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse, Message: "bad spec"},
-	})
+	condition := domain.Condition{
+		Type:    domain.ConditionTypeDeviceSpecValid,
+		Status:  domain.ConditionStatusFalse,
+		Message: "bad spec",
+	}
+	status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{condition})
 	require.Equal(t, int32(http.StatusOK), status.Code)
 	// SpecValid transitioning from absent to invalid emits a DeviceSpecInvalid event.
+	require.Len(t, ev.created, 1)
+
+	status = svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{condition})
+	require.Equal(t, int32(http.StatusOK), status.Code)
+	// Unchanged conditions must not write or emit another event.
 	require.Len(t, ev.created, 1)
 }
 
