@@ -511,7 +511,7 @@ func (o *EditOptions) extractResponseData(response interface{}, err error) (*htt
 
 	// Use reflection to extract response data (since different APIs return different types)
 	v := reflect.ValueOf(response)
-	if v.Kind() == reflect.Ptr && !v.IsNil() {
+	if v.Kind() == reflect.Pointer && !v.IsNil() {
 		v = v.Elem()
 	}
 
