@@ -215,6 +215,13 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 	for k, v := range summary.ApplicationStatus {
 		f.printTableRowLn(w, "APPLICATIONS", k, fmt.Sprintf("%d", v))
 	}
+
+	if summary.Capabilities != nil && summary.Capabilities.OsMode != nil && len(*summary.Capabilities.OsMode) > 0 {
+		fmt.Fprintln(w)
+		for k, v := range *summary.Capabilities.OsMode {
+			f.printTableRowLn(w, "OS MODE (capability)", k, fmt.Sprintf("%d", v))
+		}
+	}
 	return nil
 }
 

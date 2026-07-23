@@ -811,7 +811,8 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	statusCount, err := store.CountStatusList(ctx, query,
 		"status.applicationsSummary.status",
 		"status.summary.status",
-		"status.updated.status")
+		"status.updated.status",
+		"status.capabilities.osMode")
 	if err != nil {
 		return nil, store.ErrorFromGormError(err)
 	}
@@ -819,11 +820,13 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	applicationStatus := statusCount.List("status.applicationsSummary.status")
 	summaryStatus := statusCount.List("status.summary.status")
 	updateStatus := statusCount.List("status.updated.status")
+	osModeStatus := statusCount.List("status.capabilities.osMode")
 	return &domain.DevicesSummary{
 		Total:             devicesCount,
 		ApplicationStatus: applicationStatus,
 		SummaryStatus:     summaryStatus,
 		UpdateStatus:      updateStatus,
+		Capabilities:      model.NewDevicesSummaryCapabilities(osModeStatus),
 	}, nil
 }
 

@@ -45,6 +45,7 @@ type DeviceResumeResponse = v1beta1.DeviceResumeResponse
 // ========== Aggregation ==========
 
 type DevicesSummary = v1beta1.DevicesSummary
+type DevicesSummaryCapabilities = v1beta1.DevicesSummaryCapabilities
 type DeviceCompletionCount = v1beta1.DeviceCompletionCount
 
 // ========== Enum Types ==========
