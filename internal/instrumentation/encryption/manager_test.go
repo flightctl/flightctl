@@ -307,6 +307,56 @@ func (m *mockStrategy) DecryptParsed(ctx context.Context, parsed *ParsedEncrypte
 	return []byte("decrypted"), nil
 }
 
+func TestManager_InspectEncrypted(t *testing.T) {
+	mgr := NewManager()
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+
+	v1 := newV1Strategy()
+	require.NoError(t, v1.AddKey("default", key, true))
+	mgr.RegisterStrategy(v1, true)
+
+	ctx := context.Background()
+
+	t.Run("When plaintext it should report not encrypted", func(t *testing.T) {
+		version, keyID, encrypted, err := mgr.InspectEncrypted([]byte("plain-secret"))
+		require.NoError(t, err)
+		assert.False(t, encrypted)
+		assert.Empty(t, version)
+		assert.Empty(t, keyID)
+	})
+
+	t.Run("When encrypted with v1 it should return version and key ID", func(t *testing.T) {
+		ciphertext, err := mgr.Encrypt(ctx, []byte("plain-secret"))
+		require.NoError(t, err)
+
+		version, keyID, encrypted, err := mgr.InspectEncrypted(ciphertext)
+		require.NoError(t, err)
+		assert.True(t, encrypted)
+		assert.Equal(t, "v1", version)
+		assert.Equal(t, "default", keyID)
+	})
+
+	t.Run("When enc prefix is malformed it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v1"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
+
+	t.Run("When strategy body is malformed it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v1:not-a-valid-body"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
+
+	t.Run("When strategy version is unknown it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v99:default:abc"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
+}
+
 // TestProcessEncryption tests the smart re-encryption logic
 
 func TestProcessEncryption_Plaintext(t *testing.T) {
