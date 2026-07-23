@@ -2,6 +2,7 @@ package display
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -204,16 +205,16 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 	fmt.Fprintln(w)
 	f.printHeaderRowLn(w, "STATUS TYPE", "STATUS", "COUNT")
 
-	for k, v := range summary.SummaryStatus {
-		f.printTableRowLn(w, "SYSTEM", k, fmt.Sprintf("%d", v))
+	for _, k := range slices.Sorted(maps.Keys(summary.SummaryStatus)) {
+		f.printTableRowLn(w, "SYSTEM", k, fmt.Sprintf("%d", summary.SummaryStatus[k]))
 	}
 
-	for k, v := range summary.UpdateStatus {
-		f.printTableRowLn(w, "UPDATED", k, fmt.Sprintf("%d", v))
+	for _, k := range slices.Sorted(maps.Keys(summary.UpdateStatus)) {
+		f.printTableRowLn(w, "UPDATED", k, fmt.Sprintf("%d", summary.UpdateStatus[k]))
 	}
 
-	for k, v := range summary.ApplicationStatus {
-		f.printTableRowLn(w, "APPLICATIONS", k, fmt.Sprintf("%d", v))
+	for _, k := range slices.Sorted(maps.Keys(summary.ApplicationStatus)) {
+		f.printTableRowLn(w, "APPLICATIONS", k, fmt.Sprintf("%d", summary.ApplicationStatus[k]))
 	}
 
 	// Print capabilities as a separate section if any are present.
@@ -223,8 +224,8 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 		}
 		fmt.Fprintln(w)
 		f.printHeaderRowLn(w, "CAPABILITY", "VALUE", "COUNT")
-		for k, v := range *summary.Capabilities.OsMode {
-			f.printTableRowLn(w, "OS MODE", k, fmt.Sprintf("%d", v))
+		for _, k := range slices.Sorted(maps.Keys(*summary.Capabilities.OsMode)) {
+			f.printTableRowLn(w, "OS MODE", k, fmt.Sprintf("%d", (*summary.Capabilities.OsMode)[k]))
 		}
 	}
 	return nil
