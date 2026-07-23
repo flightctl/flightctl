@@ -7359,6 +7359,20 @@ components:
             type: integer
             format: int64
           description: A breakdown of the devices in the fleet by "updated" status.
+        capabilities:
+          $ref: '#/components/schemas/DevicesSummaryCapabilities'
+    DevicesSummaryCapabilities:
+      type: object
+      description: Breakdowns of devices by status.capabilities fields.
+      properties:
+        osMode:
+          type: object
+          default: {}
+          additionalProperties:
+            type: integer
+            format: int64
+          description: Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+      additionalProperties: false
     TemplateVersion:
       type: object
       properties:
