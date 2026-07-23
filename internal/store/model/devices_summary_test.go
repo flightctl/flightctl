@@ -40,8 +40,16 @@ func TestNormalizeCapabilityCounts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			var inputCopy map[string]int64
+			if tt.input != nil {
+				inputCopy = make(map[string]int64, len(tt.input))
+				for k, v := range tt.input {
+					inputCopy[k] = v
+				}
+			}
 			got := NormalizeCapabilityCounts(tt.input)
 			require.Equal(t, tt.want, got)
+			require.Equal(t, inputCopy, tt.input, "input map must not be mutated")
 		})
 	}
 }

@@ -216,10 +216,15 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 		f.printTableRowLn(w, "APPLICATIONS", k, fmt.Sprintf("%d", v))
 	}
 
+	// Print capabilities as a separate section if any are present.
 	if summary.Capabilities != nil && summary.Capabilities.OsMode != nil && len(*summary.Capabilities.OsMode) > 0 {
+		if err := w.Flush(); err != nil {
+			return err
+		}
 		fmt.Fprintln(w)
+		f.printHeaderRowLn(w, "CAPABILITY", "VALUE", "COUNT")
 		for k, v := range *summary.Capabilities.OsMode {
-			f.printTableRowLn(w, "OS MODE (capability)", k, fmt.Sprintf("%d", v))
+			f.printTableRowLn(w, "OS MODE", k, fmt.Sprintf("%d", v))
 		}
 	}
 	return nil

@@ -6,17 +6,25 @@ import "github.com/flightctl/flightctl/internal/domain"
 // that have not reported a given capability (missing status.capabilities field).
 const CapabilityCountUnknown = "unknown"
 
-// NormalizeCapabilityCounts moves empty-string keys (from SQL NULL / missing JSON
-// paths) into CapabilityCountUnknown. Other keys are left unchanged.
+// NormalizeCapabilityCounts returns a new map with empty-string keys (from SQL
+// NULL / missing JSON paths) moved into CapabilityCountUnknown. The input map
+// is not modified.
 func NormalizeCapabilityCounts(counts map[string]int64) map[string]int64 {
-	if counts == nil {
-		counts = make(map[string]int64)
+	out := make(map[string]int64, len(counts))
+	var emptyCount int64
+	hasEmpty := false
+	for k, v := range counts {
+		if k == "" {
+			emptyCount = v
+			hasEmpty = true
+			continue
+		}
+		out[k] = v
 	}
-	if n, ok := counts[""]; ok {
-		counts[CapabilityCountUnknown] += n
-		delete(counts, "")
+	if hasEmpty {
+		out[CapabilityCountUnknown] += emptyCount
 	}
-	return counts
+	return out
 }
 
 func deviceOsModeCountKey(status *domain.DeviceStatus) string {
@@ -29,8 +37,8 @@ func deviceOsModeCountKey(status *domain.DeviceStatus) string {
 // NewDevicesSummaryCapabilities builds the capabilities breakdown for a DevicesSummary,
 // normalizing missing osMode values to CapabilityCountUnknown.
 func NewDevicesSummaryCapabilities(osMode map[string]int64) *domain.DevicesSummaryCapabilities {
-	normalized := NormalizeCapabilityCounts(osMode)
+	normalizedCounts := NormalizeCapabilityCounts(osMode)
 	return &domain.DevicesSummaryCapabilities{
-		OsMode: &normalized,
+		OsMode: &normalizedCounts,
 	}
 }
