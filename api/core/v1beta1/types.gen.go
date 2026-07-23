@@ -927,6 +927,27 @@ type BatchSequence struct {
 	Strategy RolloutStrategy `json:"strategy"`
 }
 
+// CatalogItemRefApplicationProviderSpec defines model for CatalogItemRefApplicationProviderSpec.
+type CatalogItemRefApplicationProviderSpec struct {
+	// CatalogItemRef A reference to a catalog item, along with its configuration
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+}
+
+// CatalogItemRefSpec A reference to a catalog item, along with its configuration
+type CatalogItemRefSpec struct {
+	// Catalog The catalog name that the item is part of
+	Catalog string `json:"catalog"`
+
+	// Channel An optional update channel which will be used to provide update cues when available.
+	Channel *string `json:"channel,omitempty"`
+
+	// Item The name of the catalog item itself
+	Item string `json:"item"`
+
+	// Version A valid version that currently exists in the catalog item
+	Version string `json:"version"`
+}
+
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -1109,9 +1130,6 @@ type ContainerApplication struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Image Reference to the image for this container.
-	Image string `json:"image"`
-
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
 
@@ -1129,6 +1147,7 @@ type ContainerApplication struct {
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+	union   json.RawMessage
 }
 
 // ContainerApplicationProperties Properties for container application deployments.
@@ -1398,11 +1417,8 @@ type DeviceMultipleOwnersResolvedDetailsDetailType string
 // DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
 type DeviceMultipleOwnersResolvedDetailsResolutionType string
 
-// DeviceOsSpec DeviceOsSpec describes the target OS for the device.
-type DeviceOsSpec struct {
-	// Image The target OS image name or URL.
-	Image string `json:"image"`
-}
+// DeviceOsSpec defines model for DeviceOsSpec.
+type DeviceOsSpec = ImageOrCatalogItemRefSpec
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
@@ -1478,9 +1494,7 @@ type DeviceSpec struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
-
-	// Os DeviceOsSpec describes the target OS for the device.
-	Os *DeviceOsSpec `json:"os,omitempty"`
+	Os              *DeviceOsSpec       `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -2142,9 +2156,6 @@ type HelmApplication struct {
 	// DesiredState Desired lifecycle state for this application, as most recently set by the stop/start device APIs. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent.
 	DesiredState *ApplicationDesiredState `json:"desiredState,omitempty"`
 
-	// Image Reference to the chart for this helm application.
-	Image string `json:"image"`
-
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
 
@@ -2159,6 +2170,7 @@ type HelmApplication struct {
 
 	// ValuesFiles List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
 	ValuesFiles *[]string `json:"valuesFiles,omitempty"`
+	union       json.RawMessage
 }
 
 // HookAction defines model for HookAction.
@@ -2260,11 +2272,8 @@ type HttpRepoSpec struct {
 // HttpRepoSpecType The repository type discriminator.
 type HttpRepoSpecType string
 
-// ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
-type ImageApplicationProviderSpec struct {
-	// Image Reference to the OCI image or artifact for the application package.
-	Image string `json:"image"`
-}
+// ImageApplicationProviderSpec Reference to an OCI image or artifact with tag
+type ImageApplicationProviderSpec = ImageSpec
 
 // ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
 type ImageMountVolumeProviderSpec struct {
@@ -2275,8 +2284,20 @@ type ImageMountVolumeProviderSpec struct {
 	Mount VolumeMount `json:"mount"`
 }
 
+// ImageOrCatalogItemRefSpec defines model for ImageOrCatalogItemRefSpec.
+type ImageOrCatalogItemRefSpec struct {
+	// CatalogItemRef A reference to a catalog item, along with its configuration
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+	Image          string              `json:"image,omitempty"`
+}
+
 // ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
 type ImagePullPolicy string
+
+// ImageSpec Reference to an OCI image or artifact with tag
+type ImageSpec struct {
+	Image string `json:"image"`
+}
 
 // ImageVolumeProviderSpec defines model for ImageVolumeProviderSpec.
 type ImageVolumeProviderSpec struct {
@@ -3148,9 +3169,7 @@ type TemplateVersionStatus struct {
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
-
-	// Os DeviceOsSpec describes the target OS for the device.
-	Os *DeviceOsSpec `json:"os,omitempty"`
+	Os              *DeviceOsSpec       `json:"os,omitempty"`
 
 	// Resources Array of resource monitor configurations.
 	Resources *[]ResourceMonitor `json:"resources,omitempty"`
@@ -4512,6 +4531,32 @@ func (t *ComposeApplication) MergeImageApplicationProviderSpec(v ImageApplicatio
 	return err
 }
 
+// AsCatalogItemRefApplicationProviderSpec returns the union data inside the ComposeApplication as a CatalogItemRefApplicationProviderSpec
+func (t ComposeApplication) AsCatalogItemRefApplicationProviderSpec() (CatalogItemRefApplicationProviderSpec, error) {
+	var body CatalogItemRefApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCatalogItemRefApplicationProviderSpec overwrites any union data inside the ComposeApplication as the provided CatalogItemRefApplicationProviderSpec
+func (t *ComposeApplication) FromCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCatalogItemRefApplicationProviderSpec performs a merge with any union data inside the ComposeApplication, using the provided CatalogItemRefApplicationProviderSpec
+func (t *ComposeApplication) MergeCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsInlineApplicationProviderSpec returns the union data inside the ComposeApplication as a InlineApplicationProviderSpec
 func (t ComposeApplication) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
 	var body InlineApplicationProviderSpec
@@ -4775,6 +4820,224 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProviderSpec returns the union data inside the ContainerApplication as a ImageApplicationProviderSpec
+func (t ContainerApplication) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec overwrites any union data inside the ContainerApplication as the provided ImageApplicationProviderSpec
+func (t *ContainerApplication) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the ContainerApplication, using the provided ImageApplicationProviderSpec
+func (t *ContainerApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCatalogItemRefApplicationProviderSpec returns the union data inside the ContainerApplication as a CatalogItemRefApplicationProviderSpec
+func (t ContainerApplication) AsCatalogItemRefApplicationProviderSpec() (CatalogItemRefApplicationProviderSpec, error) {
+	var body CatalogItemRefApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCatalogItemRefApplicationProviderSpec overwrites any union data inside the ContainerApplication as the provided CatalogItemRefApplicationProviderSpec
+func (t *ContainerApplication) FromCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCatalogItemRefApplicationProviderSpec performs a merge with any union data inside the ContainerApplication, using the provided CatalogItemRefApplicationProviderSpec
+func (t *ContainerApplication) MergeCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ContainerApplication) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Annotations != nil {
+		object["annotations"], err = json.Marshal(t.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'annotations': %w", err)
+		}
+	}
+
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
+	}
+
+	if t.DesiredState != nil {
+		object["desiredState"], err = json.Marshal(t.DesiredState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'desiredState': %w", err)
+		}
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.Ports != nil {
+		object["ports"], err = json.Marshal(t.Ports)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ports': %w", err)
+		}
+	}
+
+	if t.Resources != nil {
+		object["resources"], err = json.Marshal(t.Resources)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'resources': %w", err)
+		}
+	}
+
+	if t.RestartGeneration != nil {
+		object["restartGeneration"], err = json.Marshal(t.RestartGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
+		}
+	}
+
+	object["runAs"], err = json.Marshal(t.RunAs)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
+	}
+
+	if t.Volumes != nil {
+		object["volumes"], err = json.Marshal(t.Volumes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'volumes': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ContainerApplication) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["annotations"]; found {
+		err = json.Unmarshal(raw, &t.Annotations)
+		if err != nil {
+			return fmt.Errorf("error reading 'annotations': %w", err)
+		}
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
+	if raw, found := object["desiredState"]; found {
+		err = json.Unmarshal(raw, &t.DesiredState)
+		if err != nil {
+			return fmt.Errorf("error reading 'desiredState': %w", err)
+		}
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["ports"]; found {
+		err = json.Unmarshal(raw, &t.Ports)
+		if err != nil {
+			return fmt.Errorf("error reading 'ports': %w", err)
+		}
+	}
+
+	if raw, found := object["resources"]; found {
+		err = json.Unmarshal(raw, &t.Resources)
+		if err != nil {
+			return fmt.Errorf("error reading 'resources': %w", err)
+		}
+	}
+
+	if raw, found := object["restartGeneration"]; found {
+		err = json.Unmarshal(raw, &t.RestartGeneration)
+		if err != nil {
+			return fmt.Errorf("error reading 'restartGeneration': %w", err)
+		}
+	}
+
+	if raw, found := object["runAs"]; found {
+		err = json.Unmarshal(raw, &t.RunAs)
+		if err != nil {
+			return fmt.Errorf("error reading 'runAs': %w", err)
+		}
+	}
+
+	if raw, found := object["volumes"]; found {
+		err = json.Unmarshal(raw, &t.Volumes)
+		if err != nil {
+			return fmt.Errorf("error reading 'volumes': %w", err)
+		}
+	}
+
 	return err
 }
 
@@ -5457,6 +5720,198 @@ func (t *EventDetails) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsImageApplicationProviderSpec returns the union data inside the HelmApplication as a ImageApplicationProviderSpec
+func (t HelmApplication) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec overwrites any union data inside the HelmApplication as the provided ImageApplicationProviderSpec
+func (t *HelmApplication) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the HelmApplication, using the provided ImageApplicationProviderSpec
+func (t *HelmApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCatalogItemRefApplicationProviderSpec returns the union data inside the HelmApplication as a CatalogItemRefApplicationProviderSpec
+func (t HelmApplication) AsCatalogItemRefApplicationProviderSpec() (CatalogItemRefApplicationProviderSpec, error) {
+	var body CatalogItemRefApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCatalogItemRefApplicationProviderSpec overwrites any union data inside the HelmApplication as the provided CatalogItemRefApplicationProviderSpec
+func (t *HelmApplication) FromCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCatalogItemRefApplicationProviderSpec performs a merge with any union data inside the HelmApplication, using the provided CatalogItemRefApplicationProviderSpec
+func (t *HelmApplication) MergeCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t HelmApplication) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Annotations != nil {
+		object["annotations"], err = json.Marshal(t.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'annotations': %w", err)
+		}
+	}
+
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
+	}
+
+	if t.DesiredState != nil {
+		object["desiredState"], err = json.Marshal(t.DesiredState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'desiredState': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.Namespace != nil {
+		object["namespace"], err = json.Marshal(t.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'namespace': %w", err)
+		}
+	}
+
+	if t.RestartGeneration != nil {
+		object["restartGeneration"], err = json.Marshal(t.RestartGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
+		}
+	}
+
+	if t.Values != nil {
+		object["values"], err = json.Marshal(t.Values)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'values': %w", err)
+		}
+	}
+
+	if t.ValuesFiles != nil {
+		object["valuesFiles"], err = json.Marshal(t.ValuesFiles)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'valuesFiles': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *HelmApplication) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["annotations"]; found {
+		err = json.Unmarshal(raw, &t.Annotations)
+		if err != nil {
+			return fmt.Errorf("error reading 'annotations': %w", err)
+		}
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
+	if raw, found := object["desiredState"]; found {
+		err = json.Unmarshal(raw, &t.DesiredState)
+		if err != nil {
+			return fmt.Errorf("error reading 'desiredState': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["namespace"]; found {
+		err = json.Unmarshal(raw, &t.Namespace)
+		if err != nil {
+			return fmt.Errorf("error reading 'namespace': %w", err)
+		}
+	}
+
+	if raw, found := object["restartGeneration"]; found {
+		err = json.Unmarshal(raw, &t.RestartGeneration)
+		if err != nil {
+			return fmt.Errorf("error reading 'restartGeneration': %w", err)
+		}
+	}
+
+	if raw, found := object["values"]; found {
+		err = json.Unmarshal(raw, &t.Values)
+		if err != nil {
+			return fmt.Errorf("error reading 'values': %w", err)
+		}
+	}
+
+	if raw, found := object["valuesFiles"]; found {
+		err = json.Unmarshal(raw, &t.ValuesFiles)
+		if err != nil {
+			return fmt.Errorf("error reading 'valuesFiles': %w", err)
+		}
+	}
+
+	return err
+}
+
 // AsHookActionRun returns the union data inside the HookAction as a HookActionRun
 func (t HookAction) AsHookActionRun() (HookActionRun, error) {
 	var body HookActionRun
@@ -5797,6 +6252,32 @@ func (t *QuadletApplication) FromImageApplicationProviderSpec(v ImageApplication
 
 // MergeImageApplicationProviderSpec performs a merge with any union data inside the QuadletApplication, using the provided ImageApplicationProviderSpec
 func (t *QuadletApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCatalogItemRefApplicationProviderSpec returns the union data inside the QuadletApplication as a CatalogItemRefApplicationProviderSpec
+func (t QuadletApplication) AsCatalogItemRefApplicationProviderSpec() (CatalogItemRefApplicationProviderSpec, error) {
+	var body CatalogItemRefApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCatalogItemRefApplicationProviderSpec overwrites any union data inside the QuadletApplication as the provided CatalogItemRefApplicationProviderSpec
+func (t *QuadletApplication) FromCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCatalogItemRefApplicationProviderSpec performs a merge with any union data inside the QuadletApplication, using the provided CatalogItemRefApplicationProviderSpec
+func (t *QuadletApplication) MergeCatalogItemRefApplicationProviderSpec(v CatalogItemRefApplicationProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

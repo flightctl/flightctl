@@ -117,12 +117,13 @@ func TestContainerEnsureDependencies(t *testing.T) {
 			containerApp := v1beta1.ContainerApplication{
 				AppType: v1beta1.AppTypeContainer,
 				Name:    lo.ToPtr(tt.appName),
-				Image:   "nginx:latest",
 				Volumes: tt.volumes,
 			}
+			err := containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "nginx:latest"})
+			require.NoError(err)
 
 			var appSpec v1beta1.ApplicationProviderSpec
-			err := appSpec.FromContainerApplication(containerApp)
+			err = appSpec.FromContainerApplication(containerApp)
 			require.NoError(err)
 
 			ctx, cancel := context.WithCancel(context.Background())

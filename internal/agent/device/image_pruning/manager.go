@@ -693,7 +693,11 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 		if err != nil {
 			return nil, fmt.Errorf("getting container application: %w", err)
 		}
-		refs = append(refs, ImageRef{Image: containerApp.Image, Owner: owner, Type: RefTypePodman})
+		imageSpec, err := containerApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting container image spec: %w", err)
+		}
+		refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner, Type: RefTypePodman})
 		if containerApp.Volumes != nil {
 			volRefs, err := m.extractVolumeReferences(*containerApp.Volumes)
 			if err != nil {
@@ -708,10 +712,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 		if err != nil {
 			return nil, fmt.Errorf("%w: inline: %w", errors.ErrGettingProviderSpec, err)
 		}
-		providerType, err := composeApp.Type()
-		if err != nil {
-			return nil, fmt.Errorf("getting compose provider type: %w", err)
-		}
+		providerType := composeApp.Type()
 		if providerType == v1beta1.ImageApplicationProviderType {
 			imageSpec, err := composeApp.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -744,10 +745,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 		if err != nil {
 			return nil, fmt.Errorf("getting quadlet application: %w", err)
 		}
-		providerType, err := quadletApp.Type()
-		if err != nil {
-			return nil, fmt.Errorf("getting quadlet provider type: %w", err)
-		}
+		providerType := quadletApp.Type()
 		if providerType == v1beta1.ImageApplicationProviderType {
 			imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -780,7 +778,11 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 		if err != nil {
 			return nil, fmt.Errorf("getting helm application: %w", err)
 		}
-		refs = append(refs, ImageRef{Image: helmApp.Image, Owner: owner, Type: RefTypeHelm})
+		imageSpec, err := helmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting helm image spec: %w", err)
+		}
+		refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner, Type: RefTypeHelm})
 
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)

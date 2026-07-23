@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
@@ -28,7 +29,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, repositorySvc repositoryservice.Service, eventSvc eventservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, eventSvc eventservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -105,7 +106,7 @@ func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templatever
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, deviceSvc, repositorySvc, k8sClient, kvStore, cfg, log)
+				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
@@ -343,6 +344,7 @@ func LaunchConsumers(ctx context.Context,
 	deviceSvc deviceservice.Service,
 	dependencyrefSvc dependencyrefservice.Service,
 	repositorySvc repositoryservice.Service,
+	catalogSvc catalogservice.Service,
 	eventSvc eventservice.Service,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
@@ -366,7 +368,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, repositorySvc, catalogSvc, eventSvc, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
 				return err
 			}
 		}

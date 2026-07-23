@@ -5735,6 +5735,12 @@ components:
       required:
         - appType
 
+    CatalogItemRefApplicationProviderSpec:
+      type: object
+      properties:
+        catalogItemRef:
+          $ref: '#/components/schemas/CatalogItemRefSpec'
+
     ComposeApplication:
       type: object
       allOf:
@@ -5743,6 +5749,7 @@ components:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
 
     QuadletApplication:
@@ -5754,6 +5761,7 @@ components:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
 
     ContainerApplication:
@@ -5763,11 +5771,11 @@ components:
         - $ref: '#/components/schemas/ApplicationEnvVars'
         - $ref: '#/components/schemas/ApplicationUser'
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
         - type: object
           properties:
-            image:
-              type: string
-              description: Reference to the image for this container.
             ports:
               type: array
               description: Port mappings.
@@ -5775,18 +5783,16 @@ components:
                 $ref: '#/components/schemas/ApplicationPort'
             resources:
               $ref: '#/components/schemas/ApplicationResources'
-          required:
-            - image
 
     HelmApplication:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
+        - oneOf:
+          - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+          - $ref: '#/components/schemas/CatalogItemRefApplicationProviderSpec'
         - type: object
           properties:
-            image:
-              type: string
-              description: Reference to the chart for this helm application.
             namespace:
               type: string
               description: The target namespace for the application deployment.
@@ -5864,16 +5870,20 @@ components:
             $ref: '#/components/schemas/ApplicationPort'
         resources:
           $ref: '#/components/schemas/ApplicationResources'
-    ImageApplicationProviderSpec:
-      type: object
+    ImageOrCatalogItemRefSpec:
       allOf:
         - type: object
+          description: Reference to an OCI image or artifact with tag
           properties:
             image:
               type: string
-              description: Reference to the OCI image or artifact for the application package.
-          required:
-            - image
+              x-go-type-skip-optional-pointer: true
+        - type: object
+          properties:
+            catalogItemRef:
+              $ref: '#/components/schemas/CatalogItemRefSpec'
+    ImageApplicationProviderSpec:
+      $ref: '#/components/schemas/ImageSpec'
     InlineApplicationProviderSpec:
       type: object
       allOf:
@@ -6273,14 +6283,8 @@ components:
         - metadata
         - items
     DeviceOsSpec:
-      type: object
       description: DeviceOsSpec describes the target OS for the device.
-      properties:
-        image:
-          type: string
-          description: The target OS image name or URL.
-      required:
-        - image
+      $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -7232,7 +7236,7 @@ components:
     DeviceSpec:
       type: object
       description: DeviceSpec describes a device.
-      properties:
+      properties: &deviceSpecProps
         updatePolicy:
           $ref: '#/components/schemas/DeviceUpdatePolicySpec'
         os:
@@ -9001,4 +9005,33 @@ components:
       required:
         - imageName
       additionalProperties: false
-
+    ImageSpec:
+      type: object
+      description: Reference to an OCI image or artifact with tag
+      properties:
+        image:
+          type: string
+      required:
+        - image
+      additionalProperties: false
+    CatalogItemRefSpec:
+      type: object
+      description: A reference to a catalog item, along with its configuration
+      properties:
+        catalog:
+          type: string
+          description: The catalog name that the item is part of
+        item:
+          type: string
+          description: The name of the catalog item itself
+        version:
+          type: string
+          description: A valid version that currently exists in the catalog item
+        channel:
+          type: string
+          description: An optional update channel which will be used to provide update cues when available.
+      required:
+        - catalog
+        - item
+        - version
+      additionalProperties: false

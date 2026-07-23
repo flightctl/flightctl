@@ -395,7 +395,7 @@ func (s *imagePromotionService) validateFormatsNotAlreadyPublished(ctx context.C
 			if err != nil {
 				return fmt.Errorf("unsupported export format %q", format), nil
 			}
-			if _, exists := v.References[string(artifactType)]; exists {
+			if _, exists := v.References[artifactType]; exists {
 				return fmt.Errorf("format %q is already published in CatalogItemVersion %s", format, version), nil
 			}
 		}

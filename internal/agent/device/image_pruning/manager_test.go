@@ -72,8 +72,8 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:current",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:current"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -85,8 +85,8 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				desiredContainerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:desired",
 				}
+				require.NoError(desiredContainerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:desired"}))
 				var desiredAppSpec v1beta1.ApplicationProviderSpec
 				require.NoError(desiredAppSpec.FromContainerApplication(desiredContainerApp))
 				desiredDevice := &v1beta1.Device{
@@ -114,8 +114,8 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:current",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:current"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -274,8 +274,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -335,8 +335,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -393,8 +393,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -444,8 +444,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				currentContainerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v2.0", // Current version
 				}
+				require.NoError(currentContainerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v2.0"})) // Current version
 				var currentAppSpec v1beta1.ApplicationProviderSpec
 				require.NoError(currentAppSpec.FromContainerApplication(currentContainerApp))
 				currentDevice := &v1beta1.Device{
@@ -460,8 +460,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				desiredContainerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0", // Desired version
 				}
+				require.NoError(desiredContainerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"})) // Desired version
 				var desiredAppSpec v1beta1.ApplicationProviderSpec
 				require.NoError(desiredAppSpec.FromContainerApplication(desiredContainerApp))
 				desiredDevice := &v1beta1.Device{
@@ -562,8 +562,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -609,8 +609,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/shared:v1.0", // Same image, still used as container
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/shared:v1.0"})) // Same image, still used as container
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -652,9 +652,9 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app-b"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/nginx:1.25",
 					RunAs:   "userB",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/nginx:1.25"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -699,8 +699,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app-default"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/nginx:1.25",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/nginx:1.25"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -790,8 +790,8 @@ func TestManager_validateCapability(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -824,8 +824,8 @@ func TestManager_validateCapability(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -855,8 +855,8 @@ func TestManager_validateCapability(t *testing.T) {
 				containerApp := v1beta1.ContainerApplication{
 					Name:    lo.ToPtr("app1"),
 					AppType: v1beta1.AppTypeContainer,
-					Image:   "quay.io/example/app:v1.0",
 				}
+				require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 				var appSpec v1beta1.ApplicationProviderSpec
 				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
@@ -1168,8 +1168,8 @@ func TestPrune_keepsPrunePendingOnRemovalErrors(t *testing.T) {
 	containerApp := v1beta1.ContainerApplication{
 		Name:    lo.ToPtr("app1"),
 		AppType: v1beta1.AppTypeContainer,
-		Image:   "quay.io/example/app:v1.0",
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/example/app:v1.0"}))
 	var appSpec v1beta1.ApplicationProviderSpec
 	require.NoError(appSpec.FromContainerApplication(containerApp))
 	currentDevice := &v1beta1.Device{

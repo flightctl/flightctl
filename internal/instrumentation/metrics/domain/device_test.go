@@ -82,7 +82,7 @@ func (m *MockDevice) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name
 	_, err := mutate("")
 	return err
 }
-func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, renderedOS string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
 	return "", nil
 }
 func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {

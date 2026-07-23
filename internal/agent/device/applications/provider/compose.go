@@ -65,10 +65,7 @@ func newComposeProvider(
 		return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
 	}
 
-	providerType, err := composeApp.Type()
-	if err != nil {
-		return nil, fmt.Errorf("getting compose provider type: %w", err)
-	}
+	providerType := composeApp.Type()
 
 	var imageRef string
 	var inlineContent []v1beta1.ApplicationContent

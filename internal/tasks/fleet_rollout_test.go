@@ -913,11 +913,12 @@ func TestFleetRolloutsLogic_ReplaceContainerApplicationParameters(t *testing.T) 
 			logic := FleetRolloutsLogic{log: log}
 
 			containerApp := domain.ContainerApplication{
-				Image:   tt.image,
 				EnvVars: tt.envVars,
 				Name:    lo.ToPtr("test-container-app"),
 				AppType: domain.AppTypeContainer,
 			}
+			imageSpec := domain.ImageApplicationProviderSpec{Image: tt.image}
+			require.NoError(containerApp.FromImageApplicationProviderSpec(imageSpec))
 
 			var app domain.ApplicationProviderSpec
 			err := app.FromContainerApplication(containerApp)
@@ -935,7 +936,9 @@ func TestFleetRolloutsLogic_ReplaceContainerApplicationParameters(t *testing.T) 
 
 			resultContainerApp, err := result.AsContainerApplication()
 			require.NoError(err)
-			assert.Equal(t, tt.expectedImage, resultContainerApp.Image)
+			resultImageSpec, err := resultContainerApp.AsImageApplicationProviderSpec()
+			require.NoError(err)
+			assert.Equal(t, tt.expectedImage, resultImageSpec.Image)
 
 			if tt.expectedEnv != nil {
 				require.NotNil(resultContainerApp.EnvVars)
@@ -993,11 +996,12 @@ func TestFleetRolloutsLogic_ReplaceHelmApplicationParameters(t *testing.T) {
 			logic := FleetRolloutsLogic{log: log}
 
 			helmApp := domain.HelmApplication{
-				Image:     tt.image,
 				Namespace: tt.namespace,
 				Name:      lo.ToPtr("test-helm-app"),
 				AppType:   domain.AppTypeHelm,
 			}
+			imageSpec := domain.ImageApplicationProviderSpec{Image: tt.image}
+			require.NoError(helmApp.FromImageApplicationProviderSpec(imageSpec))
 
 			var app domain.ApplicationProviderSpec
 			err := app.FromHelmApplication(helmApp)
@@ -1015,7 +1019,9 @@ func TestFleetRolloutsLogic_ReplaceHelmApplicationParameters(t *testing.T) {
 
 			resultHelmApp, err := result.AsHelmApplication()
 			require.NoError(err)
-			assert.Equal(t, tt.expectedImage, resultHelmApp.Image)
+			resultImageSpec, err := resultHelmApp.AsImageApplicationProviderSpec()
+			require.NoError(err)
+			assert.Equal(t, tt.expectedImage, resultImageSpec.Image)
 		})
 	}
 }

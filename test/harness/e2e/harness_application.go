@@ -246,10 +246,12 @@ func NewContainerApplicationSpecWithRunAs(
 	containerApp := v1beta1.ContainerApplication{
 		Name:      lo.ToPtr(name),
 		AppType:   v1beta1.AppTypeContainer,
-		Image:     image,
 		Ports:     &ports,
 		Resources: resources,
 		Volumes:   volumes,
+	}
+	if err := containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
 	}
 	if runAs != "" {
 		containerApp.RunAs = v1beta1.Username(runAs)
@@ -307,8 +309,10 @@ func NewHelmApplicationSpec(name, image, namespace string, valuesFiles []string)
 	helmApp := v1beta1.HelmApplication{
 		AppType:   v1beta1.AppTypeHelm,
 		Name:      lo.ToPtr(name),
-		Image:     image,
 		Namespace: lo.ToPtr(namespace),
+	}
+	if err := helmApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
 	}
 	if len(valuesFiles) > 0 {
 		helmApp.ValuesFiles = &valuesFiles
@@ -323,9 +327,11 @@ func NewHelmApplicationSpecWithValues(name, image, namespace string, values map[
 	helmApp := v1beta1.HelmApplication{
 		AppType:   v1beta1.AppTypeHelm,
 		Name:      lo.ToPtr(name),
-		Image:     image,
 		Namespace: lo.ToPtr(namespace),
 		Values:    &values,
+	}
+	if err := helmApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
 	}
 	var appSpec v1beta1.ApplicationProviderSpec
 	err := appSpec.FromHelmApplication(helmApp)
@@ -493,7 +499,11 @@ func GetContainerApplicationImage(spec v1beta1.ApplicationProviderSpec) (string,
 	if err != nil {
 		return "", err
 	}
-	return app.Image, nil
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("GetContainerApplicationImage: %w", err)
+	}
+	return imageSpec.Image, nil
 }
 
 // GetContainerApplicationVolumeImageRef returns the image reference of the named volume in a ContainerApplication spec.

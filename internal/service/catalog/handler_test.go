@@ -290,7 +290,7 @@ func createTestCatalogItem(catalogName, itemName string, owner *string) domain.C
 				{
 					Version:    "1.0.0",
 					Channels:   []string{"stable"},
-					References: map[string]string{"container": "v1.0.0"},
+					References: map[domain.CatalogItemArtifactType]string{"container": "v1.0.0"},
 				},
 			},
 		},
