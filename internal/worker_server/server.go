@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -19,6 +20,7 @@ import (
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -92,6 +94,7 @@ func (s *Server) Run(ctx context.Context) error {
 	dependencyRefStore := dependencyrefstore.NewDependencyRefStore(s.db, s.log.WithField("pkg", "dependencyref-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.db, s.log.WithField("pkg", "repository-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
+	checkpointStore := checkpointstore.NewCheckpointStore(s.db, s.log.WithField("pkg", "checkpoint-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
@@ -102,9 +105,21 @@ func (s *Server) Run(ctx context.Context) error {
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
+	encryptionMigrator := tasks.NewEncryptionMigrator(
+		s.db,
+		encryption.GlobalManager(),
+		checkpointStore,
+		tasks.NewPostgresEncryptionMigrationLocker(s.db),
+		s.log.WithField("pkg", "encryption-migration"),
+	)
+
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics, encryptionMigrator, publisher); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
+	}
+	if err = tasks.EnqueueEncryptionMigrationIfNeeded(ctx, publisher, encryptionMigrator, s.log); err != nil {
+		// Migration is best-effort at startup; do not block fleet/device workers.
+		s.log.WithError(err).Error("failed to enqueue encryption migration on worker start; continuing")
 	}
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)

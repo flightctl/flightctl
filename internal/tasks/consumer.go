@@ -23,12 +23,13 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, repositorySvc repositoryservice.Service, eventSvc eventservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, dependencyrefSvc dependencyrefservice.Service, repositorySvc repositoryservice.Service, eventSvc eventservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector, encryptionMigrator *EncryptionMigrator, queuePublisher queues.QueueProducer) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -120,6 +121,13 @@ func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templatever
 			taskName = "fleetApplicationLifecycle"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
 				return fleetApplicationLifecycle(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, fleetSvc, deviceSvc, eventSvc, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
+		if shouldRunEncryptionMigration(eventWithOrgId.Event) {
+			taskName = "encryptionMigration"
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return runEncryptionMigrationBatch(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, encryptionMigrator, queuePublisher, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
@@ -316,6 +324,55 @@ func shouldUpdateRepositoryReferers(ctx context.Context, event domain.Event, log
 	return false
 }
 
+func shouldRunEncryptionMigration(event domain.Event) bool {
+	return event.Reason == EventReasonEncryptionMigrationBatch
+}
+
+func runEncryptionMigrationBatch(ctx context.Context, orgID uuid.UUID, event domain.Event, migrator *EncryptionMigrator, publisher queues.QueueProducer, log logrus.FieldLogger) error {
+	if migrator == nil {
+		return fmt.Errorf("encryption migration: migrator is nil")
+	}
+	kind := event.InvolvedObject.Kind
+	if kind == "" {
+		return fmt.Errorf("encryption migration: event involvedObject.kind is required")
+	}
+	key := leaseKey(kind, orgID)
+	unlock, acquired, err := migrator.locker.TryLock(ctx, key)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		// Another worker owns this org; its self-chain continues the scan.
+		log.Infof("encryption migration: %s org %s lease held by another worker; skipping duplicate batch", kind, orgID)
+		return nil
+	}
+	defer func() {
+		if unlockErr := unlock(); unlockErr != nil {
+			log.WithError(unlockErr).Errorf("encryption migration: failed to release lease for %s org %s", kind, orgID)
+		}
+	}()
+
+	report, err := migrator.RunBatch(ctx, kind, orgID)
+	if err != nil {
+		return err
+	}
+	if report.Complete {
+		log.Infof("encryption migration: %s org %s idle (complete for active key %q)", kind, orgID, report.ActiveKeyID)
+		return nil
+	}
+	if report.RetryAfter > 0 {
+		log.Infof("encryption migration: scheduling %s org %s retry after %s", kind, orgID, report.RetryAfter.Round(time.Second))
+		enqueueEncryptionMigrationAfter(publisher, kind, orgID, report.RetryAfter, log)
+		return nil
+	}
+	if err := EnqueueEncryptionMigration(ctx, publisher, kind, orgID); err != nil {
+		return err
+	}
+	log.Infof("encryption migration: re-enqueued %s org %s after batch scanned=%d updated=%d errors=%d",
+		kind, orgID, report.Scanned, report.Updated, report.Errors)
+	return nil
+}
+
 func hasUpdatedFields(details *domain.EventDetails, log logrus.FieldLogger, fields ...domain.ResourceUpdatedDetailsUpdatedFields) bool {
 	if details == nil {
 		return false
@@ -348,7 +405,9 @@ func LaunchConsumers(ctx context.Context,
 	kvStore kvstore.KVStore,
 	cfg *config.Config,
 	numConsumers, threadsPerConsumer int,
-	workerMetrics *worker.WorkerCollector) error {
+	workerMetrics *worker.WorkerCollector,
+	encryptionMigrator *EncryptionMigrator,
+	queuePublisher queues.QueueProducer) error {
 	totalConsumers := numConsumers * threadsPerConsumer
 
 	// Set active consumers metric
@@ -366,7 +425,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(fleetSvc, templateversionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, k8sClient, kvStore, cfg, workerMetrics, encryptionMigrator, queuePublisher)); err != nil {
 				return err
 			}
 		}

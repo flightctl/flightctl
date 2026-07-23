@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +42,37 @@ func setupTestEncryption(t *testing.T) *encryption.Manager {
 	mgr := encryption.GlobalManager()
 	require.NotNil(t, mgr)
 	return mgr
+}
+
+func TestEncryptPathsGetters_WhenCallerMutatesItShouldNotAffectGlobals(t *testing.T) {
+	repoPaths := RepositoryEncryptPaths()
+	require.NotEmpty(t, repoPaths)
+	repoPaths[0][0] = "mutated"
+
+	freshRepo := RepositoryEncryptPaths()
+	assert.NotEqual(t, "mutated", freshRepo[0][0])
+
+	apPaths := AuthProviderEncryptPaths()
+	require.NotEmpty(t, apPaths)
+	apPaths[0][0] = "mutated"
+
+	freshAP := AuthProviderEncryptPaths()
+	assert.NotEqual(t, "mutated", freshAP[0][0])
+}
+
+func TestEncryptionFieldPaths_WhenComparedToHandlersItShouldCoverSameKinds(t *testing.T) {
+	handlers := EncryptionHandlers()
+	paths := EncryptionFieldPaths()
+	require.Equal(t, len(handlers), len(paths))
+	for kind := range handlers {
+		kindPaths, ok := EncryptPathsForKind(kind)
+		require.True(t, ok, "handler kind %q missing from EncryptionFieldPaths", kind)
+		require.NotEmpty(t, kindPaths, "handler kind %q has empty encrypt paths", kind)
+	}
+	for kind := range paths {
+		_, ok := handlers[kind]
+		require.True(t, ok, "EncryptionFieldPaths kind %q missing from EncryptionHandlers", kind)
+	}
 }
 
 func TestEncryptionHandlersRegistry(t *testing.T) {
