@@ -1,172 +1,279 @@
 package model
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/stoewer/go-strcase"
 )
 
-// EncryptionHandlers maps model type name to its encryption handler.
-// This registry is used by the GORM encryption plugin to know how to encrypt each model.
+// EncryptedField defines a single sensitive field that must be encrypted at rest.
+// Path segments use JSON key names from the struct root (e.g., {"Spec", "httpConfig", "password"}).
+type EncryptedField struct {
+	Kind string
+	Path []string
+}
+
+// encryptionRegistry is the canonical list of all encrypted fields across all model types.
+// The migration process can hash this list to detect when new fields are added between versions.
+var encryptionRegistry = []EncryptedField{
+	{domain.RepositoryKind, []string{"Spec", "httpConfig", "password"}},
+	{domain.RepositoryKind, []string{"Spec", "httpConfig", "token"}},
+	{domain.RepositoryKind, []string{"Spec", "httpConfig", "tls.key"}},
+	{domain.RepositoryKind, []string{"Spec", "httpConfig", "tls.crt"}},
+	{domain.RepositoryKind, []string{"Spec", "sshConfig", "sshPrivateKey"}},
+	{domain.RepositoryKind, []string{"Spec", "sshConfig", "privateKeyPassphrase"}},
+	{domain.RepositoryKind, []string{"Spec", "ociAuth", "password"}},
+	{domain.AuthProviderKind, []string{"Spec", "clientSecret"}},
+	{domain.DeviceKind, []string{"RenderedConfig"}},
+	{domain.DeviceKind, []string{"RenderedApplications"}},
+}
+
+// encryptionPathsByKind is built from encryptionRegistry on init for O(1) lookup.
+var encryptionPathsByKind map[string][][]string
+
+func init() {
+	encryptionPathsByKind = make(map[string][][]string)
+	for _, ef := range encryptionRegistry {
+		encryptionPathsByKind[ef.Kind] = append(encryptionPathsByKind[ef.Kind], ef.Path)
+	}
+}
+
+// PathsForKind returns the encryption paths for a given model kind.
+func PathsForKind(kind string) [][]string {
+	return encryptionPathsByKind[kind]
+}
+
+// RegistryHash returns a SHA-256 hash of the encryptionRegistry.
+// The migration process compares this hash across versions to detect when
+// encrypted fields are added or removed, triggering a re-encryption migration.
+func RegistryHash() string {
+	entries := make([]string, len(encryptionRegistry))
+	for i, ef := range encryptionRegistry {
+		entries[i] = fmt.Sprintf("%s:%s", ef.Kind, strings.Join(ef.Path, "/"))
+	}
+	sort.Strings(entries)
+	h := sha256.New()
+	for _, e := range entries {
+		fmt.Fprintln(h, e)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// EncryptionHandlers returns encryption handlers for all model types.
 func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 	return map[string]encryption.ModelEncryptHandler{
-		domain.RepositoryKind:   encryptRepository,
-		domain.AuthProviderKind: encryptAuthProvider,
+		domain.RepositoryKind:   genericEncryptHandler(domain.RepositoryKind),
+		domain.AuthProviderKind: genericEncryptHandler(domain.AuthProviderKind),
+		domain.DeviceKind:       genericEncryptHandler(domain.DeviceKind),
 	}
 }
 
-// repositoryEncryptPaths lists the sensitive fields in the Repository Spec JSONB
-// that must be encrypted at rest.
-// Each entry is a slice of JSON key segments (e.g. {"httpConfig", "tls.key"}).
-var repositoryEncryptPaths = [][]string{
-	{"httpConfig", "password"},
-	{"httpConfig", "token"},
-	{"httpConfig", "tls.key"},
-	{"httpConfig", "tls.crt"},
-	{"sshConfig", "sshPrivateKey"},
-	{"sshConfig", "privateKeyPassphrase"},
-	{"ociAuth", "password"},
-}
+// genericEncryptHandler returns an encryption handler that works for any model type.
+// For structs: marshal to nested map, encrypt at registered paths, unmarshal back.
+// For maps (GORM partial updates): convert path segments from PascalCase to snake_case
+// and encrypt *string values in-place.
+func genericEncryptHandler(kind string) encryption.ModelEncryptHandler {
+	paths := encryptionPathsByKind[kind]
 
-// authProviderEncryptPaths lists the sensitive fields in the AuthProvider Spec JSONB.
-// clientSecret appears at the top level of all provider type variants (OIDC, OAuth2,
-// OpenShift, AAP).
-var authProviderEncryptPaths = [][]string{
-	{"clientSecret"},
-}
-
-func encryptRepository(ctx context.Context, v interface{}, encrypt encryption.EncryptFunc) error {
-	repo, ok := v.(*Repository)
-	if !ok {
-		return fmt.Errorf("expected *Repository, got %T", v)
-	}
-
-	if repo.Spec == nil {
-		return nil
-	}
-
-	updated, err := encryptJSONField(ctx, repo.Spec.Data, repositoryEncryptPaths, encrypt)
-	if err != nil {
-		return err
-	}
-	// Unmarshal into a new object — Spec.Data shares a pointer with the API
-	// resource, and mutating in-place corrupts its json.RawMessage on retry.
-	if updated != nil {
-		var newSpec domain.RepositorySpec
-		if err := json.Unmarshal(updated, &newSpec); err != nil {
-			return fmt.Errorf("unmarshal encrypted repo spec: %w", err)
+	return func(ctx context.Context, model any, encrypt encryption.EncryptFunc) error {
+		if len(paths) == 0 {
+			return nil
 		}
-		repo.Spec.Data = newSpec
-	}
-	return nil
-}
 
-func encryptAuthProvider(ctx context.Context, v interface{}, encrypt encryption.EncryptFunc) error {
-	ap, ok := v.(*AuthProvider)
-	if !ok {
-		return fmt.Errorf("expected *AuthProvider, got %T", v)
-	}
-
-	if ap.Spec == nil {
-		return nil
-	}
-
-	updated, err := encryptJSONField(ctx, ap.Spec.Data, authProviderEncryptPaths, encrypt)
-	if err != nil {
-		return err
-	}
-	// See comment in encryptRepository for why we unmarshal into a new object.
-	if updated != nil {
-		var newSpec domain.AuthProviderSpec
-		if err := json.Unmarshal(updated, &newSpec); err != nil {
-			return fmt.Errorf("unmarshal encrypted auth provider spec: %w", err)
+		if m, ok := model.(map[string]any); ok {
+			return encryptMap(ctx, m, paths, encrypt)
 		}
-		ap.Spec.Data = newSpec
-	}
-	return nil
-}
 
-// encryptJSONField encrypts string values at the given paths within a JSONB field.
-// It marshals the data to a generic map, encrypts matching paths, and returns the
-// updated JSON bytes. Returns nil if no fields were modified. The caller is
-// responsible for unmarshaling into a new object to avoid corrupting shared pointers.
-func encryptJSONField(ctx context.Context, data any, paths [][]string, encrypt encryption.EncryptFunc) ([]byte, error) {
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal spec: %w", err)
-	}
-
-	var jsonData map[string]any
-	if err := json.Unmarshal(jsonBytes, &jsonData); err != nil {
-		return nil, fmt.Errorf("unmarshal spec to map: %w", err)
-	}
-
-	modified := false
-	for _, path := range paths {
-		encrypted, err := encryptJSONPath(ctx, jsonData, path, encrypt)
+		jsonBytes, err := json.Marshal(model)
 		if err != nil {
-			return nil, fmt.Errorf("encrypt field %v: %w", path, err)
+			return fmt.Errorf("marshal %s: %w", kind, err)
 		}
-		if encrypted {
-			modified = true
+
+		var data map[string]any
+		dec := json.NewDecoder(bytes.NewReader(jsonBytes))
+		dec.UseNumber()
+		if err := dec.Decode(&data); err != nil {
+			return fmt.Errorf("unmarshal %s to map: %w", kind, err)
 		}
-	}
 
-	if !modified {
-		return nil, nil
-	}
+		modified := false
+		for _, path := range paths {
+			encrypted, err := encryptJSONPath(ctx, data, path, encrypt)
+			if err != nil {
+				return fmt.Errorf("encrypt field %v: %w", path, err)
+			}
+			if encrypted {
+				modified = true
+			}
+		}
 
-	updatedJSON, err := json.Marshal(jsonData)
-	if err != nil {
-		return nil, fmt.Errorf("marshal updated spec: %w", err)
-	}
+		if !modified {
+			return nil
+		}
 
-	return updatedJSON, nil
+		modifiedBytes, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("marshal encrypted %s: %w", kind, err)
+		}
+
+		if err := json.Unmarshal(modifiedBytes, model); err != nil {
+			return fmt.Errorf("unmarshal encrypted %s back to struct: %w", kind, err)
+		}
+
+		return nil
+	}
 }
 
-// encryptJSONPath encrypts a string value at the given path segments in a JSON map.
-// Returns true if encryption was performed, false if the path doesn't exist or the
-// value was already encrypted with the current key.
+// encryptMap handles GORM partial updates where model is a map[string]interface{}.
+// Map keys use snake_case DB column names, so the first path segment is converted
+// from PascalCase. Paths sharing the same top-level key are grouped so nested
+// values (json.Unmarshaler) get a single marshal/unmarshal cycle per key.
+func encryptMap(ctx context.Context, m map[string]any, paths [][]string, encrypt encryption.EncryptFunc) error {
+	// Group paths by column key so nested values are marshaled once per key.
+	grouped := make(map[string][][]string)
+	var order []string
+	for _, path := range paths {
+		key := pascalToSnake(path[0])
+		if _, seen := grouped[key]; !seen {
+			order = append(order, key)
+		}
+		grouped[key] = append(grouped[key], path)
+	}
+
+	for _, columnKey := range order {
+		val, ok := m[columnKey]
+		if !ok || val == nil {
+			continue
+		}
+
+		switch v := val.(type) {
+		case *string:
+			if v == nil || *v == "" {
+				continue
+			}
+			// The value may be JSON-quoted from a prior encrypt pass
+			// (e.g. "enc:v1:default:..."). Unwrap so ProcessEncryption
+			// sees the raw enc: prefix and returns it as-is.
+			plain := *v
+			var unquoted string
+			if json.Unmarshal([]byte(plain), &unquoted) == nil {
+				plain = unquoted
+			}
+			encrypted, err := encrypt(ctx, []byte(plain))
+			if err != nil {
+				return fmt.Errorf("encrypt map key %q: %w", columnKey, err)
+			}
+			encStr := string(encrypted)
+			if encStr == plain {
+				continue
+			}
+			jsonStr, err := json.Marshal(encStr)
+			if err != nil {
+				return fmt.Errorf("marshal encrypted value for %q: %w", columnKey, err)
+			}
+			*v = string(jsonStr)
+
+		case json.Unmarshaler:
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Errorf("marshal map key %q for nested encrypt: %w", columnKey, err)
+			}
+			var nested map[string]any
+			if err := json.Unmarshal(jsonBytes, &nested); err != nil {
+				return fmt.Errorf("unmarshal map key %q to nested map: %w", columnKey, err)
+			}
+			modified := false
+			for _, path := range grouped[columnKey] {
+				encrypted, err := encryptJSONPath(ctx, nested, path[1:], encrypt)
+				if err != nil {
+					return fmt.Errorf("encrypt nested field %v: %w", path, err)
+				}
+				if encrypted {
+					modified = true
+				}
+			}
+			if !modified {
+				continue
+			}
+			modifiedBytes, err := json.Marshal(nested)
+			if err != nil {
+				return fmt.Errorf("marshal encrypted nested %q: %w", columnKey, err)
+			}
+			if err := v.UnmarshalJSON(modifiedBytes); err != nil {
+				return fmt.Errorf("unmarshal encrypted nested %q back: %w", columnKey, err)
+			}
+
+		default:
+			return fmt.Errorf("encrypt map key %q: unsupported type %T", columnKey, val)
+		}
+	}
+	return nil
+}
+
+// pascalToSnake converts a PascalCase string to snake_case.
+// e.g. "RenderedConfig" → "rendered_config", "Spec" → "spec"
+func pascalToSnake(s string) string {
+	return strcase.SnakeCase(s)
+}
+
+// encryptJSONPath encrypts the value at the given path in a JSON map.
+// If the leaf is a string, it encrypts the string directly.
+// If the leaf is anything else (map, array, etc.), it marshals the value to JSON bytes,
+// encrypts the blob, and stores the encrypted string back.
 func encryptJSONPath(ctx context.Context, data map[string]any, path []string, encrypt encryption.EncryptFunc) (bool, error) {
 	current := data
 	for i := 0; i < len(path)-1; i++ {
 		val, exists := current[path[i]]
-		if !exists {
+		if !exists || val == nil {
 			return false, nil
 		}
-
 		nestedMap, ok := val.(map[string]any)
 		if !ok {
-			return false, nil
+			return false, fmt.Errorf("path %v: segment %q is %T, expected object", path, path[i], val)
 		}
-
 		current = nestedMap
 	}
 
-	lastPart := path[len(path)-1]
-	val, exists := current[lastPart]
-	if !exists {
+	lastKey := path[len(path)-1]
+	val, exists := current[lastKey]
+	if !exists || val == nil {
 		return false, nil
 	}
 
-	strVal, ok := val.(string)
-	if !ok || strVal == "" {
-		return false, nil
+	var plaintext []byte
+
+	switch v := val.(type) {
+	case string:
+		if v == "" {
+			return false, nil
+		}
+		plaintext = []byte(v)
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return false, fmt.Errorf("marshal blob at %v: %w", path, err)
+		}
+		plaintext = b
 	}
 
-	encrypted, err := encrypt(ctx, []byte(strVal))
+	encrypted, err := encrypt(ctx, plaintext)
 	if err != nil {
-		return false, fmt.Errorf("encrypt path %s: %w", path, err)
+		return false, fmt.Errorf("encrypt path %v: %w", path, err)
 	}
 
 	newValue := string(encrypted)
-	if newValue == strVal {
+	if newValue == string(plaintext) {
 		return false, nil
 	}
 
-	current[lastPart] = newValue
+	current[lastKey] = newValue
 	return true, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -1155,7 +1156,21 @@ var _ = Describe("DeviceStore create", func() {
 			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Getting first rendered config
+			// Verify rendered config is encrypted at rest
+			var rawDevice model.Device
+			Expect(db.Where("org_id = ? AND name = ?", orgId, "dev").First(&rawDevice).Error).To(Succeed())
+			Expect(rawDevice.RenderedConfig).ToNot(BeNil())
+			Expect(string(rawDevice.RenderedConfig.Data)).ToNot(ContainSubstring("this is the first config"),
+				"rendered config should be encrypted at rest")
+			// RawMessage holds the JSON string token: "enc:v1:default:..."
+			// Unmarshal extracts the inner string for decryption.
+			var encStr string
+			Expect(json.Unmarshal(rawDevice.RenderedConfig.Data, &encStr)).To(Succeed())
+			_, wasEncrypted, err := encryption.Decrypt(ctx, encryption.Ciphertext(encStr))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasEncrypted).To(BeTrue(), "rendered config should be encrypted")
+
+			// Getting first rendered config (decrypts transparently)
 			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig := *renderedDevice.Spec.Config
