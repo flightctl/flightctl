@@ -483,7 +483,7 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 	restoreSucceeded = true
 
 	// Sync restored database passwords with current deployment secrets
-	p.log.Info("Synchronizing database passwords with current deployment")
+	p.log.Info("Synchronizing database credentials with current deployment")
 	if err := p.syncDatabasePasswords(ctx); err != nil {
 		return fmt.Errorf("failed to sync database passwords: %w", err)
 	}
@@ -519,7 +519,7 @@ func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context) error
 
 	masterPassword, err := p.readSecret(ctx, "flightctl-postgresql-master-password")
 	if err != nil {
-		p.log.Warnf("Failed to read master password secret: %v (skipping admin password sync)", err)
+		p.log.Warnf("Failed to read master credentials secret: %v (skipping admin credentials sync)", err)
 	} else {
 		sql := fmt.Sprintf(`ALTER USER admin WITH PASSWORD '%s'`, strings.ReplaceAll(masterPassword, "'", "''"))
 		if err := p.execDBCommand(ctx, "postgres", sql); err != nil {
@@ -527,7 +527,7 @@ func (p *PodmanRestoreDeployer) syncDatabasePasswords(ctx context.Context) error
 		}
 	}
 
-	p.log.Info("Database passwords synchronized successfully")
+	p.log.Info("Database credentials synchronized successfully")
 	return nil
 }
 
@@ -1456,7 +1456,7 @@ func (k *KubernetesRestoreDeployer) execRestoreDump(ctx context.Context, dbName,
 const (
 	// portForwardReadyTimeout is the maximum time to wait for a kubectl port-forward
 	// tunnel to become reachable before returning an error.
-	portForwardReadyTimeout = 30 * time.Second
+	portForwardReadyTimeout = 2 * time.Minute
 	portForwardPollInterval = 200 * time.Millisecond
 )
 
