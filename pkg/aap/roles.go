@@ -71,7 +71,7 @@ type AAPRoleTeamAssignment struct {
 	Team           int                                `json:"team"`
 }
 
-// GET /api/controller/v2/role_user_assignments/?user__id={user_id}
+// GET /api/gateway/v1/role_user_assignments/?user__id={user_id}
 func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token string, userID string) ([]*AAPRoleUserAssignment, error) {
 	// Build query parameters using url.Values
 	query := url.Values{}
@@ -80,11 +80,11 @@ func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token st
 		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
 
-	endpoint := a.buildEndpoint("/api/controller/v2/role_user_assignments/", query)
+	endpoint := a.buildEndpoint("/api/gateway/v1/role_user_assignments/", query)
 	return getWithPagination[AAPRoleUserAssignment](a, ctx, endpoint, token)
 }
 
-// GET /api/controller/v2/role_team_assignments/?team__id={team_id}
+// GET /api/gateway/v1/role_team_assignments/?team__id={team_id}
 func (a *AAPGatewayClient) ListTeamRoleAssignments(ctx context.Context, token string, teamID string) ([]*AAPRoleTeamAssignment, error) {
 	query := url.Values{}
 	query.Set("team__id", teamID)
@@ -92,6 +92,6 @@ func (a *AAPGatewayClient) ListTeamRoleAssignments(ctx context.Context, token st
 		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
 
-	endpoint := a.buildEndpoint("/api/controller/v2/role_team_assignments/", query)
+	endpoint := a.buildEndpoint("/api/gateway/v1/role_team_assignments/", query)
 	return getWithPagination[AAPRoleTeamAssignment](a, ctx, endpoint, token)
 }
