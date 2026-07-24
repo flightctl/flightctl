@@ -409,7 +409,7 @@ type containerfileBuildArgs struct {
 	DNFSkipUnavailable  bool
 }
 
-// getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager --add-repo.
+// getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager addrepo.
 // Defaults to true (upstream behavior) when not explicitly configured.
 func (c *Consumer) getRPMRepoAdd() bool {
 	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoAdd != nil {

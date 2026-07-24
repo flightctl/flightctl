@@ -187,7 +187,7 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 |-----------|------|---------|-------------|
 | `imageBuilderWorker.enabled` | bool | `true` | Enable ImageBuilder Worker service |
 | `imageBuilderWorker.rpmRepoUrl` | string | `""` | Custom RPM repository URL for flightctl-agent package. If empty, uses the default public repository. |
-| `imageBuilderWorker.rpmRepoAdd` | bool | `true` | Whether to add the RPM repository via `dnf config-manager --add-repo`. Set to `false` for downstream/subscription-managed repos. |
+| `imageBuilderWorker.rpmRepoAdd` | bool | `true` | Whether to add the RPM repository via `dnf config-manager addrepo`. Set to `false` for downstream/subscription-managed repos. |
 | `imageBuilderWorker.rpmRepoEnable` | string | `""` | RPM repository name to enable via `--enablerepo` during `dnf install`. Only used if non-empty. |
 | `imageBuilderWorker.dnfTimeout` | int | `5` | DNF connection timeout in seconds for flightctl-agent installation. |
 | `imageBuilderWorker.dnfRetries` | int | `0` | DNF retry count for flightctl-agent installation (0 means no retries). |
@@ -504,7 +504,7 @@ environment. Serve a local mirror instead.
 For a targeted download (individual RPMs):
 
 ```bash
-sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+sudo dnf config-manager addrepo https://rpm.flightctl.io/flightctl-epel.repo
 mkdir -p ~/flightctl-rpms
 dnf download --resolve --alldeps --destdir ~/flightctl-rpms flightctl-agent
 createrepo_c ~/flightctl-rpms

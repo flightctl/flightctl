@@ -144,7 +144,7 @@ Integration tests accept these environment variables: `INTEGRATION_PROCS=N` for 
 | **Kubernetes / OpenShift** | `helm install my-flightctl oci://quay.io/flightctl/charts/flightctl` — requires Gateway API and cert-manager |
 | **MicroShift** | Same Helm chart; see [installing on Kubernetes](docs/user/installing/installing-service-on-kubernetes.md) |
 | **Disconnected / air-gapped** | See [disconnected OpenShift install guide](docs/user/installing/installing-service-on-openshift-disconnected.md) |
-| **Linux RPM** | `sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && sudo dnf install -y flightctl-services` |
+| **Linux RPM** | `sudo dnf config-manager addrepo https://rpm.flightctl.io/flightctl-epel.repo && sudo dnf install -y flightctl-services` |
 
 Pre-built container images are published to `quay.io/flightctl/` for each release. Helm charts are published to `oci://quay.io/flightctl/charts/flightctl`.
 
