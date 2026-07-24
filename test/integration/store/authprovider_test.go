@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -132,6 +133,16 @@ var _ = Describe("AuthProviderStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("get-test-provider"))
+
+			// clientSecret must be encrypted at rest and decrypt to the original value
+			oidcSpec, err := result.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(oidcSpec.ClientSecret).ToNot(Equal("test-client-secret"),
+				"clientSecret should not be stored as plaintext")
+			plaintext, wasEncrypted, err := encryption.Decrypt(ctx, encryption.Ciphertext(oidcSpec.ClientSecret))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasEncrypted).To(BeTrue(), "clientSecret should be encrypted")
+			Expect(string(plaintext)).To(Equal("test-client-secret"))
 		})
 
 		It("GetAuthProvider - not found error", func() {
