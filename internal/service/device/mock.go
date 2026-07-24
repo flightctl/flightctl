@@ -118,20 +118,6 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
-// ForceUpdateServerSideDeviceStatus mocks base method.
-func (m *MockService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ForceUpdateServerSideDeviceStatus", ctx, orgId, name)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ForceUpdateServerSideDeviceStatus indicates an expected call of ForceUpdateServerSideDeviceStatus.
-func (mr *MockServiceMockRecorder) ForceUpdateServerSideDeviceStatus(ctx, orgId, name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForceUpdateServerSideDeviceStatus", reflect.TypeOf((*MockService)(nil).ForceUpdateServerSideDeviceStatus), ctx, orgId, name)
-}
-
 // GetDevice mocks base method.
 func (m *MockService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()

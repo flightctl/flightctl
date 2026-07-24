@@ -5,8 +5,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
-	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
-	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/store"
@@ -31,7 +29,6 @@ func main() {
 			log.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
-	profiling.Start(ctx, log, cfg, "flightctl-periodic", instpprof.DefaultPortPeriodic)
 
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)

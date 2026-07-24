@@ -487,20 +487,6 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	return nil
 }
 
-func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.deviceStore.GetWithTimestamp(ctx, orgId, name)
-	if err != nil {
-		return err
-	}
-	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
-	if err != nil {
-		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
-		return err
-	}
-	return nil
-}
-
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
 	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
