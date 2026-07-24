@@ -209,17 +209,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	if renderErr != nil {
-		if isPermanentRenderError(renderErr) {
-			t.markPermanentRenderFailure(ctx, specHash)
-		}
 		return t.setStatus(ctx, renderErr)
 	}
 
 	renderedApplications, err := t.renderApplications(ctx)
 	if err != nil {
-		if isPermanentRenderError(err) {
-			t.markPermanentRenderFailure(ctx, specHash)
-		}
 		return t.setStatus(ctx, err)
 	}
 
@@ -236,20 +230,6 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// even though specHash is unchanged (see bypassHashCheck above).
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
 	return t.setStatus(ctx, common.ApiStatusToErr(status))
-}
-
-func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, specHash string) {
-	annotations := map[string]string{
-		domain.DeviceAnnotationRenderedSpecHash: specHash,
-	}
-	if t.templateVersion != nil {
-		annotations[domain.DeviceAnnotationRenderedTemplateVersion] = *t.templateVersion
-	}
-
-	status := t.deviceSvc.UpdateDeviceAnnotations(ctx, t.orgId, t.event.InvolvedObject.Name, annotations, nil)
-	if status.Code != http.StatusOK {
-		t.log.Errorf("Failed writing render-failure annotations for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
-	}
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
@@ -407,7 +387,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed to get app type: %w", ErrUnknownApplicationType, err)
+		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
 	}
 
 	switch appType {
@@ -422,7 +402,7 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 	case domain.AppTypeVm:
 		vmApp, parseErr := (*app).AsVmApplication()
 		if parseErr != nil {
-			return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, parseErr)
+			return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, parseErr)
 		}
 		appName := vmApp.Name
 		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, kvStore)
@@ -434,11 +414,11 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, err)
+		return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
 	}
 	appName, err := (*app).GetName()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed to get app name: %w", ErrUnknownApplicationType, err)
+		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
 	}
 	return appName, app, nil
 }

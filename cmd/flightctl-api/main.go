@@ -20,8 +20,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
 	encmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
-	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
-	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -69,9 +67,6 @@ func main() {
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	profiling.Start(ctx, log, cfg, "flightctl-api", instpprof.DefaultPortAPI)
-
 	if err := encryption.InitGlobalEncryption(log, cfg); err != nil {
 		log.Fatalf("initializing encryption: %v", err)
 	}
@@ -91,6 +86,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
+
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
 	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
