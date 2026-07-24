@@ -316,7 +316,7 @@ dnf --version
 Install with dnf 4:
 
 ```bash
-sudo dnf config-manager addrepo https://rpm.flightctl.io/flightctl-epel.repo
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
 sudo dnf install -y flightctl-services
 sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot

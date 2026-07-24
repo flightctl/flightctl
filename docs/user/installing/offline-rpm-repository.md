@@ -23,7 +23,15 @@ This document covers two approaches:
 
 ## Adding the FlightCtl repository on the prep machine
 
-Add the FlightCtl RPM repository so `dnf` can find the packages:
+Add the FlightCtl RPM repository so `dnf` can find the packages.
+
+With DNF4:
+
+```bash
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+```
+
+With DNF5:
 
 ```bash
 sudo dnf config-manager addrepo https://rpm.flightctl.io/flightctl-epel.repo
