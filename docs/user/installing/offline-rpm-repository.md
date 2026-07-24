@@ -26,7 +26,7 @@ This document covers two approaches:
 Add the FlightCtl RPM repository so `dnf` can find the packages:
 
 ```bash
-sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+sudo dnf config-manager addrepo https://rpm.flightctl.io/flightctl-epel.repo
 ```
 
 Verify that the repository is enabled:
