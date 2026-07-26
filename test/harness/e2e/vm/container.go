@@ -468,6 +468,11 @@ func (c *ContainerDevice) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*byte
 	return c.RunSSHWithUser(inputArgs, stdin, "")
 }
 
+// RunSSHContext is the context-aware form of RunSSH (container exec, not real SSH).
+func (c *ContainerDevice) RunSSHContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
+	return c.runExecWithUserContext(ctx, inputArgs, stdin, "")
+}
+
 func (c *ContainerDevice) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
 	return c.runExecWithUserContext(context.Background(), inputArgs, stdin, user)
 }
