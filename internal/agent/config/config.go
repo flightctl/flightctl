@@ -37,14 +37,14 @@ const (
 	// enrollment approval while the agent waits to be enrolled.
 	DefaultEnrollmentVerifyInterval = util.Duration(10 * time.Second)
 	// DefaultEnrollmentVerifyCap is the default maximum interval the enrollment-verify
-	// backoff can grow to (see agent.go's enrollment backoff).
-	DefaultEnrollmentVerifyCap = util.Duration(90 * time.Second)
+	// backoff can grow to (see agent.go's enrollment backoff). Matches the pre-config
+	// hardcoded Cap of 1m.
+	DefaultEnrollmentVerifyCap = util.Duration(1 * time.Minute)
 	// DefaultEnrollmentVerifySteps is the default number of enrollment-verify backoff
 	// steps attempted before the agent gives up waiting for enrollment approval and
-	// lets systemd restart it (see agent.go's enrollment backoff). Sized together
-	// with DefaultEnrollmentVerifyCap so the total wait comfortably exceeds realistic
-	// enrollment-approval latency regardless of EnrollmentVerifyInterval.
-	DefaultEnrollmentVerifySteps = 11
+	// lets systemd restart it (see agent.go's enrollment backoff). Matches the
+	// pre-config hardcoded Steps of 6.
+	DefaultEnrollmentVerifySteps = 6
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
