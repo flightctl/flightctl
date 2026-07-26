@@ -315,11 +315,11 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	if !ok {
 		return flterrors.ErrResourceNotFound
 	}
-	if d.Status == nil {
-		d.Status = lo.ToPtr(domain.NewDeviceStatus())
+	var oldConditions []domain.Condition
+	if d.Status != nil {
+		oldConditions = append([]domain.Condition(nil), d.Status.Conditions...)
 	}
-	oldConditions := append([]domain.Condition(nil), d.Status.Conditions...)
-	newConditions := append([]domain.Condition(nil), d.Status.Conditions...)
+	newConditions := append([]domain.Condition(nil), oldConditions...)
 	changed := false
 	for _, condition := range conditions {
 		if domain.SetStatusCondition(&newConditions, condition) {
@@ -328,6 +328,9 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	}
 	if !changed {
 		return nil
+	}
+	if d.Status == nil {
+		d.Status = lo.ToPtr(domain.NewDeviceStatus())
 	}
 	d.Status.Conditions = newConditions
 	if callback != nil {
