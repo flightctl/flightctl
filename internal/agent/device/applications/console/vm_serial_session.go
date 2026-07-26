@@ -34,7 +34,7 @@ func (s *vmSerialSession) Run(ctx context.Context, streamClient grpc_v1.RouterSe
 	s.log.Debugf("vm serial console session started for container %s", s.containerName)
 	defer s.log.Debugf("vm serial console session finished for container %s", s.containerName)
 
-	conn, err := s.exec.ExecStream(ctx, s.containerName, "nc", "-U", vmSerialSocketPath)
+	conn, err := dialVMUnixSocket(ctx, s.exec, s.containerName, vmSerialSocketPath, s.log)
 	if err != nil {
 		sendErrorOverStream(streamClient, fmt.Sprintf("failed to connect to serial console for %s: %v", s.containerName, err))
 		return

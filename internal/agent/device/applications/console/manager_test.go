@@ -24,12 +24,22 @@ import (
 
 // mockExecStreamer is a minimal ExecStreamer for tests.
 type mockExecStreamer struct {
-	conn io.ReadWriteCloser
-	err  error
+	conn      io.ReadWriteCloser
+	err       error
+	execCalls [][]string
+	mu        sync.Mutex
 }
 
 func (m *mockExecStreamer) ExecStream(_ context.Context, _ string, _ ...string) (io.ReadWriteCloser, error) {
 	return m.conn, m.err
+}
+
+func (m *mockExecStreamer) Exec(_ context.Context, _ string, cmd ...string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := append([]string(nil), cmd...)
+	m.execCalls = append(m.execCalls, cp)
+	return nil
 }
 
 // mockResolver is a minimal AppConsoleResolver for tests. When seq[appName] is non-empty,
