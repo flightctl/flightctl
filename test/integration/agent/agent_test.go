@@ -287,7 +287,7 @@ var _ = Describe("Device Agent behavior", func() {
 				// Manually overwrite reported status so we can verify the agent pushes and restores the real one.
 				overwrittenDevice := *devBefore
 				overwrittenDevice.Status.Os.Image = "fake-os-overwritten-by-test"
-				_, replaceSt := h.Device.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice)
+				_, replaceSt := h.Device.ReplaceDeviceStatus(h.AuthenticatedContext(h.Context), orgID, deviceName, overwrittenDevice, true)
 				Expect(replaceSt.Code).To(BeEquivalentTo(200))
 				GinkgoWriter.Printf("ConflictPaused test: overwrote device status Os.Image to fake value\n")
 

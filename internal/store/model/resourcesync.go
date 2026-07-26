@@ -48,7 +48,7 @@ func NewResourceSyncFromApiResource(resource *domain.ResourceSync) (*ResourceSyn
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),

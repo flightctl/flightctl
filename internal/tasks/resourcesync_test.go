@@ -6,10 +6,13 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.T) {
@@ -621,6 +624,36 @@ func specToMap(t *testing.T, spec interface{}) map[string]interface{} {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+// TestCreateOrUpdateMultiple_DoesNotMutateSourceTemplateMetadata guards against a shallow-copy
+// aliasing regression: fleetToUpdate := *resource copies Spec.Template.Metadata by pointer, so
+// sanitizing the copy must not also wipe the managed fields off the caller-owned resource.
+func TestCreateOrUpdateMultiple_DoesNotMutateSourceTemplateMetadata(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetMock := fleetservice.NewMockService(ctrl)
+	fleetMock.EXPECT().
+		ReplaceFleet(gomock.Any(), gomock.Any(), "fleet1", gomock.Any(), false).
+		Return(&domain.Fleet{}, domain.StatusOK())
+
+	log := logrus.New()
+	rs := NewResourceSync(nil, fleetMock, nil, nil, log, nil, nil)
+
+	resource := &domain.Fleet{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet1")},
+	}
+	resource.Spec.Template.Metadata = &domain.ObjectMeta{
+		Owner:      lo.ToPtr("Fleet/other"),
+		Generation: lo.ToPtr(int64(3)),
+	}
+
+	err := rs.createOrUpdateMultiple(context.Background(), uuid.New(), lo.ToPtr("owner"), resource)
+	require.NoError(t, err)
+
+	require.Equal(t, "Fleet/other", lo.FromPtr(resource.Spec.Template.Metadata.Owner),
+		"sanitizing the copy must not clear Owner off the caller's original resource")
+	require.Equal(t, int64(3), lo.FromPtr(resource.Spec.Template.Metadata.Generation),
+		"sanitizing the copy must not clear Generation off the caller's original resource")
 }
 
 func TestIsValidFile(t *testing.T) {

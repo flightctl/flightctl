@@ -50,7 +50,6 @@ var _ = Describe("FleetSelector", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 		orgId = store.NullOrgId

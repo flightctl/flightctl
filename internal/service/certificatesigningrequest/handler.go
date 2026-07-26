@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
@@ -43,6 +44,29 @@ func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentReq
 }
 
 var _ Service = (*ServiceHandler)(nil)
+
+// SanitizeCertificateSigningRequest clears status and managed metadata from an untrusted CSR
+// document (HTTP body). Callers that must set Owner (e.g. the agent creating its own device CSR)
+// must not use this.
+func SanitizeCertificateSigningRequest(csr *domain.CertificateSigningRequest) {
+	if csr == nil {
+		return
+	}
+	csr.Status = nil
+	common.NilOutManagedObjectMetaProperties(&csr.Metadata)
+}
+
+// CreateCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then creates it.
+func CreateCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.CreateCertificateSigningRequest(ctx, orgId, csr)
+}
+
+// ReplaceCertificateSigningRequestFromUntrusted sanitizes an untrusted CSR document, then replaces it.
+func ReplaceCertificateSigningRequestFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	SanitizeCertificateSigningRequest(&csr)
+	return svc.ReplaceCertificateSigningRequest(ctx, orgId, name, csr)
+}
 
 func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) {
 	if domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestApproved) || domain.IsStatusConditionTrue(csr.Status.Conditions, domain.ConditionTypeCertificateSigningRequestDenied) {
@@ -176,12 +200,6 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUI
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
-	}
-
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name
 	if csr.Spec.SignerName == "enrollment" {
 		csr.Spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
@@ -255,6 +273,10 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	if certificateSigningRequestOwnershipConflict(currentObj, newObj) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
+	}
+
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
@@ -300,15 +322,28 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	return result, domain.StatusOK()
 }
 
-func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
-	// don't set fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		csr.Status = nil
-		common.NilOutManagedObjectMetaProperties(&csr.Metadata)
+// certificateSigningRequestOwnershipConflict reports whether replacing/patching an owned
+// CSR's spec would let a caller other than its owner (e.g. the enrolling device) swap in a
+// different certificate request under the same name.
+func certificateSigningRequestOwnershipConflict(existing, incoming *domain.CertificateSigningRequest) bool {
+	if len(lo.FromPtr(existing.Metadata.Owner)) == 0 {
+		return false
 	}
+	return !domain.CertificateSigningRequestSpecsAreEqual(existing.Spec, incoming.Spec)
+}
 
+func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	if name != *csr.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	existing, getErr := h.store.Get(ctx, orgId, name)
+	if getErr != nil {
+		if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+			return nil, common.StoreErrorToApiStatus(getErr, false, domain.CertificateSigningRequestKind, &name)
+		}
+	} else if certificateSigningRequestOwnershipConflict(existing, &csr) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
 	}
 
 	// Support legacy shorthand "enrollment" by replacing it with the configured signer name

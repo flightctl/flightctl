@@ -529,7 +529,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, status := f.deviceSvc.ReplaceDevice(ctx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
+	_, status := f.deviceSvc.ReplaceDevice(ctx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil, false)
 
 	if err := common.ApiStatusToErr(status); err != nil {
 		return err

@@ -52,7 +52,7 @@ func NewCatalogFromApiResource(resource *domain.Catalog) (*Catalog, error) {
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
@@ -254,6 +254,6 @@ func NewCatalogItemFromApiResource(orgId uuid.UUID, catalogName string, resource
 		Owner:       resource.Metadata.Owner,
 		Spec:        MakeJSONField(resource.Spec),
 		Labels:      lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-		Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+		Annotations: lo.FromPtr(resource.Metadata.Annotations),
 	}, nil
 }

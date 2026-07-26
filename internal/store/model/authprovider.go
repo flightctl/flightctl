@@ -46,7 +46,7 @@ func NewAuthProviderFromApiResource(resource *domain.AuthProvider) (*AuthProvide
 			Name:            lo.FromPtr(resource.Metadata.Name),
 			Owner:           resource.Metadata.Owner,
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Generation:      resource.Metadata.Generation,
 			ResourceVersion: resourceVersion,
 		},

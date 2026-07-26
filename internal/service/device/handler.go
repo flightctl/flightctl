@@ -61,15 +61,33 @@ func NewDeviceServiceHandler(
 
 var _ Service = (*DeviceServiceHandler)(nil)
 
+// SanitizeDevice clears status and managed metadata from an untrusted device document
+// (HTTP body). Trusted callers that must preserve Owner/annotations must not use this.
+func SanitizeDevice(device *domain.Device) {
+	if device == nil {
+		return
+	}
+	device.Status = nil
+	common.NilOutManagedObjectMetaProperties(&device.Metadata)
+}
+
+// CreateDeviceFromUntrusted sanitizes an untrusted device document, then creates it.
+func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
+	SanitizeDevice(&device)
+	return svc.CreateDevice(ctx, orgId, device)
+}
+
+// ReplaceDeviceFromUntrusted sanitizes an untrusted device document, then replaces it.
+func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
+	SanitizeDevice(&device)
+	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
+}
+
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
 		return nil, domain.StatusBadRequest(flterrors.ErrDecommission.Error())
 	}
-
-	// don't set fields that are managed by the service
-	device.Status = nil
-	common.NilOutManagedObjectMetaProperties(&device.Metadata)
 
 	if errs := device.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -204,17 +222,10 @@ func DeviceVerificationCallback(ctx context.Context, before, after *domain.Devic
 	return nil
 }
 
-func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, domain.StatusBadRequest(flterrors.ErrDecommission.Error())
-	}
-
-	// don't overwrite fields that are managed by the service for external requests
-	isNotInternal := !common.IsInternalRequest(ctx)
-	if isNotInternal {
-		device.Status = nil
-		common.NilOutManagedObjectMetaProperties(&device.Metadata)
 	}
 
 	if errs := device.Validate(); len(errs) > 0 {
@@ -224,9 +235,22 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	if enforceOwnership {
+		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
+			}
+		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+			if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
+				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+			}
+		}
+	}
+
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -234,12 +258,6 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, flterrors.ErrDecommission
-	}
-
-	// don't overwrite fields that are managed by the service for external requests
-	if !common.IsInternalRequest(ctx) {
-		device.Status = nil
-		common.NilOutManagedObjectMetaProperties(&device.Metadata)
 	}
 
 	if errs := device.Validate(); len(errs) > 0 {
@@ -251,6 +269,7 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
+	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
 	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
 
@@ -286,7 +305,7 @@ func validateDeviceStatus(d *domain.Device) []error {
 	return allErrs
 }
 
-func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, incomingDevice domain.Device) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, incomingDevice domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
 	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -299,8 +318,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	if incomingDevice.Status == nil {
 		return nil, domain.StatusBadRequest("device status is required")
 	}
-	isNotInternal := !common.IsInternalRequest(ctx)
-	if isNotInternal {
+	if refreshLastSeen {
 		if h.agentGate.Acquire(ctx, 1) == nil {
 			defer h.agentGate.Release(1)
 		}
@@ -362,7 +380,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -428,7 +446,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Device, domain.Status) {
 	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -462,9 +480,15 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
+	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
+		if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		}
+	}
+
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

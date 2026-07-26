@@ -40,6 +40,21 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// ListAllOrganizations mocks base method.
+func (m *MockService) ListAllOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllOrganizations", ctx, params)
+	ret0, _ := ret[0].(*domain.OrganizationList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAllOrganizations indicates an expected call of ListAllOrganizations.
+func (mr *MockServiceMockRecorder) ListAllOrganizations(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllOrganizations", reflect.TypeOf((*MockService)(nil).ListAllOrganizations), ctx, params)
+}
+
 // ListOrganizations mocks base method.
 func (m *MockService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.ctrl.T.Helper()

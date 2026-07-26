@@ -43,6 +43,14 @@ func endSpan(span trace.Span, st domain.Status) {
 	span.End()
 }
 
+func (_d *TracedService) ListAllOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (op1 *domain.OrganizationList, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ListAllOrganizations")
+
+	op1, s1 = _d.inner.ListAllOrganizations(ctx, params)
+	endSpan(span, s1)
+	return op1, s1
+}
+
 func (_d *TracedService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (op1 *domain.OrganizationList, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ListOrganizations")
 

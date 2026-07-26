@@ -127,7 +127,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 	}
 
 	domainDevice := s.converter.Device().ToDomain(device)
-	body, status := s.device.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice)
+	body, status := s.device.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -201,7 +201,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 	}
 
 	domainER := s.converter.EnrollmentRequest().ToDomain(er)
-	body, status := s.enrollmentrequest.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), domainER)
+	body, status := enrollmentrequest.CreateEnrollmentRequestFromUntrusted(ctx, s.enrollmentrequest, transport.OrgIDFromContext(ctx), domainER)
 	apiResult := s.converter.EnrollmentRequest().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -279,7 +279,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	service.NilOutManagedObjectMetaProperties(&request.Metadata)
 	request.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, fingerprint)
 	domainCSR := s.converter.CertificateSigningRequest().ToDomain(request)
-	csr, status := s.certificatesigningrequest.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), domainCSR)
+	csr, status := s.certificatesigningrequest.CreateCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), domainCSR)
 	if status.Code != http.StatusCreated && status.Code != http.StatusOK {
 		s.SetResponse(w, status, status)
 		return

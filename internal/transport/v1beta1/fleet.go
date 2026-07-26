@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := h.fleet.CreateFleet(r.Context(), transport.OrgIDFromContext(r.Context()), domainFleet)
+	body, status := fleetservice.CreateFleetFromUntrusted(r.Context(), h.fleet, transport.OrgIDFromContext(r.Context()), domainFleet)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -47,14 +48,14 @@ func (h *TransportHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, 
 	}
 
 	domainFleet := h.converter.Fleet().ToDomain(fleet)
-	body, status := h.fleet.ReplaceFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainFleet)
+	body, status := fleetservice.ReplaceFleetFromUntrusted(r.Context(), h.fleet, transport.OrgIDFromContext(r.Context()), name, domainFleet, true)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/fleets/{name})
 func (h *TransportHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.fleet.DeleteFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	status := h.fleet.DeleteFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, true)
 	h.SetResponse(w, nil, status)
 }
 
@@ -88,7 +89,7 @@ func (h *TransportHandler) PatchFleet(w http.ResponseWriter, r *http.Request, na
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.fleet.PatchFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
+	body, status := h.fleet.PatchFleet(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true)
 	apiResult := h.converter.Fleet().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
