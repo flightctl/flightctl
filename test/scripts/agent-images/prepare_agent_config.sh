@@ -21,11 +21,11 @@ ensure_organization_set
 
 status_update_interval=0m2s
 spec_fetch_interval=0m2s
-enrollment_verify_interval=0m2s
-# Wider Cap/Steps so a short Interval doesn't exhaust the enrollment backoff (and
-# trigger Restart=always) during VM-pool bootstrap before anything has approved yet.
-enrollment_verify_cap=0m90s
-enrollment_verify_steps=11
+# Enrollment-verify overrides are opt-in (e2e only). When unset, the agent keeps its
+# production defaults (interval 10s / cap 1m / steps 6).
+enrollment_verify_interval=
+enrollment_verify_cap=
+enrollment_verify_steps=
 # Use external getopt for long options
 options=$(getopt -o h --long status-update-interval:,spec-fetch-interval:,enrollment-verify-interval:,enrollment-verify-cap:,enrollment-verify-steps:,help -n "$0" -- "$@")
 eval set -- "$options"
@@ -43,18 +43,26 @@ while true; do
 done
 
 # - Enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
-# - Enrollment-verify-* control the agent's poll-for-approval backoff (production defaults:
-#   interval 10s / cap 1m / steps 6). Interval is shortened for e2e speed; Cap/Steps are
-#   widened so the short interval can't exhaust the backoff during pristine VM-pool
-#   bootstrap before enrollment approval.
 # - Include the custom system info collectors that were defined in the container image
-cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
+# - Enrollment-verify-* are appended only when explicitly passed (e2e agent-images.mk), so
+#   prepare-agent-config for local/kind deploy keeps production enrollment backoff defaults.
+{
+  cat <<EOF
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
-enrollment-verify-interval: $enrollment_verify_interval
-enrollment-verify-cap: $enrollment_verify_cap
-enrollment-verify-steps: $enrollment_verify_steps
+EOF
+  if [[ -n "$enrollment_verify_interval" ]]; then
+    echo "enrollment-verify-interval: $enrollment_verify_interval"
+  fi
+  if [[ -n "$enrollment_verify_cap" ]]; then
+    echo "enrollment-verify-cap: $enrollment_verify_cap"
+  fi
+  if [[ -n "$enrollment_verify_steps" ]]; then
+    echo "enrollment-verify-steps: $enrollment_verify_steps"
+  fi
+  cat <<EOF
 system-info-custom:
   - siteName
   - emptyValue
 EOF
+} | tee -a bin/agent/etc/flightctl/config.yaml
