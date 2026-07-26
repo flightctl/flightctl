@@ -338,9 +338,10 @@ func ensureRegistryCerts() (string, error) {
 // /etc/containers/certs.d inside VM/container-backed devices; this covers the host-side Docker
 // daemon pulling the device image itself (see ContainerDevice.Run).
 //
-// Runs both commands through ctx (Registry.Start's context) so a stuck sudo prompt or slow host
-// can't hang e2e setup past the caller's own cancellation/timeout; -n makes sudo fail fast instead
-// of blocking on a password prompt if passwordless sudo isn't configured for this command.
+// Runs both commands through ctx (Registry.Start's context) so a stuck sudo prompt fails with the
+// caller's cancellation; -n makes sudo fail fast instead of blocking on a password prompt if
+// passwordless sudo isn't configured. Note: CommandContext cancels the sudo wrapper process; a
+// root-owned mkdir/cp child may briefly outlive that cancel for these short commands.
 func configureDockerRegistryTrust(ctx context.Context, registryURL, caCertPath string) error {
 	// registryURL is built from GetHostIP(), which honors an env var override (E2EAuxHostEnv) -
 	// reject anything that isn't a plain host:port before it reaches filepath.Join/sudo cp below,
