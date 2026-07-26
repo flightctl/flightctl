@@ -18,18 +18,18 @@ Stack: `main` ← `#3221` ← `#3277` ← **`e2e-under-30m`** (this branch). Pre
 1. **`89141` backup/restore** — RV divergence via **config-only** fleet motd updates (not bootc OS v2→v3→v4). Primary device is **`needdevice`** (container). Still asserts: 3 ERs, backup/restore, ConflictPaused, OutOfDate, resume → Online+UpToDate. OS rollout remains in agent_update + non-sanity `89194`.
 2. **`78753` hooks** — **one** OS reboot (V6 + lifecycle hooks together). Lifecycle log asserts run after that reboot; sshd/embedded-hook checks stay config-only afterward. Dropped second OS→Base cycle.
 3. **`77671` embedded app** — same two OS cycles (v4 then base); waits collapsed to `WaitForDeviceNewRenderedVersionWithReboot`. SELinux checked after v4.
-4. **`87531` helm degraded** — sanity keeps Healthy→Degraded; Error-state path is a separate **slow** It (same checkpoint id). `delayBeforeFail` 20→5.
+4. **`87531` helm degraded** — sanity keeps Healthy→Degraded; Error-state path is a separate **slow** It (same checkpoint id). Sanity `delayBeforeFail` 20→15 (Error path stays at 5).
 5. **`88004` helm auth** — sanity keeps helm+registry auth; rootful/rootless quadlet auth follow-ups are a separate **slow** It.
 6. **`87279` greenboot** — sanity keeps rollback + no-retry; recovery OS→good image is a separate **slow** It. Stability 45s→20s; e2e health override 10/10/2→5/5/1.
 
 ### LPT packing (not deleted)
 
-7. **`88425` journal persistent** — removed `sanity` label only (still runs; another full rollback cycle). Prefer re-adding to sanity once greenboot path is stably ≤5m and LPT allows.
+1. **`88425` journal persistent** — removed `sanity` label only (still runs; another full rollback cycle). Prefer re-adding to sanity once greenboot path is stably ≤5m and LPT allows.
 
 ### CI prep (not a test concession)
 
-8. Agent qcow/bundle download runs **in parallel** with kind+Helm deploy (`run-e2e-tests.yaml`, detached `gh run download`).
-9. Helm `BeforeSuite` uses `SetupWorkerHarnessWithoutVM` (VM still per-spec in BeforeEach).
+1. Agent qcow/bundle download runs **in parallel** with kind+Helm deploy (`run-e2e-tests.yaml`, detached `gh run download`).
+2. Helm `BeforeSuite` uses `SetupWorkerHarnessWithoutVM` (VM still per-spec in BeforeEach).
 
 ## Still needed for ≤30m (not done)
 

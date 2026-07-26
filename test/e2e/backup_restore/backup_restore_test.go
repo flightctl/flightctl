@@ -198,20 +198,25 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			deviceSpecNext, err := harness.CreateFleetDeviceSpec(regHost, regPort, "", motdInlineConfigProviderSpecWith("backup-restore-e2e-v3\n"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecNext)).To(Succeed())
-			Eventually(func() string {
+			Eventually(func() (string, error) {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(devAfterPush.JSON200).ToNot(BeNil())
-				Expect(devAfterPush.JSON200.Spec.Config).ToNot(BeNil())
-				return fmt.Sprintf("%v", *devAfterPush.JSON200.Spec.Config)
+				if err != nil {
+					return "", err
+				}
+				if devAfterPush.JSON200 == nil || devAfterPush.JSON200.Spec.Config == nil {
+					return "", fmt.Errorf("device response missing spec/config")
+				}
+				return fmt.Sprintf("%v", *devAfterPush.JSON200.Spec.Config), nil
 			}, 2*time.Second, 500*time.Millisecond).Should(ContainSubstring("backup-restore-e2e-v3"), "device spec should pick up new motd while ConflictPaused")
-			Consistently(func() int {
+			Consistently(func() (int, error) {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(devAfterPush.JSON200).ToNot(BeNil())
-				rv, err := strconv.Atoi(devAfterPush.JSON200.Status.Config.RenderedVersion)
-				Expect(err).ToNot(HaveOccurred())
-				return rv
+				if err != nil {
+					return 0, err
+				}
+				if devAfterPush.JSON200 == nil || devAfterPush.JSON200.Status == nil || devAfterPush.JSON200.Status.Config.RenderedVersion == "" {
+					return 0, fmt.Errorf("device response missing status/config renderedVersion")
+				}
+				return strconv.Atoi(devAfterPush.JSON200.Status.Config.RenderedVersion)
 			}, 2*time.Second, 500*time.Millisecond).Should(Equal(rvAfterUpdate), "renderedVersion must not increase while ConflictPaused")
 
 			By("Re-approving third ER so it becomes a device (ConflictPaused)")
