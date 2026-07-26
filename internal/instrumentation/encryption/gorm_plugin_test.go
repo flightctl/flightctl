@@ -37,7 +37,7 @@ func TestPlugin_Name(t *testing.T) {
 func TestPlugin_Initialize_Success(t *testing.T) {
 	mgr := createTestManager(t)
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			return nil
 		},
 	}
@@ -53,7 +53,7 @@ func TestPlugin_Initialize_Success(t *testing.T) {
 
 func TestPlugin_Initialize_NilManager(t *testing.T) {
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			return nil
 		},
 	}
@@ -74,7 +74,7 @@ func TestPlugin_HandlerCalled_OnCreate(t *testing.T) {
 
 	handlerCalled := false
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			handlerCalled = true
 			user := v.(*TestUser)
 			if user.Password != "" {
@@ -108,7 +108,7 @@ func TestPlugin_HandlerCalled_OnUpdate(t *testing.T) {
 
 	callCount := 0
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			callCount++
 			user := v.(*TestUser)
 			if user.Password != "" {
@@ -168,7 +168,7 @@ func TestPlugin_HandlerError_PropagatesError(t *testing.T) {
 	mgr := createTestManager(t)
 
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			return assert.AnError // Simulate handler error
 		},
 	}
@@ -193,11 +193,11 @@ func TestPlugin_MultipleModels_CorrectHandler(t *testing.T) {
 	repoHandlerCalled := false
 
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			userHandlerCalled = true
 			return nil
 		},
-		"TestRepository": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestRepository": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			repoHandlerCalled = true
 			return nil
 		},
@@ -229,7 +229,7 @@ func TestPlugin_UsesProcessEncryption(t *testing.T) {
 	var encryptFuncReceived EncryptFunc
 
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			encryptFuncReceived = encrypt
 			return nil
 		},
@@ -259,7 +259,7 @@ func TestPlugin_BatchCreate_HandlerCalledForSlice(t *testing.T) {
 	var callCount int
 
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			user, ok := v.(*TestUser)
 			if !ok {
 				return fmt.Errorf("expected *TestUser, got %T", v)
@@ -299,7 +299,7 @@ func TestPlugin_NilContext_UsesBackground(t *testing.T) {
 	var ctxReceived context.Context
 
 	handlers := map[string]ModelEncryptHandler{
-		"TestUser": func(ctx context.Context, v interface{}, encrypt EncryptFunc) error {
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
 			ctxReceived = ctx
 			return nil
 		},
@@ -312,6 +312,41 @@ func TestPlugin_NilContext_UsesBackground(t *testing.T) {
 	db.Create(&user)
 
 	assert.NotNil(t, ctxReceived, "Handler should receive a context even if Statement.Context is nil")
+}
+
+func TestPlugin_MapUpdate_HandlerCalled(t *testing.T) {
+	mgr := createTestManager(t)
+
+	handlerCalled := false
+	handlers := map[string]ModelEncryptHandler{
+		"TestUser": func(ctx context.Context, v any, encrypt EncryptFunc) error {
+			m, ok := v.(map[string]any)
+			if !ok {
+				return nil
+			}
+			handlerCalled = true
+			if pw, ok := m["password"].(string); ok && pw != "" {
+				encrypted, err := encrypt(ctx, []byte(pw))
+				if err != nil {
+					return err
+				}
+				m["password"] = string(encrypted)
+			}
+			return nil
+		},
+	}
+
+	db := setupTestDB(t, mgr, handlers)
+
+	user := TestUser{Name: "Eve", Password: "original", Email: "eve@example.com"}
+	db.Create(&user)
+	handlerCalled = false
+
+	result := db.Model(&user).Updates(map[string]any{
+		"password": "newpass",
+	})
+	require.NoError(t, result.Error)
+	assert.True(t, handlerCalled, "Handler should be called for map-based Updates")
 }
 
 // Helper functions

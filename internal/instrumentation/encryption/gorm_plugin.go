@@ -80,7 +80,7 @@ func (p *Plugin) beforeSave(tx *gorm.DB) {
 	val := reflect.ValueOf(dest)
 
 	// Dereference pointer if needed (GORM passes *[]T for batch creates).
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
@@ -98,12 +98,6 @@ func (p *Plugin) beforeSave(tx *gorm.DB) {
 				return
 			}
 		}
-		return
-	}
-
-	// Partial updates (map[string]interface{}, etc.) don't carry the full model.
-	// Only encrypt pointer-to-struct, the normal single-model create/update path.
-	if val.Kind() != reflect.Struct {
 		return
 	}
 
