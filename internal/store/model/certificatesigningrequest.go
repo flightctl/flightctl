@@ -46,11 +46,8 @@ func NewCertificateSigningRequestFromApiResource(resource *domain.CertificateSig
 	}
 	return &CertificateSigningRequest{
 		Resource: Resource{
-			Name:   *resource.Metadata.Name,
-			Labels: lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			// A nil Annotations pointer (as set by SanitizeCertificateSigningRequest for untrusted
-			// input) means "don't touch annotations"; converting it to a nil map (not an empty
-			// one) lets the store's nil-skip merge logic leave existing annotations untouched.
+			Name:            *resource.Metadata.Name,
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
