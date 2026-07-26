@@ -54,7 +54,12 @@ push-e2e-agent-images: e2e-agent-images
 	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-quadlets.sh
 
 bin/.e2e-agent-certs:
-	./test/scripts/agent-images/prepare_agent_config.sh
+	# Short enrollment-verify interval for e2e speed; wider Cap/Steps so that short
+	# interval cannot exhaust the backoff during pristine VM-pool bootstrap.
+	./test/scripts/agent-images/prepare_agent_config.sh \
+		--enrollment-verify-interval 0m2s \
+		--enrollment-verify-cap 0m90s \
+		--enrollment-verify-steps 11
 	touch bin/.e2e-agent-certs
 
 .PHONY: e2e-agent-images
