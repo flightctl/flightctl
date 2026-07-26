@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -18,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
+	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -66,6 +68,17 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if encMgr := encryption.GlobalManager(); encMgr != nil {
+		canaryStore := canarystore.NewCanaryStore(db, log.WithField("pkg", "canary-store"))
+		encMgr.SetCanaryStore(canarystore.AsEncryptionStore(canaryStore))
+		valCtx, valCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := encMgr.ValidateCanaries(valCtx)
+		valCancel()
+		if err != nil {
+			log.Fatalf("validating encryption canaries: %v", err)
+		}
+	}
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")

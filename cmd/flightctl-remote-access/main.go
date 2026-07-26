@@ -18,6 +18,7 @@ import (
 	remoteaccessserver "github.com/flightctl/flightctl/internal/remote_access_server"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
+	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -75,6 +76,17 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if encMgr := encryption.GlobalManager(); encMgr != nil {
+		canaryStore := canarystore.NewCanaryStore(db, log.WithField("pkg", "canary-store"))
+		encMgr.SetCanaryStore(canarystore.AsEncryptionStore(canaryStore))
+		valCtx, valCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := encMgr.ValidateCanaries(valCtx)
+		valCancel()
+		if err != nil {
+			log.Fatalf("validating encryption canaries: %v", err)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()

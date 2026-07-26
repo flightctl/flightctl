@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -18,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
+	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -58,6 +60,17 @@ func main() {
 	// ImageBuilder-specific store
 	imageBuilderStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
 	defer imageBuilderStore.Close()
+
+	if encMgr := encryption.GlobalManager(); encMgr != nil {
+		canaryStore := canarystore.NewCanaryStore(db, log.WithField("pkg", "canary-store"))
+		encMgr.SetCanaryStore(canarystore.AsEncryptionStore(canaryStore))
+		valCtx, valCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := encMgr.ValidateCanaries(valCtx)
+		valCancel()
+		if err != nil {
+			log.Fatalf("validating encryption canaries: %v", err)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()

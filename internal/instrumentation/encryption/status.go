@@ -63,7 +63,7 @@ func Status(ctx context.Context) (*EncryptionStatus, error) {
 	}
 
 	// Get canary manager (can be nil)
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 	status.CanaryChecksEnabled = (canaryMgr != nil)
 
 	// Build union of configured keys + canaries

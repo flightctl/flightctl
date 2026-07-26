@@ -13,10 +13,12 @@ const (
 	tracerName = "flightctl/encryption"
 
 	// Span names
-	spanProcess        = "process"
-	spanEncrypt        = "encrypt"
-	spanDecrypt        = "decrypt"
-	spanCanaryValidate = "canary-validate"
+	spanProcess           = "process"
+	spanEncrypt           = "encrypt"
+	spanDecrypt           = "decrypt"
+	spanCanaryEnsure      = "canary-ensure"
+	spanCanaryValidate    = "canary-validate"
+	spanCanaryValidateAll = "canary-validate-all"
 
 	// Attribute keys
 	attrOperation = "encryption.operation"
@@ -76,6 +78,22 @@ func startCanaryValidateSpan(ctx context.Context, strategy, keyID string) (conte
 		attribute.String(attrStrategy, strategy),
 		attribute.String(attrKeyID, keyID),
 	)
+	return ctx, span
+}
+
+func startCanaryEnsureSpan(ctx context.Context, strategy, keyID string) (context.Context, trace.Span) {
+	ctx, span := tracing.StartSpan(ctx, tracerName, spanCanaryEnsure)
+	span.SetAttributes(
+		attribute.String(attrOperation, "canary_ensure"),
+		attribute.String(attrStrategy, strategy),
+		attribute.String(attrKeyID, keyID),
+	)
+	return ctx, span
+}
+
+func startCanaryValidateAllSpan(ctx context.Context) (context.Context, trace.Span) {
+	ctx, span := tracing.StartSpan(ctx, tracerName, spanCanaryValidateAll)
+	span.SetAttributes(attribute.String(attrOperation, "canary_validate_all"))
 	return ctx, span
 }
 

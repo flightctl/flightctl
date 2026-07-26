@@ -20,13 +20,13 @@ type Canary struct {
 type CanaryStore interface {
 	// Get retrieves a canary for the given strategy and keyID.
 	// Returns nil if not found.
-	Get(strategy, keyID string) (*Canary, error)
+	Get(ctx context.Context, strategy, keyID string) (*Canary, error)
 
 	// Save creates or updates a canary.
-	Save(canary *Canary) error
+	Save(ctx context.Context, canary *Canary) error
 
 	// GetAll retrieves all stored canaries.
-	GetAll() ([]Canary, error)
+	GetAll(ctx context.Context) ([]Canary, error)
 }
 
 // ValidationResult represents the result of validating a single canary.
@@ -69,6 +69,9 @@ func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID strin
 	}
 	cm.mu.RUnlock()
 
+	ctx, span := startCanaryEnsureSpan(ctx, strategy, keyID)
+	defer span.End()
+
 	// Slow path: need to check storage and potentially create
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -79,7 +82,7 @@ func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID strin
 	}
 
 	// Check if canary already exists in storage
-	existing, err := cm.store.Get(strategy, keyID)
+	existing, err := cm.store.Get(ctx, strategy, keyID)
 	if err != nil {
 		return fmt.Errorf("check existing canary: %w", err)
 	}
@@ -90,12 +93,17 @@ func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID strin
 		return nil
 	}
 
-	// Create new canary
+	// Encrypt via the strategy with the specific key to verify that exact key works.
 	plaintext := fmt.Sprintf("flightctl-canary-%s-%s", strategy, keyID)
-	encrypted, err := cm.encMgr.Encrypt(ctx, []byte(plaintext))
+	s, exists := cm.encMgr.GetStrategy(strategy)
+	if !exists {
+		return fmt.Errorf("encrypt canary: strategy %q not found", strategy)
+	}
+	body, err := s.EncryptWithKey(ctx, keyID, []byte(plaintext))
 	if err != nil {
 		return fmt.Errorf("encrypt canary: %w", err)
 	}
+	encrypted := []byte(fmt.Sprintf("enc:%s:%s", strategy, string(body)))
 
 	canary := &Canary{
 		Strategy:       strategy,
@@ -104,7 +112,7 @@ func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID strin
 		CreatedAt:      time.Now(),
 	}
 
-	if err := cm.store.Save(canary); err != nil {
+	if err := cm.store.Save(ctx, canary); err != nil {
 		return fmt.Errorf("save canary: %w", err)
 	}
 
@@ -118,7 +126,10 @@ func (cm *CanaryManager) EnsureCanary(ctx context.Context, strategy, keyID strin
 // Returns a list of validation results, one per canary.
 // This is used by health/status endpoints to verify encryption is working.
 func (cm *CanaryManager) ValidateAll(ctx context.Context) ([]ValidationResult, error) {
-	canaries, err := cm.store.GetAll()
+	ctx, span := startCanaryValidateAllSpan(ctx)
+	defer span.End()
+
+	canaries, err := cm.store.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get all canaries: %w", err)
 	}
@@ -137,7 +148,7 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 	ctx, span := startCanaryValidateSpan(ctx, canary.Strategy, canary.KeyID)
 	defer span.End()
 
-	metrics := cm.encMgr.getMetricsRecorder()
+	metrics := cm.encMgr.MetricsRecorder()
 	expected := fmt.Sprintf("flightctl-canary-%s-%s", canary.Strategy, canary.KeyID)
 
 	decrypted, err := cm.encMgr.Decrypt(ctx, canary.EncryptedValue)
@@ -163,7 +174,7 @@ func (cm *CanaryManager) validateOne(ctx context.Context, canary *Canary) Valida
 			Strategy: canary.Strategy,
 			KeyID:    canary.KeyID,
 			Status:   "mismatch",
-			Error:    fmt.Sprintf("expected %q, got %q", expected, string(decrypted)),
+			Error:    "decrypted canary does not match expected value",
 		}
 	}
 
@@ -190,5 +201,5 @@ func (cm *CanaryManager) GetActiveCanary(ctx context.Context) (*Canary, error) {
 	}
 
 	keyID := strategy.ActiveKeyID()
-	return cm.store.Get(version, keyID)
+	return cm.store.Get(ctx, version, keyID)
 }

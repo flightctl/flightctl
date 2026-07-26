@@ -39,6 +39,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
+	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -217,6 +218,17 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if encMgr := encryption.GlobalManager(); encMgr != nil {
+		canaryStore := canarystore.NewCanaryStore(db, logger.WithField("pkg", "canary-store"))
+		encMgr.SetCanaryStore(canarystore.AsEncryptionStore(canaryStore))
+		valCtx, valCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := encMgr.ValidateCanaries(valCtx)
+		valCancel()
+		if err != nil {
+			logger.Fatalf("validating encryption canaries: %v", err)
+		}
+	}
 
 	// Handle graceful shutdown
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)

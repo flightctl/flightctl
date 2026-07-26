@@ -166,34 +166,36 @@ func (s *V1Strategy) ActiveKeyID() string {
 }
 
 // EncryptPlaintext encrypts plaintext using AES-256-GCM with the active key.
-// Returns format: keyID:base64(nonce||ciphertext||tag)
 func (s *V1Strategy) EncryptPlaintext(ctx context.Context, plaintext []byte) ([]byte, error) {
 	s.mu.RLock()
 	activeKey := s.activeKey
-	gcm, exists := s.gcms[activeKey]
 	s.mu.RUnlock()
 
 	if activeKey == "" {
 		return nil, fmt.Errorf("no active key set in v1 strategy")
 	}
+	return s.EncryptWithKey(ctx, activeKey, plaintext)
+}
+
+// EncryptWithKey encrypts plaintext using a specific key by ID.
+func (s *V1Strategy) EncryptWithKey(ctx context.Context, keyID string, plaintext []byte) ([]byte, error) {
+	s.mu.RLock()
+	gcm, exists := s.gcms[keyID]
+	s.mu.RUnlock()
+
 	if !exists {
-		return nil, fmt.Errorf("active key %s not found", activeKey)
+		return nil, fmt.Errorf("key %s not found", keyID)
 	}
 
-	// Generate random nonce
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
 
-	// Encrypt: returns nonce || ciphertext || tag
 	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
-
-	// Base64 encode the result
 	encoded := base64.StdEncoding.EncodeToString(ciphertext)
 
-	// Return keyID:base64data
-	return []byte(fmt.Sprintf("%s:%s", activeKey, encoded)), nil
+	return []byte(fmt.Sprintf("%s:%s", keyID, encoded)), nil
 }
 
 // ParseBody parses v1 format: keyID:base64(nonce||ciphertext||tag)
