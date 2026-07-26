@@ -56,12 +56,15 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	// These specs put the primary device through a real fleet OS rollout (fleet spec v2 -> v3,
-	// waiting for status.updated.status to actually reach UpToDate), which requires a genuine
-	// bootc switch + reboot - a container-backed device can't do that ("Detected container; this
-	// command requires a booted host system"), so this needs a real VM.
-	if slices.Contains(CurrentSpecReport().Labels(), "needvm") {
+	labels := CurrentSpecReport().Labels()
+	switch {
+	case slices.Contains(labels, "needvm"):
+		// Specs that still exercise a real fleet OS image rollout (bootc switch + reboot).
 		err := harness.SetupVMFromPoolAndStartAgent(workerID)
+		Expect(err).ToNot(HaveOccurred())
+	case slices.Contains(labels, "needdevice"):
+		// Config-driven RV / ConflictPaused paths — container-backed primary is enough.
+		err := harness.SetupContainerFromPoolAndStartAgent(workerID)
 		Expect(err).ToNot(HaveOccurred())
 	}
 

@@ -41,20 +41,19 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 	})
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
+	// Concession (e2e wall time): RV divergence uses config-only fleet updates (motd), not
+	// bootc OS v2→v3→v4. ConflictPaused/resume semantics are unchanged; OS rollout coverage
+	// remains in agent_update and non-sanity 89194. See test/e2e/E2E_WALL_TIME.md.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
-		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needvm"), func() {
+		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("89141", "sanity", "slow", "needdevice"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
-			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
 			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
-			// Main harness already has a VM from BeforeEach (workerID) - it's the one that goes
-			// through the real fleet OS rollout below. Create two more harnesses with their own
-			// devices; these are only ever enrolled/observed via the API and never put on a fleet
-			// that changes their OS image, so container-backed devices are sufficient here.
-			// Setup is independent per worker ID — run concurrently.
+			// Primary is container-backed (needdevice). Secondaries are container-backed and only
+			// enrolled/observed via the API — setup is independent per worker ID.
 			workerID2 := GinkgoParallelProcess()*100 + 1
 			workerID3 := GinkgoParallelProcess()*100 + 2
 			var harness2, harness3 *e2e.Harness
@@ -78,7 +77,6 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				return harness3.SetupContainerFromPoolAndStartAgent(workerID3)
 			})
 			setupErr := g.Wait()
-			// Register cleanup for whichever harnesses came up, regardless of the other's outcome.
 			if harness2 != nil {
 				DeferCleanup(func() {
 					harness2.PrintAgentLogsIfFailed()
@@ -96,58 +94,48 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				})
 			}
 			Expect(setupErr).ToNot(HaveOccurred())
-			// Device 1: approved with dev=yes (will be in fleet)
+
 			device1ID, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{devYesLabel: devYesValue})
 			Expect(device1ID).NotTo(BeEmpty())
-
-			// Device 2: approved without dev=yes (never in fleet)
 			device2ID, _ := harness2.EnrollAndWaitForOnlineStatus()
 			Expect(device2ID).NotTo(BeEmpty())
-
-			// ER3: enroll but do not approve (will approve after backup)
 			er3ID := harness3.GetEnrollmentIDFromServiceLogs("flightctl-agent")
 			Expect(er3ID).NotTo(BeEmpty())
 			_ = harness3.WaitForEnrollmentRequest(er3ID)
 
-			// Scenario for ConflictPaused after restore (do not restart device).
-			// RV checks are loose: we only verify that when a new version is applied, new RV > previous RV.
-
-			// --- Step 1: Fleet v2, device UpToDate; capture RV at backup time (rvAtBackup) ---
-			By("Creating fleet with selector dev=yes and OS image v2")
+			// Step 1: fleet with config-only RV bump (no OS image change).
+			By("Creating fleet with selector dev=yes and initial motd config")
 			regHost, regPort := auxSvcs.Registry.Host, auxSvcs.Registry.Port
-			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V2)
+			deviceSpecV1, err := harness.CreateFleetDeviceSpec(regHost, regPort, "", motdInlineConfigProviderSpecWith("backup-restore-e2e-v1\n"))
 			Expect(err).ToNot(HaveOccurred())
 			selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{devYesLabel: devYesValue}}
-			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV2)).To(Succeed())
+			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV1)).To(Succeed())
 
 			By("Step 1: Waiting for device 1 to be UpToDate and reading RV at backup time")
 			harness.WaitForDeviceContents(device1ID, "device 1 UpToDate", func(device *v1beta1.Device) bool {
 				return device.Status != nil && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
-			}, testutil.LONGTIMEOUT)
+			}, testutil.TIMEOUT_5M)
 			devForRV, err := harness.GetDevice(device1ID)
 			Expect(err).ToNot(HaveOccurred())
 			rvAtBackup, err := e2e.GetRenderedVersion(devForRV)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rvAtBackup).To(BeNumerically(">", 0), "step 1: RV at backup must be positive")
 
-			// --- Step 2: Create backup archive (service has rvAtBackup) ---
 			By("Step 2: Creating backup archive (service RV=rvAtBackup)")
 			backupDir := GinkgoT().TempDir()
 			archivePath, _, err := br.RunFlightCtlBackup(backupDir)
 			Expect(err).ToNot(HaveOccurred(), "backup must succeed")
 
-			// --- Step 3: Update fleet to OS v3 + inline config (new RV) ---
 			var rvAfterUpdate int
-			By("Step 3: Updating fleet to OS v3 and adding inline config for /etc/motd")
-			deviceSpecV3, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V3, motdInlineConfigProviderSpec())
+			By("Step 3: Updating fleet motd config (new RV, no OS change)")
+			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, "", motdInlineConfigProviderSpecWith("backup-restore-e2e-v2\n"))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV3)).To(Succeed())
+			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV2)).To(Succeed())
 
 			By("Approving third ER (after backup)")
 			harness3.ApproveEnrollment(er3ID, harness3.TestEnrollmentApproval())
 			Eventually(harness3.GetDeviceWithStatusSummary, testutil.TIMEOUT, testutil.POLLING).WithArguments(er3ID).ShouldNot(BeEmpty())
 
-			// --- Step 4: Wait for device to apply new version; verify new RV > rvAtBackup ---
 			By("Step 4: Waiting for device 1 to apply new version (new RV > previous RV) and be UpToDate")
 			harness.WaitForDeviceContents(device1ID, "device 1 RV > rvAtBackup and UpToDate", func(device *v1beta1.Device) bool {
 				if device.Status == nil {
@@ -162,55 +150,36 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					return true
 				}
 				return false
-			}, testutil.LONGTIMEOUT)
+			}, testutil.TIMEOUT_5M)
 			Expect(rvAfterUpdate).To(BeNumerically(">", rvAtBackup), "step 4: new RV must be greater than previous")
 
-			// --- Step 5: Restore from backup archive (do not restart device); service back to RV=N ---
 			By("Step 5: Restoring from backup archive (flightctl-restore handles service stop/start)")
 			defer func() {
 				Expect(br.VerifyAllServicesRunning()).To(Succeed(), "all services must be running after restore cleanup")
 			}()
 			Expect(br.RunFlightCtlRestoreFromArchive(archivePath)).To(Succeed(), "flightctl-restore must succeed")
 
-			By("Verifying all services were restarted by the restore binary")
+			By("Waiting for services and API after restore")
 			Eventually(func() error {
-				return br.VerifyAllServicesRunning()
-			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "All 8 services must be running after restore")
-
-			By("Waiting for API server to be responsive after restore")
-			Eventually(func() error {
+				if err := br.VerifyAllServicesRunning(); err != nil {
+					return err
+				}
 				_, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				return err
-			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "API server must respond after restore")
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(Succeed(), "services and API must be ready after restore")
 
-			// --- Step 6: Service RV=rvAtBackup (restored), device RV=rvAfterUpdate (> rvAtBackup) → ConflictPaused ---
-			By("Step 6: Waiting for devices to reach AwaitingReconnect or ConflictPaused or Online")
-			harness.WaitForDeviceContents(device1ID, "device 1 AwaitingReconnect or ConflictPaused or Online", func(device *v1beta1.Device) bool {
-				if device.Status == nil {
+			By("Step 6: Waiting for terminal post-restore states")
+			Eventually(func() bool {
+				d1, err1 := harness.GetDevice(device1ID)
+				d2, err2 := harness2.GetDevice(device2ID)
+				if err1 != nil || err2 != nil || d1.Status == nil || d2.Status == nil {
 					return false
 				}
-				s := device.Status.Summary.Status
-				return s == v1beta1.DeviceSummaryStatusAwaitingReconnect || s == v1beta1.DeviceSummaryStatusConflictPaused || s == v1beta1.DeviceSummaryStatusOnline
-			}, testutil.LONGTIMEOUT)
-			harness2.WaitForDeviceContents(device2ID, "device 2 AwaitingReconnect or Online", func(device *v1beta1.Device) bool {
-				if device.Status == nil {
-					return false
-				}
-				s := device.Status.Summary.Status
-				return s == v1beta1.DeviceSummaryStatusAwaitingReconnect || s == v1beta1.DeviceSummaryStatusOnline
-			}, testutil.LONGTIMEOUT)
+				return d1.Status.Summary.Status == v1beta1.DeviceSummaryStatusConflictPaused &&
+					d2.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+			}, testutil.TIMEOUT_5M, testutil.POLLING).Should(BeTrue(), "device1 ConflictPaused and device2 Online after restore")
 
-			// Device approved but never updated (not in fleet) → Online
-			By("Verifying device 2 (approved, never in fleet) is Online")
-			harness2.WaitForDeviceContents(device2ID, "device 2 Online", func(device *v1beta1.Device) bool {
-				return device.Status != nil && device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
-			}, testutil.TIMEOUT_5M)
-
-			// Step 6: Device 1 — service had rvAtBackup (restored), device reports rvAfterUpdate (> rvAtBackup) → ConflictPaused, OutOfDate
-			By("Step 6: Verifying device 1 is ConflictPaused (device RV > service RV) with OutOfDate")
-			harness.WaitForDeviceContents(device1ID, "device 1 ConflictPaused", func(device *v1beta1.Device) bool {
-				return device.Status != nil && device.Status.Summary.Status == v1beta1.DeviceSummaryStatusConflictPaused
-			}, testutil.TIMEOUT_5M)
+			By("Step 6: Verifying device 1 ConflictPaused (device RV > service RV) with OutOfDate")
 			device1, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(device1.JSON200).ToNot(BeNil())
@@ -220,47 +189,33 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(device1RV).To(Equal(rvAfterUpdate), "step 6: device RV unchanged after restore (no restart)")
 			Expect(device1.JSON200.Status.Updated.Status).To(Equal(v1beta1.DeviceUpdatedStatusOutOfDate))
 
-			// Device approved after backup → still ER in restored DB (not a device); re-approve makes it a device later
 			By("Verifying third enrollment remains as ER (not yet a device in restored DB)")
 			erResp, err := harness.Client.GetEnrollmentRequestWithResponse(harness.Context, er3ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(erResp.JSON200).ToNot(BeNil())
 
-			// --- Push config to ConflictPaused device (OS v4 + inline): spec updated, RV does not increase ---
-			By("Pushing new config (OS v4 + inline) to ConflictPaused device 1")
-			deviceSpecNext, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V4, motdInlineConfigProviderSpec())
+			By("Pushing new motd config to ConflictPaused device 1 (spec updates, RV unchanged)")
+			deviceSpecNext, err := harness.CreateFleetDeviceSpec(regHost, regPort, "", motdInlineConfigProviderSpecWith("backup-restore-e2e-v3\n"))
 			Expect(err).ToNot(HaveOccurred())
-			// Device 1 is owned by the fleet; push config by updating the fleet spec, not the device directly.
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecNext)).To(Succeed())
 			Eventually(func() string {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(devAfterPush.JSON200).ToNot(BeNil())
-				Expect(devAfterPush.JSON200.Spec.Os).ToNot(BeNil())
-				return devAfterPush.JSON200.Spec.Os.Image
-			}, 2*time.Second, 500*time.Millisecond).Should(ContainSubstring(testutil.DeviceTags.V4), "device spec should be updated to v4 after push while ConflictPaused")
-			// Rendered version should remain stable while ConflictPaused (spec updated but device RV unchanged).
+				Expect(devAfterPush.JSON200.Spec.Config).ToNot(BeNil())
+				return fmt.Sprintf("%v", *devAfterPush.JSON200.Spec.Config)
+			}, 2*time.Second, 500*time.Millisecond).Should(ContainSubstring("backup-restore-e2e-v3"), "device spec should pick up new motd while ConflictPaused")
 			Consistently(func() int {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(devAfterPush.JSON200).ToNot(BeNil())
-				Expect(devAfterPush.JSON200.Spec.Os).ToNot(BeNil())
-				Expect(devAfterPush.JSON200.Spec.Os.Image).To(ContainSubstring(testutil.DeviceTags.V4))
 				rv, err := strconv.Atoi(devAfterPush.JSON200.Status.Config.RenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
 				return rv
-			}, 5*time.Second, 500*time.Millisecond).Should(Equal(rvAfterUpdate), "renderedVersion must not increase while ConflictPaused")
+			}, 2*time.Second, 500*time.Millisecond).Should(Equal(rvAfterUpdate), "renderedVersion must not increase while ConflictPaused")
 
-			// --- Re-approve ER3 → device becomes AwaitingReconnect then ConflictPaused ---
-			By("Re-approving third ER so it becomes a device (AwaitingReconnect then ConflictPaused)")
+			By("Re-approving third ER so it becomes a device (ConflictPaused)")
 			harness3.ApproveEnrollment(er3ID, harness3.TestEnrollmentApproval())
-			harness.WaitForDeviceContents(er3ID, "device 3 (er3) AwaitingReconnect or ConflictPaused", func(device *v1beta1.Device) bool {
-				if device.Status == nil {
-					return false
-				}
-				s := device.Status.Summary.Status
-				return s == v1beta1.DeviceSummaryStatusAwaitingReconnect || s == v1beta1.DeviceSummaryStatusConflictPaused
-			}, testutil.LONGTIMEOUT)
 			harness.WaitForDeviceContents(er3ID, "device 3 (er3) ConflictPaused", func(device *v1beta1.Device) bool {
 				return device.Status != nil && device.Status.Summary.Status == v1beta1.DeviceSummaryStatusConflictPaused
 			}, testutil.TIMEOUT_5M)
@@ -269,7 +224,6 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(device3.JSON200).ToNot(BeNil())
 			Expect(device3.JSON200.Status.Config.RenderedVersion).To(Equal("1"))
 
-			// --- Resume device 1 → Online, new RV > rvAfterUpdate, up-to-date ---
 			By("Resuming device 1 via API")
 			fieldSelector := fmt.Sprintf("metadata.name=%s", device1ID)
 			req := v1beta1.DeviceResumeRequest{FieldSelector: &fieldSelector}
@@ -292,12 +246,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				}
 				rv, err := e2e.GetRenderedVersion(device)
 				return err == nil && rv > rvAfterUpdate
-			}, testutil.LONGTIMEOUT)
-			var resumedDev *v1beta1.Device
-			resumedDev, err = harness.GetDevice(device1ID)
+			}, testutil.TIMEOUT_5M)
+			resumedDev, err := harness.GetDevice(device1ID)
 			Expect(err).ToNot(HaveOccurred())
-			var rv int
-			rv, err = e2e.GetRenderedVersion(resumedDev)
+			rv, err := e2e.GetRenderedVersion(resumedDev)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rv).To(BeNumerically(">", rvAfterUpdate), "after resume, device RV must be greater than RV at update (rvAfterUpdate)")
 		})

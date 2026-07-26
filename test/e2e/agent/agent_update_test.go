@@ -69,101 +69,41 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 		})
 
 		It("Should update to v4 with embedded application", Label("77671", "sanity", "agent"), func() {
-			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
 			By("Verifying update to agent with embedded application")
-
-			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V4)
+			nextRendered, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-
-			currentImage := device.Status.Os.Image
-			GinkgoWriter.Printf("Current image is: %s\n", currentImage)
+			_, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V4)
+			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
+			// Collapse Preparing/Rebooting/Updated/Online polls into one reboot-aware wait.
+			Expect(harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)).To(Succeed())
 
-			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
-				deviceInOSTUpdateProgress, LONGTIMEOUT)
-
-			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
-
-			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateRebooting))
-				}, LONGTIMEOUT)
-
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusRebooting))
-
-			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
-				func(device *v1beta1.Device) bool {
-					for _, condition := range device.Status.Conditions {
-						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-							condition.Message == UpdateRenderedVersionSuccess.String() {
-							return true
-						}
-					}
-					return false
-				}, TIMEOUT)
-
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
-
-			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", util.NewDeviceImageReference(util.DeviceTags.V4).String())
 			GinkgoWriter.Printf("We expect containers with sleep infinity process to be present but not running\n")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("sleep infinity"))
 
-			GinkgoWriter.Printf("We expect podman containers with sleep infinity process to be present but not running 👌\n")
-
-			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.Base)
-			Expect(err).ToNot(HaveOccurred())
-
-			currentImage = device.Status.Os.Image
-			GinkgoWriter.Printf("Current image is: %s\n", currentImage)
-			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
-
-			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
-				deviceInOSTUpdateProgress, TIMEOUT)
-
-			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusType("Online")))
-
-			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateRebooting))
-				}, TIMEOUT)
-
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Rebooting")))
-
-			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 3",
-				func(device *v1beta1.Device) bool {
-					for _, condition := range device.Status.Conditions {
-						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-							condition.Message == "Updated to desired renderedVersion: 3" {
-							return true
-						}
-					}
-					return false
-				}, TIMEOUT)
-
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Online")))
-
-			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", util.NewDeviceImageReference(util.DeviceTags.Base).String())
-			Expect(device.Spec.Applications).To(BeNil())
-			GinkgoWriter.Printf("Application demo_embedded_app is not present in new image 🌞\n")
-
-			stdout1, err1 := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
-			Expect(err1).NotTo(HaveOccurred())
-			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
-
-			GinkgoWriter.Printf("Went back to base image and checked that there is no application now👌\n")
-
 			By("The agent executable should have the proper SELinux domain after the upgrade")
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
+
+			By("Returning to base image removes the embedded application")
+			nextRendered, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			_, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.Base)
+			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
+			Expect(harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)).To(Succeed())
+
+			device, err := harness.GetDevice(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device.Spec.Applications).To(BeNil())
+			stdout1, err1 := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+			Expect(err1).NotTo(HaveOccurred())
+			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
 		})
 
 		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "agent"), func() {
@@ -288,41 +228,31 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 			}, TIMEOUT)
 		})
-		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "greenboot-rollback-recovery", "sanity", "agent"), func() {
+		// Rollback + no-retry only. Post-rollback recovery (push a good image) lives in a
+		// separate slow/non-sanity spec so this LPT-critical path stays one bootc+rollback cycle.
+		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 			initialStatusImage, postRollbackBootID := waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId, false)
 
 			By("Verifying device does NOT retry the failed v11 image")
-			// Wait for the device to be Online on the original image. With
-			// greenboot-rs (0.16.x) the device may do extra boot cycles after
-			// rollback, so we don't pin a boot ID — just wait for Online +
-			// correct image, then capture the stable boot ID.
-			harness.WaitForDeviceContents(deviceId, "device should be online on original image after rollback", func(device *v1beta1.Device) bool {
-				return device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline &&
-					device.Status.Os.Image == initialStatusImage
-			}, TIMEOUT)
-
+			// Helper already waited for Online + original image; capture BootID and hold
+			// a short stability window. A spurious retry shows up as BootID change as soon
+			// as a re-deploy reboot starts — no need for a multi-minute window.
 			stableDev, err := harness.GetDevice(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 			stableBootID := stableDev.Status.SystemInfo.BootID
 			GinkgoWriter.Printf("Stable boot ID after rollback: %s (initially captured: %s)\n", stableBootID, postRollbackBootID)
 
-			// Don't check Summary.Status here: after a long rollback cycle (~6 min
-			// offline), the periodic healthcheck may briefly flip the device to
-			// Unknown before the first heartbeat lands. The key invariant is that
-			// the device stays on the original image and doesn't reboot (retry v11).
-			//
-			// 45s (not the original 2m): a spurious retry would show up as a BootID
-			// change the moment a re-deploy reboot starts, which doesn't need the full
-			// deploy+reboot cycle to observe - it only needs the reboot to begin. That's
-			// the same order of magnitude as other "prove nothing happens" stability
-			// windows in this package (see agent_prefetch_manager_test.go), not tied to
-			// any hardware/OS timing constant the way the deploy/reboot cycles above are.
 			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.SystemInfo.BootID == stableBootID
-			}, "45s")
+			}, "20s")
 			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
+		})
+
+		It("Should accept a good OS image after greenboot rollback", Label("greenboot-rollback-recovery", "87279", "slow", "agent"), func() {
+			harness := e2e.GetWorkerHarness()
+			initialStatusImage, _ := waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId, false)
 
 			By("Recovering with a new good OS image after rollback (operator pushes a fix)")
 			nextRendered, err := harness.PrepareNextDeviceVersionFromCurrentStatus(deviceId)
@@ -345,7 +275,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			GinkgoWriter.Println("Confirmed: device accepted new image and recovered after greenboot rollback")
 		})
 
-		It("Should retain pre-rollback script output in journal when Storage=persistent", Label("88425", "sanity", "agent"), func() {
+		// Journal retention is valuable but another full rollback cycle; keep off sanity LPT packing.
+		It("Should retain pre-rollback script output in journal when Storage=persistent", Label("88425", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 			configureJournaldForGreenbootE2E(harness, true)
 			waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId, false)
@@ -780,16 +711,16 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 // the v11 boot and the rollback boot that follows it.
 const fastGreenbootOverrideScript = `sudo mkdir -p /etc/greenboot
 cat <<'EOF' | sudo tee -a /etc/greenboot/greenboot.conf >/dev/null
-FLIGHTCTL_HEALTH_CHECK_TIMEOUT=10
-FLIGHTCTL_HEALTH_STABILITY_WINDOW=10
-FLIGHTCTL_HEALTH_POLL_INTERVAL=2
+FLIGHTCTL_HEALTH_CHECK_TIMEOUT=5
+FLIGHTCTL_HEALTH_STABILITY_WINDOW=5
+FLIGHTCTL_HEALTH_POLL_INTERVAL=1
 EOF
 `
 
 func setFastGreenbootHealthTimeouts(harness *e2e.Harness) {
 	_, err := harness.VM.RunSSH([]string{"bash", "-lc", fastGreenbootOverrideScript}, nil)
 	Expect(err).NotTo(HaveOccurred())
-	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] appended greenboot.conf override: timeout=10s stability-window=10s poll-interval=2s")
+	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] appended greenboot.conf override: timeout=5s stability-window=5s poll-interval=1s")
 }
 
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),

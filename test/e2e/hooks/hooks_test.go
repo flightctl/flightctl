@@ -29,10 +29,10 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
-			By("Update the device image to one containing an embedded hook")
-			// Wait for device to be online with SystemInfo populated.
-			// In production environments, hook loading with long paths may cause temporary
-			// delays in status reporting, so we wait for the device to be ready.
+			By("Update to V6 (embedded sshd hook) + lifecycle inline hooks in one reboot")
+			// Concession (e2e wall time): one OS cycle instead of V6 then Base. Lifecycle
+			// before/after update+reboot hooks fire on this reboot; sshd coverage stays
+			// config-only afterward. See test/e2e/E2E_WALL_TIME.md.
 			var device *v1beta1.Device
 			Eventually(func() error {
 				var err error
@@ -45,21 +45,31 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceImage := harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.V6)
-
-			var osImageSpec = v1beta1.DeviceOsSpec{
-				Image: deviceImage,
-			}
+			osImageSpec := v1beta1.DeviceOsSpec{Image: deviceImage}
+			lifecycleCfg := v1beta1.ConfigProviderSpec{}
+			Expect(lifecycleCfg.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)).To(Succeed())
 
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Os = &osImageSpec
-
-				GinkgoWriter.Printf("Updating %s with Os image\n", osImageSpec)
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{lifecycleCfg}
+				GinkgoWriter.Printf("Updating %s with Os image V6 and lifecycle hooks\n", deviceId)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// OS image update triggers reboot; use reboot-aware wait (Unknown/Rebooting treated as in-progress).
 			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
+
+			By("Check that lifecycle hooks fired on the V6 reboot")
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("", "").
+				Should(
+					SatisfyAll(
+						ContainSubstring("this is a test message from afterupdating hook"),
+						ContainSubstring("this is a test message from afterrebooting hook"),
+						ContainSubstring("this is a test message from beforerebooting hook"),
+						ContainSubstring("this is a test message from beforeupdating hook"),
+					),
+				)
 
 			By("Add an inline configuration for sshd")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -146,42 +156,6 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
 			Expect(err).ToNot(HaveOccurred())
-
-			By("Check pre/after update and pre/after reboot hooks from inline config works")
-			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
-			Expect(err).ToNot(HaveOccurred())
-			deviceImage = harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.Base)
-
-			osImageSpec.Image = deviceImage
-			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)
-			Expect(err).ToNot(HaveOccurred())
-
-			deviceSpecConfig = []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
-
-			deviceSpec.Os = &osImageSpec
-			deviceSpec.Config = &deviceSpecConfig
-
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec = &deviceSpec
-				GinkgoWriter.Printf("Updating %s with a new image and configuration %s\n", deviceId, inlineConfigLifecycleName)
-			})
-			Expect(err).ToNot(HaveOccurred())
-
-			// OS image update triggers reboot; use reboot-aware wait.
-			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
-			Expect(err).ToNot(HaveOccurred())
-
-			By("Check that in the device logs the hooks were triggered")
-			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("", "").
-				Should(
-					SatisfyAll(
-						ContainSubstring("this is a test message from afterupdating hook"),
-						ContainSubstring("this is a test message from afterrebooting hook"),
-						ContainSubstring("this is a test message from beforerebooting hook"),
-						ContainSubstring("this is a test message from beforeupdating hook"),
-					),
-				)
 		})
 		It("Verifies that lifecycle hooks can be defined with template variables", Label("80022"), func() {
 			// Get harness directly - no shared package-level variable

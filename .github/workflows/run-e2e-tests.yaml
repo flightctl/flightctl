@@ -80,6 +80,40 @@ jobs:
           echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
           echo "Computed base domain: ${IP}.nip.io"
 
+      # ========== DOWNLOAD AGENT ARTIFACTS IN PARALLEL WITH DEPLOY ==========
+      # Agent qcow/bundle download often rivals kind+Helm (~2–4m). Start it in a
+      # detached process before deploy and join after so prep wall ≈
+      # max(deploy, download) instead of sum. setsid survives the step shell exit.
+      - name: Start agent artifact download
+        env:
+          OS_ID: ${{ inputs.os_id }}
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -f /tmp/agent-artifact-download.done /tmp/agent-artifact-download.failed
+          mkdir -p test-artifacts
+          setsid bash -c '
+            set -euo pipefail
+            trap "touch /tmp/agent-artifact-download.failed" ERR
+            gh run download "'"${RUN_ID}"'" \
+              --repo "'"${REPO}"'" \
+              --dir test-artifacts \
+              --pattern "agent-*-'"${OS_ID}"'-'"${TAG}"'"
+            bundle=$(find test-artifacts -type f -name "agent-images-bundle-'"${OS_ID}"'.tar" | head -n1)
+            qcow=$(find test-artifacts -type f -name "disk.qcow2" | head -n1)
+            test -n "${bundle}" && test -n "${qcow}"
+            mkdir -p /tmp/agent-artifacts-flat
+            mv "${bundle}" /tmp/agent-artifacts-flat/agent-images-bundle-'"${OS_ID}"'.tar
+            mv "${qcow}" /tmp/agent-artifacts-flat/disk.qcow2
+            rm -rf test-artifacts
+            mv /tmp/agent-artifacts-flat test-artifacts
+            touch /tmp/agent-artifact-download.done
+          ' >/tmp/agent-artifact-download.log 2>&1 < /dev/null &
+          echo "Started detached agent artifact download"
+
       # ========== DEPLOY BACKEND WITH HELM ==========
       - name: Deploy backend with Helm
         uses: ./.github/actions/deploy-backend-with-helm
@@ -92,26 +126,37 @@ jobs:
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
 
-      # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
-      - name: Download test artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
-          path: test-artifacts
-          merge-multiple: true
-
       - name: Stage test artifacts
         env:
           OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
+          echo "Waiting for agent artifact download to finish..."
+          for _ in $(seq 1 180); do
+            if [[ -f /tmp/agent-artifact-download.done ]]; then
+              break
+            fi
+            if [[ -f /tmp/agent-artifact-download.failed ]]; then
+              echo "ERROR: agent artifact download failed"
+              cat /tmp/agent-artifact-download.log || true
+              exit 1
+            fi
+            sleep 2
+          done
+          if [[ ! -f /tmp/agent-artifact-download.done ]]; then
+            echo "ERROR: agent artifact download timed out"
+            cat /tmp/agent-artifact-download.log || true
+            exit 1
+          fi
+          cat /tmp/agent-artifact-download.log || true
           echo "Downloaded test artifacts:"
-          tree test-artifacts
+          tree test-artifacts || ls -laR test-artifacts
 
           # Stage agent bundle
           mkdir -p bin/agent-artifacts
           if [ ! -f "test-artifacts/agent-images-bundle-${OS_ID}.tar" ]; then
             echo "ERROR: Agent bundle not found"
+            find test-artifacts -type f -print || true
             exit 1
           fi
           mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
@@ -121,6 +166,7 @@ jobs:
           mkdir -p bin/output/qcow2
           if [ ! -f "test-artifacts/disk.qcow2" ]; then
             echo "ERROR: QCOW2 image not found"
+            find test-artifacts -type f -print || true
             exit 1
           fi
           mv "test-artifacts/disk.qcow2" bin/output/qcow2/
