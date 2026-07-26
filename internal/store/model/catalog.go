@@ -50,9 +50,12 @@ func NewCatalogFromApiResource(resource *domain.Catalog) (*Catalog, error) {
 	}
 	return &Catalog{
 		Resource: Resource{
-			Name:            *resource.Metadata.Name,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Name:   *resource.Metadata.Name,
+			Labels: lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			// A nil Annotations pointer (as set by SanitizeCatalog for untrusted input) means
+			// "don't touch annotations"; converting it to a nil map (not an empty one) lets the
+			// store's nil-skip merge logic leave existing annotations untouched.
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
@@ -254,6 +257,9 @@ func NewCatalogItemFromApiResource(orgId uuid.UUID, catalogName string, resource
 		Owner:       resource.Metadata.Owner,
 		Spec:        MakeJSONField(resource.Spec),
 		Labels:      lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-		Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+		// A nil Annotations pointer (as set by SanitizeCatalogItem for untrusted input) means
+		// "don't touch annotations"; converting it to a nil map (not an empty one) lets the
+		// store's nil-skip merge logic leave existing annotations untouched.
+		Annotations: lo.FromPtr(resource.Metadata.Annotations),
 	}, nil
 }

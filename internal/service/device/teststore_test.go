@@ -103,6 +103,9 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	if existed && device.Metadata.Owner == nil {
 		device.Metadata.Owner = old.Metadata.Owner
 	}
+	if existed && device.Metadata.Annotations == nil {
+		device.Metadata.Annotations = old.Metadata.Annotations
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	created := !existed
@@ -127,6 +130,9 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	// from the existing resource rather than wiped on update.
 	if device.Metadata.Owner == nil {
 		device.Metadata.Owner = old.Metadata.Owner
+	}
+	if device.Metadata.Annotations == nil {
+		device.Metadata.Annotations = old.Metadata.Annotations
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d

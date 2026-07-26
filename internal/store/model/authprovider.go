@@ -43,10 +43,13 @@ func NewAuthProviderFromApiResource(resource *domain.AuthProvider) (*AuthProvide
 
 	return &AuthProvider{
 		Resource: Resource{
-			Name:            lo.FromPtr(resource.Metadata.Name),
-			Owner:           resource.Metadata.Owner,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Name:   lo.FromPtr(resource.Metadata.Name),
+			Owner:  resource.Metadata.Owner,
+			Labels: lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			// A nil Annotations pointer (as set by SanitizeAuthProvider for untrusted input) means
+			// "don't touch annotations"; converting it to a nil map (not an empty one) lets the
+			// store's nil-skip merge logic leave existing annotations untouched.
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Generation:      resource.Metadata.Generation,
 			ResourceVersion: resourceVersion,
 		},

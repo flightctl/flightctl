@@ -159,6 +159,38 @@ func TestReplaceDevice(t *testing.T) {
 		require.Nil(t, st.device.devices["replace-untrusted"].Metadata.Generation)
 	})
 
+	t.Run("When ReplaceDeviceFromUntrusted updates an existing device it should preserve renderedVersion annotations", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		existing := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("rendered-device"),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationRenderedVersion: "1",
+				},
+			},
+			Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
+		}
+		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		require.NoError(t, err)
+
+		updated := domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr("rendered-device"),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationRenderedVersion: "should-be-cleared-by-sanitize",
+				},
+			},
+			Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img-updated"}},
+		}
+		result, status := ReplaceDeviceFromUntrusted(ctx, svc, orgId, "rendered-device", updated, nil, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, "img-updated", result.Spec.Os.Image)
+		require.Equal(t, "1", (*st.device.devices["rendered-device"].Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion])
+		require.Equal(t, "1", (*result.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion])
+	})
+
 	t.Run("When managed metadata fields are set by the caller ReplaceDevice (trusted) should preserve them", func(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
