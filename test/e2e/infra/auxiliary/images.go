@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -116,11 +117,13 @@ func (s *Services) copyExternalImage(ctx context.Context, ref string) error {
 		copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
 		copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
 		output, err := copyCmd.CombinedOutput()
-		timedOut := copyCtx.Err() != nil
+		copyErr := copyCtx.Err()
 		cancel()
 
-		if timedOut {
-			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+		if errors.Is(copyErr, context.DeadlineExceeded) {
+			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyErr)
+		} else if copyErr != nil {
+			lastErr = fmt.Errorf("skopeo copy for %s canceled: %w", ref, copyErr)
 		} else if err != nil {
 			lastErr = fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
 		} else {
@@ -320,7 +323,13 @@ func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
 		return "", fmt.Errorf("failed to read image refs from bundle %s: %w", matches[0], err)
 	}
 	for _, ref := range refs {
-		if _, tag, ok := strings.Cut(ref, ":"); ok && strings.HasPrefix(tag, "base-") {
+		// Last ':' separates tag from host:port/path (Cut would split on the port colon).
+		idx := strings.LastIndex(ref, ":")
+		if idx == -1 {
+			continue
+		}
+		tag := ref[idx+1:]
+		if strings.HasPrefix(tag, "base-") {
 			return tag, nil
 		}
 	}
