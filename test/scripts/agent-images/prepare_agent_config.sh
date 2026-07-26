@@ -22,8 +22,12 @@ ensure_organization_set
 status_update_interval=0m2s
 spec_fetch_interval=0m2s
 enrollment_verify_interval=0m2s
+# Wider Cap/Steps so a short Interval doesn't exhaust the enrollment backoff (and
+# trigger Restart=always) during VM-pool bootstrap before anything has approved yet.
+enrollment_verify_cap=0m90s
+enrollment_verify_steps=11
 # Use external getopt for long options
-options=$(getopt -o h --long status-update-interval:,spec-fetch-interval:,enrollment-verify-interval:,help -n "$0" -- "$@")
+options=$(getopt -o h --long status-update-interval:,spec-fetch-interval:,enrollment-verify-interval:,enrollment-verify-cap:,enrollment-verify-steps:,help -n "$0" -- "$@")
 eval set -- "$options"
 while true; do
   case "$1" in
@@ -31,19 +35,25 @@ while true; do
   --status-update-interval) status_update_interval=$2; shift 2 ;;
   --spec-fetch-interval) spec_fetch_interval=$2; shift 2 ;;
   --enrollment-verify-interval) enrollment_verify_interval=$2; shift 2 ;;
+  --enrollment-verify-cap) enrollment_verify_cap=$2; shift 2 ;;
+  --enrollment-verify-steps) enrollment_verify_steps=$2; shift 2 ;;
   --) shift; break ;;
   *) echo "Invalid option: $1" >&2; exit 1 ;;
   esac
 done
 
 # - Enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
-# - Enrollment-verify-interval controls the agent's own poll-for-approval backoff (default 10s in
-#   production); every e2e test that enrolls a device pays this once, so it's shortened here too.
+# - Enrollment-verify-* control the agent's poll-for-approval backoff (production defaults:
+#   interval 10s / cap 1m / steps 6). Interval is shortened for e2e speed; Cap/Steps are
+#   widened so the short interval can't exhaust the backoff during pristine VM-pool
+#   bootstrap before enrollment approval.
 # - Include the custom system info collectors that were defined in the container image
 cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
 enrollment-verify-interval: $enrollment_verify_interval
+enrollment-verify-cap: $enrollment_verify_cap
+enrollment-verify-steps: $enrollment_verify_steps
 system-info-custom:
   - siteName
   - emptyValue
