@@ -22,6 +22,7 @@ jobs:
     trigger: pull_request
     targets:
       - fedora-43-x86_64
+      - fedora-44-x86_64
       - epel-9-aarch64
       - epel-10-aarch64
     module_hotfixes: true
@@ -36,6 +37,8 @@ jobs:
       - fedora-42-x86_64
       - fedora-43-aarch64
       - fedora-43-x86_64
+      - fedora-44-aarch64
+      - fedora-44-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
       - epel-10-aarch64
@@ -51,6 +54,8 @@ jobs:
       - fedora-42-x86_64
       - fedora-43-aarch64
       - fedora-43-x86_64
+      - fedora-44-aarch64
+      - fedora-44-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
       - epel-10-aarch64
