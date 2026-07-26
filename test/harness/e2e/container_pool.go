@@ -184,6 +184,17 @@ func (p *ContainerPool) CleanupAll() error {
 	return lastErr
 }
 
+// registryAccessHost returns the host component for image refs / certs.d paths that talk to the
+// local e2e registry. Mirrors registry.go: bare IPv6 literals in image names are parsed as
+// transport prefixes (e.g. "fd2e:" looks like "docker:"), so fall back to localhost.
+func registryAccessHost() string {
+	host := containers.GetHostIP()
+	if strings.Contains(host, ":") {
+		return "localhost"
+	}
+	return host
+}
+
 // GetContainerDeviceImage resolves the flightctl-agent bootc image to run for container-backed
 // devices: the same "base" image test/scripts/agent-images/scripts/build.sh builds for the qcow2,
 // but pointed at the local registry mirror - see copyImageFromBundle in
@@ -208,7 +219,7 @@ func GetContainerDeviceImage() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve agent device image tag from bundle: %w", err)
 	}
-	return fmt.Sprintf("%s:%s/%s:%s", containers.GetHostIP(), registryHostPort, defaultContainerDeviceImageRepoPath, tag), nil
+	return fmt.Sprintf("%s:%s/%s:%s", registryAccessHost(), registryHostPort, defaultContainerDeviceImageRepoPath, tag), nil
 }
 
 // GetAgentIdentityDir returns the directory holding the agent's enrollment bootstrap config and
@@ -263,7 +274,7 @@ func buildAgentIdentityFiles() ([]vm.ContainerFile, error) {
 	caCertPath := filepath.Join(util.GetTopLevelDir(), "bin", "e2e-certs", "pki", "CA", "ca.crt")
 	switch _, err := os.Stat(caCertPath); {
 	case err == nil:
-		regHostPort := containers.GetHostIP() + ":" + registryHostPort
+		regHostPort := registryAccessHost() + ":" + registryHostPort
 		files = append(files,
 			vm.ContainerFile{HostPath: caCertPath, ContainerPath: "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt", Mode: 0644},
 			vm.ContainerFile{HostPath: caCertPath, ContainerPath: "/etc/containers/certs.d/" + regHostPort + "/ca.crt", Mode: 0644},
@@ -283,7 +294,7 @@ func buildAgentIdentityFiles() ([]vm.ContainerFile, error) {
 // ContainerFile (there's no standalone host-side file to point at - the bash version writes it
 // inline too).
 func buildRegistryRemapFile() vm.ContainerFile {
-	host := containers.GetHostIP()
+	host := registryAccessHost()
 	dest := fmt.Sprintf("%s:%s/flightctl", host, registryHostPort)
 	privateDest := fmt.Sprintf("%s:%s/flightctl", host, privateRegistryHostPort)
 
