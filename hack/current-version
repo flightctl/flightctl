@@ -14,8 +14,19 @@ ensure_safe_directory "$(pwd)"
 # "human-readable" artificial tag.
 tag=$(git -c "versionsort.suffix=-rc" tag --points-at HEAD --sort version:refname -l 'v*' | tail -n 1 2>/dev/null)
 
+# When multiple tags exist on the same commit (e.g. v1.3.0-main and v1.2.0-rc1),
+# git describe may pick the wrong one. Re-resolve using version sorting at the
+# base commit and re-attach the distance and hash suffix.
 if [[ -z "$tag" ]]; then
-  tag=$(git describe --tags --always --first-parent --match 'v*' 2>/dev/null)
+  nearest_tag=$(git describe --tags --always --first-parent --match 'v*' --abbrev=0 2>/dev/null)
+  full_describe=$(git describe --tags --always --first-parent --match 'v*' 2>/dev/null)
+  base_commit=$(git rev-parse "$nearest_tag"^{commit})
+  best_tag=$(git -c "versionsort.suffix=-rc" tag --points-at "$base_commit" --sort version:refname -l 'v*' | tail -n 1)
+  if [[ -n "$best_tag" ]]; then
+    tag="${best_tag}${full_describe#"$nearest_tag"}"
+  else
+    tag="$full_describe"
+  fi
 fi
 
 if [[ -z "$tag" ]]; then

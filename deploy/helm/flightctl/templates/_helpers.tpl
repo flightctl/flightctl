@@ -879,3 +879,40 @@ Usage: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" 
 
   {{- $imageName -}}
 {{- end -}}
+
+{{- /*
+Render optional profiling (pprof / pyroscope) from .Values.dev.profiling.
+Usage: {{ include "flightctl.profiling" . | nindent 4 }}
+*/}}
+{{- define "flightctl.profiling" -}}
+{{- $p := default dict (default dict .Values.dev).profiling -}}
+{{- $pprof := default dict $p.pprof -}}
+{{- $pyroscope := default dict $p.pyroscope -}}
+{{- if or (default false $pprof.enabled) (default false $pyroscope.enabled) }}
+profiling:
+{{- if default false $pprof.enabled }}
+    pprof:
+        enabled: true
+{{- if $pprof.port }}
+        port: {{ $pprof.port }}
+{{- end }}
+{{- end }}
+{{- if default false $pyroscope.enabled }}
+    pyroscope:
+        enabled: true
+        serverAddress: {{ $pyroscope.serverAddress }}
+{{- if $pyroscope.applicationName }}
+        applicationName: {{ $pyroscope.applicationName }}
+{{- end }}
+{{- if $pyroscope.basicAuthUser }}
+        basicAuthUser: {{ $pyroscope.basicAuthUser }}
+{{- end }}
+{{- if $pyroscope.basicAuthPassword }}
+        basicAuthPassword: {{ $pyroscope.basicAuthPassword }}
+{{- end }}
+{{- if $pyroscope.tenantID }}
+        tenantID: {{ $pyroscope.tenantID }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}

@@ -18,6 +18,26 @@ func TestDefaultPprofOptions(t *testing.T) {
 	if opts.port != pprofPortDefault {
 		t.Fatalf("default port = %d, want %d", opts.port, pprofPortDefault)
 	}
+	ports := []int{
+		pprofPortDefault,
+		DefaultPortAPI,
+		DefaultPortWorker,
+		DefaultPortPeriodic,
+		DefaultPortAlertExporter,
+		DefaultPortAlertmanagerProxy,
+		DefaultPortRemoteAccess,
+		DefaultPortImageBuilderAPI,
+		DefaultPortImageBuilderWorker,
+		DefaultPortTelemetryGateway,
+		DefaultPortPAMIssuer,
+	}
+	seen := map[int]bool{}
+	for _, p := range ports {
+		if seen[p] {
+			t.Fatalf("duplicate default pprof port %d", p)
+		}
+		seen[p] = true
+	}
 	if opts.cpuCap != pprofCPUCapDefault {
 		t.Fatalf("default cpuCap = %v, want %v", opts.cpuCap, pprofCPUCapDefault)
 	}

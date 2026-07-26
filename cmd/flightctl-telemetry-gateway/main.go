@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
+	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	tg "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -33,6 +35,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	profiling.Start(ctx, log, cfg, "flightctl-telemetry-gateway", instpprof.DefaultPortTelemetryGateway)
 
 	// Handle graceful shutdown
 	sigShutdown := make(chan os.Signal, 1)

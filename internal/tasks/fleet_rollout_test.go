@@ -404,6 +404,55 @@ func createTestDeviceWithLabels(name string, owner string, labels map[string]str
 	}
 }
 
+func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_TemplateRenderingFailure(t *testing.T) {
+	t.Run("When template rendering fails it should set lastRolloutError and recompute device status", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		orgId := uuid.New()
+		log := logrus.New()
+		fleetName := "test-fleet"
+		event := domain.Event{
+			InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
+		}
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		logic := NewFleetRolloutsLogic(log, nil, nil, mockDeviceSvc, nil, orgId, event)
+		logic.owner = lo.FromPtr(util.SetResourceOwner(domain.FleetKind, fleetName))
+
+		deviceName := "test-device"
+		ownerStr := logic.owner
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:  &deviceName,
+				Owner: &ownerStr,
+			},
+			Spec:   &domain.DeviceSpec{},
+			Status: &domain.DeviceStatus{},
+		}
+
+		// Template references a label that doesn't exist on the device
+		tv := createTestTemplateVersion("v1")
+		tv.Status.Os = &domain.DeviceOsSpec{Image: "{{ .metadata.labels.domainname }}"}
+
+		// Expect the lastRolloutError annotation to be written
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(
+			gomock.Any(), orgId, deviceName,
+			gomock.AssignableToTypeOf(map[string]string{}),
+			gomock.Nil(),
+		).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, annotations map[string]string, _ []string) domain.Status {
+			assert.Contains(t, annotations[domain.DeviceAnnotationLastRolloutError], "cannot apply parameters")
+			return domain.Status{Code: http.StatusOK}
+		})
+
+		// Expect ForceUpdateServerSideDeviceStatus to be called to recompute and persist device status
+		mockDeviceSvc.EXPECT().ForceUpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+		_, err := logic.updateDeviceToFleetTemplate(context.Background(), device, tv, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed generating device spec")
+	})
+}
+
 func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing.T) {
 	const tvName = "v1"
 	const image = "test-image:latest"

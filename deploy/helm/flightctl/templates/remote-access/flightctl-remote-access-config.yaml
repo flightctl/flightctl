@@ -42,4 +42,5 @@ data:
         endpoint: {{ .Values.dev.tracing.endpoint }}
         insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
+{{ include "flightctl.profiling" . | nindent 4 }}
 {{- end }}

@@ -87,6 +87,18 @@ func (_d *TracedDeviceService) DeleteDevice(ctx context.Context, orgId uuid.UUID
 	return s1
 }
 
+func (_d *TracedDeviceService) ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (err error) {
+	ctx, span := startSpan(ctx, "ForceUpdateServerSideDeviceStatus")
+
+	err = _d.inner.ForceUpdateServerSideDeviceStatus(ctx, orgId, name)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
 func (_d *TracedDeviceService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetDevice")
 

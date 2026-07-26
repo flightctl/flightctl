@@ -13,7 +13,22 @@ import (
 )
 
 const (
+	// Agent loopback pprof port (agent config profiling-enabled).
 	pprofPortDefault = 15689
+
+	// Default loopback ports when profiling.port is unset. Each long-running
+	// service must use a distinct port so they can share one service-config.yaml.
+	DefaultPortAPI                = 15691
+	DefaultPortWorker             = 15692
+	DefaultPortPeriodic           = 15693
+	DefaultPortAlertExporter      = 15694
+	DefaultPortAlertmanagerProxy  = 15695
+	DefaultPortRemoteAccess       = 15696
+	DefaultPortImageBuilderAPI    = 15697
+	DefaultPortImageBuilderWorker = 15698
+	DefaultPortTelemetryGateway   = 15699
+	DefaultPortPAMIssuer          = 15700
+
 	// /debug/pprof/profile
 	pprofCPUCapDefault = 30 * time.Second
 	// /debug/pprof/trace
@@ -76,6 +91,20 @@ func WithTraceCap(d time.Duration) PprofOption {
 // The server binds exclusively to 127.0.0.1 for security.
 func NewPprofServer(log logrus.FieldLogger) *PprofServer {
 	return &PprofServer{log: log, opts: defaultPprofOptions()}
+}
+
+// StartInBackground starts the pprof server on loopback if enabled is true.
+// It returns immediately; the server stops when ctx is canceled.
+func StartInBackground(ctx context.Context, log logrus.FieldLogger, enabled bool, port int) {
+	if !enabled {
+		return
+	}
+	srv := NewPprofServer(log)
+	go func() {
+		if err := srv.Run(ctx, WithPort(port)); err != nil && log != nil {
+			log.WithError(err).Error("pprof server exited")
+		}
+	}()
 }
 
 // Run starts the pprof HTTP server and blocks until the provided context is canceled

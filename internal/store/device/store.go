@@ -1255,7 +1255,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 
-	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
+	return deviceModel.ToApiResource(model.WithRendered(ctx, knownRenderedVersion))
 }
 
 func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
