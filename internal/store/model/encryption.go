@@ -127,20 +127,8 @@ func genericEncryptHandler(kind string) encryption.ModelEncryptHandler {
 			return nil
 		}
 
-		modifiedBytes, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("marshal encrypted %s: %w", kind, err)
-		}
-
-		// json.Unmarshal reuses existing slice backing arrays (e.g. json.RawMessage).
-		// The model shares slices with the API resource, so reuse would corrupt it.
-		// Zeroing forces fresh allocations.
-		if err := zeroModel(model); err != nil {
-			return fmt.Errorf("zero %s before unmarshal: %w", kind, err)
-		}
-
-		if err := json.Unmarshal(modifiedBytes, model); err != nil {
-			return fmt.Errorf("unmarshal encrypted %s back to struct: %w", kind, err)
+		if err := replaceModelFromJSON(model, data, kind); err != nil {
+			return err
 		}
 
 		return nil
@@ -226,15 +214,8 @@ func encryptMap(ctx context.Context, m map[string]any, paths [][]string, encrypt
 			if !modified {
 				continue
 			}
-			modifiedBytes, err := json.Marshal(nested)
-			if err != nil {
-				return fmt.Errorf("marshal encrypted nested %q: %w", columnKey, err)
-			}
-			if err := zeroModel(v); err != nil {
-				return fmt.Errorf("zero nested %q before unmarshal: %w", columnKey, err)
-			}
-			if err := v.UnmarshalJSON(modifiedBytes); err != nil {
-				return fmt.Errorf("unmarshal encrypted nested %q back: %w", columnKey, err)
+			if err := replaceModelFromJSON(v, nested, columnKey); err != nil {
+				return err
 			}
 
 		default:
@@ -307,12 +288,18 @@ func encryptJSONPath(ctx context.Context, data map[string]any, path []string, en
 	return true, nil
 }
 
-// zeroModel sets all fields of the struct behind the pointer to their zero values.
-// This breaks shared slice backing arrays (e.g. json.RawMessage) so that a
-// subsequent json.Unmarshal allocates fresh memory instead of overwriting shared data.
-func zeroModel(model any) error {
+// replaceModelFromJSON marshals data to JSON, then unmarshals into a fresh instance
+// of the same type as model, swapping the result in only on success.
+// This avoids shared-slice corruption: json.Unmarshal reuses existing backing arrays
+// (e.g. json.RawMessage), and the model may share slices with the API resource.
+func replaceModelFromJSON(model any, data any, kind string) error {
+	modifiedBytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal encrypted %s: %w", kind, err)
+	}
+
 	v := reflect.ValueOf(model)
-	if !v.IsValid() || v.Kind() != reflect.Ptr || v.IsNil() {
+	if !v.IsValid() || v.Kind() != reflect.Pointer || v.IsNil() {
 		return fmt.Errorf("model must be a non-nil pointer")
 	}
 
@@ -321,6 +308,11 @@ func zeroModel(model any) error {
 		return fmt.Errorf("model value cannot be set")
 	}
 
-	elem.Set(reflect.Zero(elem.Type()))
+	tmp := reflect.New(elem.Type())
+	if err := json.Unmarshal(modifiedBytes, tmp.Interface()); err != nil {
+		return fmt.Errorf("unmarshal encrypted %s back to struct: %w", kind, err)
+	}
+
+	elem.Set(tmp.Elem())
 	return nil
 }

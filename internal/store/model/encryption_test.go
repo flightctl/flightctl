@@ -646,6 +646,9 @@ func TestEncryptHandler_RepositoryFailClosed(t *testing.T) {
 	modelRepo, err := NewRepositoryFromApiResource(apiRepo)
 	require.NoError(t, err)
 
+	before, err := json.Marshal(modelRepo)
+	require.NoError(t, err)
+
 	errEncrypt := fmt.Errorf("KMS unavailable")
 	failingEncrypt := func(_ context.Context, _ []byte) ([]byte, error) {
 		return nil, errEncrypt
@@ -654,6 +657,10 @@ func TestEncryptHandler_RepositoryFailClosed(t *testing.T) {
 	handler := EncryptionHandlers()[domain.RepositoryKind]
 	err = handler(context.Background(), modelRepo, failingEncrypt)
 	require.ErrorIs(t, err, errEncrypt)
+
+	after, err := json.Marshal(modelRepo)
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after), "model should be unmodified on encrypt failure")
 }
 
 // ---------------------------------------------------------------------------
@@ -925,6 +932,9 @@ func TestEncryptHandler_AuthProviderFailClosed(t *testing.T) {
 	modelAP, err := NewAuthProviderFromApiResource(apiProv)
 	require.NoError(t, err)
 
+	before, err := json.Marshal(modelAP)
+	require.NoError(t, err)
+
 	errEncrypt := fmt.Errorf("KMS unavailable")
 	failingEncrypt := func(_ context.Context, _ []byte) ([]byte, error) {
 		return nil, errEncrypt
@@ -933,6 +943,10 @@ func TestEncryptHandler_AuthProviderFailClosed(t *testing.T) {
 	handler := EncryptionHandlers()[domain.AuthProviderKind]
 	err = handler(context.Background(), modelAP, failingEncrypt)
 	require.ErrorIs(t, err, errEncrypt)
+
+	after, err := json.Marshal(modelAP)
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after), "model should be unmodified on encrypt failure")
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,14 +1279,21 @@ func TestEncryptHandler_DeviceStructFailClosed(t *testing.T) {
 		RenderedConfig: MakeJSONField(json.RawMessage(`[{"inline":[{"path":"/etc/file","content":"secret","mode":420}],"name":""}]`)),
 	}
 
+	before, err := json.Marshal(device)
+	require.NoError(t, err)
+
 	errEncrypt := fmt.Errorf("KMS unavailable")
 	failingEncrypt := func(_ context.Context, _ []byte) ([]byte, error) {
 		return nil, errEncrypt
 	}
 
 	handler := EncryptionHandlers()[domain.DeviceKind]
-	err := handler(context.Background(), device, failingEncrypt)
+	err = handler(context.Background(), device, failingEncrypt)
 	require.ErrorIs(t, err, errEncrypt)
+
+	after, err := json.Marshal(device)
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after), "model should be unmodified on encrypt failure")
 }
 
 func TestEncryptHandler_DeviceOnlyConfig(t *testing.T) {
@@ -1451,6 +1472,7 @@ func TestEncryptHandler_DeviceMapFailClosed(t *testing.T) {
 	_ = setupEncryption(t)
 
 	configVal := `[{"inline":[{"path":"/etc/file","content":"secret","mode":420}],"name":""}]`
+	configBefore := configVal
 	m := map[string]any{
 		"rendered_config": &configVal,
 	}
@@ -1463,6 +1485,7 @@ func TestEncryptHandler_DeviceMapFailClosed(t *testing.T) {
 	handler := EncryptionHandlers()[domain.DeviceKind]
 	err := handler(context.Background(), m, failingEncrypt)
 	require.ErrorIs(t, err, errEncrypt)
+	require.Equal(t, configBefore, configVal, "map value should be unmodified on encrypt failure")
 }
 
 func TestEncryptHandler_DeviceMapUnsupportedTypeFailsClosed(t *testing.T) {
@@ -1512,7 +1535,7 @@ func TestEncryptHandler_DeviceMapRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared-slice corruption — zeroModel prevents backing array reuse
+// Shared-slice corruption — fresh-instance unmarshal prevents backing array reuse
 // ---------------------------------------------------------------------------
 
 func TestNoSharedSliceCorruption_AuthProvider(t *testing.T) {
