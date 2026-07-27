@@ -32,8 +32,6 @@ jobs:
           path: |
             bin/dnf-cache
             bin/osbuild-cache
-            dnf-cache
-            osbuild-cache
           key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/containerfiles/*/Containerfile') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-e2e-
