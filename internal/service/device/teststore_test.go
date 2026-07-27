@@ -90,6 +90,15 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
+func preserveNilMetadata(device, existing *domain.Device, fieldsToUnset []string) {
+	if device.Metadata.Owner == nil && !lo.Contains(fieldsToUnset, "owner") {
+		device.Metadata.Owner = existing.Metadata.Owner
+	}
+	if device.Metadata.Annotations == nil && !lo.Contains(fieldsToUnset, "annotations") {
+		device.Metadata.Annotations = existing.Metadata.Annotations
+	}
+}
+
 func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
@@ -98,13 +107,8 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 			return nil, false, err
 		}
 	}
-	// Mirrors the real generic store: fields left nil by the caller are preserved
-	// from the existing resource rather than wiped on update.
-	if existed && device.Metadata.Owner == nil {
-		device.Metadata.Owner = old.Metadata.Owner
-	}
-	if existed && device.Metadata.Annotations == nil {
-		device.Metadata.Annotations = old.Metadata.Annotations
+	if existed {
+		preserveNilMetadata(device, old, fieldsToUnset)
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
@@ -126,14 +130,7 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 			return nil, err
 		}
 	}
-	// Mirrors the real generic store: fields left nil by the caller are preserved
-	// from the existing resource rather than wiped on update.
-	if device.Metadata.Owner == nil {
-		device.Metadata.Owner = old.Metadata.Owner
-	}
-	if device.Metadata.Annotations == nil {
-		device.Metadata.Annotations = old.Metadata.Annotations
-	}
+	preserveNilMetadata(device, old, fieldsToUnset)
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	if eventCallback != nil {
@@ -141,7 +138,6 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	return deepCopyDevice(d), nil
 }
-
 func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
 	old, ok := s.devices[name]
 	if !ok {

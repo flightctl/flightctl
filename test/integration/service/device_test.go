@@ -729,6 +729,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 	Context("Device ownership enforcement", func() {
 		seedOwnedDevice := func(deviceName string) {
+			GinkgoHelper()
 			device := api.Device{
 				Metadata: api.ObjectMeta{
 					Name:  lo.ToPtr(deviceName),
@@ -751,6 +752,21 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
 			}
 			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os.Image).To(Equal("img"))
+		})
+
+		It("denies a spec patch on an owned device when enforceOwnership is true", func() {
+			deviceName := "owned-device-patch-deny"
+			seedOwnedDevice(deviceName)
+
+			var value interface{} = "img-updated"
+			patch := api.PatchRequest{{Op: "replace", Path: "/spec/os/image", Value: &value}}
+			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true)
 			Expect(status.Code).To(Equal(int32(409)))
 			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
 

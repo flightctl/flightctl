@@ -762,6 +762,31 @@ func TestUpdateDevice(t *testing.T) {
 		result, err := svc.UpdateDevice(ctx, orgId, "owned-device", device, nil)
 		require.NoError(t, err)
 		require.Equal(t, "img-updated", result.Spec.Os.Image)
+		require.Equal(t, "Fleet/f1", lo.FromPtr(st.device.devices["owned-device"].Metadata.Owner))
+	})
+
+	t.Run("When fieldsToUnset includes owner it should clear the owner", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		st.device.devices["owned-device"] = &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:        lo.ToPtr("owned-device"),
+				Owner:       lo.ToPtr("Fleet/f1"),
+				Annotations: &map[string]string{"k": "v"},
+			},
+			Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
+		}
+
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img-updated"}},
+		}
+		result, err := svc.UpdateDevice(ctx, orgId, "owned-device", device, []string{"owner"})
+		require.NoError(t, err)
+		require.Nil(t, result.Metadata.Owner)
+		require.Nil(t, st.device.devices["owned-device"].Metadata.Owner)
+		require.Equal(t, "v", (*st.device.devices["owned-device"].Metadata.Annotations)["k"])
 	})
 }
 
