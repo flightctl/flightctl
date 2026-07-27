@@ -1618,6 +1618,9 @@ type DevicesSummary struct {
 	// ApplicationStatus A breakdown of the devices in the fleet by "application" status.
 	ApplicationStatus map[string]int64 `json:"applicationStatus"`
 
+	// Capabilities Breakdowns of devices by status.capabilities fields.
+	Capabilities *DevicesSummaryCapabilities `json:"capabilities,omitempty"`
+
 	// SummaryStatus A breakdown of the devices in the fleet by "summary" status.
 	SummaryStatus map[string]int64 `json:"summaryStatus"`
 
@@ -1626,6 +1629,12 @@ type DevicesSummary struct {
 
 	// UpdateStatus A breakdown of the devices in the fleet by "updated" status.
 	UpdateStatus map[string]int64 `json:"updateStatus"`
+}
+
+// DevicesSummaryCapabilities Breakdowns of devices by status.capabilities fields.
+type DevicesSummaryCapabilities struct {
+	// OsMode Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+	OsMode *map[string]int64 `json:"osMode,omitempty"`
 }
 
 // DiskResourceMonitorSpec defines model for DiskResourceMonitorSpec.
