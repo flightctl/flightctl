@@ -72,7 +72,7 @@ func (s *CanaryStore) Delete(ctx context.Context, strategy, keyID string) (bool,
 func (s *CanaryStore) List(ctx context.Context) ([]model.EncryptionCanary, error) {
 	var rows []model.EncryptionCanary
 	if err := s.getDB(ctx).Find(&rows).Error; err != nil {
-		return nil, err
+		return nil, store.ErrorFromGormError(err)
 	}
 	return rows, nil
 }

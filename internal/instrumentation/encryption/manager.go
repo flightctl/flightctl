@@ -43,6 +43,22 @@ func (m *Manager) SetCanaryStore(store CanaryStore) {
 	m.canaryManager = cm
 }
 
+// EnsureActiveCanary creates a canary for the active encryption key if one doesn't exist.
+// Called at startup to surface canary-creation failures immediately rather than on first encrypt.
+func (m *Manager) EnsureActiveCanary(ctx context.Context) error {
+	cm := m.CanaryManager()
+	if cm == nil {
+		return nil
+	}
+
+	activeVersion, strategy := m.GetActiveStrategy()
+	if activeVersion == "" || strategy == nil {
+		return nil
+	}
+
+	return cm.EnsureCanary(ctx, activeVersion, strategy.ActiveKeyID())
+}
+
 // ValidateCanaries validates all stored canaries can be decrypted.
 // Returns error if any canary fails.
 func (m *Manager) ValidateCanaries(ctx context.Context) error {

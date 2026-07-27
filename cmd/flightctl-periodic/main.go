@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
@@ -10,8 +9,8 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
+	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store"
-	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -51,15 +50,8 @@ func main() {
 		}
 	}()
 
-	if encMgr := encryption.GlobalManager(); encMgr != nil {
-		canaryStore := canarystore.NewCanaryStore(db, log.WithField("pkg", "canary-store"))
-		encMgr.SetCanaryStore(canarystore.AsEncryptionStore(canaryStore))
-		valCtx, valCancel := context.WithTimeout(ctx, 30*time.Second)
-		err := encMgr.ValidateCanaries(valCtx)
-		valCancel()
-		if err != nil {
-			log.Fatalf("validating encryption canaries: %v", err)
-		}
+	if err := canaryservice.InitEncryption(ctx, db, log); err != nil {
+		log.Fatalf("initializing encryption canary store: %v", err)
 	}
 
 	server := periodic.New(cfg, log, db)

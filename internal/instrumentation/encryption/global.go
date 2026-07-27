@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 )
+
+const canaryInitTimeout = 30 * time.Second
 
 var (
 	globalManager     *Manager
@@ -103,6 +106,27 @@ func GlobalManager() *Manager {
 	defer globalManagerMu.RUnlock()
 
 	return globalManager // Can be nil if not initialized
+}
+
+// InitCanaryStore sets the canary store on the global manager, creates a canary
+// for the active key, and validates all stored canaries. No-op if encryption is
+// not initialized. Applies a fixed 30 s timeout so callers can't drift.
+func InitCanaryStore(ctx context.Context, store CanaryStore) error {
+	mgr := GlobalManager()
+	if mgr == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, canaryInitTimeout)
+	defer cancel()
+
+	mgr.SetCanaryStore(store)
+	if err := mgr.EnsureActiveCanary(ctx); err != nil {
+		return fmt.Errorf("ensuring encryption canary: %w", err)
+	}
+	if err := mgr.ValidateCanaries(ctx); err != nil {
+		return fmt.Errorf("validating encryption canaries: %w", err)
+	}
+	return nil
 }
 
 // Encrypt is a type-safe convenience function that encrypts using the global manager.

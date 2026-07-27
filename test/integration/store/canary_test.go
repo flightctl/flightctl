@@ -167,6 +167,51 @@ var _ = Describe("CanaryStore", func() {
 		})
 	})
 
+	Context("When upserting a canary", func() {
+		It("should create when no conflict exists", func() {
+			canary := &model.EncryptionCanary{
+				Strategy:       "v1",
+				KeyID:          "upsert-new",
+				EncryptedValue: []byte("first-value"),
+				CreatedAt:      time.Now().UTC(),
+			}
+			err := canaryStr.CreateOrUpdate(ctx, canary)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := canaryStr.Get(ctx, "v1", "upsert-new")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.EncryptedValue).To(Equal([]byte("first-value")))
+		})
+
+		It("should update on conflict instead of failing", func() {
+			first := &model.EncryptionCanary{
+				Strategy:       "v1",
+				KeyID:          "upsert-dup",
+				EncryptedValue: []byte("original"),
+				CreatedAt:      time.Now().UTC(),
+			}
+			err := canaryStr.CreateOrUpdate(ctx, first)
+			Expect(err).ToNot(HaveOccurred())
+
+			second := &model.EncryptionCanary{
+				Strategy:       "v1",
+				KeyID:          "upsert-dup",
+				EncryptedValue: []byte("updated"),
+				CreatedAt:      time.Now().UTC(),
+			}
+			err = canaryStr.CreateOrUpdate(ctx, second)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := canaryStr.Get(ctx, "v1", "upsert-dup")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.EncryptedValue).To(Equal([]byte("updated")))
+
+			all, err := canaryStr.List(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(all).To(HaveLen(1))
+		})
+	})
+
 	Context("When deleting a canary", func() {
 		It("should remove the canary", func() {
 			err := canaryStr.Create(ctx, &model.EncryptionCanary{
