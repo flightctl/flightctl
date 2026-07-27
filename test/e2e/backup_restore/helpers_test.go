@@ -29,12 +29,18 @@ func newBackupRestore(harness *e2e.Harness, p *infra.Providers) *e2e.BackupResto
 
 // motdInlineConfigProviderSpec returns a ConfigProviderSpec that writes content to /etc/motd (per test plan 4.1).
 func motdInlineConfigProviderSpec() v1beta1.ConfigProviderSpec {
+	return motdInlineConfigProviderSpecWith("backup-restore-e2e\n")
+}
+
+// motdInlineConfigProviderSpecWith returns a motd inline config with the given content so
+// successive fleet updates bump renderedVersion without an OS image change.
+func motdInlineConfigProviderSpecWith(content string) v1beta1.ConfigProviderSpec {
 	mode := 0644
 	inline := v1beta1.InlineConfigProviderSpec{
 		Inline: []v1beta1.FileSpec{{
 			Path:    "/etc/motd",
 			Mode:    &mode,
-			Content: "backup-restore-e2e\n",
+			Content: content,
 		}},
 		Name: "motd-inline",
 	}

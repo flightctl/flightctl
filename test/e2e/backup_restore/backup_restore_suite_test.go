@@ -39,7 +39,8 @@ func TestBackupRestore(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	// Most specs only exercise backup/restore binaries against the cluster; VM pool is started on demand for needvm specs.
+	// Most specs only exercise backup/restore binaries against the cluster; a VM is started
+	// on demand for needvm specs.
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	auxSvcs = auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
@@ -55,8 +56,15 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	if slices.Contains(CurrentSpecReport().Labels(), "needvm") {
+	labels := CurrentSpecReport().Labels()
+	switch {
+	case slices.Contains(labels, "needvm"):
+		// Specs that still exercise a real fleet OS image rollout (bootc switch + reboot).
 		err := harness.SetupVMFromPoolAndStartAgent(workerID)
+		Expect(err).ToNot(HaveOccurred())
+	case slices.Contains(labels, "needdevice"):
+		// Config-driven RV / ConflictPaused paths — container-backed primary is enough.
+		err := harness.SetupContainerFromPoolAndStartAgent(workerID)
 		Expect(err).ToNot(HaveOccurred())
 	}
 

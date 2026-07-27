@@ -33,8 +33,15 @@ var auxSvcs *auxiliary.Services
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxSvcs = auxFuture.Wait()
+	// This suite only exercises the flightctl CLI against the device (config/status
+	// inspection) - it never switches the device's OS image or reboots it, so it doesn't need
+	// a real VM (see the container-backed-device-migration plan). Use a container-backed
+	// device instead.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
 var _ = BeforeEach(func() {
@@ -46,7 +53,7 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
@@ -54,8 +61,8 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Get a pristine container device from the pool and start the agent
+	err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

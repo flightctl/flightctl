@@ -2,6 +2,7 @@ package parametrisabletemplates
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -28,9 +29,19 @@ var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(ctx)
 
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
 
+	// Most specs here only exercise fleet parameter template rendering on the device - they never
+	// switch the device's OS image or reboot it, so a container-backed device is enough for them
+	// (see the container-backed-device-migration plan). The "needvm" spec below is the exception
+	// (it puts an OS image on the fleet spec and waits for the rollout to actually apply), so the
+	// device itself is set up per-spec in BeforeEach rather than once here.
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxSvcs = auxFuture.Wait()
+
 	fileServerSvcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceFileServer})
 	Expect(err).ToNot(HaveOccurred(), "failed to start file server")
 	auxSvcs.FileServer = fileServerSvcs.FileServer
@@ -50,16 +61,25 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// "Template variables ... replaced in the device os image" puts an OS image on the fleet spec
+	// and waits for the rollout to actually apply it - a real bootc switch + reboot, which a
+	// container-backed device can't do ("Detected container; this command requires a booted host
+	// system"). Every other spec here only renders fleet parameter templates (configs, labels),
+	// never an OS switch, so a container-backed device is sufficient for them.
+	var err error
+	if slices.Contains(CurrentSpecReport().Labels(), "needvm") {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	} else {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

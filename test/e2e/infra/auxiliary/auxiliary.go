@@ -78,7 +78,7 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 				return nil, fmt.Errorf("failed to start registry: %w", err)
 			}
 			if !s.Registry.Reused {
-				if err := s.UploadImages(); err != nil {
+				if err := s.UploadImages(ctx); err != nil {
 					return nil, fmt.Errorf("failed to upload images: %w", err)
 				}
 				if err := s.UploadCharts(); err != nil {
@@ -86,6 +86,9 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 				}
 				if err := s.UploadQuadlets(); err != nil {
 					return nil, fmt.Errorf("failed to upload quadlets: %w", err)
+				}
+				if err := s.MirrorExternalTestImages(ctx); err != nil {
+					return nil, fmt.Errorf("failed to mirror external test images: %w", err)
 				}
 			} else {
 				logrus.Info("Skipping artifact upload (registry container was reused)")

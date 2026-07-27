@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Agent System Info", func() {
+var _ = Describe("Agent System Info", Label(containerCandidateLabel), func() {
 	var (
 		ctx      context.Context
 		deviceId string

@@ -127,7 +127,7 @@ jobs:
       matrix:
         include:
           - label_filter: 'sanity'
-            ginkgo_total_nodes: 10
+            ginkgo_total_nodes: 12
           - label_filter: 'sanity && agent && !microshift'
             ginkgo_total_nodes: 5
     steps:
@@ -216,7 +216,7 @@ jobs:
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity'
-            ginkgo_total_nodes: 10
+            ginkgo_total_nodes: 12
           ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
           ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
           ## full microshift coverage via the v12 OKD SCOS variant.

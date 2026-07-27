@@ -23,7 +23,7 @@ const (
 	logStatusPushed         = "Completed pushing device status"
 )
 
-var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
+var _ = Describe("Non-blocking OCI dependency prefetch manager", Label(containerCandidateLabel), func() {
 	var (
 		harness  *e2e.Harness
 		deviceID string
@@ -36,7 +36,7 @@ var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("Status is reported during an OCI image pre-fetch", Label("83871", "sanity", "agent"), func() {
+	It("Status is reported during an OCI image pre-fetch", Label("83871", "agent"), func() {
 		err := harness.UpdateAgentConfigWith(func(cfg *agentcfg.Config) {
 			cfg.LogLevel = "trace"
 			cfg.StatusUpdateInterval = agentcfg.MinSyncInterval
@@ -117,7 +117,7 @@ var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
 		}, LONGTIMEOUT, LONGPOLLING).Should(BeTrue(), "expected image to be present after increasing pull-timeout")
 	})
 
-	It("Prefetch manager pulls OCI artifacts (IfNotPresent vs Always)", Label("83847", "sanity", "agent"), func() {
+	It("Prefetch manager pulls OCI artifacts (IfNotPresent vs Always)", Label("83847", "agent"), func() {
 		serviceImageRef := AlpineImage
 		artifactRef := defaultArtifactRef
 
@@ -178,7 +178,7 @@ var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
 		Consistently(func() bool {
 			afterArtifactCount := strings.Count(agentLogsOrEmpty(harness), logPrefetchTargetPrefix+artifactRef)
 			return afterArtifactCount == beforeArtifactCount
-		}, "45s", LONGPOLLING).Should(BeTrue(), "did not expect prefetch pulls when pullPolicy=IfNotPresent and content already exists")
+		}, "20s", LONGPOLLING).Should(BeTrue(), "did not expect prefetch pulls when pullPolicy=IfNotPresent and content already exists")
 
 		// PullAlways is not implemented for prefetch: the agent treats it as IfNotPresent. The PullPolicy API field is retained for backward compatibility.
 	})

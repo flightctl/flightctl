@@ -1,6 +1,8 @@
 package rootless_test
 
 import (
+	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,13 +15,31 @@ import (
 // Rootless tests require a quadlet-capable VM (e.g. make deploy-quadlets-vm), same as quadlet tests.
 // Standard e2e VMs use podman-compose agent and do not support quadlet/rootless applications.
 
+// containerCandidateLabel marks specs that never reboot the device, so BeforeEach below gives
+// them a container-backed device instead of a libvirt VM - see the
+// container-backed-device-migration plan. The suite's other spec (checkpoint 87844) reboots the
+// device mid-test and must stay on a VM.
+const containerCandidateLabel = "container-candidate"
+
 func TestRootless(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Rootless applications E2E Suite")
 }
 
 var _ = BeforeSuite(func() {
+	// This suite pulls quay.io/flightctl-tests/* images (see rootlessAlpineImage,
+	// rootlessNginxImage in rootless_test.go), which only resolve because the device's
+	// registries.conf remaps them to the local registry (see inject_agent_files_into_qcow.sh)
+	// - a container that this suite must create/populate itself via StartAuxServicesAsync,
+	// same as containers_suite_test.go/helm_suite_test.go. Previously this suite skipped
+	// that call entirely and implicitly relied on some *other* suite in the same shard
+	// having already started the registry first; when Ginkgo's LPT scheduler happened to
+	// run this suite first in a shard, nothing had created the registry yet, so every
+	// device got "connection refused" pulling these images for the suite's whole run (see
+	// git history for the registry-health diagnostic that root-caused this).
+	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	e2e.SetupWorkerHarnessOrAbort()
+	auxFuture.Wait()
 })
 
 var _ = BeforeEach(func() {
@@ -27,12 +47,17 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	var err error
+	if slices.Contains(CurrentSpecReport().Labels(), containerCandidateLabel) {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with container device from pool\n", workerID)
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
 	Expect(err).ToNot(HaveOccurred())

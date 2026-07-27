@@ -235,6 +235,8 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			}, util.TIMEOUT, util.POLLING).Should(BeTrue(), "quadlet and container apps should be removed")
 		})
 
+		// Sanity path: Healthy → Degraded only. Error-state coverage is a separate slow spec
+		// so this does not dominate cs9 LPT (~8m on #3221 with delayBeforeFail=20 + Error phase).
 		It("should report degraded application status when pods are unavailable", Label("87531", "sanity", "agent", "slow"), func() {
 			By("Deploy helm application with mixed healthy and delayed-fail deployments")
 			mixedDeploymentsValues := map[string]interface{}{
@@ -252,7 +254,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 						"replicaCount":    1,
 						"message":         "failing pod",
 						"failOnStart":     true,
-						"delayBeforeFail": 20,
+						"delayBeforeFail": 15, // headroom for Healthy 2/2 before fail pod crashes
 						"resources":       map[string]interface{}{},
 					},
 				},
@@ -274,7 +276,18 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			harness.WaitForApplicationReadyCount(deviceId, helmAppName, "1/2", v1beta1.ApplicationsSummaryStatusDegraded)
 			GinkgoWriter.Printf("Application %s is degraded with 1/2 pods running\n", helmAppName)
 
-			By("Update to all delayed-fail deployments")
+			By("Remove helm application")
+			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
+			})
+			Expect(err).ToNot(HaveOccurred())
+			harness.WaitForNoApplications(deviceId)
+			err = harness.WaitForApplicationSummary(deviceId, util.TIMEOUT, util.POLLING, v1beta1.ApplicationsSummaryStatusNoApplications)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should report error application status when all pods fail", Label("87531", "agent", "slow"), func() {
+			By("Deploy helm application with all delayed-fail deployments")
 			allFailingValues := map[string]interface{}{
 				"deployments": []interface{}{
 					map[string]interface{}{
@@ -282,7 +295,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 						"replicaCount":    1,
 						"message":         "failing pod 1",
 						"failOnStart":     true,
-						"delayBeforeFail": 20,
+						"delayBeforeFail": 5,
 						"resources":       map[string]interface{}{},
 					},
 					map[string]interface{}{
@@ -290,7 +303,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 						"replicaCount":    1,
 						"message":         "failing pod 2",
 						"failOnStart":     true,
-						"delayBeforeFail": 20,
+						"delayBeforeFail": 5,
 						"resources":       map[string]interface{}{},
 					},
 				},
@@ -298,6 +311,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			failingAppSpec, err := e2e.NewHelmApplicationSpecWithValues(helmAppName, testAppChartV1, helmAppNamespace, allFailingValues)
 			Expect(err).ToNot(HaveOccurred())
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Os = microshiftOs
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{failingAppSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -435,23 +449,15 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			err = harness.WaitForApplicationSummary(deviceId, util.TIMEOUT, util.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
 			Expect(err).ToNot(HaveOccurred())
 		})
+		// Sanity: helm chart pull with registry auth + MicroShift only. Rootful/rootless
+		// quadlet auth follow-ups are a separate slow spec (~extra OS/app cycles on #3221).
 		It("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
 			By("Deploy a helm app with helm registry credentials")
-			creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
+			_, _, _ = deployAuthenticatedHelmApp(harness, services, deviceId, authChartV1, microshiftOs)
+		})
 
-			helmAppSpec, err := e2e.NewHelmApplicationSpec(helmAppName, authChartV1, helmAppNamespace, nil)
-			Expect(err).ToNot(HaveOccurred())
-			helmAuth, err := helmCreds(creds)
-			Expect(err).ToNot(HaveOccurred())
-			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Os = microshiftOs
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{helmAuth}
-				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
-			})
-			Expect(err).ToNot(HaveOccurred())
-
-			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
-			Expect(err).ToNot(HaveOccurred())
+		It("runAs flightctl quadlet apps with auth can be deployed alongside helm", Label("88004", "agent", "slow"), func() {
+			creds, helmAuth, helmAppSpec := deployAuthenticatedHelmApp(harness, services, deviceId, authChartV1, microshiftOs)
 
 			By("Deploy a rootful quadlet app")
 			rootfulQuadlet, err := rootfulQuadletApp(authFlightctlRepo)
@@ -570,6 +576,22 @@ image-pruning:
 		})
 	})
 })
+
+func deployAuthenticatedHelmApp(harness *e2e.Harness, services *auxiliary.Services, deviceId, authChartV1 string, microshiftOs *v1beta1.DeviceOsSpec) (string, v1beta1.ConfigProviderSpec, v1beta1.ApplicationProviderSpec) {
+	GinkgoHelper()
+	creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
+	helmAppSpec, err := e2e.NewHelmApplicationSpec(helmAppName, authChartV1, helmAppNamespace, nil)
+	Expect(err).ToNot(HaveOccurred())
+	helmAuth, err := helmCreds(creds)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+		device.Spec.Os = microshiftOs
+		device.Spec.Config = &[]v1beta1.ConfigProviderSpec{helmAuth}
+		device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
+	})).ToNot(HaveOccurred())
+	Expect(harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)).ToNot(HaveOccurred())
+	return creds, helmAuth, helmAppSpec
+}
 
 func helmCreds(creds string) (v1beta1.ConfigProviderSpec, error) {
 	return e2e.NewInlineConfigSpec("helm-creds", []v1beta1.FileSpec{

@@ -42,7 +42,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 				if err != nil {
 					Fail(fmt.Sprintf("Error cleaning up test resources: %v", err))
 				}
-				e2e.Cleanup(harness)
+				e2e.CleanupContainerFromPool(harness, rolloutDeviceWorkerIDBase+i)
 			}
 		}
 		tc.harnesses = nil
@@ -485,8 +485,12 @@ const (
 	labelFunction    = "function"
 	SuccessThreshold = "100%"
 
-	maxConcurrentVMs        = 2
+	maxConcurrentDevices    = 2
 	pendingDevicesSeparator = "; "
+
+	// rolloutDeviceWorkerIDBase offsets horizontal-scale device worker IDs away from the regular
+	// per-Ginkgo-worker range so they don't collide with the main harness's own container/VM.
+	rolloutDeviceWorkerIDBase = 1000
 )
 
 var testFleetSelector = api.LabelSelector{
@@ -598,11 +602,11 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 	tc.harnesses = make([]*e2e.Harness, numDevices)
 
 	// Use goroutines to set up devices concurrently
-	// Limit concurrent VM creation to avoid resource exhaustion in nested VM environments
-	GinkgoWriter.Printf("Creating %d device VMs (max %d concurrent)...\n", numDevices, maxConcurrentVMs)
+	// Limit concurrent device creation to avoid resource exhaustion
+	GinkgoWriter.Printf("Creating %d devices (max %d concurrent)...\n", numDevices, maxConcurrentDevices)
 	var wg sync.WaitGroup
 	errChan := make(chan error, numDevices)
-	semaphore := make(chan struct{}, maxConcurrentVMs)
+	semaphore := make(chan struct{}, maxConcurrentDevices)
 
 	for i := 0; i < numDevices; i++ {
 		wg.Add(1)
@@ -610,29 +614,31 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 			defer GinkgoRecover()
 			defer wg.Done()
 
-			// Acquire semaphore slot before creating VM
+			// Acquire semaphore slot before creating the device
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }() // Release slot when done
 
 			testID := tc.harness.GetTestIDFromContext()
-			GinkgoWriter.Printf("📦 [VM %d] Starting creation (Test ID: %s)\n", index+1, testID)
+			GinkgoWriter.Printf("📦 [Device %d] Starting creation (Test ID: %s)\n", index+1, testID)
 
-			// Use fresh VMs from pool (no snapshots, overlay disks, 1GB RAM)
-			// This avoids snapshot revert issues while still using pool management
-			vmHarness, err := e2e.NewTestHarnessWithFreshVMFromPool(context, 1000+index)
+			// These devices only ever get enrolled and have application/OS-image specs compared
+			// against server-observed status - never a real bootc switch/reboot - so
+			// container-backed devices are sufficient (see the container-backed-device-migration
+			// plan). Each device gets a fresh container (no snapshot/revert semantics needed).
+			deviceHarness, err := e2e.NewTestHarnessWithContainerPool(context, rolloutDeviceWorkerIDBase+index)
 			if err != nil {
-				errChan <- fmt.Errorf("VM %d: %w", index+1, err)
+				errChan <- fmt.Errorf("device %d: %w", index+1, err)
 				return
 			}
 
 			// Set the test context to inherit the same test ID as the main harness
-			vmHarness.SetTestContext(tc.harness.GetTestContext())
-			testID = vmHarness.GetTestIDFromContext()
-			GinkgoWriter.Printf("✅ [VM %d] Created successfully (Test ID: %s)\n", index+1, testID)
-			tc.harnesses[index] = vmHarness
+			deviceHarness.SetTestContext(tc.harness.GetTestContext())
+			testID = deviceHarness.GetTestIDFromContext()
+			GinkgoWriter.Printf("✅ [Device %d] Created successfully (Test ID: %s)\n", index+1, testID)
+			tc.harnesses[index] = deviceHarness
 
 			if index >= len(labelsList) {
-				errChan <- fmt.Errorf("VM %d: missing labels entry at index %d", index+1, index)
+				errChan <- fmt.Errorf("device %d: missing labels entry at index %d", index+1, index)
 				return
 			}
 			labelsListEntry := labelsList[index]
@@ -643,14 +649,14 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 			}
 			labels[labelFleet] = fleetName
 
-			GinkgoWriter.Printf("🔄 [VM %d] Enrolling device...\n", index+1)
-			deviceID, device := vmHarness.EnrollAndWaitForOnlineStatus(labels)
+			GinkgoWriter.Printf("🔄 [Device %d] Enrolling device...\n", index+1)
+			deviceID, device := deviceHarness.EnrollAndWaitForOnlineStatus(labels)
 			if device == nil {
-				errChan <- fmt.Errorf("VM %d: failed to enroll - device is nil", index+1)
+				errChan <- fmt.Errorf("device %d: failed to enroll - device is nil", index+1)
 				return
 			}
 			tc.deviceIDs[index] = deviceID
-			GinkgoWriter.Printf("✅ [VM %d] Enrolled successfully (ID: %s)\n", index+1, deviceID)
+			GinkgoWriter.Printf("✅ [Device %d] Enrolled successfully (ID: %s)\n", index+1, deviceID)
 
 		}(i)
 	}

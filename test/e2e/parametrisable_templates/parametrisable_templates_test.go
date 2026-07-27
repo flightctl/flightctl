@@ -426,7 +426,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 		It(`Verifies that the template variables are replaced in the different configurations
 		    and work with the helper functions`,
-			Label("78684", "sanity"), func() {
+			Label("78684", "sanity", "needvm"), func() {
 				By("Check the device status")
 				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())

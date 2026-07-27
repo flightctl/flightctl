@@ -16,8 +16,10 @@ func TestHelm(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// Avoid suite-level VM create (~overlap with aux registry upload). VMs are
+	// still created per-spec in BeforeEach via SetupVMFromPoolAndStartAgent.
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
-	_, _, err := e2e.SetupWorkerHarness()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
 })
