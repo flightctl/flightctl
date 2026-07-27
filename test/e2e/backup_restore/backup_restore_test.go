@@ -7,6 +7,7 @@
 package backup_restore
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -198,6 +199,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			deviceSpecNext, err := harness.CreateFleetDeviceSpec(regHost, regPort, "", motdInlineConfigProviderSpecWith("backup-restore-e2e-v3\n"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecNext)).To(Succeed())
+			// JSON-marshal config: fmt "%v" prints Content as []byte ints, not the string.
 			Eventually(func() (string, error) {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				if err != nil {
@@ -206,8 +208,12 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				if devAfterPush.JSON200 == nil || devAfterPush.JSON200.Spec.Config == nil {
 					return "", fmt.Errorf("device response missing spec/config")
 				}
-				return fmt.Sprintf("%v", *devAfterPush.JSON200.Spec.Config), nil
-			}, 2*time.Second, 500*time.Millisecond).Should(ContainSubstring("backup-restore-e2e-v3"), "device spec should pick up new motd while ConflictPaused")
+				b, err := json.Marshal(devAfterPush.JSON200.Spec.Config)
+				if err != nil {
+					return "", err
+				}
+				return string(b), nil
+			}, 30*time.Second, 500*time.Millisecond).Should(ContainSubstring("backup-restore-e2e-v3"), "device spec should pick up new motd while ConflictPaused")
 			Consistently(func() (int, error) {
 				devAfterPush, err := harness.Client.GetDeviceWithResponse(harness.Context, device1ID)
 				if err != nil {

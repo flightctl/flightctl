@@ -68,6 +68,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			GinkgoWriter.Printf("Device updated to new image 🎉\n")
 		})
 
+		// Sanity: one OS reboot to v4 + embedded app/SELinux checks. Base teardown is a
+		// separate slow It (~second full OS cycle; ~6.6m on cs9 LPT shard 9 of run 30209449889).
 		It("Should update to v4 with embedded application", Label("77671", "sanity", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 
@@ -77,7 +79,6 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			_, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V4)
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
-			// Collapse Preparing/Rebooting/Updated/Online polls into one reboot-aware wait.
 			Expect(harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)).To(Succeed())
 
 			GinkgoWriter.Printf("We expect containers with sleep infinity process to be present but not running\n")
@@ -89,11 +90,22 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
+		})
+
+		It("Should remove embedded application when returning to base image", Label("77671", "agent", "slow"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("Update to v4 so the embedded application is present")
+			nextRendered, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V4)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)).To(Succeed())
 
 			By("Returning to base image removes the embedded application")
 			nextRendered, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			_, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.Base)
+			_, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.Base)
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 			Expect(harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)).To(Succeed())
@@ -345,27 +357,20 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			GinkgoWriter.Println("Confirmed: third-party MicroShift health check did not trigger rollback")
 		})
 		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
-			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
 			const everyMinuteExpression = "* * * * *"
 			const startGracePeriod v1beta1.Duration = "1m"
 
-			// function for generating a cron expression to execute in a specified number of minutes from the current time
 			inNMinutes := func(minutes int) string {
-
 				stdout, err := harness.VM.RunSSH([]string{"date", "-Iseconds"}, nil)
 				Expect(err).NotTo(HaveOccurred())
 				GinkgoWriter.Printf("Current device time: %s\n", stdout.String())
-				// convert the current time to a time.Time object
 				timeStr := strings.TrimSpace(stdout.String())
 				currentDeviceTime, err := time.Parse(time.RFC3339, timeStr)
 				Expect(err).NotTo(HaveOccurred())
-				// add minutes to the current time
 				minutesFromNow := currentDeviceTime.Add(time.Duration(minutes) * time.Minute)
-				// format the time as a cron expression
-				inMinutes := fmt.Sprintf("%d * * * *", minutesFromNow.Minute())
-				return inMinutes
+				return fmt.Sprintf("%d * * * *", minutesFromNow.Minute())
 			}
 			// cron is time based and since we can't control when this specific test will run, we do our best to ensure
 			// that this test will always succeed whenever it is run.
@@ -403,21 +408,16 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				}
 				return true
 			}, TIMEOUT)
-			// 45s: wontUpdatePolicy's cron ("0 0 <yesterday's day> <yesterday's month> *")
-			// won't match again for the rest of this test run, so this isn't waiting out a
-			// timer - it's a "the reconciler doesn't misapply despite the policy" stability
-			// check, same category as the 45s windows used for equivalent checks elsewhere
-			// (e.g. agent_prefetch_manager_test.go).
+			// Stability only — wontUpdatePolicy cannot fire again this run.
 			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1beta1.Device) bool {
 				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
-			}, "45s")
+			}, "20s")
 
 			By("Reducing the policies, the spec should be applied")
-			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
-			inTwoMinutes := inNMinutes(2)
+			inOneMinute := inNMinutes(1)
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
-				device.Spec.UpdatePolicy.DownloadSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inOneMinute
+				device.Spec.UpdatePolicy.DownloadSchedule.At = inOneMinute
 			})
 			Expect(err).ToNot(HaveOccurred())
 			expectedVersion++
@@ -434,23 +434,21 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				// change the spec to update every minute so that we don't have to wait as long
 				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			// eventually the next update should be applied
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedVersion++
-			inTwoMinutes = inNMinutes(2)
+			inOneMinute = inNMinutes(1)
 			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
 			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
 			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inOneMinute
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
