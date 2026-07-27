@@ -1,6 +1,7 @@
 package encryption
 
 import (
+	"context"
 	"sync"
 )
 
@@ -19,7 +20,7 @@ func newMemoryCanaryStore() *memoryCanaryStore {
 }
 
 // Get retrieves a canary for the given strategy and keyID.
-func (s *memoryCanaryStore) Get(strategy, keyID string) (*Canary, error) {
+func (s *memoryCanaryStore) Get(_ context.Context, strategy, keyID string) (*Canary, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -42,7 +43,7 @@ func (s *memoryCanaryStore) Get(strategy, keyID string) (*Canary, error) {
 }
 
 // Save creates or updates a canary.
-func (s *memoryCanaryStore) Save(canary *Canary) error {
+func (s *memoryCanaryStore) Save(_ context.Context, canary *Canary) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,7 +64,7 @@ func (s *memoryCanaryStore) Save(canary *Canary) error {
 }
 
 // GetAll retrieves all stored canaries.
-func (s *memoryCanaryStore) GetAll() ([]Canary, error) {
+func (s *memoryCanaryStore) GetAll(_ context.Context) ([]Canary, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

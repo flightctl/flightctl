@@ -4,18 +4,19 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 )
 
+const canaryInitTimeout = 30 * time.Second
+
 var (
-	globalManager       *Manager
-	globalCanaryManager *CanaryManager
-	globalLogger        logrus.FieldLogger
-	globalManagerOnce   sync.Once
-	globalManagerMu     sync.RWMutex
-	globalInitErr       error // Cached initialization error from sync.Once attempt
+	globalManager     *Manager
+	globalManagerOnce sync.Once
+	globalManagerMu   sync.RWMutex
+	globalInitErr     error // Cached initialization error from sync.Once attempt
 )
 
 // Plaintext is a type-safe wrapper for plaintext data.
@@ -75,68 +76,21 @@ func InitGlobalEncryptionFull(log logrus.FieldLogger, cfg *config.Config, canary
 			manager.SetMetricsRecorder(metrics)
 		}
 
-		// Determine active strategy info for logging
+		// Set canary store if provided
+		if canaryStore != nil {
+			manager.SetCanaryStore(canaryStore)
+		}
+
+		globalManagerMu.Lock()
+		globalManager = manager
+		globalManagerMu.Unlock()
+
 		activeVersion, activeStrategy := manager.GetActiveStrategy()
 		var activeKeyID string
 		if activeStrategy != nil {
 			activeKeyID = activeStrategy.ActiveKeyID()
 		}
-		strategyInfo := fmt.Sprintf("active=%s/%s", activeVersion, activeKeyID)
-
-		// Initialize canary manager (optional)
-		var canaryManager *CanaryManager
-		if canaryStore != nil {
-			canaryManager = NewCanaryManager(manager, canaryStore)
-
-			// Validate all existing canaries
-			ctx := context.Background()
-			results, err := canaryManager.ValidateAll(ctx)
-			if err != nil {
-				globalInitErr = fmt.Errorf("validate canaries: %w", err)
-				return
-			}
-
-			// Check validation results
-			okCount := 0
-			failedCount := 0
-			for _, result := range results {
-				if result.Status != "ok" {
-					isActive := (result.Strategy == activeVersion && result.KeyID == activeKeyID)
-					if isActive {
-						// CRITICAL: Active key cannot decrypt its canary
-						log.Errorf("CRITICAL: Active encryption key %s/%s cannot decrypt canary: %s",
-							result.Strategy, result.KeyID, result.Error)
-						globalInitErr = fmt.Errorf("active encryption key %s/%s is broken - cannot decrypt canary",
-							result.Strategy, result.KeyID)
-						return
-					} else {
-						// WARNING: Old key cannot decrypt
-						log.Warnf("WARNING: Encryption key %s/%s cannot decrypt canary: %s - reads of data encrypted with this key will fail",
-							result.Strategy, result.KeyID, result.Error)
-						failedCount++
-					}
-				} else {
-					okCount++
-				}
-			}
-
-			// Log canary validation summary
-			if len(results) > 0 {
-				log.Infof("Encryption initialized: %s, validated %d canaries (%d ok, %d failed)",
-					strategyInfo, len(results), okCount, failedCount)
-			} else {
-				log.Infof("Encryption initialized: %s, no existing canaries", strategyInfo)
-			}
-		} else {
-			// No canary store - canaries disabled
-			log.Infof("Encryption initialized: %s (canaries disabled)", strategyInfo)
-		}
-
-		globalManagerMu.Lock()
-		globalManager = manager
-		globalCanaryManager = canaryManager // Can be nil
-		globalLogger = log
-		globalManagerMu.Unlock()
+		log.Infof("Encryption initialized: active=%s/%s", activeVersion, activeKeyID)
 	})
 
 	return globalInitErr
@@ -154,49 +108,35 @@ func GlobalManager() *Manager {
 	return globalManager // Can be nil if not initialized
 }
 
-// GlobalCanaryManager returns the global canary manager.
-// Returns nil if canaries are disabled or InitGlobalEncryption has not been called.
-//
-// Thread safety: Safe for concurrent access after InitGlobalEncryption completes.
-func GlobalCanaryManager() *CanaryManager {
-	globalManagerMu.RLock()
-	defer globalManagerMu.RUnlock()
+// InitCanaryStore sets the canary store on the global manager, creates a canary
+// for the active key, and validates all stored canaries. No-op if encryption is
+// not initialized. Applies a fixed 30 s timeout so callers can't drift.
+func InitCanaryStore(ctx context.Context, store CanaryStore) error {
+	mgr := GlobalManager()
+	if mgr == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, canaryInitTimeout)
+	defer cancel()
 
-	return globalCanaryManager // Can be nil if canaries disabled or not initialized
+	mgr.SetCanaryStore(store)
+	if err := mgr.EnsureActiveCanary(ctx); err != nil {
+		return fmt.Errorf("ensuring encryption canary: %w", err)
+	}
+	if err := mgr.ValidateCanaries(ctx); err != nil {
+		return fmt.Errorf("validating encryption canaries: %w", err)
+	}
+	return nil
 }
 
 // Encrypt is a type-safe convenience function that encrypts using the global manager.
 // Takes Plaintext, returns Ciphertext - type system prevents swapping arguments.
-//
-// On first call, automatically creates a canary for the active encryption key (if canaries enabled).
-// This verifies encryption is working correctly.
 //
 // Thread safety: Safe for concurrent use after InitGlobalEncryption completes.
 func Encrypt(ctx context.Context, plaintext Plaintext) (Ciphertext, error) {
 	mgr := GlobalManager()
 	if mgr == nil {
 		return nil, fmt.Errorf("encryption not initialized - call InitGlobalEncryption first")
-	}
-
-	// Ensure canary exists for active key (if canary manager is enabled)
-	globalManagerMu.RLock()
-	canaryMgr := globalCanaryManager // Can be nil
-	logger := globalLogger           // Can be nil
-	globalManagerMu.RUnlock()
-
-	if canaryMgr != nil {
-		// Get active strategy safely
-		activeStrategy, strategy := mgr.GetActiveStrategy()
-		if strategy != nil {
-			activeKeyID := strategy.ActiveKeyID()
-			// Note: EnsureCanary has internal do-once logic, safe to call on every encrypt
-			if err := canaryMgr.EnsureCanary(ctx, activeStrategy, activeKeyID); err != nil {
-				// Log error but don't fail encryption (canary is verification, not critical path)
-				if logger != nil {
-					logger.Errorf("Failed to ensure canary for %s/%s: %v", activeStrategy, activeKeyID, err)
-				}
-			}
-		}
 	}
 
 	encrypted, err := mgr.Encrypt(ctx, plaintext.Bytes())

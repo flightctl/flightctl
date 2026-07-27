@@ -15,7 +15,6 @@ import (
 func TestStatus_EncryptionNotInitialized(t *testing.T) {
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
 
 	status, err := Status(context.Background())
 	require.NoError(t, err)
@@ -30,8 +29,7 @@ func TestStatus_CanariesDisabled(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -69,9 +67,10 @@ func TestStatus_CanariesDisabled(t *testing.T) {
 	// Find keys in results
 	var defaultKey, oldKey *KeyStatus
 	for i := range status.Keys {
-		if status.Keys[i].KeyID == "default" {
+		switch status.Keys[i].KeyID {
+		case "default":
 			defaultKey = &status.Keys[i]
-		} else if status.Keys[i].KeyID == "oldkey" {
+		case "oldkey":
 			oldKey = &status.Keys[i]
 		}
 	}
@@ -96,8 +95,7 @@ func TestStatus_CanariesEnabled_BeforeFirstEncryption(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -129,8 +127,7 @@ func TestStatus_CanariesEnabled_AfterFirstEncryption(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -167,8 +164,7 @@ func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -182,7 +178,7 @@ func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
 
 	ctx := context.Background()
 	mgr := GlobalManager()
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 
 	// Create canary for default key
 	_, err = Encrypt(ctx, Plaintext([]byte("test")))
@@ -215,9 +211,10 @@ func TestStatus_MultipleKeys_WithCanaries(t *testing.T) {
 	// Find keys
 	var defaultKey, oldKey *KeyStatus
 	for i := range status.Keys {
-		if status.Keys[i].KeyID == "default" {
+		switch status.Keys[i].KeyID {
+		case "default":
 			defaultKey = &status.Keys[i]
-		} else if status.Keys[i].KeyID == "oldkey" {
+		case "oldkey":
 			oldKey = &status.Keys[i]
 		}
 	}
@@ -238,8 +235,7 @@ func TestStatus_HistoricalCanary_KeyStillConfigured(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -253,7 +249,7 @@ func TestStatus_HistoricalCanary_KeyStillConfigured(t *testing.T) {
 
 	ctx := context.Background()
 	mgr := GlobalManager()
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 
 	// Create canary for v1/default
 	_, err = Encrypt(ctx, Plaintext([]byte("test")))
@@ -308,8 +304,7 @@ func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -330,7 +325,7 @@ func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
 		KeyID:          "removed-key",
 		EncryptedValue: []byte("old-canary-data"),
 	}
-	_ = store.Save(canary)
+	require.NoError(t, store.Save(ctx, canary))
 
 	status, err := Status(ctx)
 	require.NoError(t, err)
@@ -356,8 +351,7 @@ func TestStatus_HistoricalCanary_KeyMissing(t *testing.T) {
 func TestStatus_DeterministicOrdering(t *testing.T) {
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -387,7 +381,7 @@ func TestStatus_DeterministicOrdering(t *testing.T) {
 
 	// Create canaries for all keys
 	_, _ = Encrypt(ctx, Plaintext([]byte("test")))
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 	_ = canaryMgr.EnsureCanary(ctx, "v1", "zebra")
 	_ = canaryMgr.EnsureCanary(ctx, "v1", "alpha")
 

@@ -25,7 +25,7 @@ func TestCanaryManager_EnsureCanary_CreatesNew(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify canary was created
-	canary, err := store.Get("v1", "default")
+	canary, err := store.Get(ctx, "v1", "default")
 	require.NoError(t, err)
 	require.NotNil(t, canary)
 
@@ -46,13 +46,15 @@ func TestCanaryManager_EnsureCanary_DoOnce(t *testing.T) {
 	err := canaryMgr.EnsureCanary(ctx, "v1", "default")
 	require.NoError(t, err)
 
-	canary1, _ := store.Get("v1", "default")
+	canary1, err := store.Get(ctx, "v1", "default")
+	require.NoError(t, err)
 
 	// Second call should not recreate (do-once)
 	err = canaryMgr.EnsureCanary(ctx, "v1", "default")
 	require.NoError(t, err)
 
-	canary2, _ := store.Get("v1", "default")
+	canary2, err := store.Get(ctx, "v1", "default")
+	require.NoError(t, err)
 
 	// Should be exactly the same (not recreated)
 	assert.Equal(t, canary1.EncryptedValue, canary2.EncryptedValue)
@@ -89,11 +91,11 @@ func TestCanaryManager_EnsureCanary_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both exist
-	canaryA, err := store.Get("v1", "keyA")
+	canaryA, err := store.Get(ctx, "v1", "keyA")
 	require.NoError(t, err)
 	require.NotNil(t, canaryA)
 
-	canaryB, err := store.Get("v1", "keyB")
+	canaryB, err := store.Get(ctx, "v1", "keyB")
 	require.NoError(t, err)
 	require.NotNil(t, canaryB)
 
@@ -174,7 +176,7 @@ func TestCanaryManager_ValidateAll_DecryptFails(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: []byte("enc:v1:default:BROKEN-BASE64!!!"),
 	}
-	require.NoError(t, store.Save(brokenCanary))
+	require.NoError(t, store.Save(ctx, brokenCanary))
 
 	// Validate should catch the error
 	results, err := canaryMgr.ValidateAll(ctx)
@@ -201,7 +203,7 @@ func TestCanaryManager_ValidateAll_PlaintextMismatch(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: encrypted,
 	}
-	require.NoError(t, store.Save(wrongCanary))
+	require.NoError(t, store.Save(ctx, wrongCanary))
 
 	canaryMgr := NewCanaryManager(mgr, store)
 
@@ -211,7 +213,7 @@ func TestCanaryManager_ValidateAll_PlaintextMismatch(t *testing.T) {
 
 	require.Len(t, results, 1)
 	assert.Equal(t, "mismatch", results[0].Status)
-	assert.Contains(t, results[0].Error, "expected")
+	assert.Contains(t, results[0].Error, "does not match")
 }
 
 func TestCanaryManager_GetActiveCanary(t *testing.T) {
@@ -248,14 +250,16 @@ func TestCanaryManager_GetActiveCanary_NotFound(t *testing.T) {
 }
 
 func TestMemoryCanaryStore_GetNotFound(t *testing.T) {
+	ctx := context.Background()
 	store := newMemoryCanaryStore()
 
-	canary, err := store.Get("v1", "nonexistent")
+	canary, err := store.Get(ctx, "v1", "nonexistent")
 	require.NoError(t, err)
 	assert.Nil(t, canary)
 }
 
 func TestMemoryCanaryStore_SaveAndGet(t *testing.T) {
+	ctx := context.Background()
 	store := newMemoryCanaryStore()
 
 	canary := &Canary{
@@ -264,9 +268,9 @@ func TestMemoryCanaryStore_SaveAndGet(t *testing.T) {
 		EncryptedValue: []byte("enc:v1:test-key:abc123"),
 	}
 
-	require.NoError(t, store.Save(canary))
+	require.NoError(t, store.Save(ctx, canary))
 
-	retrieved, err := store.Get("v1", "test-key")
+	retrieved, err := store.Get(ctx, "v1", "test-key")
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 
@@ -276,6 +280,7 @@ func TestMemoryCanaryStore_SaveAndGet(t *testing.T) {
 }
 
 func TestMemoryCanaryStore_SaveUpdates(t *testing.T) {
+	ctx := context.Background()
 	store := newMemoryCanaryStore()
 
 	canary1 := &Canary{
@@ -283,7 +288,7 @@ func TestMemoryCanaryStore_SaveUpdates(t *testing.T) {
 		KeyID:          "test-key",
 		EncryptedValue: []byte("first"),
 	}
-	require.NoError(t, store.Save(canary1))
+	require.NoError(t, store.Save(ctx, canary1))
 
 	// Save again with same key, different value
 	canary2 := &Canary{
@@ -291,36 +296,40 @@ func TestMemoryCanaryStore_SaveUpdates(t *testing.T) {
 		KeyID:          "test-key",
 		EncryptedValue: []byte("second"),
 	}
-	require.NoError(t, store.Save(canary2))
+	require.NoError(t, store.Save(ctx, canary2))
 
 	// Should have updated, not created duplicate
-	retrieved, _ := store.Get("v1", "test-key")
+	retrieved, err := store.Get(ctx, "v1", "test-key")
+	require.NoError(t, err)
 	assert.Equal(t, []byte("second"), retrieved.EncryptedValue)
 
-	all, _ := store.GetAll()
+	all, err := store.GetAll(ctx)
+	require.NoError(t, err)
 	assert.Len(t, all, 1, "Should only have one canary")
 }
 
 func TestMemoryCanaryStore_GetAll_Empty(t *testing.T) {
+	ctx := context.Background()
 	store := newMemoryCanaryStore()
 
-	all, err := store.GetAll()
+	all, err := store.GetAll(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, all)
 }
 
 func TestMemoryCanaryStore_GetAll_Multiple(t *testing.T) {
+	ctx := context.Background()
 	store := newMemoryCanaryStore()
 
 	canary1 := &Canary{Strategy: "v1", KeyID: "key1"}
 	canary2 := &Canary{Strategy: "v1", KeyID: "key2"}
 	canary3 := &Canary{Strategy: "v2", KeyID: "key1"}
 
-	require.NoError(t, store.Save(canary1))
-	require.NoError(t, store.Save(canary2))
-	require.NoError(t, store.Save(canary3))
+	require.NoError(t, store.Save(ctx, canary1))
+	require.NoError(t, store.Save(ctx, canary2))
+	require.NoError(t, store.Save(ctx, canary3))
 
-	all, err := store.GetAll()
+	all, err := store.GetAll(ctx)
 	require.NoError(t, err)
 	assert.Len(t, all, 3)
 }
@@ -396,7 +405,7 @@ func TestCanaryManager_ValidateAll_ErrorSpan(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: []byte("enc:v1:default:BROKEN-BASE64!!!"),
 	}
-	require.NoError(t, store.Save(brokenCanary))
+	require.NoError(t, store.Save(ctx, brokenCanary))
 
 	// Validate should catch the error
 	results, err := canaryMgr.ValidateAll(ctx)
@@ -449,7 +458,7 @@ func TestCanaryManager_ValidateAll_MismatchSpan(t *testing.T) {
 		KeyID:          "default",
 		EncryptedValue: encrypted,
 	}
-	require.NoError(t, store.Save(wrongCanary))
+	require.NoError(t, store.Save(ctx, wrongCanary))
 
 	// Clear spans from encryption
 	spanRecorder.Reset()

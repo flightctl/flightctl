@@ -195,6 +195,52 @@ func TestV1Strategy_EncryptDecrypt_MultipleKeys(t *testing.T) {
 	assert.Equal(t, plaintext2, decrypted2)
 }
 
+func TestV1Strategy_EncryptWithKey(t *testing.T) {
+	strategy := newV1Strategy()
+	ctx := context.Background()
+
+	encodedKey1, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	key1, err := base64.StdEncoding.DecodeString(encodedKey1)
+	require.NoError(t, err)
+
+	encodedKey2, err := crypto.GenerateAES256Key()
+	require.NoError(t, err)
+	key2, err := base64.StdEncoding.DecodeString(encodedKey2)
+	require.NoError(t, err)
+
+	require.NoError(t, strategy.AddKey("active", key1, true))
+	require.NoError(t, strategy.AddKey("historical", key2, false))
+
+	t.Run("When encrypting with a non-active key it should use that key", func(t *testing.T) {
+		plaintext := []byte("secret-data")
+		encrypted, err := strategy.EncryptWithKey(ctx, "historical", plaintext)
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(string(encrypted), "historical:"))
+
+		decrypted, err := testDecrypt(t, strategy, ctx, encrypted)
+		require.NoError(t, err)
+		assert.Equal(t, plaintext, decrypted)
+	})
+
+	t.Run("When encrypting with the active key it should match EncryptPlaintext behavior", func(t *testing.T) {
+		plaintext := []byte("secret-data")
+		encrypted, err := strategy.EncryptWithKey(ctx, "active", plaintext)
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(string(encrypted), "active:"))
+
+		decrypted, err := testDecrypt(t, strategy, ctx, encrypted)
+		require.NoError(t, err)
+		assert.Equal(t, plaintext, decrypted)
+	})
+
+	t.Run("When key does not exist it should error", func(t *testing.T) {
+		_, err := strategy.EncryptWithKey(ctx, "nonexistent", []byte("data"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
 func TestV1Strategy_Decrypt_InvalidBase64(t *testing.T) {
 	strategy := newV1Strategy()
 	ctx := context.Background()

@@ -17,6 +17,7 @@ import (
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -66,6 +67,10 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if err := canaryservice.InitEncryption(ctx, db, log); err != nil {
+		log.Fatalf("initializing encryption canary store: %v", err)
+	}
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
