@@ -175,7 +175,15 @@ jobs:
         # saving even if a later step fails. main-only + cache-hit skip: see the "Save Go
         # modules cache" step in pr-smoke-testing.yaml for why (restrict writes to main,
         # avoid re-archiving on a hit).
-        if: always() && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true'
+        # TEMP (testing only): also save on e2e-fix-qcow-cache (push ref or PR head_ref)
+        # so we can verify bin/ path alignment produces a real Actions cache entry.
+        # Revert to main-only after; drop the matching push branch in pr-e2e-testing.yaml.
+        if: >-
+          always()
+          && (github.ref == 'refs/heads/main'
+              || github.ref == 'refs/heads/e2e-fix-qcow-cache'
+              || github.head_ref == 'e2e-fix-qcow-cache')
+          && steps.cache-bootc-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |

@@ -12,6 +12,9 @@ on:
     branches:
       - main
       - 'release-*'
+      # TEMP (testing only): allow e2e-fix-qcow-cache to populate bootc Actions cache.
+      # Pair with Save caches gate in build-agent-images.yaml; remove both after.
+      - e2e-fix-qcow-cache
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
