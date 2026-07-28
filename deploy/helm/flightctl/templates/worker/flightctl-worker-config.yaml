@@ -26,6 +26,11 @@ data:
         {{- end }}
         {{- end }}
     service: {}
+    worker:
+        vmRender:
+            {{- $vmRender := (.Values.worker).vmRender | default dict }}
+            launcherImage: {{ $vmRender.launcherImage | default "quay.io/kubevirt/virt-launcher:v1.8.4" | quote }}
+            passtWorkarounds: {{ if kindIs "bool" $vmRender.passtWorkarounds }}{{ $vmRender.passtWorkarounds }}{{ else }}true{{ end }}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379

@@ -220,7 +220,8 @@ func TestRenderVmApplication(t *testing.T) {
 			},
 			kvStore: func() kvstore.KVStore {
 				kv := newFakeKVStore()
-				key := (&kvstore.VmQuadletFilesKey{}).ComposeKey([]byte(minimalVmYAML("my-vm")))
+				opts := DefaultVmRenderOptions()
+				key := (&kvstore.VmQuadletFilesKey{}).ComposeKey([]byte(minimalVmYAML("my-vm")), opts.LauncherImage, opts.PasstWorkarounds)
 				encoded, _ := json.Marshal(fakeQuadletFiles)
 				kv.data[key] = encoded
 				return kv
@@ -260,7 +261,7 @@ func TestRenderVmApplication(t *testing.T) {
 			vmApp, err := appSpec.AsVmApplication()
 			require.NoError(t, err)
 
-			result, err := renderVmApplication(ctx, vmApp, tc.converter, tc.kvStore)
+			result, err := renderVmApplication(ctx, vmApp, tc.converter, DefaultVmRenderOptions(), tc.kvStore)
 
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
@@ -320,7 +321,7 @@ func TestRenderVmApplication_PreservesLifecycleFields(t *testing.T) {
 	vmApp.DesiredState = lo.ToPtr(domain.ApplicationDesiredStateStopped)
 	vmApp.RestartGeneration = lo.ToPtr(3)
 
-	result, err := renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), newFakeKVStore())
+	result, err := renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), DefaultVmRenderOptions(), newFakeKVStore())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -354,11 +355,11 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	vmApp, err := appSpec.AsVmApplication()
 	require.NoError(t, err)
 
-	_, err = renderVmApplication(ctx, vmApp, converter, kv)
+	_, err = renderVmApplication(ctx, vmApp, converter, DefaultVmRenderOptions(), kv)
 	require.NoError(t, err)
 	assert.Equal(t, 1, callCount, "converter should be called on the first (cache miss) call")
 
-	_, err = renderVmApplication(ctx, vmApp, converter, kv)
+	_, err = renderVmApplication(ctx, vmApp, converter, DefaultVmRenderOptions(), kv)
 	require.NoError(t, err)
 	assert.Equal(t, 1, callCount, "converter must not be called again on the second (cache hit) call")
 }
@@ -378,7 +379,7 @@ func TestRenderVmApplication_ImageProviderUnsupported(t *testing.T) {
 	vmApp, err := appSpec.AsVmApplication()
 	require.NoError(t, err)
 
-	_, err = renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), newFakeKVStore())
+	_, err = renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), DefaultVmRenderOptions(), newFakeKVStore())
 	require.ErrorContains(t, err, "not yet supported")
 }
 

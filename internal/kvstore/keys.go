@@ -114,11 +114,20 @@ func (a *AwaitingReconnectionKey) ComposeKey() string {
 // VmQuadletFilesKey is a content-addressed KV key for caching the Quadlet unit
 // files produced by vm-to-quadlet. The key is global (not scoped to
 // org/fleet/templateVersion) because the conversion is deterministic: the same
-// vm.yaml input always produces the same Quadlet files. The cached value is a
-// JSON-encoded map[string]string (filename → content).
+// vm.yaml input and render options always produce the same Quadlet files. The
+// cached value is a JSON-encoded map[string]string (filename → content).
 type VmQuadletFilesKey struct{}
 
-func (k *VmQuadletFilesKey) ComposeKey(vmYAML []byte) string {
-	sum := sha256.Sum256(vmYAML)
-	return fmt.Sprintf("v1/vm-quadlet-files/%x", sum)
+func (k *VmQuadletFilesKey) ComposeKey(vmYAML []byte, launcherImage string, passtWorkarounds bool) string {
+	h := sha256.New()
+	_, _ = h.Write(vmYAML)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(launcherImage))
+	_, _ = h.Write([]byte{0})
+	if passtWorkarounds {
+		_, _ = h.Write([]byte("passt=1"))
+	} else {
+		_, _ = h.Write([]byte("passt=0"))
+	}
+	return fmt.Sprintf("v1/vm-quadlet-files/%x", h.Sum(nil))
 }

@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/quadlet"
@@ -27,6 +29,27 @@ const (
 	maxStderrBytes                      = 64 * 1024        // 64 KiB
 	maxTarEntryBytes              int64 = 1 * 1024 * 1024  // 1 MiB per TAR entry
 )
+
+// VmRenderOptions controls vm-to-quadlet conversion for VmApplications.
+type VmRenderOptions struct {
+	LauncherImage    string
+	PasstWorkarounds bool
+}
+
+// DefaultVmRenderOptions returns the default conversion options.
+func DefaultVmRenderOptions() VmRenderOptions {
+	return VmRenderOptions{
+		LauncherImage:    config.DefaultVirtLauncherImage,
+		PasstWorkarounds: true,
+	}
+}
+
+func vmRenderOptionsFromConfig(cfg *config.Config) VmRenderOptions {
+	return VmRenderOptions{
+		LauncherImage:    cfg.EffectiveVmLauncherImage(),
+		PasstWorkarounds: cfg.EffectiveVmPasstWorkarounds(),
+	}
+}
 
 // limitedWriter wraps a bytes.Buffer and returns an error once more than limit
 // bytes have been written. This causes cmd.Run() to fail fast rather than
@@ -66,13 +89,21 @@ func truncateStderr(s string) string {
 type VmConverterFn func(ctx context.Context, vmYAML []byte) (files map[string]string, stderr string, err error)
 
 // NewVmConverter returns a VmConverterFn that invokes the vm-to-quadlet binary
-// at binaryPath. The binary reads VM YAML from stdin and writes a TAR archive
-// of Quadlet unit files to stdout. binaryPath may be an absolute path or a
-// bare binary name resolved via PATH. Exported so integration tests can point
-// the converter at a binary extracted to a temporary directory.
-func NewVmConverter(binaryPath string) VmConverterFn {
+// at binaryPath with the given render options. The binary reads VM YAML from
+// stdin and writes a TAR archive of Quadlet unit files to stdout. binaryPath
+// may be an absolute path or a bare binary name resolved via PATH. Exported so
+// integration tests can point the converter at a binary extracted to a
+// temporary directory.
+func NewVmConverter(binaryPath string, opts VmRenderOptions) VmConverterFn {
+	if opts.LauncherImage == "" {
+		opts.LauncherImage = config.DefaultVirtLauncherImage
+	}
+	args := []string{
+		"--launcher-image=" + opts.LauncherImage,
+		"--passt-workarounds=" + strconv.FormatBool(opts.PasstWorkarounds),
+	}
 	return func(ctx context.Context, vmYAML []byte) (map[string]string, string, error) {
-		cmd := exec.CommandContext(ctx, binaryPath)
+		cmd := exec.CommandContext(ctx, binaryPath, args...)
 		cmd.Stdin = bytes.NewReader(vmYAML)
 
 		stdoutBuf := &limitedWriter{limit: maxStdoutBytes}
@@ -128,15 +159,11 @@ func parseTarFiles(data []byte) (map[string]string, error) {
 	return files, nil
 }
 
-// defaultVmConverter is the production converter backed by the vm-to-quadlet
-// binary that must be present in PATH at runtime.
-var defaultVmConverter = NewVmConverter(vmToQuadletBinary)
-
 // renderVmApplication converts a VmApplication (inline: provider) into a
 // QuadletApplication by:
 //  1. Extracting vm.yaml from the VmApplication inline set.
-//  2. Checking the KV-store cache (SHA-256 of vm.yaml content); returning
-//     the cached Quadlet files directly on a hit.
+//  2. Checking the KV-store cache (SHA-256 of vm.yaml + render options);
+//     returning the cached Quadlet files directly on a hit.
 //  3. On a cache miss: invoking the vm-to-quadlet subprocess via the
 //     provided converter, then storing the result in the cache.
 //  4. Injecting PublishPort= directives from VmApplication.publishPorts into
@@ -144,7 +171,7 @@ var defaultVmConverter = NewVmConverter(vmToQuadletBinary)
 //  5. Emitting a QuadletApplication with the flightctl.io/workload-type: vm
 //     annotation so the agent can identify the workload without inspecting
 //     image names.
-func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, converter VmConverterFn, kvStore kvstore.KVStore) (*domain.ApplicationProviderSpec, error) {
+func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, converter VmConverterFn, opts VmRenderOptions, kvStore kvstore.KVStore) (*domain.ApplicationProviderSpec, error) {
 	providerType, err := vmApp.Type()
 	if err != nil {
 		return nil, fmt.Errorf("invalid vm application provider type: %w", err)
@@ -174,7 +201,7 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 		return nil, fmt.Errorf("vm.yaml content is empty in VmApplication inline set")
 	}
 
-	quadletFiles, err := convertVmYAML(ctx, []byte(*vmYAMLContent), converter, kvStore)
+	quadletFiles, err := convertVmYAML(ctx, []byte(*vmYAMLContent), converter, opts, kvStore)
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +301,8 @@ func findPodFile(files map[string]string) (string, error) {
 // convertVmYAML converts vm.yaml to a set of Quadlet unit files using the KV
 // cache and the converter subprocess. On a cache hit the subprocess is skipped
 // entirely. The cached value is a JSON-encoded map[string]string.
-func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, kvStore kvstore.KVStore) (map[string]string, error) {
-	cacheKey := (&kvstore.VmQuadletFilesKey{}).ComposeKey(vmYAML)
+func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, opts VmRenderOptions, kvStore kvstore.KVStore) (map[string]string, error) {
+	cacheKey := (&kvstore.VmQuadletFilesKey{}).ComposeKey(vmYAML, opts.LauncherImage, opts.PasstWorkarounds)
 
 	if kvStore != nil {
 		cached, err := kvStore.Get(ctx, cacheKey)

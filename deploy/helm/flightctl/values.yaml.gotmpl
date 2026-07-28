@@ -314,6 +314,12 @@ worker:
     pullPolicy: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
+  # -- VM application render options passed to vm-to-quadlet
+  vmRender:
+    # -- virt-launcher image used when converting VmApplications to Quadlet units
+    launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
+    # -- Enable passt mrg_rxbuf workarounds for older virt-launcher images (recommended true)
+    passtWorkarounds: true
 
 # -- Periodic Configuration
 periodic:

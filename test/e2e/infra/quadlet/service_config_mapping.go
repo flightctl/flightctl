@@ -31,6 +31,13 @@ type SectionMapping struct {
 // here will have SetServiceConfig write to service-config.yaml; others write
 // to the per-service config file.
 var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
+	infra.ServiceWorker: {
+		{
+			RenderedKey:      "worker",
+			ServiceConfigKey: "worker",
+			Transform:        nil,
+		},
+	},
 	infra.ServiceImageBuilderWorker: {
 		{
 			RenderedKey:      "imageBuilderWorker",
