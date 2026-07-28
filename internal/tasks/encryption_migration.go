@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -164,6 +165,9 @@ func (m *EncryptionMigrator) currentRegistryHash() string {
 
 // RunBatch migrates one page for the given kind within one org.
 func (m *EncryptionMigrator) RunBatch(ctx context.Context, kind string, orgID uuid.UUID) (EncryptionMigrationReport, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/tasks", "EncryptionMigration.RunBatch")
+	defer span.End()
+
 	report := EncryptionMigrationReport{Kind: kind, OrgID: orgID}
 
 	resource, ok := m.resources[kind]

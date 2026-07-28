@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -22,6 +23,9 @@ const encryptionMigrationEnqueueTimeout = 30 * time.Second
 
 // IncompleteWork returns kind/org pairs that still need migration for the active key.
 func (m *EncryptionMigrator) IncompleteWork(ctx context.Context) ([]EncryptionMigrationWork, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/tasks", "EncryptionMigration.IncompleteWork")
+	defer span.End()
+
 	if m.manager == nil {
 		return nil, fmt.Errorf("encryption migration: encryption manager is nil")
 	}
@@ -114,6 +118,9 @@ func enqueueEncryptionMigrationAfter(ctx context.Context, publisher queues.Queue
 // EnqueueEncryptionMigrationIfNeeded enqueues a batch for each incomplete kind/org.
 // The incomplete kind/org list is materialized first (see IncompleteWork), then enqueued.
 func EnqueueEncryptionMigrationIfNeeded(ctx context.Context, publisher queues.QueueProducer, migrator *EncryptionMigrator, log logrus.FieldLogger) error {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/tasks", "EncryptionMigration.EnqueueIfNeeded")
+	defer span.End()
+
 	if migrator == nil {
 		return fmt.Errorf("encryption migration: migrator is nil")
 	}
