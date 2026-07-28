@@ -1241,6 +1241,253 @@ func TestDeleteCatalogItem(t *testing.T) {
 	}
 }
 
+func TestDeleteCatalogItemInUse(t *testing.T) {
+	t.Run("When a device references the item via OS spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices")
+		require.Contains(t, status.Message, "1.0.0")
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.True(t, ok)
+	})
+
+	t.Run("When a device references the item via application spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppSpec(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		ds.appDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				Spec:     &domain.DeviceSpec{Applications: &apps},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices")
+	})
+
+	t.Run("When a device references the item via volume spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppWithVolumeRef(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		ds.volDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				Spec:     &domain.DeviceSpec{Applications: &apps},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices")
+	})
+
+	t.Run("When no devices reference the item it should delete successfully", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.False(t, ok)
+	})
+}
+
+func TestReplaceCatalogItemInUse(t *testing.T) {
+	t.Run("When removing an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+		require.Contains(t, status.Message, "in use by devices")
+	})
+
+	t.Run("When modifying an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions[0].References["container"] = "v1.0.0-changed"
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+	})
+
+	t.Run("When adding a new version while keeping in-use versions unchanged it should succeed", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = append(updated.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
+	t.Run("When modifying a non-deployed version it should succeed", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = append(existing.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"fast"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = append(updated.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0-patched"},
+		})
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
+	t.Run("When the item does not exist yet it should create it without in-use check", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+
+		item := createTestCatalogItem("c1", "new-item", nil)
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "new-item", item, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+}
+
+func TestPatchCatalogItemInUse(t *testing.T) {
+	t.Run("When a patch removes an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = append(existing.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		var value interface{} = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/versions", Value: &value}}
+
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "item1", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+		require.Contains(t, status.Message, "in use by devices")
+	})
+
+	t.Run("When a patch modifies an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		var value interface{} = "v1.0.0-changed"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/versions/0/references/container", Value: &value}}
+
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "item1", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+	})
+}
+
 func makeContainerAppSpec(t *testing.T, catalog, item, version string, channel *string, appName *string) domain.ApplicationProviderSpec {
 	t.Helper()
 	container := domain.ContainerApplication{

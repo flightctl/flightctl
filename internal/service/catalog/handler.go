@@ -3,6 +3,9 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -313,15 +316,22 @@ func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
-		existing, getErr := h.store.GetItem(ctx, orgId, catalogName, itemName)
-		if getErr != nil {
-			if !errors.Is(getErr, flterrors.ErrResourceNotFound) && !errors.Is(getErr, flterrors.ErrParentResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogItemKind, &itemName)
-			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
+	existing, getErr := h.store.GetItem(ctx, orgId, catalogName, itemName)
+	if getErr != nil {
+		if !errors.Is(getErr, flterrors.ErrResourceNotFound) && !errors.Is(getErr, flterrors.ErrParentResourceNotFound) {
+			return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogItemKind, &itemName)
+		}
+		existing = nil
+	}
+
+	if existing != nil {
+		if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
 			!domain.CatalogItemSpecsAreEqual(existing.Spec, item.Spec) {
 			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogItemKind, &itemName)
+		}
+
+		if status := h.validateInUseVersions(ctx, orgId, catalogName, itemName, existing.Spec, item.Spec); status.Code != 200 {
+			return nil, status
 		}
 	}
 
@@ -364,6 +374,10 @@ func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, 
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogItemKind, &itemName)
 	}
 
+	if status := h.validateInUseVersions(ctx, orgId, catalogName, itemName, currentObj.Spec, newObj.Spec); status.Code != 200 {
+		return nil, status
+	}
+
 	result, err := h.store.UpdateItem(ctx, orgId, catalogName, newObj)
 	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
 		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
@@ -384,11 +398,120 @@ func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID,
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
+	deployedVersions, dErr := h.getDeployedVersions(ctx, orgId, catalogName, itemName)
+	if dErr != nil {
+		return domain.StatusInternalServerError(dErr.Error())
+	}
+	if len(deployedVersions) > 0 {
+		versions := make([]string, 0, len(deployedVersions))
+		for v := range deployedVersions {
+			versions = append(versions, v)
+		}
+		sort.Strings(versions)
+		return domain.StatusConflict(fmt.Sprintf("cannot delete catalog item because the following versions are in use by devices: %s", strings.Join(versions, ", ")))
+	}
+
 	err = h.store.DeleteItem(ctx, orgId, catalogName, itemName)
 	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
 		return domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 	}
 	return common.StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
+}
+
+func (h *ServiceHandler) getDeployedVersions(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) (map[string]bool, error) {
+	if h.deviceStore == nil {
+		return nil, nil
+	}
+	listParams := store.ListParams{Limit: common.MaxRecordsPerListRequest}
+	versions := make(map[string]bool)
+
+	osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, dev := range osDevices.Items {
+		if dev.Spec != nil && dev.Spec.Os != nil && dev.Spec.Os.CatalogItemRef != nil {
+			versions[dev.Spec.Os.CatalogItemRef.Version] = true
+		}
+	}
+
+	appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, dev := range appDevices.Items {
+		if dev.Spec == nil || dev.Spec.Applications == nil {
+			continue
+		}
+		for _, app := range *dev.Spec.Applications {
+			ref, _ := extractAppCatalogItemRef(&app)
+			if ref != nil && ref.Catalog == catalogName && ref.Item == itemName {
+				versions[ref.Version] = true
+			}
+		}
+	}
+
+	volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, dev := range volDevices.Items {
+		if dev.Spec == nil || dev.Spec.Applications == nil {
+			continue
+		}
+		for _, app := range *dev.Spec.Applications {
+			refs, _ := extractVolumesCatalogItemRefs(&app)
+			for _, ref := range refs {
+				if ref.Catalog == catalogName && ref.Item == itemName {
+					versions[ref.Version] = true
+				}
+			}
+		}
+	}
+
+	return versions, nil
+}
+
+func (h *ServiceHandler) validateInUseVersions(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, oldSpec, newSpec domain.CatalogItemSpec) domain.Status {
+	if domain.CatalogItemSpecsAreEqual(oldSpec, newSpec) {
+		return domain.StatusOK()
+	}
+
+	deployedVersions, err := h.getDeployedVersions(ctx, orgId, catalogName, itemName)
+	if err != nil {
+		return domain.StatusInternalServerError(err.Error())
+	}
+	if len(deployedVersions) == 0 {
+		return domain.StatusOK()
+	}
+
+	oldVersionMap := make(map[string]domain.CatalogItemVersion, len(oldSpec.Versions))
+	for _, v := range oldSpec.Versions {
+		oldVersionMap[v.Version] = v
+	}
+	newVersionMap := make(map[string]domain.CatalogItemVersion, len(newSpec.Versions))
+	for _, v := range newSpec.Versions {
+		newVersionMap[v.Version] = v
+	}
+
+	var affected []string
+	for ver := range deployedVersions {
+		newV, newExists := newVersionMap[ver]
+		if !newExists {
+			affected = append(affected, ver)
+			continue
+		}
+		if oldV, oldExists := oldVersionMap[ver]; oldExists && !domain.CatalogItemVersionsAreEqual(oldV, newV) {
+			affected = append(affected, ver)
+		}
+	}
+
+	if len(affected) > 0 {
+		sort.Strings(affected)
+		return domain.StatusConflict(fmt.Sprintf("cannot modify or remove catalog item versions that are in use by devices: %s", strings.Join(affected, ", ")))
+	}
+
+	return domain.StatusOK()
 }
 
 func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItemDeploymentList, domain.Status) {

@@ -1158,6 +1158,111 @@ var _ = Describe("Catalog Integration Tests", func() {
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 		})
 	})
+
+	Context("CatalogItem deletion and edit with in-use versions", func() {
+		var catalogName string
+
+		BeforeEach(func() {
+			catalogName = "inuse-catalog"
+			catalog := api.Catalog{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr(catalogName),
+				},
+				Spec: api.CatalogSpec{
+					DisplayName: lo.ToPtr("In-Use Catalog"),
+				},
+			}
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
+		It("should prevent deletion of a catalog item with versions in use by devices", func() {
+			item := createValidCatalogItem("inuse-item")
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("inuse-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Os: &apiv1beta1.DeviceOsSpec{
+						CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
+							Catalog: catalogName,
+							Item:    "inuse-item",
+							Version: "1.0.0",
+						},
+					},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			status = suite.Catalog.DeleteCatalogItem(suite.Ctx, suite.OrgID, catalogName, "inuse-item", true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+			Expect(status.Message).To(ContainSubstring("in use by devices"))
+		})
+
+		It("should prevent replacing a catalog item when an in-use version is removed", func() {
+			item := createValidCatalogItem("replace-inuse-item")
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("replace-inuse-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Os: &apiv1beta1.DeviceOsSpec{
+						CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
+							Catalog: catalogName,
+							Item:    "replace-inuse-item",
+							Version: "1.0.0",
+						},
+					},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			updated := createValidCatalogItem("replace-inuse-item")
+			updated.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "2.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"},
+					Channels:   []string{"stable"},
+				},
+			}
+			_, status = suite.Catalog.ReplaceCatalogItem(suite.Ctx, suite.OrgID, catalogName, "replace-inuse-item", updated, true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+			Expect(status.Message).To(ContainSubstring("in use by devices"))
+			Expect(status.Message).To(ContainSubstring("1.0.0"))
+		})
+
+		It("should allow replacing a catalog item when only non-deployed versions change", func() {
+			item := createValidCatalogItem("replace-ok-item")
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			updated := createValidCatalogItem("replace-ok-item")
+			updated.Spec.Versions = append(updated.Spec.Versions, api.CatalogItemVersion{
+				Version:    "2.0.0",
+				References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"},
+				Channels:   []string{"fast"},
+			})
+			_, status = suite.Catalog.ReplaceCatalogItem(suite.Ctx, suite.OrgID, catalogName, "replace-ok-item", updated, true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		})
+
+		It("should allow deletion of a catalog item with no devices referencing it", func() {
+			item := createValidCatalogItem("unreferenced-item")
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			status = suite.Catalog.DeleteCatalogItem(suite.Ctx, suite.OrgID, catalogName, "unreferenced-item", true)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		})
+	})
 })
 
 func createValidCatalogItem(name string) api.CatalogItem {
