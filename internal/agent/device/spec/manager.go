@@ -533,6 +533,9 @@ func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 }
 
 func (s *manager) IsOSUpdate() bool {
+	if s.osMode == v1beta1.OsModePackage {
+		return false
+	}
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
 }
 

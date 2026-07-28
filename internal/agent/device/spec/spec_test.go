@@ -514,6 +514,30 @@ func TestIsOSUpdate(t *testing.T) {
 		osUpdate := s.IsOSUpdate()
 		require.Equal(true, osUpdate)
 	})
+
+	t.Run("When mode is package it should return false even when versions differ", func(t *testing.T) {
+		s.osMode = v1beta1.OsModePackage
+		s.cache.current.osVersion = "flightctl-device:v2"
+		s.cache.desired.osVersion = "flightctl-device:v3"
+
+		require.False(s.IsOSUpdate())
+	})
+
+	t.Run("When mode is image it should retain version comparison", func(t *testing.T) {
+		s.osMode = v1beta1.OsModeImage
+		s.cache.current.osVersion = "flightctl-device:v2"
+		s.cache.desired.osVersion = "flightctl-device:v3"
+
+		require.True(s.IsOSUpdate())
+	})
+
+	t.Run("When mode is unset it should retain version comparison", func(t *testing.T) {
+		s.osMode = ""
+		s.cache.current.osVersion = "flightctl-device:v2"
+		s.cache.desired.osVersion = "flightctl-device:v3"
+
+		require.True(s.IsOSUpdate())
+	})
 }
 
 func TestCheckOsReconciliation(t *testing.T) {
