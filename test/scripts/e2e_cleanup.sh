@@ -7,11 +7,13 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 echo "🔄 [Cleanup] Starting global E2E test cleanup..."
 
-# Find all flightctl e2e VMs using virsh
+# Find all flightctl e2e VMs using virsh. Do not exit if virsh is missing — container-backed
+# device cleanup below must still run on container-only runners.
 echo "🔄 [Cleanup] Finding flightctl e2e VMs..."
+vm_output=""
 if ! vm_output=$(virsh list --all --name 2>/dev/null); then
-    echo "⚠️  [Cleanup] Failed to list VMs: virsh may not be available or accessible"
-    exit 0
+    echo "⚠️  [Cleanup] Failed to list VMs: virsh may not be available or accessible - skipping VM cleanup"
+    vm_output=""
 fi
 
 # Filter for flightctl e2e VMs (includes both pool VMs and imagebuild test VMs)
@@ -105,6 +107,40 @@ if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d 2>/dev/null)
     fi
 else
     echo "⚠️  [Cleanup] Failed to search for temporary directories"
+fi
+
+# Clean up container-backed devices (see ContainerDevice) - these are plain podman/docker
+# containers, not libvirt domains, so virsh cleanup above never touches them. Probe both CLIs:
+# a device created via docker will not show up in `podman ps` (and vice versa).
+echo "🔄 [Cleanup] Finding flightctl e2e container-backed devices..."
+container_clis=()
+command -v podman &>/dev/null && container_clis+=("podman")
+command -v docker &>/dev/null && container_clis+=("docker")
+
+if [[ ${#container_clis[@]} -eq 0 ]]; then
+    echo "⚠️  [Cleanup] Neither podman nor docker available - skipping container-backed device cleanup"
+else
+    for container_cli in "${container_clis[@]}"; do
+        echo "🔄 [Cleanup] Listing via $container_cli..."
+        if ! container_names=$("$container_cli" ps -a --filter "name=flightctl-e2e-container-" --format "{{.Names}}" 2>/dev/null); then
+            echo "⚠️  [Cleanup] Failed to list containers via $container_cli"
+            continue
+        fi
+        if [[ -z "$container_names" ]]; then
+            echo "✅ [Cleanup] No container-backed devices found via $container_cli"
+            continue
+        fi
+        echo "🔍 [Cleanup] Found flightctl e2e container-backed devices via $container_cli:"
+        echo "$container_names"
+        while IFS= read -r container_name; do
+            [[ -n "$container_name" ]] || continue
+            if "$container_cli" rm -f -v "$container_name" &>/dev/null; then
+                echo "✅ [Cleanup] Successfully removed container device: $container_name"
+            else
+                echo "⚠️  [Cleanup] Failed to remove container device: $container_name"
+            fi
+        done <<< "$container_names"
+    done
 fi
 
 echo "✅ [Cleanup] Global test cleanup completed"

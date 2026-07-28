@@ -3,17 +3,10 @@ package cli_test
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"path"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -21,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -30,15 +22,6 @@ const (
 	LONG_TIMEOUT = 10 * time.Minute
 	POLLING      = time.Second
 	LONG_POLLING = 10 * time.Second
-
-	preparedAgentConfigPath = "bin/agent/etc/flightctl/config.yaml"
-	preparedAgentCertsPath  = "bin/agent/etc/flightctl/certs"
-	vmAgentConfigPath       = "/etc/flightctl/config.yaml"
-	vmAgentCertsPath        = "/etc/flightctl/certs"
-	apiHostPrefix           = "api.flightctl."
-	agentAPIHostPrefix      = "agent-api.flightctl."
-	agentRemoteHostPrefix   = "agent-remote-access.flightctl."
-	consoleHostPrefix       = "console-openshift-console."
 )
 
 // Initialize suite-specific settings
@@ -56,9 +39,15 @@ var (
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
-	Expect(err).ToNot(HaveOccurred())
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxSvcs = auxFuture.Wait()
+	// This suite only exercises the flightctl CLI against the device (config/status
+	// inspection) - it never switches the device's OS image or reboots it, so it doesn't need
+	// a real VM (see the container-backed-device-migration plan). Use a container-backed
+	// device instead.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
 var _ = BeforeEach(func() {
@@ -67,7 +56,10 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
+	_, err := ensureFlightctlLogin(harness)
+	Expect(err).ToNot(HaveOccurred())
+
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
@@ -75,19 +67,9 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	needsVM := e2e.CurrentSpecNeedsVM()
-	if !needsVM {
-		harness.VM = nil
-	}
-
-	_, err := ensureFlightctlLogin(harness)
+	// Get a pristine container device from the pool and start the agent
+	err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
-
-	if needsVM {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up VM from pool\n", workerID)
-		err = setupCLIWorkerVMWithRefreshedAgentConfig(workerID, harness)
-		Expect(err).ToNot(HaveOccurred())
-	}
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
@@ -119,157 +101,6 @@ var _ = AfterEach(func() {
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CLI E2E Suite")
-}
-
-// setupCLIWorkerVMWithRefreshedAgentConfig is the CLI suite's lazy-VM setup path.
-// Unlike Harness.SetupVMFromPoolAndStartAgent, it refreshes the restored VM's
-// agent config after snapshot restore because CLI specs start VMs only on demand.
-func setupCLIWorkerVMWithRefreshedAgentConfig(workerID int, harness *e2e.Harness) error {
-	if harness == nil {
-		return fmt.Errorf("harness is nil")
-	}
-
-	if err := harness.SetupVMFromPool(workerID); err != nil {
-		return fmt.Errorf("setting up VM from pool: %w", err)
-	}
-
-	if err := refreshPreparedAgentFiles(harness); err != nil {
-		return err
-	}
-
-	if err := harness.StartAgentWithRetry(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// refreshPreparedAgentFiles writes the current run's prepared agent config and
-// cert files to the VM after snapshot restore so lazy VM specs do not use stale
-// endpoints or enrollment credentials.
-func refreshPreparedAgentFiles(harness *e2e.Harness) error {
-	if harness == nil {
-		return fmt.Errorf("harness is nil")
-	}
-	if harness.VM == nil {
-		return fmt.Errorf("harness VM is nil")
-	}
-
-	if err := copyPreparedAgentCerts(harness); err != nil {
-		return err
-	}
-
-	GinkgoWriter.Printf("🔄 Refreshing agent config from %s\n", preparedAgentConfigPath)
-	configBytes, err := os.ReadFile(preparedAgentConfigPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			GinkgoWriter.Printf("Prepared agent config %s does not exist; refreshing restored VM config from API endpoint\n", preparedAgentConfigPath)
-			return refreshRestoredAgentConfig(harness)
-		}
-		return fmt.Errorf("reading prepared agent config %s: %w", preparedAgentConfigPath, err)
-	}
-	if len(configBytes) == 0 {
-		return fmt.Errorf("prepared agent config %s is empty", preparedAgentConfigPath)
-	}
-
-	cfg := &agentcfg.Config{}
-	if err := yaml.Unmarshal(configBytes, cfg); err != nil {
-		return fmt.Errorf("parsing prepared agent config %s: %w", preparedAgentConfigPath, err)
-	}
-
-	if err := harness.WriteAgentFile(vmAgentConfigPath, string(configBytes)); err != nil {
-		return fmt.Errorf("writing prepared agent config to VM: %w", err)
-	}
-
-	return nil
-}
-
-// refreshRestoredAgentConfig updates endpoint hostnames in the VM's restored
-// config when this run did not prepare injectable agent files.
-func refreshRestoredAgentConfig(harness *e2e.Harness) error {
-	cfg, err := harness.GetAgentConfig()
-	if err != nil {
-		return fmt.Errorf("getting restored agent config: %w", err)
-	}
-
-	apiEndpoint, err := currentAPIEndpoint()
-	if err != nil {
-		return err
-	}
-	apiURL, err := url.Parse(apiEndpoint)
-	if err != nil {
-		return fmt.Errorf("parsing API endpoint %q: %w", apiEndpoint, err)
-	}
-
-	enrollmentHost := agentHostFromAPIHost(apiURL.Hostname(), agentAPIHostPrefix)
-	remoteAccessHost := agentHostFromAPIHost(apiURL.Hostname(), agentRemoteHostPrefix)
-	consoleHost := consoleHostFromAPIHost(apiURL.Hostname())
-
-	cfg.EnrollmentService.Service.Server = replaceURLHost(cfg.EnrollmentService.Service.Server, enrollmentHost)
-	cfg.EnrollmentService.Service.TLSServerName = replaceServerName(cfg.EnrollmentService.Service.TLSServerName, enrollmentHost)
-	cfg.ManagementService.Service.Server = replaceURLHost(cfg.ManagementService.Service.Server, enrollmentHost)
-	cfg.ManagementService.Service.TLSServerName = replaceServerName(cfg.ManagementService.Service.TLSServerName, enrollmentHost)
-	cfg.RemoteAccessService.Service.Server = replaceURLHost(cfg.RemoteAccessService.Service.Server, remoteAccessHost)
-	cfg.RemoteAccessService.Service.TLSServerName = replaceServerName(cfg.RemoteAccessService.Service.TLSServerName, remoteAccessHost)
-	cfg.EnrollmentService.EnrollmentUIEndpoint = replaceURLHost(cfg.EnrollmentService.EnrollmentUIEndpoint, consoleHost)
-
-	if err := harness.SetAgentConfig(cfg); err != nil {
-		return fmt.Errorf("setting refreshed restored agent config: %w", err)
-	}
-
-	return nil
-}
-
-// currentAPIEndpoint returns the current FlightCtl API endpoint from the e2e wrapper.
-func currentAPIEndpoint() (string, error) {
-	apiEndpoint := strings.TrimSpace(os.Getenv("API_ENDPOINT"))
-	if apiEndpoint == "" {
-		return "", fmt.Errorf("API_ENDPOINT environment variable must be set")
-	}
-	return apiEndpoint, nil
-}
-
-// agentHostFromAPIHost derives an agent route host from the public API route host.
-func agentHostFromAPIHost(apiHost, agentPrefix string) string {
-	if strings.HasPrefix(apiHost, apiHostPrefix) {
-		return agentPrefix + strings.TrimPrefix(apiHost, apiHostPrefix)
-	}
-	GinkgoWriter.Printf("Warning: API host %q does not start with expected prefix %q; using fallback host\n", apiHost, apiHostPrefix)
-	return apiHost
-}
-
-// consoleHostFromAPIHost derives the OpenShift console host from the public API route host.
-func consoleHostFromAPIHost(apiHost string) string {
-	if strings.HasPrefix(apiHost, apiHostPrefix) {
-		return consoleHostPrefix + strings.TrimPrefix(apiHost, apiHostPrefix)
-	}
-	GinkgoWriter.Printf("Warning: API host %q does not start with expected prefix %q; using fallback console host\n", apiHost, apiHostPrefix)
-	return apiHost
-}
-
-// replaceURLHost preserves a URL's scheme, port, and path while replacing the hostname.
-func replaceURLHost(rawURL, host string) string {
-	if rawURL == "" || host == "" {
-		return rawURL
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
-		return rawURL
-	}
-	if port := parsed.Port(); port != "" {
-		parsed.Host = net.JoinHostPort(host, port)
-	} else {
-		parsed.Host = host
-	}
-	return parsed.String()
-}
-
-// replaceServerName replaces a stale TLS server name while preserving empty names.
-func replaceServerName(serverName, host string) string {
-	if serverName == "" {
-		return serverName
-	}
-	return host
 }
 
 // ensureFlightctlLogin reuses the current client config when it can make an
@@ -310,52 +141,4 @@ func ensureAuthMethod(harness *e2e.Harness) (login.AuthMethod, error) {
 	suiteAuthMethod = method
 	authMethodKnown = true
 	return method, nil
-}
-
-// copyPreparedAgentCerts mirrors the cert copy done by inject_agent_files_into_qcow.sh
-// for VMs that are attached lazily after suite setup.
-func copyPreparedAgentCerts(harness *e2e.Harness) error {
-	entries, err := os.ReadDir(preparedAgentCertsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			GinkgoWriter.Printf("Prepared agent cert dir %s does not exist; skipping cert refresh\n", preparedAgentCertsPath)
-			return nil
-		}
-		return fmt.Errorf("reading prepared agent cert dir %s: %w", preparedAgentCertsPath, err)
-	}
-	if len(entries) == 0 {
-		GinkgoWriter.Printf("Prepared agent cert dir %s is empty; skipping cert refresh\n", preparedAgentCertsPath)
-		return nil
-	}
-
-	if _, err := harness.VM.RunSSH([]string{"sudo", "mkdir", "-p", vmAgentCertsPath}, nil); err != nil {
-		return fmt.Errorf("creating VM agent cert dir %s: %w", vmAgentCertsPath, err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		certPath := filepath.Join(preparedAgentCertsPath, entry.Name())
-		certBytes, err := os.ReadFile(certPath)
-		if err != nil {
-			return fmt.Errorf("reading prepared agent cert %s: %w", certPath, err)
-		}
-		if len(certBytes) == 0 {
-			return fmt.Errorf("prepared agent cert %s is empty", certPath)
-		}
-
-		vmCertPath := path.Join(vmAgentCertsPath, entry.Name())
-		if err := harness.WriteAgentFile(vmCertPath, string(certBytes)); err != nil {
-			return fmt.Errorf("writing prepared agent cert %s to VM: %w", vmCertPath, err)
-		}
-		if strings.HasSuffix(entry.Name(), ".key") {
-			if _, err := harness.VM.RunSSH([]string{"sudo", "chmod", "600", vmCertPath}, nil); err != nil {
-				return fmt.Errorf("setting permissions on VM agent key %s: %w", vmCertPath, err)
-			}
-		}
-	}
-
-	return nil
 }
