@@ -151,9 +151,16 @@ func (h *Harness) DeleteCatalogItemIgnoreNotFound(catalogName, itemName string) 
 	return nil
 }
 
+// CatalogVersionRef pairs a semver version identifier with the full image reference
+// that the catalog resolver returns for that version.
+type CatalogVersionRef struct {
+	Version  string // semver version (e.g. "1.0.0")
+	ImageRef string // resolved image reference (e.g. "registry:5000/org/image:v1")
+}
+
 // NewOSCatalogItemSpec builds a CatalogItemSpec for an OS-type catalog item with a single version.
 // The artifact type must be "container" because resolveCatalogItemRef always looks up that type.
-func NewOSCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogItemSpec {
+func NewOSCatalogItemSpec(imageURI string, vr CatalogVersionRef, channel string) v1alpha1.CatalogItemSpec {
 	return v1alpha1.CatalogItemSpec{
 		DisplayName: lo.ToPtr("Test OS Item"),
 		Category:    lo.ToPtr(v1alpha1.CatalogItemCategorySystem),
@@ -163,8 +170,8 @@ func NewOSCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogIte
 		},
 		Versions: []v1alpha1.CatalogItemVersion{
 			{
-				Version:    version,
-				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: version},
+				Version:    vr.Version,
+				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: vr.ImageRef},
 				Channels:   []string{channel},
 			},
 		},
@@ -172,7 +179,7 @@ func NewOSCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogIte
 }
 
 // NewAppCatalogItemSpec builds a CatalogItemSpec for an application-type catalog item with a single version.
-func NewAppCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogItemSpec {
+func NewAppCatalogItemSpec(imageURI string, vr CatalogVersionRef, channel string) v1alpha1.CatalogItemSpec {
 	return v1alpha1.CatalogItemSpec{
 		DisplayName: lo.ToPtr("Test App Item"),
 		Category:    lo.ToPtr(v1alpha1.CatalogItemCategoryApplication),
@@ -182,8 +189,8 @@ func NewAppCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogIt
 		},
 		Versions: []v1alpha1.CatalogItemVersion{
 			{
-				Version:    version,
-				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: version},
+				Version:    vr.Version,
+				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: vr.ImageRef},
 				Channels:   []string{channel},
 			},
 		},
@@ -191,12 +198,12 @@ func NewAppCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogIt
 }
 
 // NewOSCatalogItemSpecMultiVersion builds a CatalogItemSpec for an OS-type item with multiple versions.
-func NewOSCatalogItemSpecMultiVersion(imageURI string, versions []string, channel string) v1alpha1.CatalogItemSpec {
+func NewOSCatalogItemSpecMultiVersion(imageURI string, versions []CatalogVersionRef, channel string) v1alpha1.CatalogItemSpec {
 	catalogVersions := make([]v1alpha1.CatalogItemVersion, 0, len(versions))
-	for _, v := range versions {
+	for _, vr := range versions {
 		catalogVersions = append(catalogVersions, v1alpha1.CatalogItemVersion{
-			Version:    v,
-			References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: v},
+			Version:    vr.Version,
+			References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: vr.ImageRef},
 			Channels:   []string{channel},
 		})
 	}

@@ -3,6 +3,7 @@ package catalog_refs_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -14,13 +15,12 @@ import (
 )
 
 const (
-	catalogName = "e2e-catalog-refs"
 	osItemName  = "os-item"
 	appItemName = "app-item"
 
-	osVersion1  = "v1"
-	osVersion2  = "v2"
-	appVersion1 = "v1"
+	osVersion1  = "1.0.0"
+	osVersion2  = "2.0.0"
+	appVersion1 = "1.0.0"
 
 	channel = "stable"
 
@@ -34,17 +34,26 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 	var (
 		harness *e2e.Harness
 
+		catalogName string
 		osImageURI  string
 		appImageURI string
+		osVersions  []e2e.CatalogVersionRef
 	)
 
 	BeforeAll(func() {
 		harness = e2e.GetWorkerHarness()
+		testID := harness.GetTestIDFromContext()
+		catalogName = fmt.Sprintf("e2e-catalog-refs-%s", testID)
 
 		svc := auxiliary.Get(harness.Context)
 		Expect(svc).ToNot(BeNil(), "auxiliary services must be initialized")
 		osImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.DeviceImageRegistryPath)
 		appImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.SleepAppRegistryPath)
+
+		osVersions = []e2e.CatalogVersionRef{
+			{Version: osVersion1, ImageRef: fmt.Sprintf("%s:%s", osImageURI, testutil.DeviceTags.V1)},
+			{Version: osVersion2, ImageRef: fmt.Sprintf("%s:%s", osImageURI, testutil.DeviceTags.V2)},
+		}
 
 		By("Creating test catalog")
 		_, err := harness.CreateCatalog(catalogName, "E2E Test Catalog")
@@ -52,13 +61,14 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		DeferCleanup(func() { _ = harness.DeleteCatalogIgnoreNotFound(catalogName) })
 
 		By("Creating OS catalog item with two versions")
-		osSpec := e2e.NewOSCatalogItemSpecMultiVersion(osImageURI, []string{osVersion1, osVersion2}, channel)
+		osSpec := e2e.NewOSCatalogItemSpecMultiVersion(osImageURI, osVersions, channel)
 		_, err = harness.CreateCatalogItem(catalogName, osItemName, osSpec)
 		Expect(err).ToNot(HaveOccurred())
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, osItemName) })
 
 		By("Creating application catalog item")
-		appSpec := e2e.NewAppCatalogItemSpec(appImageURI, appVersion1, channel)
+		appVR := e2e.CatalogVersionRef{Version: appVersion1, ImageRef: fmt.Sprintf("%s:%s", appImageURI, testutil.SleepAppTags.V1)}
+		appSpec := e2e.NewAppCatalogItemSpec(appImageURI, appVR, channel)
 		_, err = harness.CreateCatalogItem(catalogName, appItemName, appSpec)
 		Expect(err).ToNot(HaveOccurred())
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, appItemName) })
@@ -68,8 +78,12 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
+		By("Recording baseline rendered version")
+		baselineVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+		Expect(err).ToNot(HaveOccurred())
+
 		By("Updating device OS spec with catalogItemRef v1")
-		err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+		err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Os = &v1beta1.DeviceOsSpec{
 				CatalogItemRef: &v1beta1.CatalogItemRefSpec{
 					Catalog: catalogName,
@@ -80,17 +94,28 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying render succeeds (SpecValid condition is True)")
-		harness.WaitForDeviceContents(deviceId, "SpecValid=True after OS catalog ref v1",
+		By("Verifying render succeeds and rendered version increments for v1")
+		var v1RenderedVersion int
+		harness.WaitForDeviceContents(deviceId, "SpecValid=True and renderedVersion incremented for OS catalog ref v1",
 			func(device *v1beta1.Device) bool {
 				if device.Status == nil {
 					return false
 				}
 				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
-				return cond != nil && cond.Status == v1beta1.ConditionStatusTrue
+				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
+					return false
+				}
+				ver, verErr := e2e.GetRenderedVersion(device)
+				if verErr != nil || ver < baselineVersion {
+					return false
+				}
+				v1RenderedVersion = ver
+				return true
 			}, e2e.TIMEOUT)
+		Expect(v1RenderedVersion).To(BeNumerically(">=", baselineVersion))
 
 		By("Updating catalogItemRef version to v2")
+		expectedV2 := v1RenderedVersion + 1
 		err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Os = &v1beta1.DeviceOsSpec{
 				CatalogItemRef: &v1beta1.CatalogItemRefSpec{
@@ -102,14 +127,21 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying render succeeds for updated version (SpecValid remains True)")
-		harness.WaitForDeviceContents(deviceId, "SpecValid=True after OS catalog ref v2",
+		By("Verifying render succeeds and rendered version increments again for v2")
+		harness.WaitForDeviceContents(deviceId, "SpecValid=True and renderedVersion incremented for OS catalog ref v2",
 			func(device *v1beta1.Device) bool {
 				if device.Status == nil {
 					return false
 				}
 				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
-				return cond != nil && cond.Status == v1beta1.ConditionStatusTrue
+				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
+					return false
+				}
+				ver, verErr := e2e.GetRenderedVersion(device)
+				if verErr != nil {
+					return false
+				}
+				return ver >= expectedV2
 			}, e2e.TIMEOUT)
 	})
 
@@ -247,6 +279,10 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 
 		By("Verifying API rejects deletion (non-200 status)")
 		if resp.StatusCode() == http.StatusOK {
+			// Restore item for subsequent ordered tests before skipping
+			osSpec := e2e.NewOSCatalogItemSpecMultiVersion(osImageURI, osVersions, channel)
+			_, restoreErr := harness.CreateCatalogItem(catalogName, osItemName, osSpec)
+			Expect(restoreErr).ToNot(HaveOccurred())
 			Skip("AC-7: delete protection not yet implemented")
 		}
 		Expect(resp.StatusCode()).To(SatisfyAny(
@@ -276,8 +312,8 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying device reports render error (SpecValid=False)")
-		harness.WaitForDeviceContents(deviceId, "SpecValid=False with type mismatch",
+		By("Verifying device reports render error (SpecValid=False with meaningful message)")
+		harness.WaitForDeviceContents(deviceId, "SpecValid=False with type mismatch error message",
 			func(device *v1beta1.Device) bool {
 				if device.Status == nil {
 					return false
@@ -286,7 +322,11 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 				if cond == nil {
 					return false
 				}
-				return cond.Status == v1beta1.ConditionStatusFalse
+				if cond.Status != v1beta1.ConditionStatusFalse {
+					return false
+				}
+				msg := strings.ToLower(cond.Message)
+				return strings.Contains(msg, "catalog") || strings.Contains(msg, "type") || strings.Contains(msg, "mismatch") || strings.Contains(msg, "not found")
 			}, e2e.TIMEOUT)
 	})
 })
