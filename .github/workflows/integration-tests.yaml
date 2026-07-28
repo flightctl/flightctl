@@ -64,7 +64,7 @@ jobs:
       - name: Running integration tests
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
-          make integration-test INTEGRATION_PROCS=8
+          make integration-test INTEGRATION_PROCS=4
         env:
           DISABLE_FIPS: true
 
@@ -144,7 +144,7 @@ jobs:
         # if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         if: false
         run: |
-          make integration-test INTEGRATION_PROCS=8
+          make integration-test INTEGRATION_PROCS=4
         env:
           DISABLE_FIPS: true
 
