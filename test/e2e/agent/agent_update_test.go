@@ -775,12 +775,28 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 // to observe that rollback triggers and that stability is checked, not the exact
 // durations, so there's no fidelity lost by shortening them here.
 //
+// Phase 1 stays at 90s (>= systemd TimeoutStartSec for Type=notify) because this
+// override lands in /etc and survives ostree merge into later good boots in the
+// same flow (rollback + recovery). A shorter Phase 1 would speed up the broken
+// v11 wait, but risks greenboot failing a healthy agent that is slow to hit
+// active under load. Phase 2/poll can still be aggressive — they only run after
+// the agent is already active.
+//
 // /etc is carried across bootc deployments via ostree's 3-way merge, so writing this to
 // the currently-booted deployment before triggering the v11 update also takes effect on
 // the v11 boot and the rollback boot that follows it.
+//
+// Existing FLIGHTCTL_HEALTH_* keys are stripped before append so repeated calls
+// (or a non-pristine VM) do not grow greenboot.conf with duplicate assignments.
 const fastGreenbootOverrideScript = `sudo mkdir -p /etc/greenboot
+sudo touch /etc/greenboot/greenboot.conf
+sudo sed -i \
+  -e '/^FLIGHTCTL_HEALTH_CHECK_TIMEOUT=/d' \
+  -e '/^FLIGHTCTL_HEALTH_STABILITY_WINDOW=/d' \
+  -e '/^FLIGHTCTL_HEALTH_POLL_INTERVAL=/d' \
+  /etc/greenboot/greenboot.conf
 cat <<'EOF' | sudo tee -a /etc/greenboot/greenboot.conf >/dev/null
-FLIGHTCTL_HEALTH_CHECK_TIMEOUT=10
+FLIGHTCTL_HEALTH_CHECK_TIMEOUT=90
 FLIGHTCTL_HEALTH_STABILITY_WINDOW=10
 FLIGHTCTL_HEALTH_POLL_INTERVAL=2
 EOF
@@ -789,7 +805,7 @@ EOF
 func setFastGreenbootHealthTimeouts(harness *e2e.Harness) {
 	_, err := harness.VM.RunSSH([]string{"bash", "-lc", fastGreenbootOverrideScript}, nil)
 	Expect(err).NotTo(HaveOccurred())
-	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] appended greenboot.conf override: timeout=10s stability-window=10s poll-interval=2s")
+	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] set greenboot.conf override: timeout=90s stability-window=10s poll-interval=2s")
 }
 
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),
