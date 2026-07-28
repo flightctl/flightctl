@@ -152,18 +152,19 @@ func (h *Harness) DeleteCatalogItemIgnoreNotFound(catalogName, itemName string) 
 }
 
 // NewOSCatalogItemSpec builds a CatalogItemSpec for an OS-type catalog item with a single version.
+// The artifact type must be "container" because resolveCatalogItemRef always looks up that type.
 func NewOSCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogItemSpec {
 	return v1alpha1.CatalogItemSpec{
 		DisplayName: lo.ToPtr("Test OS Item"),
 		Category:    lo.ToPtr(v1alpha1.CatalogItemCategorySystem),
 		Type:        v1alpha1.CatalogItemTypeOS,
 		Artifacts: []v1alpha1.CatalogItemArtifact{
-			{Type: v1alpha1.CatalogItemArtifactTypeQcow2DiskContainer, Uri: imageURI},
+			{Type: v1alpha1.CatalogItemArtifactTypeContainer, Uri: imageURI},
 		},
 		Versions: []v1alpha1.CatalogItemVersion{
 			{
 				Version:    version,
-				References: map[string]string{"qcow2-disk-container": version},
+				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: version},
 				Channels:   []string{channel},
 			},
 		},
@@ -182,9 +183,30 @@ func NewAppCatalogItemSpec(imageURI, version, channel string) v1alpha1.CatalogIt
 		Versions: []v1alpha1.CatalogItemVersion{
 			{
 				Version:    version,
-				References: map[string]string{"container": version},
+				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: version},
 				Channels:   []string{channel},
 			},
 		},
+	}
+}
+
+// NewOSCatalogItemSpecMultiVersion builds a CatalogItemSpec for an OS-type item with multiple versions.
+func NewOSCatalogItemSpecMultiVersion(imageURI string, versions []string, channel string) v1alpha1.CatalogItemSpec {
+	catalogVersions := make([]v1alpha1.CatalogItemVersion, 0, len(versions))
+	for _, v := range versions {
+		catalogVersions = append(catalogVersions, v1alpha1.CatalogItemVersion{
+			Version:    v,
+			References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: v},
+			Channels:   []string{channel},
+		})
+	}
+	return v1alpha1.CatalogItemSpec{
+		DisplayName: lo.ToPtr("Test OS Item"),
+		Category:    lo.ToPtr(v1alpha1.CatalogItemCategorySystem),
+		Type:        v1alpha1.CatalogItemTypeOS,
+		Artifacts: []v1alpha1.CatalogItemArtifact{
+			{Type: v1alpha1.CatalogItemArtifactTypeContainer, Uri: imageURI},
+		},
+		Versions: catalogVersions,
 	}
 }
