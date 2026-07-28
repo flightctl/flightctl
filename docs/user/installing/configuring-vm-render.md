@@ -9,7 +9,7 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 | `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.8.4` |
 | `passtWorkarounds` | `true` |
 
-`passtWorkarounds` enables a startup patch for older virt-launcher images that can crash with two or more vCPUs (passt `mrg_rxbuf` issue). Keep this enabled unless your virt-launcher image already includes a fixed passt build.
+`passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). Keep this enabled unless your virt-launcher image already includes a fixed passt build.
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | `worker.vmRender.launcherImage` | string | Container image reference for the KubeVirt virt-launcher compute container. |
-| `worker.vmRender.passtWorkarounds` | boolean | When `true`, enable passt workarounds in generated Quadlet units. |
+| `worker.vmRender.passtWorkarounds` | boolean | When `true`, enable passt networking workarounds in generated Quadlet units. |
 
 ## Kubernetes (Helm)
 

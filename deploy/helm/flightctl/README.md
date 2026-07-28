@@ -443,7 +443,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | worker.image.tag | string | `""` | Worker image tag |
 | worker.vmRender | object | `{"launcherImage":"quay.io/kubevirt/virt-launcher:v1.8.4","passtWorkarounds":true}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `"quay.io/kubevirt/virt-launcher:v1.8.4"` | virt-launcher image used when converting VmApplications to Quadlet units |
-| worker.vmRender.passtWorkarounds | bool | `true` | Enable passt mrg_rxbuf workarounds for older virt-launcher images (recommended true) |
+| worker.vmRender.passtWorkarounds | bool | `true` | Enable passt networking workarounds for older virt-launcher images (recommended true) |
 
 ## Environment-Specific Values Files
 

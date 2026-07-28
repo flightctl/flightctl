@@ -507,7 +507,7 @@
             },
             "passtWorkarounds": {
               "type": "boolean",
-              "description": "Enable passt mrg_rxbuf workarounds for older virt-launcher images"
+              "description": "Enable passt networking workarounds for older virt-launcher images"
             }
           }
         }
