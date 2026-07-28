@@ -703,12 +703,17 @@ func GetEncryptionMigrationStartedEvent(ctx context.Context, keyID string) *doma
 }
 
 // GetEncryptionMigrationCompletedEvent creates a system-wide event when encryption migration finishes for a key.
-func GetEncryptionMigrationCompletedEvent(ctx context.Context, keyID string) *domain.Event {
+// retiredKeyIDs lists previous keys prepared for retirement after the migration completed.
+func GetEncryptionMigrationCompletedEvent(ctx context.Context, keyID string, retiredKeyIDs []string) *domain.Event {
+	msg := fmt.Sprintf("Encryption migration to key %q completed.", keyID)
+	if len(retiredKeyIDs) > 0 {
+		msg += fmt.Sprintf(" Previous keys no longer in use and safe to remove: %v.", retiredKeyIDs)
+	}
 	return getBaseEvent(ctx, resourceEvent{
 		resourceKind: domain.SystemKind,
 		resourceName: domain.SystemComponentEncryption,
 		reason:       domain.EventReasonEncryptionMigrationCompleted,
-		message:      fmt.Sprintf("Encryption migration completed for key %q.", keyID),
+		message:      msg,
 		details:      nil,
 	})
 }

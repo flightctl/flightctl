@@ -53,7 +53,7 @@ func (m *EncryptionMigrator) emitStartedEventIfNeeded(ctx context.Context, activ
 	}
 }
 
-func (m *EncryptionMigrator) emitCompletedEventIfNeeded(ctx context.Context, activeKeyID, registryHash string) {
+func (m *EncryptionMigrator) emitCompletedEventIfNeeded(ctx context.Context, activeKeyID, registryHash string, retiredKeyIDs []string) {
 	if m == nil || m.eventSvc == nil || activeKeyID == "" {
 		return
 	}
@@ -76,7 +76,7 @@ func (m *EncryptionMigrator) emitCompletedEventIfNeeded(ctx context.Context, act
 		return
 	}
 
-	m.eventSvc.CreateEvent(ctx, org.DefaultID, common.GetEncryptionMigrationCompletedEvent(ctx, activeKeyID))
+	m.eventSvc.CreateEvent(ctx, org.DefaultID, common.GetEncryptionMigrationCompletedEvent(ctx, activeKeyID, retiredKeyIDs))
 	status.TargetActiveKeyID = activeKeyID
 	status.RegistryHash = registryHash
 	status.StartedEmitted = true

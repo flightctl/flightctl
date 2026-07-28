@@ -189,7 +189,6 @@ func (m *EncryptionMigrator) RunBatch(ctx context.Context, kind string, orgID uu
 	activeKeyID := strategy.ActiveKeyID()
 	report.ActiveKeyID = activeKeyID
 	registryHash := m.currentRegistryHash()
-	m.emitStartedEventIfNeeded(ctx, activeKeyID, registryHash)
 
 	checkpoint, err := m.loadCheckpoint(ctx, kind, orgID)
 	if err != nil {
@@ -204,6 +203,7 @@ func (m *EncryptionMigrator) RunBatch(ctx context.Context, kind string, orgID uu
 			TargetActiveKeyID: activeKeyID,
 			RegistryHash:      registryHash,
 		}
+		m.emitStartedEventIfNeeded(ctx, activeKeyID, registryHash)
 	}
 	if checkpoint.Complete {
 		report.Complete = true
@@ -387,18 +387,26 @@ func (m *EncryptionMigrator) maybePrepareKeyRetirement(ctx context.Context) {
 		return
 	}
 	activeKeyID := strategy.ActiveKeyID()
-	m.emitCompletedEventIfNeeded(ctx, activeKeyID, m.currentRegistryHash())
+	retiredKeyIDs := m.prepareNonActiveKeysForRetirement(ctx, activeVersion, activeKeyID)
+	m.emitCompletedEventIfNeeded(ctx, activeKeyID, m.currentRegistryHash(), retiredKeyIDs)
+}
 
+func (m *EncryptionMigrator) prepareNonActiveKeysForRetirement(ctx context.Context, activeVersion, activeKeyID string) []string {
 	if m.canarySvc == nil {
-		return
+		return nil
 	}
 	canaries, status := m.canarySvc.GetAll(ctx)
 	if status.Code != http.StatusOK {
 		m.log.Errorf("encryption migration: list canaries for key retirement: %s", status.Message)
-		return
+		return nil
 	}
+	retired := make([]string, 0)
+	seen := map[string]struct{}{}
 	for _, canary := range canaries {
 		if canary.Strategy == activeVersion && canary.KeyID == activeKeyID {
+			continue
+		}
+		if canary.KeyID == "" {
 			continue
 		}
 		retireStatus := m.canarySvc.PrepareForRetirement(ctx, canary.Strategy, canary.KeyID)
@@ -408,7 +416,14 @@ func (m *EncryptionMigrator) maybePrepareKeyRetirement(ctx context.Context) {
 			continue
 		}
 		m.log.Infof("encryption migration: prepared key retirement for %s/%s", canary.Strategy, canary.KeyID)
+		if _, ok := seen[canary.KeyID]; ok {
+			continue
+		}
+		seen[canary.KeyID] = struct{}{}
+		retired = append(retired, canary.KeyID)
 	}
+	sort.Strings(retired)
+	return retired
 }
 
 func (m *EncryptionMigrator) loadCheckpoint(ctx context.Context, kind string, orgID uuid.UUID) (EncryptionMigrationCheckpoint, error) {
