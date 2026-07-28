@@ -15,6 +15,8 @@ import (
 // *client.Podman satisfies this interface in production; tests may inject a fake.
 type ExecStreamer interface {
 	ExecStream(ctx context.Context, containerName string, cmd ...string) (io.ReadWriteCloser, error)
+	// Exec runs a short-lived command inside the container (used to reap leftover console clients).
+	Exec(ctx context.Context, containerName string, cmd ...string) error
 }
 
 // evictionReasonKey is the context key under which Start stashes a flag that bridgeConn
