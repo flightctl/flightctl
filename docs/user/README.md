@@ -87,6 +87,7 @@ Welcome to the Flight Control user documentation.
   * [Catalogs](using/managing-catalogs.md#catalogs)
   * [Catalog items](using/managing-catalogs.md#catalog-items)
   * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
+  * [Referencing catalog items in device specifications](using/managing-catalogs.md#referencing-catalog-items-in-device-specifications)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
   * [ImageBuild resource](using/managing-image-builds.md#imagebuild-resource)
   * [ImageExport resource](using/managing-image-builds.md#imageexport-resource)
