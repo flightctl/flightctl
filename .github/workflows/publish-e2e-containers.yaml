@@ -83,7 +83,7 @@ jobs:
           context: .
 
       - name: Login to Quay.io
-        uses: redhat-actions/podman-login@v1
+        uses: redhat-actions/podman-login@v2
         with:
           registry: ${{ env.QUAY }}
           username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
@@ -150,7 +150,7 @@ jobs:
             ${{ runner.os }}-dnf-
 
       - name: Login to Quay.io
-        uses: redhat-actions/podman-login@v1
+        uses: redhat-actions/podman-login@v2
         with:
           registry: ${{ env.QUAY }}
           username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
