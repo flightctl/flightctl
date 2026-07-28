@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -28,7 +30,11 @@ func init() {
 	SetDefaultEventuallyPollingInterval(POLLING)
 }
 
-var auxSvcs *auxiliary.Services
+var (
+	auxSvcs         *auxiliary.Services
+	suiteAuthMethod login.AuthMethod
+	authMethodKnown bool
+)
 
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
@@ -50,7 +56,7 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	_, err := login.LoginToAPIWithToken(harness)
+	_, err := ensureFlightctlLogin(harness)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
@@ -95,4 +101,44 @@ var _ = AfterEach(func() {
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CLI E2E Suite")
+}
+
+// ensureFlightctlLogin reuses the current client config when it can make an
+// authenticated API call, avoiding per-spec flightctl login rate limits.
+func ensureFlightctlLogin(harness *e2e.Harness) (login.AuthMethod, error) {
+	if harness == nil {
+		return 0, fmt.Errorf("harness is nil")
+	}
+
+	if err := harness.RefreshClient(); err == nil {
+		resp, listErr := harness.Client.ListDevicesWithResponse(harness.Context, nil)
+		if listErr == nil && resp != nil && resp.StatusCode() == http.StatusOK {
+			GinkgoWriter.Printf("Reusing existing flightctl login\n")
+			return ensureAuthMethod(harness)
+		}
+	}
+
+	method, err := login.LoginToAPIWithToken(harness)
+	if err != nil {
+		return 0, err
+	}
+	suiteAuthMethod = method
+	authMethodKnown = true
+	return method, nil
+}
+
+// ensureAuthMethod returns the cached admin auth method, resolving it without a
+// flightctl login when the suite reuses an already-valid client config.
+func ensureAuthMethod(harness *e2e.Harness) (login.AuthMethod, error) {
+	if authMethodKnown {
+		return suiteAuthMethod, nil
+	}
+
+	_, method, err := login.LoginToEnvAsAdmin(harness)
+	if err != nil {
+		return 0, fmt.Errorf("resolving admin auth method: %w", err)
+	}
+	suiteAuthMethod = method
+	authMethodKnown = true
+	return method, nil
 }
