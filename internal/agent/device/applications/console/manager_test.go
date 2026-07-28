@@ -24,13 +24,26 @@ import (
 
 // mockExecStreamer is a minimal ExecStreamer for tests.
 type mockExecStreamer struct {
-	conn      io.ReadWriteCloser
-	err       error
-	execCalls [][]string
-	mu        sync.Mutex
+	conn       io.ReadWriteCloser
+	err        error
+	streamErrs []error // if non-empty, each ExecStream pops the next error (nil means success with conn)
+	execCalls  [][]string
+	streamN    int
+	mu         sync.Mutex
 }
 
 func (m *mockExecStreamer) ExecStream(_ context.Context, _ string, _ ...string) (io.ReadWriteCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamN++
+	if len(m.streamErrs) > 0 {
+		err := m.streamErrs[0]
+		m.streamErrs = m.streamErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+		return m.conn, nil
+	}
 	return m.conn, m.err
 }
 

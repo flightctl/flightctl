@@ -2,9 +2,11 @@ package console
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -45,10 +47,53 @@ func TestDialVMUnixSocket_WhenOpeningItShouldReapLeftoverNCBeforeDial(t *testing
 	require.Len(exec.execCalls, 1, "expected a pre-dial cleanup Exec call")
 	require.Contains(strings.Join(exec.execCalls[0], " "), socketPath)
 	require.Contains(strings.Join(exec.execCalls[0], " "), "pkill")
+	require.Equal(1, exec.streamN)
 
 	require.NoError(conn.Close())
 	require.True(closer.closed)
 	require.Len(exec.execCalls, 1, "Close must not pkill (avoids killing a --force successor's nc)")
+}
+
+func TestDialVMUnixSocket_WhenDialFailsItShouldRetryUpToThreeTimes(t *testing.T) {
+	require := require.New(t)
+	closer := &recordingCloser{}
+	exec := &mockExecStreamer{
+		conn: closer,
+		streamErrs: []error{
+			fmt.Errorf("busy"),
+			fmt.Errorf("busy"),
+			nil,
+		},
+	}
+	logger := log.NewPrefixLogger("test")
+
+	start := time.Now()
+	conn, err := dialWithRetryDelay(t, context.Background(), exec, "compute", vmSerialSocketPath, logger, time.Millisecond)
+	require.NoError(err)
+	require.NotNil(conn)
+	require.Equal(3, exec.streamN)
+	require.Len(exec.execCalls, 3, "each attempt reaps before dial")
+	require.Less(time.Since(start), time.Second)
+	require.NoError(conn.Close())
+}
+
+func TestDialVMUnixSocket_WhenAllDialAttemptsFailItShouldReturnError(t *testing.T) {
+	require := require.New(t)
+	exec := &mockExecStreamer{
+		streamErrs: []error{
+			fmt.Errorf("busy"),
+			fmt.Errorf("busy"),
+			fmt.Errorf("still busy"),
+		},
+	}
+	logger := log.NewPrefixLogger("test")
+
+	conn, err := dialWithRetryDelay(t, context.Background(), exec, "compute", vmSerialSocketPath, logger, time.Millisecond)
+	require.Error(err)
+	require.Nil(conn)
+	require.Contains(err.Error(), "after 3 attempts")
+	require.Equal(3, exec.streamN)
+	require.Len(exec.execCalls, 3)
 }
 
 func TestDialVMUnixSocket_WhenOldSessionClosesAfterNewDialItShouldNotReap(t *testing.T) {
@@ -83,4 +128,13 @@ func TestKillNCSocketHolders_WhenPatternBuiltItShouldNotMatchLogSuffix(t *testin
 	script := strings.Join(exec.execCalls[0], " ")
 	require.Contains(script, "^nc -U "+vmSerialSocketPath+"$")
 	require.NotContains(script, "virt-serial0-log")
+}
+
+// dialWithRetryDelay runs dialVMUnixSocket with a shortened retry delay for tests.
+func dialWithRetryDelay(t *testing.T, ctx context.Context, exec ExecStreamer, containerName, socketPath string, logger *log.PrefixLogger, delay time.Duration) (io.ReadWriteCloser, error) {
+	t.Helper()
+	prev := dialRetryDelay
+	dialRetryDelay = delay
+	t.Cleanup(func() { dialRetryDelay = prev })
+	return dialVMUnixSocket(ctx, exec, containerName, socketPath, logger)
 }
