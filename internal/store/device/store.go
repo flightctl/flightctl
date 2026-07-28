@@ -1415,6 +1415,7 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, p
 	if result.RowsAffected == 0 {
 		return true, nil, flterrors.ErrNoRowsUpdated
 	}
+	existingRecord.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
 
 	updatedDevice, err := existingRecord.ToApiResource()
 	if err != nil {

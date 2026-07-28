@@ -824,6 +824,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(stored.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
 			Expect(stored.Metadata.Owner).To(BeNil())
 			Expect(lo.FromPtr(stored.Metadata.Labels)).To(BeEmpty())
+			Expect(result.Metadata.ResourceVersion).To(Equal(stored.Metadata.ResourceVersion))
 		})
 
 		It("returns conflict when decommissioning an already-decommissioning device", func() {
