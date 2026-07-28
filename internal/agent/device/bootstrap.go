@@ -211,7 +211,7 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 }
 
 func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
-	if !b.specManager.IsOSUpdate() {
+	if !b.specManager.ShouldApplyOSImageUpdate() {
 		b.log.Info("No OS update in progress")
 		// If not upgrading but rollback.json has a desired version, a rollback
 		// already completed and the agent restarted. Mark the desired version

@@ -532,15 +532,15 @@ func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 	return s.lastConsumedDevice == nil || s.lastConsumedDevice.Version() != desired.Version()
 }
 
-func (s *manager) IsOSUpdate() bool {
+func (s *manager) ShouldApplyOSImageUpdate() bool {
 	if s.osMode == v1beta1.OsModePackage {
 		return false
 	}
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
 }
 
-func (s *manager) IsOSUpdatePending(ctx context.Context) (bool, error) {
-	if !s.IsOSUpdate() {
+func (s *manager) ShouldApplyOSImageUpdatePending(ctx context.Context) (bool, error) {
+	if !s.ShouldApplyOSImageUpdate() {
 		return false, nil
 	}
 

@@ -469,7 +469,7 @@ func TestUpgrade(t *testing.T) {
 	}
 }
 
-func TestIsOSUpdate(t *testing.T) {
+func TestShouldApplyOSImageUpdate(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -491,7 +491,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = ""
 		s.cache.desired.osVersion = ""
 
-		osUpdate := s.IsOSUpdate()
+		osUpdate := s.ShouldApplyOSImageUpdate()
 		require.Equal(false, osUpdate)
 	})
 
@@ -501,7 +501,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = image
 		s.cache.desired.osVersion = image
 
-		osUpdate := s.IsOSUpdate()
+		osUpdate := s.ShouldApplyOSImageUpdate()
 		require.Equal(false, osUpdate)
 	})
 
@@ -511,7 +511,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = currentImage
 		s.cache.desired.osVersion = desiredImage
 
-		osUpdate := s.IsOSUpdate()
+		osUpdate := s.ShouldApplyOSImageUpdate()
 		require.Equal(true, osUpdate)
 	})
 
@@ -520,7 +520,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 
-		require.False(s.IsOSUpdate())
+		require.False(s.ShouldApplyOSImageUpdate())
 	})
 
 	t.Run("When mode is image it should retain version comparison", func(t *testing.T) {
@@ -528,7 +528,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 
-		require.True(s.IsOSUpdate())
+		require.True(s.ShouldApplyOSImageUpdate())
 	})
 
 	t.Run("When mode is unset it should retain version comparison", func(t *testing.T) {
@@ -536,7 +536,7 @@ func TestIsOSUpdate(t *testing.T) {
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 
-		require.True(s.IsOSUpdate())
+		require.True(s.ShouldApplyOSImageUpdate())
 	})
 }
 
