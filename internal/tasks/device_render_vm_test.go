@@ -362,6 +362,12 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	_, err = renderVmApplication(ctx, vmApp, converter, DefaultVmRenderOptions(), kv)
 	require.NoError(t, err)
 	assert.Equal(t, 1, callCount, "converter must not be called again on the second (cache hit) call")
+
+	opts := DefaultVmRenderOptions()
+	opts.PasstWorkarounds = false
+	_, err = renderVmApplication(ctx, vmApp, converter, opts, kv)
+	require.NoError(t, err)
+	assert.Equal(t, 2, callCount, "converter should run again when passtWorkarounds changes")
 }
 
 // TestRenderVmApplication_ImageProviderUnsupported verifies that a VmApplication

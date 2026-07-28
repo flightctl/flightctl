@@ -158,6 +158,7 @@ vulnerabilityReporting:
 					vmRender, ok := s["vmRender"].(map[string]interface{})
 					require.True(t, ok)
 					assert.Equal(t, "quay.io/kubevirt/virt-launcher:v1.9.0", vmRender["launcherImage"])
+					assert.Equal(t, false, vmRender["passtWorkarounds"])
 				}
 			case infra.ServiceImageBuilderWorker:
 				sectionKey = "imageBuilderWorker"
@@ -220,6 +221,7 @@ vulnerabilityReporting:
 				vmRender, ok := section["vmRender"].(map[string]interface{})
 				require.True(t, ok)
 				vmRender["launcherImage"] = setValue
+				vmRender["passtWorkarounds"] = false
 			case infra.ServiceImageBuilderWorker:
 				section["maxConcurrentBuilds"] = setValue
 			case infra.ServiceTelemetryGateway:
