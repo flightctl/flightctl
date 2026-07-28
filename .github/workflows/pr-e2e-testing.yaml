@@ -174,7 +174,7 @@ jobs:
           fi
 
       - name: Restore test timings cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: test/scripts/test-timings.json
           key: e2e-test-timings-${{ github.run_id }}

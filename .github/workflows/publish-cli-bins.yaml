@@ -95,7 +95,7 @@ jobs:
       # build-images-and-charts.yaml's "Save Go cache" for the full rationale.
       - name: Restore Go modules cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -106,7 +106,7 @@ jobs:
 
       - name: Restore DNF cache
         id: cache-dnf-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             /var/cache/dnf
@@ -131,7 +131,7 @@ jobs:
         # always(): populated during "Build" above regardless of whether the build itself
         # succeeds, so still worth saving even if Build fails on main.
         if: ${{ always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cache/go-build
@@ -140,7 +140,7 @@ jobs:
 
       - name: Save DNF cache
         if: ${{ always() && github.ref == 'refs/heads/main' && steps.cache-dnf-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             /var/cache/dnf

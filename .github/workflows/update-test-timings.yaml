@@ -60,7 +60,7 @@ jobs:
             --output test-timings.json
 
       - name: Save timings to Actions cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: test/scripts/test-timings.json
           key: e2e-test-timings-${{ github.run_id }}

@@ -72,7 +72,7 @@ jobs:
       # snapshot on every main push regardless of go.sum. The "prune" job below keeps
       # only the newest entry.
       - name: Restore golangci-lint volumes cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         with:
           path: |
@@ -88,7 +88,7 @@ jobs:
         run: make lint
 
       - name: Save golangci-lint volumes cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         # Main-only: this key is unique per run_id, so a save here always creates a new
         # entry rather than updating an existing one - restricting to main (like the
         # buildah cache) keeps PR/branch runs from leaving behind their own throwaway
