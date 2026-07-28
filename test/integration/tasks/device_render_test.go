@@ -439,7 +439,7 @@ var _ = Describe("DeviceRender", func() {
 				"device": "camera",
 				"size":   "big",
 			}
-			_, err = deviceStore.Update(ctx, orgId, device, nil, false, nil, nil)
+			_, err = deviceStore.Update(ctx, orgId, device, nil, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout again to update device spec

@@ -161,7 +161,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 	}
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 	setRolledOut := func(deviceName string) {
@@ -724,7 +724,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 					fleet.Spec.RolloutPolicy = &api.RolloutPolicy{}
 				}
 				fleet.Spec.RolloutPolicy.DeviceSelection = definition
-				_, err = fleetStore.Update(ctx, store.NullOrgId, fleet, nil, false, nil)
+				_, err = fleetStore.Update(ctx, store.NullOrgId, fleet, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			fromBatchSequence := func(b api.BatchSequence) *api.RolloutDeviceSelection {
