@@ -7957,6 +7957,8 @@ components:
             - DependencyChangeDetected
             - DependencySyncProbeFailed
             - SystemRestored
+            - EncryptionMigrationStarted
+            - EncryptionMigrationCompleted
             - ApplicationLifecycleChanged
         message:
           type: string

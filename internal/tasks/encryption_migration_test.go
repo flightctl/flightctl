@@ -153,7 +153,7 @@ func newTestMigrator(t *testing.T, mgr *encryption.Manager, checkpoints Checkpoi
 	db := openTestDB(t)
 	log := logrus.New()
 	log.SetLevel(logrus.FatalLevel)
-	return NewEncryptionMigrator(context.Background(), db, mgr, checkpoints, nil, nil, log)
+	return NewEncryptionMigrator(context.Background(), db, mgr, checkpoints, nil, nil, nil, log)
 }
 
 func TestEncryptionMigrator_WhenPageEmptyItShouldMarkComplete(t *testing.T) {
@@ -394,7 +394,7 @@ func TestRepositoryEncryptionMigration_EndToEnd(t *testing.T) {
 
 	log := logrus.New()
 	log.SetLevel(logrus.FatalLevel)
-	migrator := NewEncryptionMigrator(context.Background(), db, mgr, newMemoryCheckpointStore(), nil, nil, log)
+	migrator := NewEncryptionMigrator(context.Background(), db, mgr, newMemoryCheckpointStore(), nil, nil, nil, log)
 	migrator.SetBatchSize(10)
 
 	report, err := migrator.RunBatch(context.Background(), domain.RepositoryKind, org)
@@ -487,7 +487,7 @@ func TestAuthProviderEncryptionMigration_EndToEnd(t *testing.T) {
 
 	log := logrus.New()
 	log.SetLevel(logrus.FatalLevel)
-	migrator := NewEncryptionMigrator(context.Background(), db, mgr, newMemoryCheckpointStore(), nil, nil, log)
+	migrator := NewEncryptionMigrator(context.Background(), db, mgr, newMemoryCheckpointStore(), nil, nil, nil, log)
 
 	report, err := migrator.RunBatch(context.Background(), domain.AuthProviderKind, org)
 	require.NoError(t, err)
@@ -792,7 +792,7 @@ func TestEncryptionMigrator_WhenMigrationCompleteItShouldPrepareKeyRetirement(t 
 	db := openTestDB(t)
 	log := logrus.New()
 	log.SetLevel(logrus.FatalLevel)
-	migrator := NewEncryptionMigrator(context.Background(), db, mgr, checkpoints, nil, canaries, log)
+	migrator := NewEncryptionMigrator(context.Background(), db, mgr, checkpoints, nil, canaries, nil, log)
 	org := uuid.New()
 	migrator.SetOrganizations([]uuid.UUID{org})
 	migrator.SetRegistryHashOverride("hash")

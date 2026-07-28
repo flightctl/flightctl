@@ -105,7 +105,7 @@ var _ = Describe("Encryption migration", func() {
 	newMigrator := func() *tasks.EncryptionMigrator {
 		GinkgoHelper()
 		cp := checkpointstore.NewCheckpointStore(db, log.WithField("pkg", "checkpoint-store"))
-		migrator := tasks.NewEncryptionMigrator(ctx, db, encryption.GlobalManager(), cp, nil, nil, log)
+		migrator := tasks.NewEncryptionMigrator(ctx, db, encryption.GlobalManager(), cp, nil, nil, nil, log)
 		migrator.SetBatchSize(1)
 		return migrator
 	}

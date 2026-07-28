@@ -117,6 +117,7 @@ func (s *Server) Run(ctx context.Context) error {
 		checkpointStore,
 		tasks.NewPostgresEncryptionMigrationLocker(s.db),
 		canarySvc,
+		eventSvc,
 		s.log.WithField("pkg", "encryption-migration"),
 	)
 

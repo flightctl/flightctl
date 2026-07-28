@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -87,6 +88,7 @@ type EncryptionMigrator struct {
 	checkpoints  CheckpointStore
 	locker       EncryptionMigrationLocker
 	canarySvc    canaryservice.Service
+	eventSvc     eventservice.Service
 	lifecycleCtx context.Context
 	log          logrus.FieldLogger
 	batchSize    int
@@ -102,7 +104,8 @@ type EncryptionMigrator struct {
 // lifecycleCtx cancels delayed re-enqueue work on worker shutdown; nil uses context.Background().
 // Pass nil locker to disable cross-replica leasing (tests).
 // Pass nil canarySvc to skip PrepareForRetirement after successful migration.
-func NewEncryptionMigrator(lifecycleCtx context.Context, db *gorm.DB, manager *encryption.Manager, checkpoints CheckpointStore, locker EncryptionMigrationLocker, canarySvc canaryservice.Service, log logrus.FieldLogger) *EncryptionMigrator {
+// Pass nil eventSvc to skip system-wide started/completed events.
+func NewEncryptionMigrator(lifecycleCtx context.Context, db *gorm.DB, manager *encryption.Manager, checkpoints CheckpointStore, locker EncryptionMigrationLocker, canarySvc canaryservice.Service, eventSvc eventservice.Service, log logrus.FieldLogger) *EncryptionMigrator {
 	if locker == nil {
 		locker = noopEncryptionMigrationLocker{}
 	}
@@ -115,6 +118,7 @@ func NewEncryptionMigrator(lifecycleCtx context.Context, db *gorm.DB, manager *e
 		checkpoints:  checkpoints,
 		locker:       locker,
 		canarySvc:    canarySvc,
+		eventSvc:     eventSvc,
 		lifecycleCtx: lifecycleCtx,
 		log:          log,
 		batchSize:    defaultEncryptionBatchSize,
@@ -185,6 +189,7 @@ func (m *EncryptionMigrator) RunBatch(ctx context.Context, kind string, orgID uu
 	activeKeyID := strategy.ActiveKeyID()
 	report.ActiveKeyID = activeKeyID
 	registryHash := m.currentRegistryHash()
+	m.emitStartedEventIfNeeded(ctx, activeKeyID, registryHash)
 
 	checkpoint, err := m.loadCheckpoint(ctx, kind, orgID)
 	if err != nil {
@@ -365,7 +370,7 @@ func checkpointMatchesMigrationTarget(checkpoint EncryptionMigrationCheckpoint, 
 // maybePrepareKeyRetirement deletes canaries for non-active keys once every kind/org
 // has finished migrating to the current active key and registry.
 func (m *EncryptionMigrator) maybePrepareKeyRetirement(ctx context.Context) {
-	if m.canarySvc == nil || m.manager == nil {
+	if m.manager == nil {
 		return
 	}
 	needs, err := m.NeedsMigration(ctx)
@@ -382,7 +387,11 @@ func (m *EncryptionMigrator) maybePrepareKeyRetirement(ctx context.Context) {
 		return
 	}
 	activeKeyID := strategy.ActiveKeyID()
+	m.emitCompletedEventIfNeeded(ctx, activeKeyID, m.currentRegistryHash())
 
+	if m.canarySvc == nil {
+		return
+	}
 	canaries, status := m.canarySvc.GetAll(ctx)
 	if status.Code != http.StatusOK {
 		m.log.Errorf("encryption migration: list canaries for key retirement: %s", status.Message)

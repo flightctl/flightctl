@@ -131,6 +131,12 @@ func EnqueueEncryptionMigrationIfNeeded(ctx context.Context, publisher queues.Qu
 	if err != nil {
 		return err
 	}
+	if len(work) > 0 {
+		_, strategy := migrator.manager.GetActiveStrategy()
+		if strategy != nil {
+			migrator.emitStartedEventIfNeeded(ctx, strategy.ActiveKeyID(), migrator.currentRegistryHash())
+		}
+	}
 	for _, item := range work {
 		if err := EnqueueEncryptionMigration(ctx, publisher, item.Kind, item.OrgID); err != nil {
 			return err
