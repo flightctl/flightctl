@@ -381,18 +381,27 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	assert.Equal(t, 3, callCount, "converter should run again when launcherImage changes")
 }
 
+// fakeVmToQuadletBinary writes a shell script that records argv and emits a
+// minimal Quadlet TAR on stdout. Returns the script path and the args file path.
+func fakeVmToQuadletBinary(t *testing.T) (scriptPath, argsPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	argsPath = filepath.Join(dir, "args")
+	tarPath := filepath.Join(dir, "out.tar")
+	require.NoError(t, os.WriteFile(tarPath, makeTar(t, map[string]string{"my-vm.pod": "[Pod]\n"}), 0o600))
+
+	scriptPath = filepath.Join(dir, "vm-to-quadlet")
+	scriptBody := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\n", argsPath, tarPath)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(scriptBody), 0o600))
+	require.NoError(t, os.Chmod(scriptPath, 0o700))
+	return scriptPath, argsPath
+}
+
 // TestNewVmConverter_PassesRenderFlags verifies the converter invokes the binary
 // with --launcher-image and --passt-workarounds from VmRenderOptions.
 func TestNewVmConverter_PassesRenderFlags(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	argsPath := filepath.Join(dir, "args")
-	tarPath := filepath.Join(dir, "out.tar")
-	require.NoError(t, os.WriteFile(tarPath, makeTar(t, map[string]string{"my-vm.pod": "[Pod]\n"}), 0o600))
-
-	script := filepath.Join(dir, "vm-to-quadlet")
-	scriptBody := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\n", argsPath, tarPath)
-	require.NoError(t, os.WriteFile(script, []byte(scriptBody), 0o755))
+	script, argsPath := fakeVmToQuadletBinary(t)
 
 	opts := VmRenderOptions{
 		LauncherImage:    "registry.example.com/kubevirt/virt-launcher:custom",
@@ -414,14 +423,7 @@ func TestNewVmConverter_PassesRenderFlags(t *testing.T) {
 // image falls back to the built-in default before argv is built.
 func TestNewVmConverter_EmptyLauncherImageUsesDefault(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	argsPath := filepath.Join(dir, "args")
-	tarPath := filepath.Join(dir, "out.tar")
-	require.NoError(t, os.WriteFile(tarPath, makeTar(t, map[string]string{"my-vm.pod": "[Pod]\n"}), 0o600))
-
-	script := filepath.Join(dir, "vm-to-quadlet")
-	scriptBody := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\n", argsPath, tarPath)
-	require.NoError(t, os.WriteFile(script, []byte(scriptBody), 0o755))
+	script, argsPath := fakeVmToQuadletBinary(t)
 
 	_, _, err := NewVmConverter(script, VmRenderOptions{PasstWorkarounds: true})(context.Background(), []byte("apiVersion: v1\n"))
 	require.NoError(t, err)
