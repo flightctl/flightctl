@@ -102,8 +102,8 @@ func TestSync(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 				// GetDesired, Read, and BeforeUpdate may be called multiple times if syncDeviceSpec is called again
@@ -165,7 +165,7 @@ func TestSync(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
 				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
@@ -185,7 +185,7 @@ func TestSync(t *testing.T) {
 				mockPruningManager.EXPECT().PrunePending().Return(false).AnyTimes()
 
 				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true).AnyTimes()
 
 				// greenboot-healthcheck.service is not enabled (exit 1) — greenboot not installed
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("not-found\n", "", 1).AnyTimes()
@@ -224,7 +224,7 @@ func TestSync(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
 				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
@@ -242,7 +242,7 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 
 				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true).AnyTimes()
 
 				// greenboot IS installed and enabled
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("enabled\n", "", 0).AnyTimes()
@@ -633,7 +633,7 @@ func TestOSRollback(t *testing.T) {
 				mockOSManager *os.MockManager,
 			) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
@@ -655,7 +655,7 @@ func TestOSRollback(t *testing.T) {
 				mockOSManager *os.MockManager,
 			) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
@@ -676,7 +676,7 @@ func TestOSRollback(t *testing.T) {
 				mockOSManager *os.MockManager,
 			) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v1", false, nil)
 				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
 			},
@@ -693,7 +693,7 @@ func TestOSRollback(t *testing.T) {
 				mockOSManager *os.MockManager,
 			) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
 			},
 			wantReboot: false,
@@ -939,7 +939,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 				return nil
 			},
 		)
-		mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+		mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 		mockSpecManager.EXPECT().Rollback(ctx).DoAndReturn(
 			func(_ context.Context, _ ...spec.RollbackOption) error {
 				rollbackCalled = true
@@ -955,8 +955,8 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
 		mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
-		mockSpecManager.EXPECT().IsOSUpdate().Return(false).AnyTimes()
-		mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+		mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false).AnyTimes()
+		mockSpecManager.EXPECT().ShouldApplyOSImageUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 		mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()

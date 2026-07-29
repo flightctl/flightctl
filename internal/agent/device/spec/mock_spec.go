@@ -214,35 +214,6 @@ func (mr *MockManagerMockRecorder) Initialize(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockManager)(nil).Initialize), ctx)
 }
 
-// IsOSUpdate mocks base method.
-func (m *MockManager) IsOSUpdate() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsOSUpdate")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsOSUpdate indicates an expected call of IsOSUpdate.
-func (mr *MockManagerMockRecorder) IsOSUpdate() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOSUpdate", reflect.TypeOf((*MockManager)(nil).IsOSUpdate))
-}
-
-// IsOSUpdatePending mocks base method.
-func (m *MockManager) IsOSUpdatePending(ctx context.Context) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsOSUpdatePending", ctx)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsOSUpdatePending indicates an expected call of IsOSUpdatePending.
-func (mr *MockManagerMockRecorder) IsOSUpdatePending(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOSUpdatePending", reflect.TypeOf((*MockManager)(nil).IsOSUpdatePending), ctx)
-}
-
 // IsRollingBack mocks base method.
 func (m *MockManager) IsRollingBack(ctx context.Context) (bool, error) {
 	m.ctrl.T.Helper()
@@ -358,6 +329,35 @@ func (m *MockManager) SetUpgradeFailed(version, specHash string) error {
 func (mr *MockManagerMockRecorder) SetUpgradeFailed(version, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version, specHash)
+}
+
+// ShouldApplyOSImageUpdate mocks base method.
+func (m *MockManager) ShouldApplyOSImageUpdate() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ShouldApplyOSImageUpdate")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ShouldApplyOSImageUpdate indicates an expected call of ShouldApplyOSImageUpdate.
+func (mr *MockManagerMockRecorder) ShouldApplyOSImageUpdate() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShouldApplyOSImageUpdate", reflect.TypeOf((*MockManager)(nil).ShouldApplyOSImageUpdate))
+}
+
+// ShouldApplyOSImageUpdatePending mocks base method.
+func (m *MockManager) ShouldApplyOSImageUpdatePending(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ShouldApplyOSImageUpdatePending", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ShouldApplyOSImageUpdatePending indicates an expected call of ShouldApplyOSImageUpdatePending.
+func (mr *MockManagerMockRecorder) ShouldApplyOSImageUpdatePending(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShouldApplyOSImageUpdatePending", reflect.TypeOf((*MockManager)(nil).ShouldApplyOSImageUpdatePending), ctx)
 }
 
 // Status mocks base method.

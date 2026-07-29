@@ -75,11 +75,13 @@ type Manager interface {
 	SetUpgradeFailed(version string, specHash string) error
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
 	IsUpgrading() bool
-	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
-	IsOSUpdate() bool
-	// IsOSUpdatePending returns true if an OS update is specified but the device
-	// has not yet booted into the new image.
-	IsOSUpdatePending(ctx context.Context) (bool, error)
+	// ShouldApplyOSImageUpdate returns true if the agent should run the OS
+	// image update path (desired OS image differs from current). Always false
+	// on package-mode, which has no image manager.
+	ShouldApplyOSImageUpdate() bool
+	// ShouldApplyOSImageUpdatePending returns true if an OS image update is
+	// specified but the device has not yet booted into the new image.
+	ShouldApplyOSImageUpdatePending(ctx context.Context) (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
