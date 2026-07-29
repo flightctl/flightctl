@@ -495,6 +495,21 @@
         "clusterLevelSecretAccess": {
           "type": "boolean",
           "description": "Allow worker to access cluster-level secrets for embedding in device configs"
+        },
+        "vmRender": {
+          "type": "object",
+          "description": "VM application render options passed to vm-to-quadlet",
+          "additionalProperties": false,
+          "properties": {
+            "launcherImage": {
+              "type": "string",
+              "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
+            },
+            "passtWorkarounds": {
+              "type": "boolean",
+              "description": "Enable passt networking workarounds for older virt-launcher images"
+            }
+          }
         }
       }
     },

@@ -682,7 +682,7 @@ func TestRenderApplication_PreservesLifecycleFields(t *testing.T) {
 	t.Run("When rendering a container application it should preserve lifecycle fields", func(t *testing.T) {
 		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateStopped), lo.ToPtr(2))
 
-		name, rendered, err := renderApplication(context.Background(), &app, nil, nil)
+		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil)
 		require.NoError(t, err)
 		require.NotNil(t, name)
 		assert.Equal(t, "my-app", *name)

@@ -63,7 +63,7 @@ var _ = SynchronizedBeforeSuite(
 			suiteCtx, flightlog.InitLogs())
 		Expect(err).NotTo(HaveOccurred())
 
-		vmConverter = tasks.NewVmConverter(string(binaryPathBytes))
+		vmConverter = tasks.NewVmConverter(string(binaryPathBytes), tasks.DefaultVmRenderOptions())
 	},
 )
 

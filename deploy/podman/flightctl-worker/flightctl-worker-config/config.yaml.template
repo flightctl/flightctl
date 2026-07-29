@@ -24,6 +24,12 @@ kv:
   hostname: flightctl-kv
   port: 6379
 service: {}
+worker:
+  vmRender:
+    {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
+    launcherImage: {{.worker.vmRender.launcherImage}}
+    {{- end }}
+    passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "false"}}false{{else}}true{{end}}{{else}}true{{end}}
 
 
 {{- with .profiling }}

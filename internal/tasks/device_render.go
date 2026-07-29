@@ -76,19 +76,22 @@ type DeviceRenderLogic struct {
 	deviceConfig    *[]domain.ConfigProviderSpec
 	applications    *[]domain.ApplicationProviderSpec
 	vmConverter     VmConverterFn
+	vmRenderOptions VmRenderOptions
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
+	opts := vmRenderOptionsFromConfig(cfg)
 	return DeviceRenderLogic{
-		log:           log,
-		deviceSvc:     deviceSvc,
-		repositorySvc: repositorySvc,
-		k8sClient:     k8sClient,
-		kvStore:       kvStore,
-		cfg:           cfg,
-		orgId:         orgId,
-		event:         event,
-		vmConverter:   defaultVmConverter,
+		log:             log,
+		deviceSvc:       deviceSvc,
+		repositorySvc:   repositorySvc,
+		k8sClient:       k8sClient,
+		kvStore:         kvStore,
+		cfg:             cfg,
+		orgId:           orgId,
+		event:           event,
+		vmConverter:     NewVmConverter(vmToQuadletBinary, opts),
+		vmRenderOptions: opts,
 	}
 }
 
@@ -284,7 +287,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 
 	for i := range *t.applications {
 		application := (*t.applications)[i]
-		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.kvStore)
+		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.vmRenderOptions, t.kvStore)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
 		// Append invalid configs only if there's an error
@@ -404,7 +407,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 	}
 }
 
-func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
+func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec, vmConverter VmConverterFn, vmOpts VmRenderOptions, kvStore kvstore.KVStore) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := (*app).GetAppType()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed to get app type: %w", ErrUnknownApplicationType, err)
@@ -425,7 +428,7 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 			return nil, nil, fmt.Errorf("%w: failed to parse application spec for type %s: %w", ErrUnknownApplicationType, appType, parseErr)
 		}
 		appName := vmApp.Name
-		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, kvStore)
+		converted, renderErr := renderVmApplication(ctx, vmApp, vmConverter, vmOpts, kvStore)
 		if renderErr != nil {
 			return appName, nil, renderErr
 		}

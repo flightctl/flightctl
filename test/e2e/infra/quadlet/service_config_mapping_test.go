@@ -110,6 +110,9 @@ db:
 service:
   rateLimit:
     enabled: false
+worker:
+  vmRender:
+    passtWorkarounds: true
 imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
@@ -144,6 +147,18 @@ vulnerabilityReporting:
 			var assertValue func(t *testing.T, section interface{})
 
 			switch service {
+			case infra.ServiceWorker:
+				sectionKey = "worker"
+				setValue = "quay.io/kubevirt/virt-launcher:v1.9.0"
+				getSection = func(m map[string]interface{}) interface{} { return m["worker"] }
+				assertValue = func(t *testing.T, section interface{}) {
+					s, ok := section.(map[string]interface{})
+					require.True(t, ok)
+					vmRender, ok := s["vmRender"].(map[string]interface{})
+					require.True(t, ok)
+					assert.Equal(t, "quay.io/kubevirt/virt-launcher:v1.9.0", vmRender["launcherImage"])
+					assert.Equal(t, false, vmRender["passtWorkarounds"])
+				}
 			case infra.ServiceImageBuilderWorker:
 				sectionKey = "imageBuilderWorker"
 				setValue = float64(6)
@@ -201,6 +216,11 @@ vulnerabilityReporting:
 			require.NotNil(t, section, "section %q not found in config", sectionKey)
 			// Set the field we care about based on service type
 			switch service {
+			case infra.ServiceWorker:
+				vmRender, ok := section["vmRender"].(map[string]interface{})
+				require.True(t, ok)
+				vmRender["launcherImage"] = setValue
+				vmRender["passtWorkarounds"] = false
 			case infra.ServiceImageBuilderWorker:
 				section["maxConcurrentBuilds"] = setValue
 			case infra.ServiceTelemetryGateway:
@@ -272,8 +292,8 @@ imagebuilderWorker:
 }
 
 func TestApplyServiceConfigMappings_NoMappingReturnsNil(t *testing.T) {
-	// Use a service without mappings (ServiceWorker has none)
-	updates, err := applyServiceConfigMappings(infra.ServiceWorker, exampleImageBuilderWorkerPerServiceYAML)
+	// Use a service without mappings (ServiceUI has none)
+	updates, err := applyServiceConfigMappings(infra.ServiceUI, exampleImageBuilderWorkerPerServiceYAML)
 	require.NoError(t, err)
 	assert.Nil(t, updates)
 }
