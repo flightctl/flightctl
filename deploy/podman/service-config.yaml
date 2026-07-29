@@ -113,10 +113,13 @@ grafana:
 
 prometheus:
 
-# Worker VM render options (optional). Uncomment to override virt-launcher image or passt workarounds.
+# Worker VM render options (optional). Uncomment to override defaults.
+# Leave launcherImage unset to use the worker built-in default
+# (quay.io/kubevirt/virt-launcher:v1.8.4). In air-gapped environments, mirror
+# virt-launcher to a registry devices can pull from and set launcherImage to that reference.
 # worker:
 #   vmRender:
-#     launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
+#     launcherImage: ""
 #     passtWorkarounds: true
 
 # ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.

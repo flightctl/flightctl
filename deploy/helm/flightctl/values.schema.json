@@ -503,7 +503,7 @@
           "properties": {
             "launcherImage": {
               "type": "string",
-              "description": "virt-launcher image used when converting VmApplications to Quadlet units"
+              "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
             },
             "passtWorkarounds": {
               "type": "boolean",

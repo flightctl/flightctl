@@ -335,6 +335,7 @@ minor version.
 
 - [Installing Flight Control in a Disconnected OpenShift Cluster](installing-service-on-openshift-disconnected.md)
 - [Image Builder configuration for air-gapped environments](configuring-imagebuilder.md#end-to-end-disconnected-image-build-walkthrough)
+- [VM application rendering in air-gapped environments](configuring-vm-render.md#air-gapped-environments)
 
 ### Day-2 operations
 

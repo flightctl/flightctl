@@ -112,7 +112,6 @@ service:
     enabled: false
 worker:
   vmRender:
-    launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
     passtWorkarounds: true
 imagebuilderWorker:
   logLevel: info

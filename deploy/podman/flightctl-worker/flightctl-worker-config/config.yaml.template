@@ -26,7 +26,9 @@ kv:
 service: {}
 worker:
   vmRender:
-    launcherImage: {{if and .worker .worker.vmRender .worker.vmRender.launcherImage}}{{.worker.vmRender.launcherImage}}{{else}}quay.io/kubevirt/virt-launcher:v1.8.4{{end}}
+    {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
+    launcherImage: {{.worker.vmRender.launcherImage}}
+    {{- end }}
     passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "false"}}false{{else}}true{{end}}{{else}}true{{end}}
 
 

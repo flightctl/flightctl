@@ -316,8 +316,8 @@ worker:
   clusterLevelSecretAccess: false
   # -- VM application render options passed to vm-to-quadlet
   vmRender:
-    # -- virt-launcher image used when converting VmApplications to Quadlet units
-    launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
+    # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
+    launcherImage: ""
     # -- Enable passt networking workarounds for older virt-launcher images (recommended true)
     passtWorkarounds: true
 

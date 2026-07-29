@@ -6,7 +6,7 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 
 | Setting | Default |
 | ------- | ------- |
-| `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.8.4` |
+| `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.8.4` (built into the worker; leave config unset or empty to use it) |
 | `passtWorkarounds` | `true` |
 
 `passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). Keep this enabled unless your virt-launcher image already includes a fixed passt build.
@@ -19,17 +19,17 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| `worker.vmRender.launcherImage` | string | Container image reference for the KubeVirt virt-launcher compute container. |
+| `worker.vmRender.launcherImage` | string | Container image reference for the KubeVirt virt-launcher compute container. Leave empty to use the worker built-in default. |
 | `worker.vmRender.passtWorkarounds` | boolean | When `true`, enable passt networking workarounds in generated Quadlet units. |
 
 ## Kubernetes (Helm)
 
-Set the values under `worker.vmRender`:
+Set the values under `worker.vmRender`. Leave `launcherImage` empty unless you need an override:
 
 ```yaml
 worker:
   vmRender:
-    launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
+    launcherImage: ""
     passtWorkarounds: true
 ```
 
@@ -42,12 +42,11 @@ kubectl rollout restart deployment/flightctl-worker -n <namespace>
 
 ## Podman Quadlet
 
-Edit `/etc/flightctl/service-config.yaml`:
+Edit `/etc/flightctl/service-config.yaml` only when you need overrides. Omit `launcherImage` to keep the worker default:
 
 ```yaml
 worker:
   vmRender:
-    launcherImage: "quay.io/kubevirt/virt-launcher:v1.8.4"
     passtWorkarounds: true
 ```
 
@@ -57,6 +56,34 @@ Restart the worker so the config template is re-rendered and the service reloads
 sudo systemctl restart flightctl-worker.service
 ```
 
+## Air-gapped environments
+
+The default virt-launcher image is pulled by devices when they run VM applications. It is not part of the control-plane image set produced by `flightctl-mirror-images`.
+
+In an air-gapped deployment:
+
+1. Mirror `quay.io/kubevirt/virt-launcher:v1.8.4` (or your chosen virt-launcher image) to a registry that devices can reach.
+2. Set `worker.vmRender.launcherImage` to that mirrored reference so rendered Quadlet units pull from the mirror.
+3. Restart the worker, then re-render devices that already have VM applications so they pick up the new image reference.
+
+Example (community / upstream registry):
+
+```bash
+INTERNAL=registry.example.com:5000
+skopeo copy --all \
+  docker://quay.io/kubevirt/virt-launcher:v1.8.4 \
+  docker://${INTERNAL}/kubevirt/virt-launcher:v1.8.4
+```
+
+```yaml
+worker:
+  vmRender:
+    launcherImage: "registry.example.com:5000/kubevirt/virt-launcher:v1.8.4"
+    passtWorkarounds: true
+```
+
+There is currently no separate Red Hat product virt-launcher image in the Flight Control packaging set. Use the upstream `quay.io/kubevirt/virt-launcher` reference, or another virt-launcher image you supply, and point `launcherImage` at the mirrored location.
+
 ## After changing settings
 
 Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage` or `passtWorkarounds` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings.
@@ -64,3 +91,4 @@ Conversion results are cached by `vm.yaml` content and these render options. Cha
 ## Related information
 
 - [VM applications](../using/managing-devices.md#vm-applications)
+- [Air-gapped installation](air-gapped-installation.md)
