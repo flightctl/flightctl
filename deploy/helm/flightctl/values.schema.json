@@ -547,6 +547,32 @@
                   }
                 }
               }
+            },
+            "dependencySync": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the dependency-sync-git and dependency-sync-http tasks" }
+                  }
+                }
+              }
+            },
+            "repositoryTester": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the repository-tester task, which probes Repository resources and sets their Accessible condition" }
+                  }
+                }
+              }
             }
           }
         }
