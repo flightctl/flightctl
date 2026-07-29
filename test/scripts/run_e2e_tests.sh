@@ -22,6 +22,11 @@ GINKGO_NODE=${GINKGO_NODE:-1}
 # Pre-computed LPT shard assignment file produced by go run ./compute_test_assignments.
 # When set and the file exists, used instead of round-robin splitting.
 ASSIGNMENTS_PATH=${ASSIGNMENTS_PATH:-""}
+# Companion file (from the same compute_test_assignments run, --output-dirs) mapping each
+# node to the repo-relative suite directories its assigned specs live in. When set and the
+# file exists, narrows GO_E2E_DIRS for this node so ginkgo only compiles/launches the
+# packages it actually needs instead of every test/e2e/* package.
+ASSIGNMENT_DIRS_PATH=${ASSIGNMENT_DIRS_PATH:-""}
 # Discovery control variables
 DISCOVERY_PATH=${DISCOVERY_PATH:-"discovery.json"}
 DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
@@ -154,6 +159,22 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
         # Use pre-computed LPT assignments produced by compute_test_assignments.py.
         echo "Using pre-computed LPT assignment from: ${ASSIGNMENTS_PATH}"
         jq -r --arg node "${GINKGO_NODE}" '.[$node][]' "${ASSIGNMENTS_PATH}" > "${NODE_TESTS}"
+
+        # Narrow ginkgo's compile/launch scope to only the suite packages this node's
+        # assigned specs live in, instead of all of GO_E2E_DIRS. Ginkgo compiles and
+        # launches every directory it's given regardless of --focus, so without this a
+        # shard pays a multi-minute tax compiling/launching packages it runs zero specs in.
+        if [[ -n "${ASSIGNMENT_DIRS_PATH}" && -f "${ASSIGNMENT_DIRS_PATH}" ]]; then
+            NODE_DIRS=$(mktemp)
+            jq -r --arg node "${GINKGO_NODE}" '.[$node][]' "${ASSIGNMENT_DIRS_PATH}" > "${NODE_DIRS}"
+            if [[ -s "${NODE_DIRS}" ]]; then
+                mapfile -t GO_E2E_DIRS < "${NODE_DIRS}"
+                echo "Narrowed GO_E2E_DIRS for node ${GINKGO_NODE}: ${GO_E2E_DIRS[*]}"
+            else
+                echo "No directories resolved for node ${GINKGO_NODE} in ${ASSIGNMENT_DIRS_PATH}; keeping full GO_E2E_DIRS"
+            fi
+            rm -f "${NODE_DIRS}"
+        fi
     else
         # Fallback: round-robin over alphabetically sorted spec names.
         [[ -z "${ASSIGNMENTS_PATH}" ]] && echo "ASSIGNMENTS_PATH not set; falling back to round-robin splitting" \

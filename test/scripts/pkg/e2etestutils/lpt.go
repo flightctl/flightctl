@@ -10,10 +10,13 @@ import (
 
 // SpecInfo pairs a spec's full name with the Ginkgo suite it belongs to.
 // The suite name is used to add per-suite BeforeSuite overhead the first
-// time a spec from that suite is assigned to a shard.
+// time a spec from that suite is assigned to a shard. Path is the
+// repo-relative suite directory (e.g. "test/e2e/agent"), used to narrow which
+// packages a shard's `ginkgo run` needs to compile.
 type SpecInfo struct {
 	Name  string
 	Suite string
+	Path  string
 }
 
 // nodeState tracks accumulated estimated duration and assigned specs for one

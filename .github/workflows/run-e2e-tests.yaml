@@ -234,6 +234,10 @@ jobs:
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
+          # Narrows ginkgo run to only the suite packages this node's assigned specs
+          # live in, instead of compiling/launching all test/e2e/* packages. See
+          # test/scripts/run_e2e_tests.sh and compute_test_assignments --output-dirs.
+          ASSIGNMENT_DIRS_PATH: assignment-dirs.json
           RUNNER_DEBUG: ${{ runner.debug }}
         run: |
           if [[ "${RUNNER_DEBUG}" == "1" ]]; then

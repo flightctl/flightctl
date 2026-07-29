@@ -187,7 +187,8 @@ jobs:
             --discovery ../../discovery.json \
             --timings test-timings.json \
             --nodes ${{ matrix.ginkgo_total_nodes }} \
-            --output ../../assignments.json
+            --output ../../assignments.json \
+            --output-dirs ../../assignment-dirs.json
 
       - name: Upload discovery artifact
         uses: actions/upload-artifact@v4
@@ -196,6 +197,7 @@ jobs:
           path: |
             discovery.json
             assignments.json
+            assignment-dirs.json
           retention-days: 1
 
   e2e-tests:

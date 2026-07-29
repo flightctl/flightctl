@@ -21,7 +21,23 @@ type SpecReport struct {
 // Exported so test fixtures in consuming packages can construct discovery data.
 type SuiteReport struct {
 	SuiteDescription string       `json:"SuiteDescription"`
+	SuitePath        string       `json:"SuitePath"`
 	SpecReports      []SpecReport `json:"SpecReports"`
+}
+
+// suiteDirMarker is the path segment every e2e suite directory lives under.
+// Used to turn Ginkgo's absolute SuitePath into a repo-relative directory that
+// is valid regardless of the checkout root on a given CI runner.
+const suiteDirMarker = "test/e2e/"
+
+// relSuiteDir converts an absolute Ginkgo SuitePath into a repo-relative
+// directory (e.g. "test/e2e/agent"). Returns "" if the marker is not found.
+func relSuiteDir(absPath string) string {
+	idx := strings.Index(absPath, suiteDirMarker)
+	if idx < 0 {
+		return ""
+	}
+	return absPath[idx:]
 }
 
 // LoadDiscovery parses a Ginkgo dry-run JSON report and returns the list of
@@ -53,7 +69,7 @@ func LoadDiscovery(path string) ([]SpecInfo, error) {
 				continue
 			}
 			seen[fullName] = struct{}{}
-			specs = append(specs, SpecInfo{Name: fullName, Suite: suite.SuiteDescription})
+			specs = append(specs, SpecInfo{Name: fullName, Suite: suite.SuiteDescription, Path: relSuiteDir(suite.SuitePath)})
 		}
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })

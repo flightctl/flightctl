@@ -486,6 +486,90 @@ func TestLoadDiscovery(t *testing.T) {
 		require.Equal(t, "Agent Suite", byName["Agent should boot"].Suite)
 		require.Equal(t, "CLI Suite", byName["should login"].Suite)
 	})
+
+	t.Run("When suites have a SuitePath it should resolve to the repo-relative test/e2e directory", func(t *testing.T) {
+		suites := []suiteReport{
+			{SuiteDescription: "Agent Suite", SuitePath: "/home/runner/work/flightctl/flightctl/test/e2e/agent", SpecReports: []specReport{
+				{LeafNodeType: "It", LeafNodeText: "should boot", ContainerHierarchyTexts: []string{"Agent"}},
+			}},
+			{SuiteDescription: "No Path Suite", SuitePath: "", SpecReports: []specReport{
+				{LeafNodeType: "It", LeafNodeText: "should run"},
+			}},
+			{SuiteDescription: "Unexpected Layout Suite", SuitePath: "/some/other/layout/agent", SpecReports: []specReport{
+				{LeafNodeType: "It", LeafNodeText: "should also run"},
+			}},
+		}
+		path := writeDiscoveryJSON(t, t.TempDir(), suites)
+		specs, err := loadDiscovery(path)
+		require.NoError(t, err)
+		byName := map[string]specInfo{}
+		for _, s := range specs {
+			byName[s.Name] = s
+		}
+		require.Equal(t, "test/e2e/agent", byName["Agent should boot"].Path)
+		require.Empty(t, byName["should run"].Path, "suite with no SuitePath should leave Path empty")
+		require.Empty(t, byName["should also run"].Path, "suite path without a test/e2e/ marker should leave Path empty")
+	})
+}
+
+func TestDeriveNodeDirs(t *testing.T) {
+	specs := []specInfo{
+		{Name: "Agent spec 1", Suite: "Agent Suite", Path: "test/e2e/agent"},
+		{Name: "Agent spec 2", Suite: "Agent Suite", Path: "test/e2e/agent"},
+		{Name: "CLI spec 1", Suite: "CLI Suite", Path: "test/e2e/cli"},
+		{Name: "No path spec", Suite: "No Path Suite", Path: ""},
+	}
+
+	tests := []struct {
+		name        string
+		assignments map[string][]string
+		expect      map[string][]string
+	}{
+		{
+			name: "When a node has specs from multiple packages it should list each directory once",
+			assignments: map[string][]string{
+				"1": {"Agent spec 1", "Agent spec 2", "CLI spec 1"},
+			},
+			expect: map[string][]string{
+				"1": {"test/e2e/agent", "test/e2e/cli"},
+			},
+		},
+		{
+			name: "When a node has no specs it should map to an empty (not nil) directory list",
+			assignments: map[string][]string{
+				"1": {},
+			},
+			expect: map[string][]string{
+				"1": {},
+			},
+		},
+		{
+			name: "When a spec has no resolved path it should be skipped rather than widen the set",
+			assignments: map[string][]string{
+				"1": {"No path spec"},
+			},
+			expect: map[string][]string{
+				"1": {},
+			},
+		},
+		{
+			name: "When multiple nodes are present each is derived independently",
+			assignments: map[string][]string{
+				"1": {"Agent spec 1"},
+				"2": {"CLI spec 1"},
+			},
+			expect: map[string][]string{
+				"1": {"test/e2e/agent"},
+				"2": {"test/e2e/cli"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expect, deriveNodeDirs(tt.assignments, specs))
+		})
+	}
 }
 
 func TestLoadTimings(t *testing.T) {

@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 
 	"github.com/flightctl/flightctl/test/scripts/pkg/e2etestutils"
@@ -56,6 +57,37 @@ func loadDiscovery(path string) ([]specInfo, error) {
 	return e2etestutils.LoadDiscovery(path)
 }
 
+
+// deriveNodeDirs maps each node's assigned spec names to the set of unique
+// repo-relative suite directories (e.g. "test/e2e/agent") those specs live
+// in, so a shard's `ginkgo run` only needs to compile packages it actually
+// uses instead of every e2e package. Specs without a resolved path (e.g.
+// missing SuitePath in discovery) are skipped rather than widening the set.
+func deriveNodeDirs(assignments map[string][]string, specs []specInfo) map[string][]string {
+	pathLookup := make(map[string]string, len(specs))
+	for _, s := range specs {
+		if s.Path != "" {
+			pathLookup[s.Name] = s.Path
+		}
+	}
+
+	nodeDirs := make(map[string][]string, len(assignments))
+	for node, nodeSpecs := range assignments {
+		seen := make(map[string]struct{})
+		for _, s := range nodeSpecs {
+			if path, ok := pathLookup[s]; ok {
+				seen[path] = struct{}{}
+			}
+		}
+		dirs := make([]string, 0, len(seen))
+		for d := range seen {
+			dirs = append(dirs, d)
+		}
+		sort.Strings(dirs)
+		nodeDirs[node] = dirs
+	}
+	return nodeDirs
+}
 
 func loadTimings(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
@@ -150,6 +182,7 @@ func newRootCmd() *cobra.Command {
 		timingsPath string
 		nodes       int
 		output      string
+		outputDirs  string
 		defSecs     float64
 		sigma       float64
 	)
@@ -214,6 +247,11 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				for i := 1; i <= nodes; i++ {
 					empty[strconv.Itoa(i)] = []string{}
 				}
+				if outputDirs != "" {
+					if err := writeJSON(outputDirs, empty); err != nil {
+						return err
+					}
+				}
 				return writeJSON(output, empty)
 			}
 
@@ -222,6 +260,15 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 				return err
 			}
 			fmt.Printf("Assignments written to: %s\n", output)
+
+			if outputDirs != "" {
+				nodeDirs := deriveNodeDirs(assignments, specs)
+				if err := writeJSON(outputDirs, nodeDirs); err != nil {
+					return err
+				}
+				fmt.Printf("Suite directories written to: %s\n", outputDirs)
+			}
+
 			printSummary(assignments, specTimings, suiteTimings, def, unknowns, specs, sigma)
 			return nil
 		},
@@ -231,6 +278,7 @@ default weight so new tests do not overload an otherwise-fast shard.`,
 	cmd.Flags().StringVar(&timingsPath, "timings", "test/scripts/test-timings.json", "Timing cache path")
 	cmd.Flags().IntVar(&nodes, "nodes", 0, "Number of shards to assign to (required)")
 	cmd.Flags().StringVar(&output, "output", "assignments.json", "Output file")
+	cmd.Flags().StringVar(&outputDirs, "output-dirs", "assignment-dirs.json", "Output file mapping each node to the repo-relative suite directories its assigned specs live in (used to narrow ginkgo run's compile scope); empty to skip")
 	cmd.Flags().Float64Var(&defSecs, "default-secs", -1, "Fallback duration for unknown specs in seconds (default: max(60, median))")
 	cmd.Flags().Float64Var(&sigma, "jitter-sigma", 1.0, "Std deviations added to each spec's avg when estimating weight (0 = avg only, 1 = avg+1σ pessimistic buffer)")
 	_ = cmd.MarkFlagRequired("nodes")
