@@ -7,12 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -368,6 +373,89 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	_, err = renderVmApplication(ctx, vmApp, converter, opts, kv)
 	require.NoError(t, err)
 	assert.Equal(t, 2, callCount, "converter should run again when passtWorkarounds changes")
+
+	opts = DefaultVmRenderOptions()
+	opts.LauncherImage = "registry.example.com/kubevirt/virt-launcher:custom"
+	_, err = renderVmApplication(ctx, vmApp, converter, opts, kv)
+	require.NoError(t, err)
+	assert.Equal(t, 3, callCount, "converter should run again when launcherImage changes")
+}
+
+// TestNewVmConverter_PassesRenderFlags verifies the converter invokes the binary
+// with --launcher-image and --passt-workarounds from VmRenderOptions.
+func TestNewVmConverter_PassesRenderFlags(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	tarPath := filepath.Join(dir, "out.tar")
+	require.NoError(t, os.WriteFile(tarPath, makeTar(t, map[string]string{"my-vm.pod": "[Pod]\n"}), 0o600))
+
+	script := filepath.Join(dir, "vm-to-quadlet")
+	scriptBody := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\n", argsPath, tarPath)
+	require.NoError(t, os.WriteFile(script, []byte(scriptBody), 0o755))
+
+	opts := VmRenderOptions{
+		LauncherImage:    "registry.example.com/kubevirt/virt-launcher:custom",
+		PasstWorkarounds: false,
+	}
+	files, _, err := NewVmConverter(script, opts)(context.Background(), []byte("apiVersion: v1\n"))
+	require.NoError(t, err)
+	assert.Contains(t, files, "my-vm.pod")
+
+	argsBytes, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"--launcher-image=registry.example.com/kubevirt/virt-launcher:custom",
+		"--passt-workarounds=false",
+	}, strings.Split(strings.TrimSpace(string(argsBytes)), "\n"))
+}
+
+// TestNewVmConverter_EmptyLauncherImageUsesDefault verifies an empty launcher
+// image falls back to the built-in default before argv is built.
+func TestNewVmConverter_EmptyLauncherImageUsesDefault(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	tarPath := filepath.Join(dir, "out.tar")
+	require.NoError(t, os.WriteFile(tarPath, makeTar(t, map[string]string{"my-vm.pod": "[Pod]\n"}), 0o600))
+
+	script := filepath.Join(dir, "vm-to-quadlet")
+	scriptBody := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\n", argsPath, tarPath)
+	require.NoError(t, os.WriteFile(script, []byte(scriptBody), 0o755))
+
+	_, _, err := NewVmConverter(script, VmRenderOptions{PasstWorkarounds: true})(context.Background(), []byte("apiVersion: v1\n"))
+	require.NoError(t, err)
+
+	argsBytes, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"--launcher-image=" + config.DefaultVirtLauncherImage,
+		"--passt-workarounds=true",
+	}, strings.Split(strings.TrimSpace(string(argsBytes)), "\n"))
+}
+
+// TestVmRenderOptionsFromConfig verifies NewDeviceRenderLogic wires Worker.VmRender
+// into the options used for conversion.
+func TestVmRenderOptionsFromConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"worker": {
+			"vmRender": {
+				"launcherImage": "registry.example.com/kubevirt/virt-launcher:custom",
+				"passtWorkarounds": false
+			}
+		}
+	}`), cfg))
+
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	assert.Equal(t, "registry.example.com/kubevirt/virt-launcher:custom", logic.vmRenderOptions.LauncherImage)
+	assert.False(t, logic.vmRenderOptions.PasstWorkarounds)
+
+	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, &config.Config{}, [16]byte{}, domain.Event{})
+	assert.Equal(t, config.DefaultVirtLauncherImage, defaults.vmRenderOptions.LauncherImage)
+	assert.True(t, defaults.vmRenderOptions.PasstWorkarounds)
 }
 
 // TestRenderVmApplication_ImageProviderUnsupported verifies that a VmApplication
