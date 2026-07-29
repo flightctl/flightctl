@@ -80,6 +80,8 @@ func TestComposeRemoveImageBackedVolumes(t *testing.T) {
 					Return("image", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-data", "--format", "{{.Driver}}")).
 					Return("local", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-data", "--format", "{{.Options.type}}")).
+					Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-img-vol-html")).
 					Return("", "", 0)
 			},
@@ -118,6 +120,8 @@ func TestComposeRemoveImageBackedVolumes(t *testing.T) {
 					Return(`[{"Name":"app-local-vol-data"}]`, "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-local-vol-data", "--format", "{{.Driver}}")).
 					Return("local", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-local-vol-data", "--format", "{{.Options.type}}")).
+					Return("", "", 0)
 			},
 		},
 		{

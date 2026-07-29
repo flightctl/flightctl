@@ -724,6 +724,12 @@ func (p *Podman) InspectVolumeDriver(ctx context.Context, name string) (string, 
 	return p.inspectVolumeProperty(ctx, name, "{{.Driver}}")
 }
 
+// InspectVolumeOptionType returns the volume's "type" mount option (e.g. "tmpfs"
+// for a tmpfs-backed local volume), or an empty string if not set.
+func (p *Podman) InspectVolumeOptionType(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Options.type}}")
+}
+
 func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
 	return p.inspectVolumeProperty(ctx, name, "{{.Mountpoint}}")
 }
