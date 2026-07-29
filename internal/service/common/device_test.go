@@ -412,32 +412,66 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 		name           string
 		specOsImage    string
 		statusOsImage  string
+		capabilities   *domain.DeviceCapabilities
 		expectedStatus domain.DeviceUpdatedStatusType
 		expectMismatch bool
 	}{
 		{
-			name:           "matching OS images remains UpToDate",
+			name:           "When image-mode device has matching OS images it should remain UpToDate",
 			specOsImage:    "quay.io/flightctl/device:v7",
 			statusOsImage:  "quay.io/flightctl/device:v7",
+			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
 			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
 		},
 		{
-			name:           "mismatching OS images overrides to OutOfDate",
+			name:           "When image-mode device has mismatching OS images it should override to OutOfDate",
 			specOsImage:    "quay.io/flightctl/device:v7",
 			statusOsImage:  "quay.io/flightctl/device:base",
+			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
 			expectedStatus: domain.DeviceUpdatedStatusOutOfDate,
 			expectMismatch: true,
 		},
 		{
-			name:           "no spec OS image remains UpToDate",
+			name:           "When package-mode device has spec OS image it should override to OutOfDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "",
+			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			expectedStatus: domain.DeviceUpdatedStatusOutOfDate,
+			expectMismatch: true,
+		},
+		{
+			name:           "When package-mode device has no spec OS image it should remain UpToDate",
 			specOsImage:    "",
-			statusOsImage:  "quay.io/flightctl/device:base",
+			statusOsImage:  "",
+			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
 			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
 		},
 		{
-			name:           "no status OS image remains UpToDate",
+			name:           "When legacy device without capabilities has empty status OS image it should remain UpToDate",
 			specOsImage:    "quay.io/flightctl/device:v7",
 			statusOsImage:  "",
+			capabilities:   nil,
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "When legacy device without capabilities has mismatching OS images it should remain UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			capabilities:   nil,
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "When device has capabilities with nil osMode it should remain UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			capabilities:   &domain.DeviceCapabilities{OsMode: nil},
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "When no spec OS image is set it should remain UpToDate regardless of capabilities",
+			specOsImage:    "",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
 			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
 		},
 	}
@@ -469,6 +503,7 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 			if tt.specOsImage != "" {
 				device.Spec.Os = &domain.DeviceOsSpec{Image: tt.specOsImage}
 			}
+			device.Status.Capabilities = tt.capabilities
 
 			updateServerSideDeviceUpdatedStatus(device, ctx, nil, log, orgId)
 
