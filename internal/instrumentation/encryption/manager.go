@@ -1,6 +1,7 @@
 package encryption
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -226,6 +227,53 @@ func (m *Manager) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	return []byte(prefixed), nil
 }
 
+// InspectEncrypted returns the strategy version and key ID when data uses the
+// enc:<version>:<body> envelope. Plaintext returns encrypted=false with empty
+// version/keyID and a nil error. Malformed encrypted envelopes return an error
+// (fail closed — never treated as plaintext).
+func (m *Manager) InspectEncrypted(data []byte) (version, keyID string, encrypted bool, err error) {
+	inspected, ok, err := m.inspectEncrypted(data)
+	if err != nil || !ok {
+		return "", "", false, err
+	}
+	return inspected.version, inspected.keyID, true, nil
+}
+
+type encryptedInspection struct {
+	version  string
+	keyID    string
+	strategy Strategy
+	parsed   *ParsedEncrypted
+}
+
+// inspectEncrypted is shared by InspectEncrypted and ProcessEncryption.
+func (m *Manager) inspectEncrypted(data []byte) (encryptedInspection, bool, error) {
+	ver, body, ok := parseEncryptedFormat(data)
+	if !ok {
+		if bytes.HasPrefix(data, []byte("enc:")) {
+			return encryptedInspection{}, false, fmt.Errorf("%w: incomplete encryption envelope", ErrInvalidFormat)
+		}
+		return encryptedInspection{}, false, nil
+	}
+
+	strategy, exists := m.GetStrategy(ver)
+	if !exists {
+		return encryptedInspection{}, false, fmt.Errorf("%w: %s", ErrStrategyNotFound, ver)
+	}
+
+	parsed, err := strategy.ParseBody(body)
+	if err != nil {
+		return encryptedInspection{}, false, fmt.Errorf("%w: %w", ErrParseFailed, err)
+	}
+
+	return encryptedInspection{
+		version:  ver,
+		keyID:    parsed.KeyID,
+		strategy: strategy,
+		parsed:   parsed,
+	}, true, nil
+}
+
 // ProcessEncryption intelligently handles data that may be plaintext, encrypted with current
 // version/key, or encrypted with old version/key. Behavior:
 // 1. Plaintext: encrypts with active strategy
@@ -236,9 +284,12 @@ func (m *Manager) ProcessEncryption(ctx context.Context, data []byte) ([]byte, e
 	ctx, span := startProcessSpan(ctx)
 	defer span.End()
 
-	// Not encrypted - encrypt it
-	currentVersion, body, ok := parseEncryptedFormat(data)
-	if !ok {
+	inspected, encrypted, err := m.inspectEncrypted(data)
+	if err != nil {
+		recordError(span, err)
+		return nil, err
+	}
+	if !encrypted {
 		recordProcessAction(span, actionEncryptPlaintext)
 		result, err := m.Encrypt(ctx, data)
 		if err != nil {
@@ -251,41 +302,29 @@ func (m *Manager) ProcessEncryption(ctx context.Context, data []byte) ([]byte, e
 
 	m.mu.RLock()
 	activeStrategyVersion := m.activeStrategy
-	currentStrategy, currentExists := m.strategies[currentVersion]
 	activeStrategy, activeExists := m.strategies[activeStrategyVersion]
 	m.mu.RUnlock()
-
-	if !currentExists {
-		err := fmt.Errorf("%w: %s", ErrStrategyNotFound, currentVersion)
-		recordError(span, err)
-		return nil, err
-	}
 	if !activeExists {
 		err := fmt.Errorf("%w: %s", ErrStrategyNotFound, activeStrategyVersion)
 		recordError(span, err)
 		return nil, err
 	}
 
-	// Parse strategy body to extract keyID
-	parsed, err := currentStrategy.ParseBody(body)
-	if err != nil {
-		wrappedErr := fmt.Errorf("%w: %v", ErrParseFailed, err)
-		recordError(span, wrappedErr)
-		return nil, wrappedErr
-	}
+	currentVersion := inspected.version
+	currentStrategy := inspected.strategy
+	parsed := inspected.parsed
 
 	// Different version - decrypt and migrate
 	if currentVersion != activeStrategyVersion {
 		recordProcessAction(span, actionReencrypt)
 		plaintext, err := currentStrategy.DecryptParsed(ctx, parsed)
 		if err != nil {
-			wrappedErr := fmt.Errorf("%w: decrypt for version migration %s to %s: %v", ErrDecryptionFailed, currentVersion, activeStrategyVersion, err)
+			wrappedErr := fmt.Errorf("%w: decrypt for version migration %s to %s: %w", ErrDecryptionFailed, currentVersion, activeStrategyVersion, err)
 			recordError(span, wrappedErr)
 			return nil, wrappedErr
 		}
 		result, err := m.Encrypt(ctx, plaintext)
 		if err != nil {
-			// Already wrapped by Encrypt()
 			recordError(span, err)
 			return nil, err
 		}
@@ -304,14 +343,13 @@ func (m *Manager) ProcessEncryption(ctx context.Context, data []byte) ([]byte, e
 	recordProcessAction(span, actionReencrypt)
 	plaintext, err := currentStrategy.DecryptParsed(ctx, parsed)
 	if err != nil {
-		wrappedErr := fmt.Errorf("%w: decrypt for key rotation %s to %s: %v", ErrDecryptionFailed, parsed.KeyID, activeStrategy.ActiveKeyID(), err)
+		wrappedErr := fmt.Errorf("%w: decrypt for key rotation %s to %s: %w", ErrDecryptionFailed, parsed.KeyID, activeStrategy.ActiveKeyID(), err)
 		recordError(span, wrappedErr)
 		return nil, wrappedErr
 	}
 
 	result, err := m.Encrypt(ctx, plaintext)
 	if err != nil {
-		// Already wrapped by Encrypt()
 		recordError(span, err)
 		return nil, err
 	}

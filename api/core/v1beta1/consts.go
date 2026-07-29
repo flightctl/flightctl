@@ -118,9 +118,10 @@ const (
 
 	StatusKind = "Status"
 
-	SystemKind           = "System"
-	SystemComponentDB    = "database"
-	SystemComponentQueue = "queue"
+	SystemKind                = "System"
+	SystemComponentDB         = "database"
+	SystemComponentQueue      = "queue"
+	SystemComponentEncryption = "encryption"
 
 	// External role names - these come from authentication providers and are mapped to internal roles
 	ExternalRoleAdmin     = "flightctl-admin"

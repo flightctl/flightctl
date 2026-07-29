@@ -152,9 +152,10 @@ const (
 // ========== System ==========
 
 const (
-	SystemKind           = v1beta1.SystemKind
-	SystemComponentDB    = v1beta1.SystemComponentDB
-	SystemComponentQueue = v1beta1.SystemComponentQueue
+	SystemKind                = v1beta1.SystemKind
+	SystemComponentDB         = v1beta1.SystemComponentDB
+	SystemComponentQueue      = v1beta1.SystemComponentQueue
+	SystemComponentEncryption = v1beta1.SystemComponentEncryption
 )
 
 // ========== Roles ==========

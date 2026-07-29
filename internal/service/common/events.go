@@ -691,6 +691,33 @@ func GetSystemRestoredEvent(ctx context.Context, devicesUpdated int64) *domain.E
 	})
 }
 
+// GetEncryptionMigrationStartedEvent creates a system-wide event when encryption migration begins for a key.
+func GetEncryptionMigrationStartedEvent(ctx context.Context, keyID string) *domain.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.SystemKind,
+		resourceName: domain.SystemComponentEncryption,
+		reason:       domain.EventReasonEncryptionMigrationStarted,
+		message:      fmt.Sprintf("Encryption migration started for key %q.", keyID),
+		details:      nil,
+	})
+}
+
+// GetEncryptionMigrationCompletedEvent creates a system-wide event when encryption migration finishes for a key.
+// retiredKeyIDs lists previous keys prepared for retirement after the migration completed.
+func GetEncryptionMigrationCompletedEvent(ctx context.Context, keyID string, retiredKeyIDs []string) *domain.Event {
+	msg := fmt.Sprintf("Encryption migration to key %q completed.", keyID)
+	if len(retiredKeyIDs) > 0 {
+		msg += fmt.Sprintf(" Previous keys no longer in use and safe to remove: %v.", retiredKeyIDs)
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.SystemKind,
+		resourceName: domain.SystemComponentEncryption,
+		reason:       domain.EventReasonEncryptionMigrationCompleted,
+		message:      msg,
+		details:      nil,
+	})
+}
+
 // ComputeResourceUpdatedDetails determines which fields were updated by comparing old and new ObjectMeta.
 // Generic across all resource kinds; resource-specific event handlers use this to build
 // domain.ResourceUpdatedDetails before emitting a ResourceUpdated event.
