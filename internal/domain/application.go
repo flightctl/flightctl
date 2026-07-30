@@ -20,8 +20,9 @@ type CatalogItemRefSource = v1beta1.CatalogItemRefSource
 type ApplicationProviderType = v1beta1.ApplicationProviderType
 
 const (
-	ImageApplicationProviderType  = v1beta1.ImageApplicationProviderType
-	InlineApplicationProviderType = v1beta1.InlineApplicationProviderType
+	ImageApplicationProviderType          = v1beta1.ImageApplicationProviderType
+	InlineApplicationProviderType         = v1beta1.InlineApplicationProviderType
+	CatalogItemRefApplicationProviderType = v1beta1.CatalogItemRefApplicationProviderType
 )
 
 // ========== Application Content ==========

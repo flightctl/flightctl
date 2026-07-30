@@ -521,7 +521,7 @@ func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uu
 
 	listParams := store.ListParams{Limit: common.MaxRecordsPerListRequest}
 
-	var deployments []domain.CatalogItemDeployment
+	deployments := []domain.CatalogItemDeployment{}
 
 	osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
 	if err != nil {

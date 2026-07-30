@@ -862,18 +862,18 @@ var _ = Describe("Catalog Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			container := apiv1beta1.ContainerApplication{
-				AppType: apiv1beta1.AppTypeContainer,
+			quadlet := apiv1beta1.QuadletApplication{
+				AppType: apiv1beta1.AppTypeQuadlet,
 				Name:    lo.ToPtr("vol-app"),
 				Volumes: &[]apiv1beta1.ApplicationVolume{vol},
 			}
-			err = container.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
+			err = quadlet.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/example/app:latest",
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			var appSpec apiv1beta1.ApplicationProviderSpec
-			err = appSpec.FromContainerApplication(container)
+			err = appSpec.FromQuadletApplication(quadlet)
 			Expect(err).ToNot(HaveOccurred())
 
 			device := apiv1beta1.Device{
@@ -913,18 +913,18 @@ var _ = Describe("Catalog Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			quadlet := apiv1beta1.QuadletApplication{
-				AppType: apiv1beta1.AppTypeQuadlet,
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
 				Name:    lo.ToPtr("mount-app"),
 				Volumes: &[]apiv1beta1.ApplicationVolume{vol},
 			}
-			err = quadlet.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
-				Image: "quay.io/example/quadlet:latest",
+			err = container.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
+				Image: "quay.io/example/container:latest",
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			var appSpec apiv1beta1.ApplicationProviderSpec
-			err = appSpec.FromQuadletApplication(quadlet)
+			err = appSpec.FromContainerApplication(container)
 			Expect(err).ToNot(HaveOccurred())
 
 			device := apiv1beta1.Device{
@@ -1007,17 +1007,17 @@ var _ = Describe("Catalog Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			volContainer := apiv1beta1.ContainerApplication{
-				AppType: apiv1beta1.AppTypeContainer,
+			volQuadlet := apiv1beta1.QuadletApplication{
+				AppType: apiv1beta1.AppTypeQuadlet,
 				Name:    lo.ToPtr("triple-vol-app"),
 				Volumes: &[]apiv1beta1.ApplicationVolume{vol},
 			}
-			err = volContainer.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
+			err = volQuadlet.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/example/vol:latest",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			var volAppSpec apiv1beta1.ApplicationProviderSpec
-			err = volAppSpec.FromContainerApplication(volContainer)
+			err = volAppSpec.FromQuadletApplication(volQuadlet)
 			Expect(err).ToNot(HaveOccurred())
 
 			volDevice := apiv1beta1.Device{
@@ -1065,18 +1065,18 @@ var _ = Describe("Catalog Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			container := apiv1beta1.ContainerApplication{
-				AppType: apiv1beta1.AppTypeContainer,
+			quadlet := apiv1beta1.QuadletApplication{
+				AppType: apiv1beta1.AppTypeQuadlet,
 				Name:    lo.ToPtr("other-vol-app"),
 				Volumes: &[]apiv1beta1.ApplicationVolume{vol},
 			}
-			err = container.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
+			err = quadlet.FromImageApplicationProviderSpec(apiv1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/example/app:latest",
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			var appSpec apiv1beta1.ApplicationProviderSpec
-			err = appSpec.FromContainerApplication(container)
+			err = appSpec.FromQuadletApplication(quadlet)
 			Expect(err).ToNot(HaveOccurred())
 
 			device := apiv1beta1.Device{

@@ -45,6 +45,7 @@ func ExtractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.Cata
 
 	var source domain.CatalogItemRefSource
 	var name *string
+	var providerType domain.ApplicationProviderType
 	switch appType {
 	case domain.AppTypeContainer:
 		a, err := app.AsContainerApplication()
@@ -53,6 +54,7 @@ func ExtractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.Cata
 		}
 		source = &a
 		name = a.Name
+		providerType = a.Type()
 	case domain.AppTypeHelm:
 		a, err := app.AsHelmApplication()
 		if err != nil {
@@ -60,6 +62,7 @@ func ExtractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.Cata
 		}
 		source = &a
 		name = a.Name
+		providerType = a.Type()
 	case domain.AppTypeCompose:
 		a, err := app.AsComposeApplication()
 		if err != nil {
@@ -67,6 +70,7 @@ func ExtractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.Cata
 		}
 		source = &a
 		name = a.Name
+		providerType = a.Type()
 	case domain.AppTypeQuadlet:
 		a, err := app.AsQuadletApplication()
 		if err != nil {
@@ -74,7 +78,12 @@ func ExtractAppCatalogItemRef(app *domain.ApplicationProviderSpec) (*domain.Cata
 		}
 		source = &a
 		name = a.Name
+		providerType = a.Type()
 	default:
+		return nil, nil
+	}
+
+	if providerType != domain.CatalogItemRefApplicationProviderType {
 		return nil, nil
 	}
 
