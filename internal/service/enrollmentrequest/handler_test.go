@@ -533,6 +533,62 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 	require.Equal(t, statusNotFoundCode, status.Code)
 }
 
+func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		osMode     *domain.OsModeType
+		wantCaps   bool
+		wantOsMode *domain.OsModeType
+	}{
+		{
+			name:       "When osMode is package it should set capabilities.osMode to package",
+			osMode:     lo.ToPtr(domain.OsModePackage),
+			wantCaps:   true,
+			wantOsMode: lo.ToPtr(domain.OsModePackage),
+		},
+		{
+			name:       "When osMode is image it should set capabilities.osMode to image",
+			osMode:     lo.ToPtr(domain.OsModeImage),
+			wantCaps:   true,
+			wantOsMode: lo.ToPtr(domain.OsModeImage),
+		},
+		{
+			name:     "When osMode is absent it should leave capabilities nil",
+			osMode:   nil,
+			wantCaps: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _, fakeDevices, _, _ := newTestHandler(t)
+			ctx := context.Background()
+			orgId := uuid.New()
+			deviceName := "osmode-test-device"
+
+			er := &domain.EnrollmentRequest{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", OsMode: tt.osMode, DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+			}
+
+			err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+			require.NoError(t, err)
+
+			device, err := fakeDevices.Get(ctx, orgId, deviceName)
+			require.NoError(t, err)
+			require.NotNil(t, device.Status)
+
+			if !tt.wantCaps {
+				require.Nil(t, device.Status.Capabilities, "expected nil Capabilities for absent osMode")
+			} else {
+				require.NotNil(t, device.Status.Capabilities, "expected non-nil Capabilities")
+				require.NotNil(t, device.Status.Capabilities.OsMode, "expected non-nil OsMode in Capabilities")
+				require.Equal(t, *tt.wantOsMode, *device.Status.Capabilities.OsMode)
+			}
+		})
+	}
+}
+
 // TestCreateDeviceFromEnrollmentRequestNeverManaged is a regression guard for the deviceOnlyStore
 // adapter's safety invariant: createDeviceFromEnrollmentRequest must never set Metadata.Owner on
 // the device it builds. deviceOnlyStore only overrides Device() on its embedded nil store.Store;
