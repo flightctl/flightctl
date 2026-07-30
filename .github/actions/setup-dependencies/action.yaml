@@ -72,10 +72,12 @@ runs:
           # Ubuntu noble ships crun 1.14.1 which rejects OCI runtime spec v1.2.1
           # version strings emitted by Podman 4.9+, causing "unknown version specified"
           # errors on RUN --mount=type=cache steps. Pin to 1.14.3+ (the fix release).
+          # Overwrite /usr/bin/crun in place — Podman invokes that absolute path from
+          # its OCI runtime config, so /usr/local/bin alone does not take effect.
           # See: https://github.com/containers/crun/issues/1485
           CRUN_VERSION=1.14.3
           curl -fsSL -o /tmp/crun "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
-          sudo install -m 0755 /tmp/crun /usr/local/bin/crun
+          sudo install -m 0755 /tmp/crun /usr/bin/crun
           rm -f /tmp/crun
 
           # Prime rootless Podman API socket before Go testcontainers init() probes paths (otherwise
