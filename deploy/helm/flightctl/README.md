@@ -294,6 +294,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
+| encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
+| encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
 | global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |

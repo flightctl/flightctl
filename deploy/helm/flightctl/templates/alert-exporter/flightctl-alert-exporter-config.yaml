@@ -43,4 +43,5 @@ data:
         insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
 {{ include "flightctl.profiling" . | nindent 4 }}
+{{- include "flightctl.encryptionConfig" . | nindent 4 }}
 {{- end }}
