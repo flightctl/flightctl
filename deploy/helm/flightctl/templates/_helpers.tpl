@@ -916,3 +916,21 @@ profiling:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- /*
+Render encryption-at-rest config from .Values.encryption.
+Usage: {{ include "flightctl.encryptionConfig" . | nindent 4 }}
+*/}}
+{{- define "flightctl.encryptionConfig" -}}
+{{- $enc := .Values.encryption | default dict -}}
+{{- $keys := $enc.keys | default list -}}
+{{- if or $keys $enc.activeKeyID -}}
+encryption:
+    activeKeyID: {{ $enc.activeKeyID | default "default" | quote }}
+    keys:
+    {{- range $keys }}
+        - id: {{ .id | quote }}
+          path: {{ printf "/root/.flightctl/encryption/%s" .file | quote }}
+    {{- end }}
+{{- end }}
+{{- end -}}

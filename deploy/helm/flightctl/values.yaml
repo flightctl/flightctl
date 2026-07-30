@@ -575,3 +575,15 @@ upgradeHooks:
     timeoutSeconds: 120
   # -- Enable pre-upgrade DB migration dry-run as a hook
   databaseMigrationDryRun: true
+
+# -- Encryption-at-rest key configuration.
+# The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services.
+# Each key entry maps a logical key ID to a filename within that Secret.
+# For key rotation: add a new key file to the Secret, add it here, then change activeKeyID.
+encryption:
+  # -- Key ID used for new encryptions. Must match one of the IDs in the keys list.
+  activeKeyID: "default"
+  # -- List of available encryption keys. Old keys remain available for decryption during rotation.
+  keys:
+    - id: "default"
+      file: "key"

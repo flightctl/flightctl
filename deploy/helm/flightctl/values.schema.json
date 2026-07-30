@@ -914,6 +914,30 @@
         }
       }
     },
+    "encryption": {
+      "type": "object",
+      "description": "Encryption-at-rest key configuration for key rotation support",
+      "additionalProperties": false,
+      "properties": {
+        "activeKeyID": {
+          "type": "string",
+          "description": "Key ID used for new encryptions. Must match one of the IDs in the keys list."
+        },
+        "keys": {
+          "type": "array",
+          "description": "List of available encryption keys. Old keys remain available for decryption during rotation.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "file"],
+            "properties": {
+              "id": { "type": "string", "description": "Logical key identifier" },
+              "file": { "type": "string", "description": "Filename within the flightctl-encryption-key Secret" }
+            }
+          }
+        }
+      }
+    },
     "upgradeHooks": {
       "type": "object",
       "description": "Upgrade hooks configuration",
