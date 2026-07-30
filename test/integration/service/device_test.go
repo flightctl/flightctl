@@ -813,6 +813,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result.Spec).ToNot(BeNil())
 			Expect(result.Spec.Decommissioning).ToNot(BeNil())
+			Expect(result.Spec.Decommissioning.Target).To(Equal(api.DeviceDecommissionTargetTypeUnenroll))
 			Expect(result.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
 			Expect(result.Metadata.Owner).To(BeNil())
 			// ToApiResource always materializes labels via EnsureMap; cleared labels surface as empty.
@@ -821,6 +822,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stored.Spec.Decommissioning).ToNot(BeNil())
+			Expect(stored.Spec.Decommissioning.Target).To(Equal(api.DeviceDecommissionTargetTypeUnenroll))
 			Expect(stored.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
 			Expect(stored.Metadata.Owner).To(BeNil())
 			Expect(lo.FromPtr(stored.Metadata.Labels)).To(BeEmpty())

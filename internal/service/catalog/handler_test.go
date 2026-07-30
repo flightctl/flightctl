@@ -24,11 +24,16 @@ import (
 type fakeCatalogStore struct {
 	catalogs map[string]*domain.Catalog
 	items    map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
+	itemOrgs map[string]uuid.UUID           // key: itemKey(catalogName, itemName) -> org that owns the item
 	err      error
 }
 
 func newFakeCatalogStore() *fakeCatalogStore {
-	return &fakeCatalogStore{catalogs: map[string]*domain.Catalog{}, items: map[string]*domain.CatalogItem{}}
+	return &fakeCatalogStore{
+		catalogs: map[string]*domain.Catalog{},
+		items:    map[string]*domain.CatalogItem{},
+		itemOrgs: map[string]uuid.UUID{},
+	}
 }
 
 func itemKey(catalogName, itemName string) string {
@@ -110,8 +115,8 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
-	for _, it := range f.items {
-		if it.Metadata.Catalog == name {
+	for key, it := range f.items {
+		if it.Metadata.Catalog == name && f.itemOrgs[key] == orgId {
 			return flterrors.ErrResourceNotEmpty
 		}
 	}
@@ -190,7 +195,9 @@ func (f *fakeCatalogStore) CreateItem(ctx context.Context, orgId uuid.UUID, cata
 		return nil, flterrors.ErrParentResourceNotFound
 	}
 	item.Metadata.Catalog = catalogName
-	f.items[itemKey(catalogName, lo.FromPtr(item.Metadata.Name))] = item
+	key := itemKey(catalogName, lo.FromPtr(item.Metadata.Name))
+	f.items[key] = item
+	f.itemOrgs[key] = orgId
 	return item, nil
 }
 
@@ -235,6 +242,7 @@ func (f *fakeCatalogStore) DeleteItem(ctx context.Context, orgId uuid.UUID, cata
 		return flterrors.ErrResourceNotFound
 	}
 	delete(f.items, key)
+	delete(f.itemOrgs, key)
 	return nil
 }
 
@@ -645,13 +653,32 @@ func TestDeleteCatalogNonEmpty(t *testing.T) {
 		catalog := createTestCatalog("catalog-with-items", nil)
 		fakeStore.catalogs["catalog-with-items"] = &catalog
 		item := createTestCatalogItem("catalog-with-items", "app-1", nil)
-		fakeStore.items[itemKey("catalog-with-items", "app-1")] = &item
+		key := itemKey("catalog-with-items", "app-1")
+		fakeStore.items[key] = &item
+		fakeStore.itemOrgs[key] = orgId
 
 		status := h.DeleteCatalog(context.Background(), orgId, "catalog-with-items", true)
 		require.Equal(t, int32(http.StatusConflict), status.Code)
 		require.Equal(t, flterrors.ErrResourceNotEmpty.Error(), status.Message)
 		require.Contains(t, fakeStore.catalogs, "catalog-with-items")
 		require.Empty(t, fakeEvents.deleted)
+	})
+
+	t.Run("When items exist only under another org it should delete the catalog", func(t *testing.T) {
+		h, fakeStore, fakeEvents := newTestHandler()
+		orgId := uuid.New()
+		otherOrgId := uuid.New()
+		catalog := createTestCatalog("shared-name", nil)
+		fakeStore.catalogs["shared-name"] = &catalog
+		item := createTestCatalogItem("shared-name", "app-1", nil)
+		key := itemKey("shared-name", "app-1")
+		fakeStore.items[key] = &item
+		fakeStore.itemOrgs[key] = otherOrgId
+
+		status := h.DeleteCatalog(context.Background(), orgId, "shared-name", true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotContains(t, fakeStore.catalogs, "shared-name")
+		require.Len(t, fakeEvents.deleted, 1)
 	})
 
 	t.Run("When deleting an empty catalog it should succeed and remove it", func(t *testing.T) {

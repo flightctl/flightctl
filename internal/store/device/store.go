@@ -1390,6 +1390,15 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, p
 		return false, nil, flterrors.ErrResourceVersionConflict
 	}
 
+	// CAS against the prepared ResourceVersion (service Get), not the freshly loaded one.
+	if prepared.Metadata.ResourceVersion == nil {
+		return false, nil, flterrors.ErrResourceVersionConflict
+	}
+	preparedRV, parseErr := strconv.ParseInt(lo.FromPtr(prepared.Metadata.ResourceVersion), 10, 64)
+	if parseErr != nil || lo.FromPtr(existingRecord.ResourceVersion) != preparedRV {
+		return false, nil, flterrors.ErrResourceVersionConflict
+	}
+
 	var oldDevice domain.Device
 	var devices []domain.Device
 	devices = append(devices, *existingDevice)
@@ -1401,7 +1410,7 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, p
 	existingRecord.Owner = nil
 	existingRecord.Labels = nil
 
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", preparedRV).Updates(map[string]interface{}{
 		"spec":             existingRecord.Spec,
 		"status":           existingRecord.Status,
 		"owner":            nil,
@@ -1415,7 +1424,7 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, p
 	if result.RowsAffected == 0 {
 		return true, nil, flterrors.ErrNoRowsUpdated
 	}
-	existingRecord.ResourceVersion = lo.ToPtr(lo.FromPtr(existingRecord.ResourceVersion) + 1)
+	existingRecord.ResourceVersion = lo.ToPtr(preparedRV + 1)
 
 	updatedDevice, err := existingRecord.ToApiResource()
 	if err != nil {
