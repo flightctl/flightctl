@@ -58,9 +58,21 @@ runs:
           sudo apt update -y # fix broken repo cache
           sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
+          # Ubuntu noble ships crun 1.14.1 which rejects OCI runtime spec v1.2.1
+          # version strings emitted by Podman 4.9+, causing "unknown version specified"
+          # errors on RUN --mount=type=cache steps. Pin to 1.14.3+ (the fix release).
+          # See: https://github.com/containers/crun/issues/1485
+          CRUN_VERSION=1.14.3
+          curl -fsSL -o /tmp/crun "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
+          sudo install -m 0755 /tmp/crun /usr/local/bin/crun
+          rm -f /tmp/crun
+
           # Prime rootless Podman API socket before Go testcontainers init() probes paths (otherwise
           # /var/run/docker.sock can win on runners that ship both Docker and Podman).
           podman info >/dev/null 2>&1 || true
+
+          podman --version
+          crun --version
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q -o protoc.zip bin/protoc -d /usr/local
