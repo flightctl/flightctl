@@ -59,6 +59,11 @@ jobs:
         run: |
           test/scripts/create_e2e_certs.sh
 
+      # make rpm / buildah use podman; pin crun so ubuntu-24.04 doesn't hit
+      # "unknown version specified" (apt ships crun 1.14.1).
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
       - name: Build RPMs
         run: |
           make rpm
@@ -122,6 +127,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      # buildah/podman need pinned crun on ubuntu-24.04 (apt ships 1.14.1).
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
