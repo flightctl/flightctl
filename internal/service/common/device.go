@@ -252,9 +252,11 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 	}
 
 	// Override UpToDate if the actual booted OS image doesn't match the desired spec.
+	// Requires capabilities.osMode to be reported; legacy devices without capabilities skip this check.
 	if device.Status.Updated.Status == domain.DeviceUpdatedStatusUpToDate &&
 		device.Spec != nil && device.Spec.Os != nil && device.Spec.Os.Image != "" &&
-		device.Status.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
+		device.Status.Capabilities != nil && device.Status.Capabilities.OsMode != nil &&
+		device.Status.Os.Image != device.Spec.Os.Image {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
 	}
