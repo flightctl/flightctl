@@ -6,10 +6,10 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 
 | Setting | Default |
 | ------- | ------- |
-| `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.8.4` (built into the worker; leave config unset or empty to use it) |
-| `passtWorkarounds` | `true` |
+| `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.9.0` (built into the worker; leave config unset or empty to use it) |
+| `passtWorkarounds` | `false` |
 
-`passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). Keep this enabled unless your virt-launcher image already includes a fixed passt build.
+`passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). The default virt-launcher image does not need this. Enable it only when you override `launcherImage` to an older image that still requires the workaround.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ Set the values under `worker.vmRender`. Leave `launcherImage` empty unless you n
 worker:
   vmRender:
     launcherImage: ""
-    passtWorkarounds: true
+    passtWorkarounds: false
 ```
 
 Apply the chart upgrade, then restart the worker so it reloads configuration:
@@ -47,7 +47,7 @@ Edit `/etc/flightctl/service-config.yaml` only when you need overrides. Omit `la
 ```yaml
 worker:
   vmRender:
-    passtWorkarounds: true
+    passtWorkarounds: false
 ```
 
 Restart the worker so the config template is re-rendered and the service reloads:
@@ -62,7 +62,7 @@ The default virt-launcher image is pulled by devices when they run VM applicatio
 
 In an air-gapped deployment:
 
-1. Mirror `quay.io/kubevirt/virt-launcher:v1.8.4` (or your chosen virt-launcher image) to a registry that devices can reach.
+1. Mirror `quay.io/kubevirt/virt-launcher:v1.9.0` (or your chosen virt-launcher image) to a registry that devices can reach.
 2. Set `worker.vmRender.launcherImage` to that mirrored reference so rendered Quadlet units pull from the mirror.
 3. Restart the worker, then re-render devices that already have VM applications so they pick up the new image reference.
 
@@ -71,15 +71,15 @@ Example (community / upstream registry):
 ```bash
 INTERNAL=registry.example.com:5000
 skopeo copy --all \
-  docker://quay.io/kubevirt/virt-launcher:v1.8.4 \
-  docker://${INTERNAL}/kubevirt/virt-launcher:v1.8.4
+  docker://quay.io/kubevirt/virt-launcher:v1.9.0 \
+  docker://${INTERNAL}/kubevirt/virt-launcher:v1.9.0
 ```
 
 ```yaml
 worker:
   vmRender:
-    launcherImage: "registry.example.com:5000/kubevirt/virt-launcher:v1.8.4"
-    passtWorkarounds: true
+    launcherImage: "registry.example.com:5000/kubevirt/virt-launcher:v1.9.0"
+    passtWorkarounds: false
 ```
 
 There is currently no separate Red Hat product virt-launcher image in the Flight Control packaging set. Use the upstream `quay.io/kubevirt/virt-launcher` reference, or another virt-launcher image you supply, and point `launcherImage` at the mirrored location.

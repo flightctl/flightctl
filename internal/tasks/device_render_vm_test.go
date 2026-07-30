@@ -369,7 +369,7 @@ func TestRenderVmApplication_CachePopulatedOnMiss(t *testing.T) {
 	assert.Equal(t, 1, callCount, "converter must not be called again on the second (cache hit) call")
 
 	opts := DefaultVmRenderOptions()
-	opts.PasstWorkarounds = false
+	opts.PasstWorkarounds = true
 	_, err = renderVmApplication(ctx, vmApp, converter, opts, kv)
 	require.NoError(t, err)
 	assert.Equal(t, 2, callCount, "converter should run again when passtWorkarounds changes")
@@ -457,7 +457,7 @@ func TestVmRenderOptionsFromConfig(t *testing.T) {
 
 	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, &config.Config{}, [16]byte{}, domain.Event{})
 	assert.Equal(t, config.DefaultVirtLauncherImage, defaults.vmRenderOptions.LauncherImage)
-	assert.True(t, defaults.vmRenderOptions.PasstWorkarounds)
+	assert.False(t, defaults.vmRenderOptions.PasstWorkarounds)
 }
 
 // TestRenderVmApplication_ImageProviderUnsupported verifies that a VmApplication

@@ -40,7 +40,7 @@ type VmRenderOptions struct {
 func DefaultVmRenderOptions() VmRenderOptions {
 	return VmRenderOptions{
 		LauncherImage:    config.DefaultVirtLauncherImage,
-		PasstWorkarounds: true,
+		PasstWorkarounds: false,
 	}
 }
 

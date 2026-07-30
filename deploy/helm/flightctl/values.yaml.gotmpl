@@ -318,8 +318,8 @@ worker:
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
-    # -- Enable passt networking workarounds for older virt-launcher images (recommended true)
-    passtWorkarounds: true
+    # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
+    passtWorkarounds: false
 
 # -- Periodic Configuration
 periodic:

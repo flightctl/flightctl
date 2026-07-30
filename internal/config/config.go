@@ -405,7 +405,7 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 	return c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.SkipTLSVerify
 }
 
-const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.8.4"
+const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
@@ -421,7 +421,7 @@ type vmRenderConfig struct {
 
 // NewDefaultWorkerConfig returns the default flightctl-worker configuration.
 func NewDefaultWorkerConfig() *workerConfig {
-	passt := true
+	passt := false
 	return &workerConfig{
 		VmRender: &vmRenderConfig{
 			LauncherImage:    DefaultVirtLauncherImage,
@@ -441,7 +441,7 @@ func (c *Config) EffectiveVmLauncherImage() string {
 // EffectiveVmPasstWorkarounds returns whether passt workarounds are enabled for VM render.
 func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	if c == nil || c.Worker == nil {
-		return true
+		return false
 	}
 	return c.Worker.EffectivePasstWorkarounds()
 }
@@ -454,12 +454,12 @@ func (c *workerConfig) EffectiveLauncherImage() string {
 	return DefaultVirtLauncherImage
 }
 
-// EffectivePasstWorkarounds returns whether passt workarounds are enabled (default true).
+// EffectivePasstWorkarounds returns whether passt workarounds are enabled (default false).
 func (c *workerConfig) EffectivePasstWorkarounds() bool {
 	if c != nil && c.VmRender != nil && c.VmRender.PasstWorkarounds != nil {
 		return *c.VmRender.PasstWorkarounds
 	}
-	return true
+	return false
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.

@@ -29,7 +29,7 @@ worker:
     {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
     launcherImage: {{.worker.vmRender.launcherImage}}
     {{- end }}
-    passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "false"}}false{{else}}true{{end}}{{else}}true{{end}}
+    passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "true"}}true{{else}}false{{end}}{{else}}false{{end}}
 
 
 {{- with .profiling }}
