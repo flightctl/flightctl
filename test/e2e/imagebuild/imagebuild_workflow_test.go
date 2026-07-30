@@ -399,7 +399,7 @@ func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	stdout, err := libvirtVM.RunSSH([]string{"sudo", "systemctl", "is-active", agentServiceName}, nil)
 	if err != nil {
 		GinkgoWriter.Printf("getAgentServiceStatus: SSH error: %v\n", err)
-		return "", err
+		return "", fmt.Errorf("get agent service status via SSH: %w", err)
 	}
 	status := strings.TrimSpace(stdout.String())
 	GinkgoWriter.Printf("getAgentServiceStatus: %s=%s\n", agentServiceName, status)
