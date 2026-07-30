@@ -568,6 +568,14 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 			if device.Status != nil {
 				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
 			}
+			// device.Status.Conditions still holds the pre-render SpecValid at this point
+			// (oldConditions above is the diff baseline for event emission). Apply the
+			// SpecValid=Valid that this render is about to commit before computing derived
+			// status, so e.g. Status.Updated (via IsUpdatedToDeviceSpec) isn't computed
+			// against a stale Invalid condition from before this render.
+			if device.Status != nil {
+				domain.SetStatusCondition(&device.Status.Conditions, specValid)
+			}
 			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {
 				return false
 			}
@@ -580,8 +588,16 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
-		// No rendered write; still ensure SpecValid=Valid (e.g. recovered from Invalid).
-		return h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
+		// No rendered write; still ensure SpecValid=Valid (e.g. recovered from Invalid), and
+		// refresh derived status since it may have been computed against the stale condition.
+		status := h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
+		if status.Code != http.StatusOK {
+			return status
+		}
+		if err := h.UpdateServerSideDeviceStatus(ctx, orgId, name); err != nil {
+			h.log.Errorf("Failed updating device status for device %s/%s: %v", orgId, name, err)
+		}
+		return status
 	}
 	if updated != nil {
 		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, previous, updated, false, nil)
@@ -596,12 +612,14 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
 	}
 
-	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
-	if err != nil {
+	// StoreAndNotify only wakes up agents already long-polling for a new version; it is not
+	// the source of truth (the render above already persisted successfully). Treat failure
+	// here as best-effort: agents still pick up the new rendered version on their next poll.
+	// Do not fail the call or touch SpecValid over a notify-only failure.
+	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion); err != nil {
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
-		return domain.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
 	}
-	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	return domain.StatusOK()
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
