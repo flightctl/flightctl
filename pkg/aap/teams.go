@@ -7,7 +7,8 @@ import (
 )
 
 type AAPTeamSummaryFields struct {
-	Organization AAPOrganization `json:"organization"`
+	Organization AAPOrganization    `json:"organization"`
+	Resource     AAPResourceSummary `json:"resource"`
 }
 
 type AAPTeam struct {

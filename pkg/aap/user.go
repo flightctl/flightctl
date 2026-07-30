@@ -5,11 +5,23 @@ import (
 	"fmt"
 )
 
+// AAPResourceSummary is the "resource" summary field shared across AAP objects (users, teams, ...),
+// carrying the ansible_id that stays stable across AAP components (Gateway, Controller, ...).
+type AAPResourceSummary struct {
+	AnsibleID    string `json:"ansible_id"`
+	ResourceType string `json:"resource_type"`
+}
+
+type AAPUserSummaryFields struct {
+	Resource AAPResourceSummary `json:"resource"`
+}
+
 type AAPUser struct {
-	ID                int    `json:"id,omitempty"`
-	Username          string `json:"username,omitempty"`
-	IsSuperuser       bool   `json:"is_superuser,omitempty"`
-	IsPlatformAuditor bool   `json:"is_platform_auditor,omitempty"`
+	ID                int                  `json:"id,omitempty"`
+	Username          string               `json:"username,omitempty"`
+	IsSuperuser       bool                 `json:"is_superuser,omitempty"`
+	IsPlatformAuditor bool                 `json:"is_platform_auditor,omitempty"`
+	SummaryFields     AAPUserSummaryFields `json:"summary_fields,omitempty"`
 }
 
 type AAPUsersResponse = AAPPaginatedResponse[AAPUser]

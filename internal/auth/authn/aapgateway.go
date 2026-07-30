@@ -28,6 +28,7 @@ type AAPIdentity struct {
 	common.BaseIdentity
 	superUser       bool
 	platformAuditor bool
+	ansibleID       string
 }
 
 // Ensure AAPIdentity implements AAPGatewayUserIdentity
@@ -131,6 +132,7 @@ func (a *AapGatewayAuth) loadUserInfo(ctx context.Context, token string) (*AAPId
 		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, identity.NewIssuer(identity.AuthTypeAAP, a.spec.ApiUrl)),
 		superUser:       aapUserInfo.IsSuperuser,
 		platformAuditor: aapUserInfo.IsPlatformAuditor,
+		ansibleID:       aapUserInfo.SummaryFields.Resource.AnsibleID,
 	}
 
 	return userInfo, nil
@@ -205,7 +207,7 @@ func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.
 		orgRoles["*"] = globalRoles
 	}
 
-	roleAssignments, err := a.getUserRoleAssignments(ctx, token, userInfo.GetUID())
+	roleAssignments, err := a.getUserRoleAssignments(ctx, token, userInfo.ansibleID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get role assignments: %w", err)
 	}
@@ -310,8 +312,8 @@ func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token s
 }
 
 // getUserRoleAssignments gets role assignments for a specific user from AAP
-func (a *AapGatewayAuth) getUserRoleAssignments(ctx context.Context, token string, userID string) ([]*aap.AAPRoleUserAssignment, error) {
-	roleAssignments, err := a.aapClient.ListUserRoleAssignments(ctx, token, userID)
+func (a *AapGatewayAuth) getUserRoleAssignments(ctx context.Context, token string, ansibleID string) ([]*aap.AAPRoleUserAssignment, error) {
+	roleAssignments, err := a.aapClient.ListUserRoleAssignments(ctx, token, ansibleID)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +351,10 @@ func (a *AapGatewayAuth) mapRoleAssignmentsToOrgRoles(roleAssignments []*aap.AAP
 	return orgRoles
 }
 
-// getTeamRoleAssignments fetches role assignments for all teams the user belongs to
+// getTeamRoleAssignments fetches role assignments for all teams the user belongs to.
+// ListUserTeams is a Gateway-to-Gateway lookup so the Gateway numeric userID is safe to use there,
+// but each team's role assignments are then looked up via the Controller API by ansible_id (see
+// ListTeamRoleAssignments), since a team's Gateway and Controller numeric IDs are not guaranteed to match.
 func (a *AapGatewayAuth) getTeamRoleAssignments(ctx context.Context, token string, userID string) ([]*aap.AAPRoleTeamAssignment, error) {
 	teams, err := a.aapClient.ListUserTeams(ctx, token, userID)
 	if err != nil {
@@ -358,7 +363,7 @@ func (a *AapGatewayAuth) getTeamRoleAssignments(ctx context.Context, token strin
 
 	var allAssignments []*aap.AAPRoleTeamAssignment
 	for _, team := range teams {
-		assignments, err := a.aapClient.ListTeamRoleAssignments(ctx, token, strconv.Itoa(team.ID))
+		assignments, err := a.aapClient.ListTeamRoleAssignments(ctx, token, team.SummaryFields.Resource.AnsibleID)
 		if err != nil {
 			return nil, err
 		}
