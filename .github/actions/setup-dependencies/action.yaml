@@ -18,6 +18,7 @@ runs:
   using: "composite"
   steps:
       - name: Setup Go
+        if: ${{ inputs.skip_package_install != 'true' }}
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.9'
@@ -76,7 +77,10 @@ runs:
           # its OCI runtime config, so /usr/local/bin alone does not take effect.
           # See: https://github.com/containers/crun/issues/1485
           CRUN_VERSION=1.14.3
+          # sha256 of crun-${CRUN_VERSION}-linux-amd64 from GitHub Releases
+          CRUN_SHA256=80c5ab9422d4672f650f2bad3da933568349b64117d055486abc3534517be2af
           curl -fsSL -o /tmp/crun "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
+          echo "${CRUN_SHA256}  /tmp/crun" | sha256sum -c -
           sudo install -m 0755 /tmp/crun /usr/bin/crun
           rm -f /tmp/crun
 
@@ -85,7 +89,7 @@ runs:
           podman info >/dev/null 2>&1 || true
 
           podman --version
-          crun --version
+          /usr/bin/crun --version
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q -o protoc.zip bin/protoc -d /usr/local
@@ -97,16 +101,29 @@ runs:
           oras version
           echo "::endgroup::"
 
-      # Custom runner image already has apt packages, crun, protoc, oras, and KVM.
-      # Still prime Podman and log versions for diagnostics.
+      # Custom runner image already has apt packages, crun, protoc, oras, Go, and KVM.
+      # Still prime Podman and validate the binary Podman actually invokes.
       - name: Verify preinstalled dependencies
         if: ${{ inputs.skip_package_install == 'true' }}
         shell: bash
         run: |
           echo "::group::Verifying preinstalled dependencies (custom runner image)"
+          set -euo pipefail
+          go version
           podman info >/dev/null 2>&1 || true
           podman --version
-          crun --version
+          # Podman uses /usr/bin/crun by absolute path — check that binary, not PATH.
+          CRUN_MIN=1.14.3
+          /usr/bin/crun --version
+          CRUN_GOT=$(/usr/bin/crun --version | awk '/^crun version /{print $3; exit}')
+          if [[ -z "${CRUN_GOT}" ]]; then
+            echo "ERROR: could not parse /usr/bin/crun version" >&2
+            exit 1
+          fi
+          if [[ "$(printf '%s\n' "${CRUN_MIN}" "${CRUN_GOT}" | sort -V | head -n1)" != "${CRUN_MIN}" ]]; then
+            echo "ERROR: /usr/bin/crun is ${CRUN_GOT}, need >= ${CRUN_MIN}" >&2
+            exit 1
+          fi
           protoc --version
           oras version
           echo "::endgroup::"
