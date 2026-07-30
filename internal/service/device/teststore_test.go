@@ -268,7 +268,7 @@ func (s *fakeDeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
-func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
 	if _, ok := s.devices[name]; !ok {
 		return "", flterrors.ErrResourceNotFound
 	}

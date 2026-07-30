@@ -553,16 +553,48 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 }
 
 func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+	specValid := domain.Condition{
+		Type:   domain.ConditionTypeDeviceSpecValid,
+		Status: domain.ConditionStatusTrue,
+		Reason: "Valid",
+	}
+	var previous, updated *domain.Device
+	var oldConditions []domain.Condition
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate,
+		func(device *domain.Device) bool {
+			previous = snapshotDeviceForStatusUpdate(device)
+			oldConditions = nil
+			updated = nil
+			if device.Status != nil {
+				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
+			}
+			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {
+				return false
+			}
+			updated = device
+			return true
+		})
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
-		return domain.StatusOK()
+		// No rendered write; still ensure SpecValid=Valid (e.g. recovered from Invalid).
+		return h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
 	}
-	// Status refresh is owned by device-render setStatus (avoids a duplicate write).
+	if updated != nil {
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, previous, updated, false, nil)
+	}
+	deviceForEvents := updated
+	if deviceForEvents == nil {
+		deviceForEvents = previous
+	}
+	if deviceForEvents != nil {
+		newConditions := append([]domain.Condition(nil), oldConditions...)
+		domain.SetStatusCondition(&newConditions, specValid)
+		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
+	}
 
 	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
 	if err != nil {
