@@ -59,7 +59,7 @@ var _ = Describe("DeviceConnection", func() {
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc := deviceservice.NewDeviceServiceHandler(newDeviceStore, fleetStore, eventsSvc, kvStore, "", log)
+		deviceSvc := deviceservice.NewDeviceServiceHandler(newDeviceStore, nil, fleetStore, eventsSvc, kvStore, "", log)
 		connectionTask = tasks.NewDeviceConnection(log, deviceSvc)
 	})
 

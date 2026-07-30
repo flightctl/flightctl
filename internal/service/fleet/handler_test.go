@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -293,10 +294,30 @@ func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Conte
 	f.deleted = append(f.deleted, recordedCallback{orgId: orgId, name: name, created: created, err: err})
 }
 
+type fakeCatalogStore struct {
+	catalogstore.Store
+	items map[string]*domain.CatalogItem // key: "catalog/item"
+}
+
+func (s *fakeCatalogStore) GetItem(_ context.Context, _ uuid.UUID, catalogName string, itemName string) (*domain.CatalogItem, error) {
+	key := catalogName + "/" + itemName
+	item, ok := s.items[key]
+	if !ok {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	return item, nil
+}
+
 func newTestHandler() (*ServiceHandler, *fakeFleetStore, *fakeEventsService) {
 	fakeStore := newFakeFleetStore()
 	fakeEvents := &fakeEventsService{}
-	return NewServiceHandler(fakeStore, fakeEvents, logrus.New()), fakeStore, fakeEvents
+	return NewServiceHandler(fakeStore, nil, fakeEvents, logrus.New()), fakeStore, fakeEvents
+}
+
+func newTestHandlerWithCatalog() (*ServiceHandler, *fakeFleetStore, *fakeCatalogStore) {
+	fakeStore := newFakeFleetStore()
+	catalog := &fakeCatalogStore{items: map[string]*domain.CatalogItem{}}
+	return NewServiceHandler(fakeStore, catalog, &fakeEventsService{}, logrus.New()), fakeStore, catalog
 }
 
 func createTestFleet(name string, owner *string) domain.Fleet {
@@ -921,5 +942,167 @@ func TestGetFleetRepositoryRefs(t *testing.T) {
 
 		_, status := h.GetFleetRepositoryRefs(context.Background(), uuid.New(), "f1")
 		require.Equal(t, statusInternalErrCode, status.Code)
+	})
+}
+
+func makeCatalogItem(versions ...string) *domain.CatalogItem {
+	var versionList []domain.CatalogItemVersion
+	for _, v := range versions {
+		versionList = append(versionList, domain.CatalogItemVersion{Version: v})
+	}
+	return &domain.CatalogItem{
+		Spec: domain.CatalogItemSpec{
+			Versions: versionList,
+		},
+	}
+}
+
+func makeFleetAppSpec(t *testing.T, catalog, item, version string) domain.ApplicationProviderSpec {
+	t.Helper()
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr("myapp"),
+	}
+	err := container.FromCatalogItemRefApplicationProviderSpec(domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func createFleetWithOSCatalogRef(name, catalog, item, version string) domain.Fleet {
+	fleet := createTestFleet(name, nil)
+	fleet.Spec.Template.Spec.Os = &domain.DeviceOsSpec{
+		CatalogItemRef: &domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	}
+	return fleet
+}
+
+func TestCreateFleet_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
+		h, _, catalog := newTestHandlerWithCatalog()
+		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0", "2.0.0")
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "myitem", "1.0.0")
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+	})
+
+	t.Run("When OS refs a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		h, _, _ := newTestHandlerWithCatalog()
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "missing", "1.0.0")
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Contains(t, status.Message, "mycat/missing")
+	})
+
+	t.Run("When OS refs a nonexistent version it should return bad request", func(t *testing.T) {
+		h, _, catalog := newTestHandlerWithCatalog()
+		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "myitem", "9.9.9")
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Contains(t, status.Message, "9.9.9")
+	})
+
+	t.Run("When an application refs a valid catalog item version it should succeed", func(t *testing.T) {
+		h, _, catalog := newTestHandlerWithCatalog()
+		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+
+		fleet := createTestFleet("f1", nil)
+		fleet.Spec.Template.Spec.Applications = &[]domain.ApplicationProviderSpec{
+			makeFleetAppSpec(t, "mycat", "myitem", "1.0.0"),
+		}
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+	})
+
+	t.Run("When an application refs a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		h, _, _ := newTestHandlerWithCatalog()
+
+		fleet := createTestFleet("f1", nil)
+		fleet.Spec.Template.Spec.Applications = &[]domain.ApplicationProviderSpec{
+			makeFleetAppSpec(t, "mycat", "missing", "1.0.0"),
+		}
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Contains(t, status.Message, "mycat/missing")
+	})
+
+	t.Run("When no catalog refs exist it should succeed without catalog lookups", func(t *testing.T) {
+		h, _, _ := newTestHandlerWithCatalog()
+
+		fleet := createTestFleet("f1", nil)
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+	})
+
+	t.Run("When catalog store is nil validation is skipped", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "missing", "1.0.0")
+		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
+		require.Equal(t, statusCreatedCode, status.Code)
+	})
+}
+
+func TestReplaceFleet_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
+		h, fakeStore, catalog := newTestHandlerWithCatalog()
+		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+
+		existing := createTestFleet("f1", nil)
+		fakeStore.fleets["f1"] = &existing
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "myitem", "1.0.0")
+		_, status := h.ReplaceFleet(context.Background(), uuid.New(), "f1", fleet, true)
+		require.Equal(t, statusSuccessCode, status.Code)
+	})
+
+	t.Run("When OS refs a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandlerWithCatalog()
+
+		existing := createTestFleet("f1", nil)
+		fakeStore.fleets["f1"] = &existing
+
+		fleet := createFleetWithOSCatalogRef("f1", "mycat", "missing", "1.0.0")
+		_, status := h.ReplaceFleet(context.Background(), uuid.New(), "f1", fleet, true)
+		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Contains(t, status.Message, "mycat/missing")
+	})
+}
+
+func TestPatchFleet_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When patch introduces an invalid catalog item ref it should return bad request", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandlerWithCatalog()
+
+		existing := createTestFleet("f1", nil)
+		fakeStore.fleets["f1"] = &existing
+
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: "/spec/template/spec/os", Value: map[string]interface{}{
+				"catalogItemRef": map[string]interface{}{
+					"catalog": "mycat",
+					"item":    "missing",
+					"version": "1.0.0",
+				},
+			}},
+		}
+		_, status := h.PatchFleet(context.Background(), uuid.New(), "f1", patch, true)
+		require.Equal(t, statusBadRequestCode, status.Code)
+		require.Contains(t, status.Message, "mycat/missing")
 	})
 }

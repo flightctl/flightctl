@@ -1053,7 +1053,7 @@ func resolveCatalogItemRef(ctx context.Context, ref v1beta1.CatalogItemRefSpec, 
 	}
 
 	sep := ":"
-	if strings.HasPrefix(tag, "sha256:") || strings.HasPrefix(tag, "sha512:") {
+	if strings.Contains(tag, ":") {
 		sep = "@"
 	}
 	return artifact.Uri + sep + tag, nil

@@ -75,7 +75,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
-		fleetSvc = fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
+		fleetSvc = fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, log)
 		resourcesyncSvc = resourcesyncservice.NewServiceHandler(resourcesyncStore, catalogStore, fleetStore, eventsSvc, log)
 		catalogSvc = catalogservice.NewServiceHandler(catalogStore, deviceStore, eventsSvc, log)
 		resourceSync = tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, nil)

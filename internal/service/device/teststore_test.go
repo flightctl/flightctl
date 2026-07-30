@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
@@ -46,14 +47,16 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 // implements no store interface itself - just a convenience holder so handler_test.go's many
 // call sites can keep referencing st.device/st.fleet unchanged.
 type fakeStore struct {
-	device *fakeDeviceStore
-	fleet  *fakeFleetStore
+	device  *fakeDeviceStore
+	catalog *fakeCatalogStore
+	fleet   *fakeFleetStore
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		device: &fakeDeviceStore{devices: map[string]*domain.Device{}, repoRefs: map[string][]string{}},
-		fleet:  &fakeFleetStore{fleets: map[string]*domain.Fleet{}},
+		device:  &fakeDeviceStore{devices: map[string]*domain.Device{}, repoRefs: map[string][]string{}},
+		catalog: &fakeCatalogStore{items: map[string]*domain.CatalogItem{}},
+		fleet:   &fakeFleetStore{fleets: map[string]*domain.Fleet{}},
 	}
 }
 
@@ -389,4 +392,19 @@ func (f *fakeEvents) CreateEvent(ctx context.Context, orgId uuid.UUID, event *do
 }
 
 func (f *fakeEvents) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+}
+
+// fakeCatalogStore is a minimal stand-in for catalogstore.Store, implementing only GetItem.
+type fakeCatalogStore struct {
+	catalogstore.Store
+	items map[string]*domain.CatalogItem // key: "catalog/item"
+}
+
+func (s *fakeCatalogStore) GetItem(_ context.Context, _ uuid.UUID, catalogName string, itemName string) (*domain.CatalogItem, error) {
+	key := catalogName + "/" + itemName
+	item, ok := s.items[key]
+	if !ok {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	return item, nil
 }

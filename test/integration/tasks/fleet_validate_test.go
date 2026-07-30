@@ -80,9 +80,9 @@ var _ = Describe("FleetValidate", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, nil, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, newFleetStore, eventsSvc, kvStore, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, nil, newFleetStore, eventsSvc, kvStore, "", log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		spec := api.RepositorySpec{}

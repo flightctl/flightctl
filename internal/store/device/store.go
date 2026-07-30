@@ -331,8 +331,7 @@ func (s *DeviceStore) createDeviceOsCatalogRefIndex(db *gorm.DB) error {
 	}
 	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_os_catalog_ref
 		ON devices ((spec->'os'->'catalogItemRef'->>'catalog'), (spec->'os'->'catalogItemRef'->>'item'))
-		WHERE deleted_at IS NULL
-		  AND spec->'os'->'catalogItemRef' IS NOT NULL`).Error
+		WHERE deleted_at IS NULL`).Error
 }
 
 func (s *DeviceStore) createDeviceAppCatalogRefIndex(db *gorm.DB) error {
@@ -341,8 +340,7 @@ func (s *DeviceStore) createDeviceAppCatalogRefIndex(db *gorm.DB) error {
 	}
 	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_app_catalog_refs
 		ON devices USING GIN ((jsonb_path_query_array(spec, '$.applications[*].catalogItemRef')) jsonb_path_ops)
-		WHERE deleted_at IS NULL
-		  AND jsonb_path_exists(spec, '$.applications[*].catalogItemRef')`).Error
+		WHERE deleted_at IS NULL`).Error
 }
 
 func (s *DeviceStore) createDeviceVolumeCatalogRefIndex(db *gorm.DB) error {
@@ -351,8 +349,7 @@ func (s *DeviceStore) createDeviceVolumeCatalogRefIndex(db *gorm.DB) error {
 	}
 	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_volume_catalog_refs
 		ON devices USING GIN ((jsonb_path_query_array(spec, '$.applications[*].volumes[*].image.catalogItemRef')) jsonb_path_ops)
-		WHERE deleted_at IS NULL
-		  AND jsonb_path_exists(spec, '$.applications[*].volumes[*].image.catalogItemRef')`).Error
+		WHERE deleted_at IS NULL`).Error
 }
 
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {

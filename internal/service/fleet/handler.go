@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -18,14 +19,16 @@ import (
 )
 
 type ServiceHandler struct {
-	store  fleetstore.Store
-	events events.Service
-	log    logrus.FieldLogger
+	store        fleetstore.Store
+	catalogStore catalogstore.Store
+	events       events.Service
+	log          logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new fleet ServiceHandler instance.
-func NewServiceHandler(store fleetstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, events: events, log: log}
+// catalogStore is optional — when nil, catalog item ref validation is skipped.
+func NewServiceHandler(store fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, catalogStore: catalogStore, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -58,6 +61,10 @@ func ReplaceFleetFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	if errs := fleet.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &fleet.Spec.Template.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	result, err := h.store.Create(ctx, orgId, &fleet, h.callbackFleetUpdated)
@@ -96,6 +103,10 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 	}
 	if name != *fleet.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &fleet.Spec.Template.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	if enforceOwnership {
@@ -171,6 +182,10 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 
 	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &newObj.Spec.Template.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)

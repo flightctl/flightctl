@@ -201,9 +201,9 @@ func (s *Server) Run(ctx context.Context) error {
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
 	deviceSvc := deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
 	fleetSvc := fleetservice.WrapWithTracing(
-		fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
