@@ -6,6 +6,14 @@ inputs:
     description: 'Setup kvm in the VM'
     required: false
     default: ''
+  skip_package_install:
+    description: >-
+      Skip apt installs and tool downloads already baked into the custom
+      runner image (flightctl-ci-runner). Use on workflows that run on that
+      image so apt does not pull package upgrades every job. Leave false on
+      stock GitHub-hosted runners (e.g. ubuntu-24.04 Smoke).
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
@@ -15,6 +23,7 @@ runs:
           go-version: '1.25.9'
 
       - name: Prepare apt cache directory
+        if: ${{ inputs.skip_package_install != 'true' }}
         shell: bash
         run: |
           echo "APT_CACHE_DIR=${HOME}/.cache/apt-archives" >> "$GITHUB_ENV"
@@ -28,6 +37,7 @@ runs:
       # ownership, but actions/cache can too.
       - name: Restore apt cache
         id: restore-apt-cache
+        if: ${{ inputs.skip_package_install != 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
@@ -38,7 +48,7 @@ runs:
 
       - name: Enable KVM group perms
         shell: bash
-        if: inputs.setup_kvm != ''
+        if: ${{ inputs.setup_kvm != '' && inputs.skip_package_install != 'true' }}
         run: |
           echo "::group::Setting up KVM and virtualization tools"
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -52,6 +62,7 @@ runs:
           echo "::endgroup::"
 
       - name: Install dependencies
+        if: ${{ inputs.skip_package_install != 'true' }}
         shell: bash
         run: |
           echo "::group::Installing general dependencies"
@@ -83,10 +94,24 @@ runs:
           go install oras.land/oras/cmd/oras@v1.3.0
           oras version
           echo "::endgroup::"
+
+      # Custom runner image already has apt packages, crun, protoc, oras, and KVM.
+      # Still prime Podman and log versions for diagnostics.
+      - name: Verify preinstalled dependencies
+        if: ${{ inputs.skip_package_install == 'true' }}
+        shell: bash
+        run: |
+          echo "::group::Verifying preinstalled dependencies (custom runner image)"
+          podman info >/dev/null 2>&1 || true
+          podman --version
+          crun --version
+          protoc --version
+          oras version
+          echo "::endgroup::"
       
       - name: Install bubblewrap for unit tests
         shell: bash
-        if: ${{ inputs.unit_tests == 'true' }}
+        if: ${{ inputs.unit_tests == 'true' && inputs.skip_package_install != 'true' }}
         run: |
           sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
           sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap || true
@@ -101,7 +126,7 @@ runs:
           echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
 
       - name: Save apt cache
-        if: ${{ github.ref == 'refs/heads/main' && steps.restore-apt-cache.outputs.cache-hit != 'true' }}
+        if: ${{ inputs.skip_package_install != 'true' && github.ref == 'refs/heads/main' && steps.restore-apt-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}

@@ -71,6 +71,9 @@ jobs:
         uses: ./.github/actions/setup-dependencies
         with:
           setup_kvm: yes
+          # Custom image (flightctl-ci-ubuntu-24) already has apt packages, KVM,
+          # crun, protoc, and oras. Skipping avoids apt upgrades every job.
+          skip_package_install: 'true'
 
       - name: Compute base domain
         id: base-domain
