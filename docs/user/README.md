@@ -23,6 +23,7 @@ Welcome to the Flight Control user documentation.
     * [Configuring Authentication and Authorization](installing/configuring-auth/overview.md)
     * [Configuring an External PostgreSQL Database](installing/configuring-external-database.md)
     * [Configuring the ImageBuilder Worker](installing/configuring-imagebuilder.md)
+    * [Configuring VM application rendering](installing/configuring-vm-render.md)
     * [Configuring Device Attestation](installing/configuring-device-attestation.md)
     * [Configuring Rate Limits on API Requests](installing/configuring-rate-limiting.md)
     * [Configuring Vulnerability Integration](installing/configuring-vulnerability-integration.md)

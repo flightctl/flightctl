@@ -1,6 +1,8 @@
 package model
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -28,14 +31,15 @@ type Device struct {
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions] `gorm:"type:jsonb"`
 
-	// The rendered device config
-	RenderedConfig *JSONField[*[]domain.ConfigProviderSpec] `gorm:"type:jsonb"`
+	// Encrypted at rest as a whole blob. The existing DB column is jsonb;
+	// keeping the tag prevents GORM from attempting a column type migration.
+	RenderedConfig *JSONField[json.RawMessage] `gorm:"type:jsonb"`
 
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
-	// The rendered application provided by the service.
-	RenderedApplications *JSONField[*[]domain.ApplicationProviderSpec] `gorm:"type:jsonb"`
+	// Encrypted at rest as a whole blob (see RenderedConfig).
+	RenderedApplications *JSONField[json.RawMessage] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
@@ -139,7 +143,7 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
@@ -153,6 +157,28 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 
 func DeviceAPIVersion() string {
 	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.DeviceAPIVersion)
+}
+
+// decryptRenderedField decrypts a rendered config or applications field stored
+// as jsonb. The RawMessage holds the raw JSON token: a quoted string for
+// encrypted data ("enc:v1:default:...") or a bare array for legacy plaintext.
+func decryptRenderedField(ctx context.Context, field *JSONField[json.RawMessage]) ([]byte, error) {
+	if field == nil || len(field.Data) == 0 {
+		return nil, nil
+	}
+	raw := []byte(field.Data)
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	// Encrypted: RawMessage is a JSON string "enc:v1:default:...".
+	// Unmarshal extracts the inner string for decryption.
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		decrypted, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(str))
+		return decrypted, err
+	}
+	// BC: unencrypted legacy data is a bare JSON array, e.g. [{...}]
+	return raw, nil
 }
 
 func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error) {
@@ -171,6 +197,11 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 	}
 
 	if apiOpts.isRendered {
+		ctx := apiOpts.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
 		annotations := util.EnsureMap(d.Annotations)
 		renderedVersion, ok := annotations[domain.DeviceAnnotationRenderedVersion]
 		if !ok {
@@ -204,9 +235,26 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 			}
 		}
 		// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
-		spec.Config = d.RenderedConfig.Data
-		spec.Applications = d.RenderedApplications.Data
 		spec.Consoles = &consoles
+
+		if data, err := decryptRenderedField(ctx, d.RenderedConfig); err != nil {
+			return nil, fmt.Errorf("decrypt rendered config: %w", err)
+		} else if data != nil {
+			var config []domain.ConfigProviderSpec
+			if err := json.Unmarshal(data, &config); err != nil {
+				return nil, fmt.Errorf("unmarshal rendered config: %w", err)
+			}
+			spec.Config = &config
+		}
+		if data, err := decryptRenderedField(ctx, d.RenderedApplications); err != nil {
+			return nil, fmt.Errorf("decrypt rendered applications: %w", err)
+		} else if data != nil {
+			var apps []domain.ApplicationProviderSpec
+			if err := json.Unmarshal(data, &apps); err != nil {
+				return nil, fmt.Errorf("unmarshal rendered applications: %w", err)
+			}
+			spec.Applications = &apps
+		}
 	}
 
 	status := domain.NewDeviceStatus()
@@ -252,6 +300,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
+	osModeStatuses := make(map[string]int64)
 	for i, device := range devices {
 		dptr, ok := any(&device).(DeviceTypePtr)
 		if !ok {
@@ -265,6 +314,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 		summaryStatuses[summaryStatus] = summaryStatuses[summaryStatus] + 1
 		updateStatus := string(deviceList[i].Status.Updated.Status)
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
+		osModeStatuses[deviceOsModeCountKey(deviceList[i].Status)]++
 	}
 	ret := domain.DeviceList{
 		ApiVersion: DeviceAPIVersion(),
@@ -275,6 +325,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 			ApplicationStatus: applicationStatuses,
 			SummaryStatus:     summaryStatuses,
 			UpdateStatus:      updateStatuses,
+			Capabilities:      NewDevicesSummaryCapabilities(osModeStatuses),
 			Total:             int64(len(devices)),
 		},
 	}

@@ -40,7 +40,7 @@ func (s *vmVNCSession) Run(ctx context.Context, streamClient grpc_v1.RouterServi
 		return
 	}
 
-	conn, err := s.exec.ExecStream(ctx, s.containerName, "nc", "-U", vmVNCSocketPath)
+	conn, err := dialVMUnixSocket(ctx, s.exec, s.containerName, vmVNCSocketPath, s.log)
 	if err != nil {
 		sendErrorOverStream(streamClient, fmt.Sprintf("failed to connect to VNC console for %s: %v", s.containerName, err))
 		return

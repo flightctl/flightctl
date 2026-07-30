@@ -28,6 +28,7 @@ type Config struct {
 	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
 	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
 	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
+	Worker                 *workerConfig              `json:"worker,omitempty"`
 	KV                     *kvConfig                  `json:"kv,omitempty"`
 	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
 	Auth                   *authConfig                `json:"auth,omitempty"`
@@ -404,6 +405,63 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 	return c != nil && c.ServiceImages != nil && c.ServiceImages.Syft != nil && c.ServiceImages.Syft.SkipTLSVerify
 }
 
+const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.8.4"
+
+// workerConfig holds configuration for the flightctl-worker service.
+type workerConfig struct {
+	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
+}
+
+// vmRenderConfig holds options for converting VmApplications to Quadlet units
+// via vm-to-quadlet.
+type vmRenderConfig struct {
+	LauncherImage    string `json:"launcherImage,omitempty"`
+	PasstWorkarounds *bool  `json:"passtWorkarounds,omitempty"`
+}
+
+// NewDefaultWorkerConfig returns the default flightctl-worker configuration.
+func NewDefaultWorkerConfig() *workerConfig {
+	passt := true
+	return &workerConfig{
+		VmRender: &vmRenderConfig{
+			LauncherImage:    DefaultVirtLauncherImage,
+			PasstWorkarounds: &passt,
+		},
+	}
+}
+
+// EffectiveVmLauncherImage returns the virt-launcher image used for VM render.
+func (c *Config) EffectiveVmLauncherImage() string {
+	if c == nil || c.Worker == nil {
+		return DefaultVirtLauncherImage
+	}
+	return c.Worker.EffectiveLauncherImage()
+}
+
+// EffectiveVmPasstWorkarounds returns whether passt workarounds are enabled for VM render.
+func (c *Config) EffectiveVmPasstWorkarounds() bool {
+	if c == nil || c.Worker == nil {
+		return true
+	}
+	return c.Worker.EffectivePasstWorkarounds()
+}
+
+// EffectiveLauncherImage returns the virt-launcher image (config override or default).
+func (c *workerConfig) EffectiveLauncherImage() string {
+	if c != nil && c.VmRender != nil && c.VmRender.LauncherImage != "" {
+		return c.VmRender.LauncherImage
+	}
+	return DefaultVirtLauncherImage
+}
+
+// EffectivePasstWorkarounds returns whether passt workarounds are enabled (default true).
+func (c *workerConfig) EffectivePasstWorkarounds() bool {
+	if c != nil && c.VmRender != nil && c.VmRender.PasstWorkarounds != nil {
+		return *c.VmRender.PasstWorkarounds
+	}
+	return true
+}
+
 // IsSBOMEnabled returns whether SBOM generation is enabled.
 func (c *imageBuilderWorkerConfig) IsSBOMEnabled() bool {
 	if c == nil || c.SBOM == nil {
@@ -675,6 +733,12 @@ type periodicTaskConfig struct {
 
 type periodicTasksConfig struct {
 	ResourceSync periodicTaskConfig `json:"resourceSync,omitempty"`
+	// DependencySync overrides the interval for both the dependency-sync-git and
+	// dependency-sync-http periodic tasks (see DefaultDependencySyncTaskInterval).
+	DependencySync periodicTaskConfig `json:"dependencySync,omitempty"`
+	// RepositoryTester overrides the interval for the repository-tester periodic task,
+	// which probes Repository resources and sets their Accessible condition.
+	RepositoryTester periodicTaskConfig `json:"repositoryTester,omitempty"`
 }
 
 type periodicConfig struct {
@@ -934,6 +998,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 		RemoteAccessService: NewDefaultRemoteAccessServiceConfig(),
 		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
 		ImageBuilderWorker:  NewDefaultImageBuilderWorkerConfig(),
+		Worker:              NewDefaultWorkerConfig(),
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,

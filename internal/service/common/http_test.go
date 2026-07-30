@@ -6,64 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/stretchr/testify/require"
 )
-
-func TestIsInternalRequest(t *testing.T) {
-	tests := []struct {
-		name     string
-		ctx      context.Context
-		expected bool
-	}{
-		{
-			name:     "When the context has no internal-request value it should return false",
-			ctx:      context.Background(),
-			expected: false,
-		},
-		{
-			name:     "When the context has internal-request set to true it should return true",
-			ctx:      context.WithValue(context.Background(), consts.InternalRequestCtxKey, true),
-			expected: true,
-		},
-		{
-			name:     "When the context has internal-request set to false it should return false",
-			ctx:      context.WithValue(context.Background(), consts.InternalRequestCtxKey, false),
-			expected: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, IsInternalRequest(tt.ctx))
-		})
-	}
-}
-
-func TestIsResourceSyncRequest(t *testing.T) {
-	tests := []struct {
-		name     string
-		ctx      context.Context
-		expected bool
-	}{
-		{
-			name:     "When the context has no resource-sync-request value it should return false",
-			ctx:      context.Background(),
-			expected: false,
-		},
-		{
-			name:     "When the context has resource-sync-request set to true it should return true",
-			ctx:      context.WithValue(context.Background(), consts.ResourceSyncRequestCtxKey, true),
-			expected: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, IsResourceSyncRequest(tt.ctx))
-		})
-	}
-}
 
 func TestNilOutManagedObjectMetaProperties(t *testing.T) {
 	t.Run("When om is nil it should not panic", func(t *testing.T) {

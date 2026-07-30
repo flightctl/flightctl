@@ -32,6 +32,12 @@ func deepCopyDevice(src *domain.Device) *domain.Device {
 	if err := json.Unmarshal(data, dst); err != nil {
 		panic(fmt.Sprintf("deepCopyDevice failed in test: %v", err))
 	}
+	// Status.LastSeen is tagged `json:"-"` (the real store persists it as its own DB
+	// column, not as part of the JSON status blob), so it doesn't survive the JSON
+	// round trip above; copy it explicitly to mirror real persistence.
+	if src.Status != nil && dst.Status != nil {
+		dst.Status.LastSeen = src.Status.LastSeen
+	}
 	return dst
 }
 
@@ -84,13 +90,25 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func preserveNilMetadata(device, existing *domain.Device, fieldsToUnset []string) {
+	if device.Metadata.Owner == nil && !lo.Contains(fieldsToUnset, "owner") {
+		device.Metadata.Owner = existing.Metadata.Owner
+	}
+	if device.Metadata.Annotations == nil && !lo.Contains(fieldsToUnset, "annotations") {
+		device.Metadata.Annotations = existing.Metadata.Annotations
+	}
+}
+
+func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, existed := s.devices[name]
 	if existed && validationCallback != nil {
 		if err := validationCallback(ctx, old, device); err != nil {
 			return nil, false, err
 		}
+	}
+	if existed {
+		preserveNilMetadata(device, old, fieldsToUnset)
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
@@ -101,7 +119,7 @@ func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, d
 	return deepCopyDevice(d), created, nil
 }
 
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	old, ok := s.devices[name]
 	if !ok {
@@ -112,6 +130,7 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 			return nil, err
 		}
 	}
+	preserveNilMetadata(device, old, fieldsToUnset)
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	if eventCallback != nil {
@@ -119,7 +138,6 @@ func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	return deepCopyDevice(d), nil
 }
-
 func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
 	old, ok := s.devices[name]
 	if !ok {

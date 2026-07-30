@@ -69,8 +69,6 @@ const (
 	CheckpointKeyGlobal              = "global_checkpoint"
 
 	// Ctx
-	InternalRequestCtxKey      ctxKey = "internal-request"
-	ResourceSyncRequestCtxKey  ctxKey = "resource-sync-request"
 	DelayDeviceRenderCtxKey    ctxKey = "delay-device-render"
 	EventSourceComponentCtxKey ctxKey = "event-source"
 	EventActorCtxKey           ctxKey = "event-actor"

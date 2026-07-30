@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateAuthProvider(w http.ResponseWriter, r *http.Req
 	}
 
 	domainAP := h.converter.AuthProvider().ToDomain(authProvider)
-	body, status := h.authprovider.CreateAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), domainAP)
+	body, status := authproviderservice.CreateAuthProviderFromUntrusted(r.Context(), h.authprovider, transport.OrgIDFromContext(r.Context()), domainAP)
 	apiResult := h.converter.AuthProvider().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +47,7 @@ func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Re
 	}
 
 	domainAP := h.converter.AuthProvider().ToDomain(authProvider)
-	body, status := h.authprovider.ReplaceAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainAP)
+	body, status := authproviderservice.ReplaceAuthProviderFromUntrusted(r.Context(), h.authprovider, transport.OrgIDFromContext(r.Context()), name, domainAP)
 	apiResult := h.converter.AuthProvider().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

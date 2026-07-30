@@ -60,18 +60,18 @@ func (_d *TracedService) CreateCatalogItem(ctx context.Context, orgId uuid.UUID,
 	return cp1, s1
 }
 
-func (_d *TracedService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) (s1 domain.Status) {
+func (_d *TracedService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string, enforceOwnership bool) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "DeleteCatalog")
 
-	s1 = _d.inner.DeleteCatalog(ctx, orgId, name)
+	s1 = _d.inner.DeleteCatalog(ctx, orgId, name, enforceOwnership)
 	endSpan(span, s1)
 	return s1
 }
 
-func (_d *TracedService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (s1 domain.Status) {
+func (_d *TracedService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, enforceOwnership bool) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "DeleteCatalogItem")
 
-	s1 = _d.inner.DeleteCatalogItem(ctx, orgId, catalogName, itemName)
+	s1 = _d.inner.DeleteCatalogItem(ctx, orgId, catalogName, itemName, enforceOwnership)
 	endSpan(span, s1)
 	return s1
 }
@@ -124,18 +124,18 @@ func (_d *TracedService) ListCatalogs(ctx context.Context, orgId uuid.UUID, para
 	return cp1, s1
 }
 
-func (_d *TracedService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (cp1 *domain.Catalog, s1 domain.Status) {
+func (_d *TracedService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (cp1 *domain.Catalog, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchCatalog")
 
-	cp1, s1 = _d.inner.PatchCatalog(ctx, orgId, name, patch)
+	cp1, s1 = _d.inner.PatchCatalog(ctx, orgId, name, patch, enforceOwnership)
 	endSpan(span, s1)
 	return cp1, s1
 }
 
-func (_d *TracedService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (cp1 *domain.CatalogItem, s1 domain.Status) {
+func (_d *TracedService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest, enforceOwnership bool) (cp1 *domain.CatalogItem, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchCatalogItem")
 
-	cp1, s1 = _d.inner.PatchCatalogItem(ctx, orgId, catalogName, itemName, patch)
+	cp1, s1 = _d.inner.PatchCatalogItem(ctx, orgId, catalogName, itemName, patch, enforceOwnership)
 	endSpan(span, s1)
 	return cp1, s1
 }
@@ -148,18 +148,18 @@ func (_d *TracedService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	return cp1, s1
 }
 
-func (_d *TracedService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (cp1 *domain.Catalog, s1 domain.Status) {
+func (_d *TracedService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog, enforceOwnership bool) (cp1 *domain.Catalog, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceCatalog")
 
-	cp1, s1 = _d.inner.ReplaceCatalog(ctx, orgId, name, catalog)
+	cp1, s1 = _d.inner.ReplaceCatalog(ctx, orgId, name, catalog, enforceOwnership)
 	endSpan(span, s1)
 	return cp1, s1
 }
 
-func (_d *TracedService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem) (cp1 *domain.CatalogItem, s1 domain.Status) {
+func (_d *TracedService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem, enforceOwnership bool) (cp1 *domain.CatalogItem, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceCatalogItem")
 
-	cp1, s1 = _d.inner.ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item)
+	cp1, s1 = _d.inner.ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item, enforceOwnership)
 	endSpan(span, s1)
 	return cp1, s1
 }

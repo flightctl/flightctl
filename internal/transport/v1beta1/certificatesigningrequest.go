@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	csrservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -25,7 +26,7 @@ func (h *TransportHandler) CreateCertificateSigningRequest(w http.ResponseWriter
 	}
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
-	body, status := h.certificatesigningrequest.CreateCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), domainCSR)
+	body, status := csrservice.CreateCertificateSigningRequestFromUntrusted(r.Context(), h.certificatesigningrequest, transport.OrgIDFromContext(r.Context()), domainCSR)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -66,7 +67,7 @@ func (h *TransportHandler) ReplaceCertificateSigningRequest(w http.ResponseWrite
 	}
 
 	domainCSR := h.converter.CertificateSigningRequest().ToDomain(csr)
-	body, status := h.certificatesigningrequest.ReplaceCertificateSigningRequest(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainCSR)
+	body, status := csrservice.ReplaceCertificateSigningRequestFromUntrusted(r.Context(), h.certificatesigningrequest, transport.OrgIDFromContext(r.Context()), name, domainCSR)
 	apiResult := h.converter.CertificateSigningRequest().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

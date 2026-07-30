@@ -293,11 +293,68 @@ func (m *mockStrategy) ParseBody(body []byte) (*ParsedEncrypted, error) {
 	return &ParsedEncrypted{KeyID: m.activeKeyID, Payload: body}, nil
 }
 
+func (m *mockStrategy) EncryptWithKey(ctx context.Context, keyID string, plaintext []byte) ([]byte, error) {
+	if m.encryptFunc != nil {
+		return m.encryptFunc(ctx, plaintext)
+	}
+	return []byte(keyID + ":encrypted"), nil
+}
+
 func (m *mockStrategy) DecryptParsed(ctx context.Context, parsed *ParsedEncrypted) ([]byte, error) {
 	if m.decryptParsedFunc != nil {
 		return m.decryptParsedFunc(ctx, parsed)
 	}
 	return []byte("decrypted"), nil
+}
+
+func TestManager_InspectEncrypted(t *testing.T) {
+	mgr := NewManager()
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+
+	v1 := newV1Strategy()
+	require.NoError(t, v1.AddKey("default", key, true))
+	mgr.RegisterStrategy(v1, true)
+
+	ctx := context.Background()
+
+	t.Run("When plaintext it should report not encrypted", func(t *testing.T) {
+		version, keyID, encrypted, err := mgr.InspectEncrypted([]byte("plain-secret"))
+		require.NoError(t, err)
+		assert.False(t, encrypted)
+		assert.Empty(t, version)
+		assert.Empty(t, keyID)
+	})
+
+	t.Run("When encrypted with v1 it should return version and key ID", func(t *testing.T) {
+		ciphertext, err := mgr.Encrypt(ctx, []byte("plain-secret"))
+		require.NoError(t, err)
+
+		version, keyID, encrypted, err := mgr.InspectEncrypted(ciphertext)
+		require.NoError(t, err)
+		assert.True(t, encrypted)
+		assert.Equal(t, "v1", version)
+		assert.Equal(t, "default", keyID)
+	})
+
+	t.Run("When enc prefix is malformed it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v1"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
+
+	t.Run("When strategy body is malformed it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v1:not-a-valid-body"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
+
+	t.Run("When strategy version is unknown it should return an error", func(t *testing.T) {
+		_, _, encrypted, err := mgr.InspectEncrypted([]byte("enc:v99:default:abc"))
+		require.Error(t, err)
+		assert.False(t, encrypted)
+	})
 }
 
 // TestProcessEncryption tests the smart re-encryption logic
@@ -594,6 +651,112 @@ func assertHasAttribute(t *testing.T, attrs []attribute.KeyValue, key, value str
 		}
 	}
 	t.Errorf("Expected attribute %s=%s not found in %v", key, value, attrs)
+}
+
+func TestManager_ValidateCanaries_ExistingCanaries(t *testing.T) {
+	mgr := createTestManager(t)
+	store := newMemoryCanaryStore()
+	mgr.SetCanaryStore(store)
+
+	ctx := context.Background()
+
+	cm := mgr.CanaryManager()
+	require.NotNil(t, cm)
+	require.NoError(t, cm.EnsureCanary(ctx, "v1", "default"))
+
+	err := mgr.ValidateCanaries(ctx)
+	require.NoError(t, err)
+}
+
+func TestManager_ValidateCanaries_NoCanaryStore(t *testing.T) {
+	mgr := createTestManager(t)
+	ctx := context.Background()
+
+	err := mgr.ValidateCanaries(ctx)
+	require.NoError(t, err, "should be a no-op when no canary store is set")
+}
+
+func TestManager_ValidateCanaries_KeyIncompatibleAfterRestart(t *testing.T) {
+	key1 := make([]byte, 32)
+	_, err := rand.Read(key1)
+	require.NoError(t, err)
+
+	key2 := make([]byte, 32)
+	_, err = rand.Read(key2)
+	require.NoError(t, err)
+
+	store := newMemoryCanaryStore()
+	ctx := context.Background()
+
+	// Simulate first boot: create canary with key1
+	mgr1 := NewManager()
+	v1a := newV1Strategy()
+	require.NoError(t, v1a.AddKey("default", key1, true))
+	mgr1.RegisterStrategy(v1a, true)
+	mgr1.SetCanaryStore(store)
+
+	cm := mgr1.CanaryManager()
+	require.NotNil(t, cm)
+	require.NoError(t, cm.EnsureCanary(ctx, "v1", "default"))
+
+	require.NoError(t, mgr1.ValidateCanaries(ctx))
+
+	// Simulate restart with different key material under same key ID
+	mgr2 := NewManager()
+	v1b := newV1Strategy()
+	require.NoError(t, v1b.AddKey("default", key2, true))
+	mgr2.RegisterStrategy(v1b, true)
+	mgr2.SetCanaryStore(store)
+
+	err = mgr2.ValidateCanaries(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canary validation failed")
+}
+
+func TestManager_ValidateCanaries_StrategyRemovedAfterRestart(t *testing.T) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+
+	store := newMemoryCanaryStore()
+	ctx := context.Background()
+
+	// First boot: register v1 + v2, create canaries for both
+	mgr1 := NewManager()
+	v1 := newV1Strategy()
+	require.NoError(t, v1.AddKey("default", key, true))
+	mgr1.RegisterStrategy(v1, true)
+	mgr1.RegisterStrategy(&mockStrategy{
+		version:     "v2",
+		activeKeyID: "k1",
+		encryptFunc: func(ctx context.Context, data []byte) ([]byte, error) {
+			return []byte("k1:v2-encrypted"), nil
+		},
+		parseBodyFunc: func(body []byte) (*ParsedEncrypted, error) {
+			return &ParsedEncrypted{KeyID: "k1", Payload: body}, nil
+		},
+		decryptParsedFunc: func(ctx context.Context, parsed *ParsedEncrypted) ([]byte, error) {
+			return []byte("flightctl-canary-v2-k1"), nil
+		},
+	}, true)
+	mgr1.SetCanaryStore(store)
+
+	cm := mgr1.CanaryManager()
+	require.NotNil(t, cm)
+	require.NoError(t, cm.EnsureCanary(ctx, "v1", "default"))
+	require.NoError(t, cm.EnsureCanary(ctx, "v2", "k1"))
+	require.NoError(t, mgr1.ValidateCanaries(ctx))
+
+	// Restart with only v1 — v2 strategy removed entirely
+	mgr2 := NewManager()
+	v1b := newV1Strategy()
+	require.NoError(t, v1b.AddKey("default", key, true))
+	mgr2.RegisterStrategy(v1b, true)
+	mgr2.SetCanaryStore(store)
+
+	err = mgr2.ValidateCanaries(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canary validation failed")
 }
 
 func TestManager_Encrypt_ErrorSpan(t *testing.T) {

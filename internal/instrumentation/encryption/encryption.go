@@ -46,6 +46,7 @@ type Manager struct {
 	strategies     map[string]Strategy
 	activeStrategy string // Which strategy to use for new encryptions
 	metrics        MetricsRecorder
+	canaryManager  *CanaryManager
 }
 
 // ParsedEncrypted contains the parsed components of a strategy-specific
@@ -103,36 +104,19 @@ type Strategy interface {
 	// ConfiguredKeys returns all configured key IDs for this strategy.
 	ConfiguredKeys() []string
 
-	// EncryptPlaintext encrypts plaintext using the strategy's active key and
-	// returns the strategy-specific body to be stored after "enc:<version>:".
-	//
-	// For v1, the returned body is:
-	//
-	//	<keyID>:<base64(nonce||ciphertext||tag)>
-	//
-	// The returned body must not include the outer "enc:<version>:" prefix.
-	// The strategy must not try to detect already-encrypted input.
+	// EncryptPlaintext encrypts plaintext using the strategy's active key.
+	// Returns the strategy-specific body containing the key ID and encrypted payload,
 	EncryptPlaintext(ctx context.Context, plaintext []byte) ([]byte, error)
 
-	// ParseBody parses the strategy-specific body from the outer envelope.
-	//
-	// For v1:
-	//
-	//	<keyID>:<base64data>
-	//
-	// becomes:
-	//
-	//	ParsedEncrypted{KeyID: keyID, Payload: decodedBase64}
-	//
-	// ParseBody must perform strict format validation. It must not treat
-	// malformed strategy bodies as plaintext.
+	// EncryptWithKey encrypts plaintext using a specific key by ID.
+	// Same return format as EncryptPlaintext.
+	EncryptWithKey(ctx context.Context, keyID string, plaintext []byte) ([]byte, error)
+
+	// ParseBody parses the body returned by EncryptPlaintext/EncryptWithKey
+	// into a ParsedEncrypted containing the key ID and raw payload.
 	ParseBody(body []byte) (*ParsedEncrypted, error)
 
 	// DecryptParsed decrypts a value previously parsed by ParseBody.
-	//
-	// The strategy uses parsed.KeyID to select the configured key. It must fail
-	// if the key is unavailable, the payload is malformed, or authentication
-	// fails.
 	DecryptParsed(ctx context.Context, parsed *ParsedEncrypted) ([]byte, error)
 }
 

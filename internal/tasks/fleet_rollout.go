@@ -333,6 +333,9 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		if status.Code != http.StatusOK {
 			errs = append(errs, common.ApiStatusToErr(status))
 		}
+		if err := f.deviceSvc.ForceUpdateServerSideDeviceStatus(ctx, f.orgId, *device.Metadata.Name); err != nil {
+			f.log.Errorf("failed to update server-side status for device %s/%s after rollout error: %v", f.orgId, *device.Metadata.Name, err)
+		}
 		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
@@ -1072,7 +1075,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 		}
 		device.Spec = newDeviceSpec
 		newCtx := context.WithValue(ctx, consts.DelayDeviceRenderCtxKey, delayDeviceRender)
-		_, status = f.deviceSvc.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil)
+		_, status = f.deviceSvc.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil, false)
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {
 				device, status = f.deviceSvc.GetDevice(ctx, f.orgId, *device.Metadata.Name)

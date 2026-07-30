@@ -41,7 +41,7 @@ func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
 		log.Infof("OS managed by rpm-ostree client")
 		return newRpmOSTreeClient(exec)
 	default:
-		log.Warnf("OS not managed by any supported OS manager. Using dummy client.")
+		log.Infof("package-mode / no image manager; using no-op OS client")
 		return newDummyClient(log)
 	}
 }
@@ -117,7 +117,7 @@ func newDummyClient(log *log.PrefixLogger) *dummy {
 	}
 }
 
-// dummy client for unsupported OS
+// dummy client for package-mode (no image manager)
 type dummy struct {
 	log *log.PrefixLogger
 }
@@ -127,16 +127,16 @@ func (d *dummy) Status(ctx context.Context) (*Status, error) {
 }
 
 func (d *dummy) Switch(ctx context.Context, image string) error {
-	d.log.Debugf("Ignoring switch to image %s from dummy client for unsupported OS", image)
+	d.log.Debugf("Ignoring switch to image %s from dummy client for package-mode", image)
 	return nil
 }
 
 func (d *dummy) Rollback(ctx context.Context) error {
-	d.log.Debugf("Ignoring rollback and reboot from dummy client for unsupported OS")
+	d.log.Debugf("Ignoring rollback and reboot from dummy client for package-mode")
 	return nil
 }
 
 func (d *dummy) Apply(ctx context.Context) error {
-	d.log.Debugf("Ignoring apply from dummy client for unsupported OS")
+	d.log.Debugf("Ignoring apply from dummy client for package-mode")
 	return nil
 }

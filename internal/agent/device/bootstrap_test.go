@@ -66,7 +66,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
@@ -99,7 +99,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
+					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
@@ -130,7 +130,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
@@ -316,7 +316,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		{
 			name: "happy path - no OS update in progress",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 				mockSpecManager.EXPECT().IsUpgrading().Return(false)
 				mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil)
 			},
@@ -325,7 +325,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		{
 			name: "no OS update - rollback completed marks version as failed",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 				mockSpecManager.EXPECT().IsUpgrading().Return(false)
 				mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{Version: "2", SpecHash: "abc123"}, nil)
 				mockSpecManager.EXPECT().SetUpgradeFailed("2", "abc123").Return(nil)
@@ -335,7 +335,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		{
 			name: "no OS update - still upgrading does not mark as failed",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false)
 				mockSpecManager.EXPECT().IsUpgrading().Return(true)
 			},
 			expectedError: nil,
@@ -343,7 +343,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		{
 			name: "OS image reconciliation failure",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", false, specErr)
 			},
 			expectedError: specErr,
@@ -352,7 +352,7 @@ func TestEnsureBootedOS(t *testing.T) {
 			name: "OS image not reconciled triggers rollback",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
 				mockSpecManager.EXPECT().OSVersion(gomock.Any()).Return("desired-image")
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("unexpected-booted-image", false, nil)
 				mockSpecManager.EXPECT().IsRollingBack(gomock.Any()).Return(true, nil)
 				mockSpecManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
@@ -365,7 +365,7 @@ func TestEnsureBootedOS(t *testing.T) {
 		{
 			name: "OS image reconciled",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
-				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("desired-image", true, nil)
 			},
 			expectedError: nil,

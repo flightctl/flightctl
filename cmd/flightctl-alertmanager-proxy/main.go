@@ -36,6 +36,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -217,6 +218,10 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if err := canaryservice.InitEncryption(ctx, db, logger); err != nil {
+		logger.Fatalf("initializing encryption canary store: %v", err)
+	}
 
 	// Handle graceful shutdown
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)

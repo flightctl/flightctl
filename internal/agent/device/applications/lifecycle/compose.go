@@ -112,7 +112,7 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 }
 
 // stopAndRemoveContainers stops and removes all containers, pods, networks,
-// and image-backed volumes created by the compose application.
+// and ephemeral (image-backed or tmpfs-backed) volumes created by the compose application.
 func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action, podman *client.Podman) error {
 	return cleanPodmanResources(
 		ctx,
@@ -149,7 +149,7 @@ func cleanPodmanResources(ctx context.Context, log *log.PrefixLogger, podman *cl
 	if err := podman.RemoveNetworks(ctx, networks...); err != nil {
 		errs = append(errs, err)
 	}
-	if err := removeImageBackedVolumes(ctx, log, podman, labels, filters); err != nil {
+	if err := removeEphemeralVolumes(ctx, log, podman, labels, filters); err != nil {
 		errs = append(errs, err)
 	}
 

@@ -267,8 +267,8 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			// Mock ReplaceDevice to capture the delayDeviceRender value from context
 			// This will be called during the device update process, allowing us to verify propagation
 			var capturedDelayDeviceRender bool
-			mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
+			mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
 					// Debug: Print the device owner when ReplaceDevice is called
 					if device.Metadata.Owner != nil {
 						t.Logf("ReplaceDevice called with device owner: %s", *device.Metadata.Owner)
@@ -365,8 +365,8 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 
 			// Mock ReplaceDevice to capture the context value
 			var capturedDelayDeviceRender bool
-			mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
+			mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
 					// Extract the delayDeviceRender value from context
 					if delayValue, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool); ok {
 						capturedDelayDeviceRender = delayValue
@@ -402,6 +402,55 @@ func createTestDeviceWithLabels(name string, owner string, labels map[string]str
 			Conditions: []domain.Condition{},
 		},
 	}
+}
+
+func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_TemplateRenderingFailure(t *testing.T) {
+	t.Run("When template rendering fails it should set lastRolloutError and recompute device status", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		orgId := uuid.New()
+		log := logrus.New()
+		fleetName := "test-fleet"
+		event := domain.Event{
+			InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
+		}
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		logic := NewFleetRolloutsLogic(log, nil, nil, mockDeviceSvc, nil, orgId, event)
+		logic.owner = lo.FromPtr(util.SetResourceOwner(domain.FleetKind, fleetName))
+
+		deviceName := "test-device"
+		ownerStr := logic.owner
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:  &deviceName,
+				Owner: &ownerStr,
+			},
+			Spec:   &domain.DeviceSpec{},
+			Status: &domain.DeviceStatus{},
+		}
+
+		// Template references a label that doesn't exist on the device
+		tv := createTestTemplateVersion("v1")
+		tv.Status.Os = &domain.DeviceOsSpec{Image: "{{ .metadata.labels.domainname }}"}
+
+		// Expect the lastRolloutError annotation to be written
+		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(
+			gomock.Any(), orgId, deviceName,
+			gomock.AssignableToTypeOf(map[string]string{}),
+			gomock.Nil(),
+		).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, annotations map[string]string, _ []string) domain.Status {
+			assert.Contains(t, annotations[domain.DeviceAnnotationLastRolloutError], "cannot apply parameters")
+			return domain.Status{Code: http.StatusOK}
+		})
+
+		// Expect ForceUpdateServerSideDeviceStatus to be called to recompute and persist device status
+		mockDeviceSvc.EXPECT().ForceUpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+		_, err := logic.updateDeviceToFleetTemplate(context.Background(), device, tv, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed generating device spec")
+	})
 }
 
 func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing.T) {
@@ -487,7 +536,7 @@ func TestFleetRolloutsLogic_updateDeviceToFleetTemplate_SkipCondition(t *testing
 			tv.Status.Os = &domain.DeviceOsSpec{Image: image}
 
 			if tt.expectReplaceDevice {
-				mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, domain.Status{Code: http.StatusOK})
+				mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, domain.Status{Code: http.StatusOK})
 				mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 			}
 
@@ -1207,7 +1256,7 @@ func TestRolloutFleetPage_UpsertDeviceRefs(t *testing.T) {
 			},
 		}
 
-		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, okStatus).AnyTimes()
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, okStatus).AnyTimes()
 		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(okStatus).AnyTimes()
 
 		logic := FleetRolloutsLogic{
@@ -1452,7 +1501,7 @@ func TestDeviceDependencyRefLifecycle(t *testing.T) {
 		fleet := createTestFleetForRollout(fleetName, nil)
 		mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).Return(fleet, okStatus)
 
-		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
 		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, "device-1", gomock.Any(), gomock.Any()).Return(okStatus)
 
 		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(
@@ -1763,7 +1812,7 @@ func TestFleetRolloutsLogic_RolloutDevice_ApplicationLifecycleSync(t *testing.T)
 		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			gomock.Not(gomock.Eq(map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`})), gomock.Any(),
 		).Return(okStatus)
-		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
 		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
 
 		logic := FleetRolloutsLogic{
@@ -1800,7 +1849,7 @@ func TestFleetRolloutsLogic_RolloutDevice_ApplicationLifecycleSync(t *testing.T)
 		mockDeviceSvc.EXPECT().UpdateDeviceAnnotations(gomock.Any(), orgId, deviceName,
 			gomock.Not(gomock.Eq(map[string]string{domain.DeviceAnnotationFleetApplicationLifecycle: `{"app-1":"stopped"}`})), gomock.Any(),
 		).Return(okStatus)
-		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any()).Return(device, okStatus)
+		mockDeviceSvc.EXPECT().ReplaceDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any()).Return(device, okStatus)
 		mockDependencyRefSvc.EXPECT().ReplaceFleetScopedDeviceDependencyRefs(gomock.Any(), orgId, deviceName, gomock.Any()).Return(okStatus)
 
 		logic := FleetRolloutsLogic{

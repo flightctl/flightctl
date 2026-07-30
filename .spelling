@@ -69,6 +69,7 @@ KubeVirt
 Kubernetes
 kustomize
 KVM
+launcherImage
 lifecycle
 lifecycle-bound
 linux
@@ -92,6 +93,8 @@ openssl
 OSes
 ostree
 OTA
+passt
+passtWorkarounds
 pluggable
 Podman
 PostgreSQL
@@ -118,6 +121,9 @@ post-mortem
 150s
 pre-rollback
 red.d
+virt-launcher
+vm-to-quadlet
+vmRender
 rootful
 runtime
 schemas

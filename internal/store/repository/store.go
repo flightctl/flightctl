@@ -99,13 +99,13 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 }
 
 func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, error) {
-	newRepo, oldRepo, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
+	newRepo, oldRepo, err := s.genericStore.Update(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, false, err)
 	return newRepo, err
 }
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback store.EventCallback) (*domain.Repository, bool, error) {
-	newRepo, oldRepo, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+	newRepo, oldRepo, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, created, err)
 
 	return newRepo, created, err

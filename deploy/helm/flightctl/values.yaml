@@ -314,6 +314,12 @@ worker:
     pullPolicy: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
+  # -- VM application render options passed to vm-to-quadlet
+  vmRender:
+    # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
+    launcherImage: ""
+    # -- Enable passt networking workarounds for older virt-launcher images (recommended true)
+    passtWorkarounds: true
 
 # -- Periodic Configuration
 periodic:

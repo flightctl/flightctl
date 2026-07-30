@@ -509,6 +509,17 @@ func (c *pipeConn) Close() error {
 	return c.closeErr
 }
 
+// Exec runs a short-lived `podman exec <containerName> <cmd...>` and returns an
+// error when the command exits non-zero. Used by console sessions to reap leftover
+// in-container clients that survive host-side podman exec teardown.
+func (p *Podman) Exec(ctx context.Context, containerName string, cmd ...string) error {
+	_, stderr, exitCode := p.ExecInContainer(ctx, containerName, cmd...)
+	if exitCode != 0 {
+		return fmt.Errorf("podman exec %s: %w", containerName, deviceerrors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 // ExecStream starts `podman exec -i <containerName> <cmd...>` and returns the
 // process's stdin/stdout as an io.ReadWriteCloser. Caller must Close() to release resources.
 func (p *Podman) ExecStream(ctx context.Context, containerName string, cmd ...string) (io.ReadWriteCloser, error) {
@@ -722,6 +733,12 @@ func (p *Podman) inspectVolumeProperty(ctx context.Context, name string, propert
 
 func (p *Podman) InspectVolumeDriver(ctx context.Context, name string) (string, error) {
 	return p.inspectVolumeProperty(ctx, name, "{{.Driver}}")
+}
+
+// InspectVolumeOptionType returns the volume's "type" mount option (e.g. "tmpfs"
+// for a tmpfs-backed local volume), or an empty string if not set.
+func (p *Podman) InspectVolumeOptionType(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Options.type}}")
 }
 
 func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {

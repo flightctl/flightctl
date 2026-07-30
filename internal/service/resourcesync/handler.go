@@ -32,11 +32,29 @@ func NewServiceHandler(store resourcesyncstore.Store, catalogStore catalogstore.
 
 var _ Service = (*ServiceHandler)(nil)
 
-func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
-	// don't set fields that are managed by the service
+// SanitizeResourceSync clears status and managed metadata from an untrusted resourcesync
+// document (HTTP body).
+func SanitizeResourceSync(rs *domain.ResourceSync) {
+	if rs == nil {
+		return
+	}
 	rs.Status = nil
 	common.NilOutManagedObjectMetaProperties(&rs.Metadata)
+}
 
+// CreateResourceSyncFromUntrusted sanitizes an untrusted resourcesync document, then creates it.
+func CreateResourceSyncFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
+	SanitizeResourceSync(&rs)
+	return svc.CreateResourceSync(ctx, orgId, rs)
+}
+
+// ReplaceResourceSyncFromUntrusted sanitizes an untrusted resourcesync document, then replaces it.
+func ReplaceResourceSyncFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
+	SanitizeResourceSync(&rs)
+	return svc.ReplaceResourceSync(ctx, orgId, name, rs)
+}
+
+func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -72,11 +90,6 @@ func (h *ServiceHandler) GetResourceSync(ctx context.Context, orgId uuid.UUID, n
 }
 
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
-	// don't overwrite fields that are managed by the service
-	if !common.IsInternalRequest(ctx) {
-		rs.Status = nil
-		common.NilOutManagedObjectMetaProperties(&rs.Metadata)
-	}
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}

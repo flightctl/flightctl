@@ -51,7 +51,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 	})
 
 	// Get all organizations
-	orgs, status := e.organizationSvc.ListOrganizations(ctx, domain.ListOrganizationsParams{})
+	orgs, status := e.organizationSvc.ListAllOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code != http.StatusOK {
 		logger.WithFields(logrus.Fields{
 			"status_code": status.Code,

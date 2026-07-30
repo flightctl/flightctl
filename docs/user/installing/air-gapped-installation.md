@@ -269,6 +269,16 @@ image in the local registry and update the fleet's `os.image` reference. See
 [Air-gapped fleet operations and OS image updates](air-gapped-operations.md) for the
 full workflow.
 
+### VM applications
+
+Devices pull the KubeVirt virt-launcher image when they run VM applications. That
+image is **not** included in the default `flightctl-mirror-images` control-plane
+set. Mirror it to a registry devices can reach, set `worker.vmRender.launcherImage`
+to the mirrored reference, and re-render affected devices. Guest OS and other
+workload images still need separate mirroring.
+
+See [VM application rendering in air-gapped environments](configuring-vm-render.md#air-gapped-environments).
+
 ---
 
 ## Troubleshooting
@@ -335,6 +345,7 @@ minor version.
 
 - [Installing Flight Control in a Disconnected OpenShift Cluster](installing-service-on-openshift-disconnected.md)
 - [Image Builder configuration for air-gapped environments](configuring-imagebuilder.md#end-to-end-disconnected-image-build-walkthrough)
+- [VM application rendering in air-gapped environments](configuring-vm-render.md#air-gapped-environments)
 
 ### Day-2 operations
 

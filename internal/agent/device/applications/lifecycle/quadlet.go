@@ -24,6 +24,8 @@ const (
 	QuadletTargetName        = "flightctl-quadlet-app.target"
 
 	podmanImageVolumeDriver = "image"
+	podmanLocalVolumeDriver = "local"
+	podmanTmpfsVolumeType   = "tmpfs"
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
@@ -222,16 +224,20 @@ func (q *Quadlet) cleanResources(ctx context.Context, action Action) error {
 	return nil
 }
 
-// removeImageBackedVolumes removes volumes that use Podman's native image driver.
-// Image-driver volumes are read-only overlays fully derived from their
-// source image — they contain no user data and Podman recreates them automatically on next container start.
-func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, labels, filters []string) error {
+// removeEphemeralVolumes removes volumes that require no explicit cleanup:
+//   - image-driver volumes: read-only overlays fully derived from their source
+//     image, containing no user data. Podman recreates them automatically on
+//     next container start.
+//   - tmpfs-backed local volumes: Podman's stand-in for a Kubernetes emptyDir.
+//     Like emptyDir, their content must not survive pod deletion/recreation;
+//     Podman recreates them empty on next container start.
+func removeEphemeralVolumes(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, labels, filters []string) error {
 	volumes, err := podman.ListVolumes(ctx, labels, filters)
 	if err != nil {
 		return fmt.Errorf("listing volumes: %w", err)
 	}
 
-	var imageVolumes []string
+	var ephemeralVolumes []string
 	for _, volume := range volumes {
 		driver, err := podman.InspectVolumeDriver(ctx, volume)
 		if err != nil {
@@ -239,13 +245,26 @@ func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman
 			continue
 		}
 		if driver == podmanImageVolumeDriver {
-			imageVolumes = append(imageVolumes, volume)
+			ephemeralVolumes = append(ephemeralVolumes, volume)
+			continue
+		}
+		if driver != podmanLocalVolumeDriver {
+			continue
+		}
+
+		optionType, err := podman.InspectVolumeOptionType(ctx, volume)
+		if err != nil {
+			log.Warnf("Failed to inspect volume %q options, skipping: %v", volume, err)
+			continue
+		}
+		if optionType == podmanTmpfsVolumeType {
+			ephemeralVolumes = append(ephemeralVolumes, volume)
 		}
 	}
 
-	if len(imageVolumes) > 0 {
-		log.Debugf("Removing %d image-backed volume(s)", len(imageVolumes))
-		if err := podman.RemoveVolumes(ctx, imageVolumes...); err != nil {
+	if len(ephemeralVolumes) > 0 {
+		log.Debugf("Removing %d ephemeral volume(s)", len(ephemeralVolumes))
+		if err := podman.RemoveVolumes(ctx, ephemeralVolumes...); err != nil {
 			return fmt.Errorf("removing volumes: %w", err)
 		}
 	}

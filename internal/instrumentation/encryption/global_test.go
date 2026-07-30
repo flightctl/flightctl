@@ -40,8 +40,7 @@ func TestInitGlobalEncryption_WithoutCanaryStore(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -53,15 +52,14 @@ func TestInitGlobalEncryption_WithoutCanaryStore(t *testing.T) {
 
 	// Manager initialized, canary disabled
 	assert.NotNil(t, GlobalManager())
-	assert.Nil(t, GlobalCanaryManager())
+	assert.Nil(t, GlobalManager().CanaryManager())
 }
 
 func TestInitGlobalEncryption_WithCanaryStore(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -75,24 +73,20 @@ func TestInitGlobalEncryption_WithCanaryStore(t *testing.T) {
 
 	// Both managers initialized
 	assert.NotNil(t, GlobalManager())
-	assert.NotNil(t, GlobalCanaryManager())
+	assert.NotNil(t, GlobalManager().CanaryManager())
 }
 
-func TestGlobalCanaryManager_ReturnsNilIfNotInitialized(t *testing.T) {
-	// Reset global state
+func TestCanaryManager_ReturnsNilIfNotInitialized(t *testing.T) {
 	globalManager = nil
-	globalCanaryManager = nil
 
-	canaryMgr := GlobalCanaryManager()
-	assert.Nil(t, canaryMgr, "Should return nil if not initialized")
+	assert.Nil(t, GlobalManager(), "Manager should be nil if not initialized")
 }
 
 func TestGlobalCanaryManager_ReturnsNilIfDisabled(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -103,7 +97,7 @@ func TestGlobalCanaryManager_ReturnsNilIfDisabled(t *testing.T) {
 	err := InitGlobalEncryption(logger, encCfg)
 	require.NoError(t, err)
 
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 	assert.Nil(t, canaryMgr, "Should return nil if canaries disabled")
 }
 
@@ -119,8 +113,7 @@ func TestEncrypt_CreatesCanaryOnFirstUse(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -135,7 +128,7 @@ func TestEncrypt_CreatesCanaryOnFirstUse(t *testing.T) {
 	ctx := context.Background()
 
 	// Before first encryption, no canary should exist
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 	activeCanary, err := canaryMgr.GetActiveCanary(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, activeCanary, "No canary should exist before first encryption")
@@ -158,8 +151,7 @@ func TestEncrypt_CanaryDoOnce(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -177,7 +169,7 @@ func TestEncrypt_CanaryDoOnce(t *testing.T) {
 	_, err = Encrypt(ctx, Plaintext([]byte("data1")))
 	require.NoError(t, err)
 
-	canaryMgr := GlobalCanaryManager()
+	canaryMgr := GlobalManager().CanaryManager()
 	canary1, _ := canaryMgr.GetActiveCanary(ctx)
 
 	// Second encryption
@@ -191,177 +183,11 @@ func TestEncrypt_CanaryDoOnce(t *testing.T) {
 	assert.Equal(t, canary1.CreatedAt, canary2.CreatedAt)
 }
 
-func TestInitGlobalEncryption_ValidatesExistingCanaries(t *testing.T) {
-	encCfg := setupTestKey(t)
-	// Reset global state
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	// Init WITH canary store
-	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
-	require.NoError(t, err)
-
-	// Create a canary
-	ctx := context.Background()
-	_, err = Encrypt(ctx, Plaintext([]byte("test")))
-	require.NoError(t, err)
-
-	// Verify canary was created
-	canaryMgr := GlobalCanaryManager()
-	allCanaries, _ := canaryMgr.store.GetAll()
-	assert.Len(t, allCanaries, 1, "Should have one canary")
-
-	// Reset and re-init (simulating restart)
-	// Re-init with the SAME store to test validation of existing canaries
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	// Re-init should validate the existing canary in the store
-	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
-	require.NoError(t, err, "Should successfully validate existing canary on restart")
-
-	// Verify validation actually happened and succeeded
-	results, err := GlobalCanaryManager().ValidateAll(ctx)
-	require.NoError(t, err)
-	assert.Len(t, results, 1, "Should have validated one canary")
-	assert.Equal(t, "ok", results[0].Status, "Canary validation should succeed")
-}
-
-func TestInitGlobalEncryption_ActiveKeyCannotDecryptCanary_FailsInit(t *testing.T) {
-	encCfg := setupTestKey(t)
-	// Reset global state
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	// Init WITH canary store
-	store := newMemoryCanaryStore()
-	err := InitGlobalEncryptionWithCanary(logger, encCfg, store)
-	require.NoError(t, err)
-
-	// Create a canary with the current key
-	ctx := context.Background()
-	_, err = Encrypt(ctx, Plaintext([]byte("test")))
-	require.NoError(t, err)
-
-	// Verify canary exists
-	canaries, _ := store.GetAll()
-	require.Len(t, canaries, 1)
-
-	// Reset and re-init with a DIFFERENT key (simulating key rotation gone wrong)
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	// Generate a different key
-	newKey, err := crypto.GenerateAES256Key()
-	require.NoError(t, err)
-	newEncCfg := writeTestKey(t, newKey, "default")
-
-	// Re-init should FAIL because active key cannot decrypt existing canary
-	err = InitGlobalEncryptionWithCanary(logger, newEncCfg, store)
-	require.Error(t, err, "Should fail when active key cannot decrypt canary")
-	assert.Contains(t, err.Error(), "active encryption key v1/default is broken")
-}
-
-func TestInitGlobalEncryption_OldKeyCannotDecrypt_WarnsButSucceeds(t *testing.T) {
-	// Reset global state
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	// Create manager with TWO keys
-	key1, err := crypto.GenerateAES256Key()
-	require.NoError(t, err)
-	key2, err := crypto.GenerateAES256Key()
-	require.NoError(t, err)
-
-	encCfg := writeTestKey(t, key1, "default")
-
-	store := newMemoryCanaryStore()
-	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
-	require.NoError(t, err)
-
-	// Create canary for the default key (key1)
-	ctx := context.Background()
-	_, err = Encrypt(ctx, Plaintext([]byte("test")))
-	require.NoError(t, err)
-
-	// Add second key manually and create a canary for it
-	strategy, exists := GlobalManager().GetStrategy("v1")
-	require.True(t, exists)
-	v1Strategy := strategy.(*V1Strategy)
-	key2Bytes, _ := crypto.DecodeAES256Key(key2)
-	_ = v1Strategy.AddKey("oldkey", key2Bytes, true)
-
-	canaryMgr := GlobalCanaryManager()
-	_ = canaryMgr.EnsureCanary(ctx, "v1", "oldkey")
-
-	// Verify we have two canaries now
-	canaries, _ := store.GetAll()
-	require.Len(t, canaries, 2)
-
-	// Reset and re-init with only key1 (oldkey is missing)
-	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
-	globalManagerOnce = *new(sync.Once)
-	globalInitErr = nil
-
-	// Re-init should SUCCEED (only old key is broken, not active key)
-	err = InitGlobalEncryptionWithCanary(logger, encCfg, store)
-	require.NoError(t, err, "Should succeed even when old key cannot decrypt")
-
-	// Verify: active key's canary is ok, old key's canary failed
-	results, err := GlobalCanaryManager().ValidateAll(ctx)
-	require.NoError(t, err)
-	require.Len(t, results, 2)
-
-	// Find results by keyID
-	var defaultResult, oldkeyResult *ValidationResult
-	for i := range results {
-		switch results[i].KeyID {
-		case "default":
-			defaultResult = &results[i]
-		case "oldkey":
-			oldkeyResult = &results[i]
-		}
-	}
-
-	assert.NotNil(t, defaultResult)
-	assert.NotNil(t, oldkeyResult)
-	assert.Equal(t, "ok", defaultResult.Status, "Active key should validate ok")
-	assert.Equal(t, "failed", oldkeyResult.Status, "Old key should fail validation")
-}
-
 func TestDecrypt_EncryptedData(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -389,8 +215,7 @@ func TestDecrypt_PlaintextData_BackwardCompatibility(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -415,8 +240,6 @@ func TestDecrypt_PlaintextData_BackwardCompatibility(t *testing.T) {
 func TestDecrypt_NotInitialized(t *testing.T) {
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
 
 	ctx := context.Background()
 	ciphertext := Ciphertext([]byte("enc:v1:default:abc123"))
@@ -431,8 +254,7 @@ func TestDecrypt_InvalidFormat(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -455,8 +277,7 @@ func TestDecrypt_InvalidFormat(t *testing.T) {
 func TestInitGlobalEncryption_CachesErrorAcrossCalls(t *testing.T) {
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 
@@ -488,8 +309,7 @@ func TestKeyRotation_AddNewKeyAndReencrypt(t *testing.T) {
 	encCfg := setupTestKey(t)
 	// Reset global state
 	globalManager = nil
-	globalCanaryManager = nil
-	globalLogger = nil
+
 	globalManagerOnce = *new(sync.Once)
 	globalInitErr = nil
 

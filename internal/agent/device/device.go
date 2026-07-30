@@ -51,6 +51,7 @@ type Agent struct {
 	prefetchManager        dependency.PrefetchManager
 	pullConfigResolver     dependency.PullConfigResolver
 	pruningManager         imagepruning.Manager
+	osMode                 v1beta1.OsModeType
 
 	statusUpdateInterval util.Duration
 
@@ -81,6 +82,7 @@ func NewAgent(
 	prefetchManager dependency.PrefetchManager,
 	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
+	osMode v1beta1.OsModeType,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -106,6 +108,7 @@ func NewAgent(
 		prefetchManager:        prefetchManager,
 		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
+		osMode:                 osMode,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -173,6 +176,20 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
+	if err := a.checkPackageModeSpecCompat(desired); err != nil {
+		a.log.Errorf("Spec rejected for package-mode device: %v", err)
+		if a.specManager.IsUpgrading() {
+			if setErr := a.specManager.SetUpgradeFailed(desired.Version(), desired.SpecHash()); setErr != nil {
+				a.log.Errorf("Failed to set upgrade failed: %v", setErr)
+			}
+			if rbErr := a.rollbackDevice(ctx, current, desired, err, a.sync); rbErr != nil {
+				a.log.Errorf("Rollback did not complete cleanly: %v", rbErr)
+			}
+			a.handleSyncError(ctx, desired, err)
+		}
+		return
+	}
+
 	if syncErr := a.sync(ctx, current, desired); syncErr != nil {
 		// if context is canceled return to exit the sync loop
 		if errors.Is(syncErr, context.Canceled) {
@@ -229,7 +246,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	if a.specManager.IsUpgrading() {
 		// Wait for greenboot to mark the boot as successful before committing the spec.
 		// This only applies to OS updates — greenboot validates the new OS image, not config changes.
-		if a.specManager.IsOSUpdate() && !a.isBootSuccessful(ctx) {
+		if a.specManager.ShouldApplyOSImageUpdate() && !a.isBootSuccessful(ctx) {
 			a.log.Debug("Waiting for greenboot to mark boot as successful before upgrading spec")
 			return
 		}
@@ -261,6 +278,19 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			// Don't return error - pruning failures must not block reconciliation
 		}
 	}
+}
+
+// checkPackageModeSpecCompat validates that a package-mode device can satisfy
+// the desired spec. Returns a non-retryable error if the spec contains
+// spec.os.image, which package-mode devices cannot fulfill.
+func (a *Agent) checkPackageModeSpecCompat(desired *v1beta1.Device) error {
+	if a.osMode != v1beta1.OsModePackage {
+		return nil
+	}
+	if desired.Spec != nil && desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
+		return fmt.Errorf("package-mode device cannot satisfy spec with os.image %q: %w", desired.Spec.Os.Image, errors.ErrNoRetry)
+	}
+	return nil
 }
 
 // handleMissingSpec checks if the error is due to a missing spec file. If so,
@@ -297,7 +327,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 	}
 
 	needsOSRollback := false
-	if !errors.IsRetryable(syncErr) && a.specManager.IsOSUpdate() {
+	if !errors.IsRetryable(syncErr) && a.specManager.ShouldApplyOSImageUpdate() {
 		_, isReconciled, err := a.specManager.CheckOsReconciliation(ctx)
 		if err != nil {
 			a.log.Errorf("Failed to check OS reconciliation: %v", err)
@@ -440,7 +470,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	a.pullConfigResolver.BeforeUpdate(desired.Spec)
 
 	a.prefetchManager.RegisterOCICollector(a.appManager)
-	if a.specManager.IsOSUpdate() {
+	if a.specManager.ShouldApplyOSImageUpdate() {
 		a.prefetchManager.RegisterOCICollector(a.osManager)
 	}
 
@@ -455,7 +485,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	// Compute osUpdatePending once for both prefetch and app managers
-	osUpdatePending, err := a.specManager.IsOSUpdatePending(ctx)
+	osUpdatePending, err := a.specManager.ShouldApplyOSImageUpdatePending(ctx)
 	if err != nil {
 		return fmt.Errorf("checking OS update pending: %w", err)
 	}
@@ -567,7 +597,7 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	// execute after update for os first so that the activation of the spec is
 	// after the os is updated.This happens because the os update requires a
 	// reboot so the lower blocks are not executed until after reboot.
-	if !isOSReconciled && a.specManager.IsOSUpdate() {
+	if !isOSReconciled && a.specManager.ShouldApplyOSImageUpdate() {
 		if err = a.afterUpdateOS(ctx, desired); err != nil {
 			a.log.Errorf("Error executing OS: %v", err)
 			return err

@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
+	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -48,6 +49,10 @@ func main() {
 			_ = sqlDB.Close()
 		}
 	}()
+
+	if err := canaryservice.InitEncryption(ctx, db, log); err != nil {
+		log.Fatalf("initializing encryption canary store: %v", err)
+	}
 
 	server := periodic.New(cfg, log, db)
 	if err := server.Run(ctx); err != nil {

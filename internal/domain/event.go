@@ -97,6 +97,8 @@ const (
 	EventReasonResourceUpdateFailed            = v1beta1.EventReasonResourceUpdateFailed
 	EventReasonResourceUpdated                 = v1beta1.EventReasonResourceUpdated
 	EventReasonSystemRestored                  = v1beta1.EventReasonSystemRestored
+	EventReasonEncryptionMigrationStarted      = v1beta1.EventReasonEncryptionMigrationStarted
+	EventReasonEncryptionMigrationCompleted    = v1beta1.EventReasonEncryptionMigrationCompleted
 	EventReasonApplicationLifecycleChanged     = v1beta1.EventReasonApplicationLifecycleChanged
 )
 

@@ -41,9 +41,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				er.Metadata.Annotations = enrollmentRequestAnnotations
 
 				By("creating enrollment request")
-				// Use internal request context to preserve annotations
-				internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+				created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				Expect(created).ToNot(BeNil())
 
@@ -111,9 +109,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			}
 
 			By("creating enrollment request")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -158,9 +154,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			er.Status = nil
 
 			By("creating enrollment request with nil status")
-			// Use internal request context to preserve annotations
-			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 

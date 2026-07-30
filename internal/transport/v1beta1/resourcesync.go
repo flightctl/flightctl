@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	"github.com/flightctl/flightctl/internal/transport"
 )
 
@@ -17,7 +18,7 @@ func (h *TransportHandler) CreateResourceSync(w http.ResponseWriter, r *http.Req
 	}
 
 	domainRS := h.converter.ResourceSync().ToDomain(rs)
-	body, status := h.resourcesync.CreateResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), domainRS)
+	body, status := resourcesyncservice.CreateResourceSyncFromUntrusted(r.Context(), h.resourcesync, transport.OrgIDFromContext(r.Context()), domainRS)
 	apiResult := h.converter.ResourceSync().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -46,7 +47,7 @@ func (h *TransportHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Re
 	}
 
 	domainRS := h.converter.ResourceSync().ToDomain(rs)
-	body, status := h.resourcesync.ReplaceResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRS)
+	body, status := resourcesyncservice.ReplaceResourceSyncFromUntrusted(r.Context(), h.resourcesync, transport.OrgIDFromContext(r.Context()), name, domainRS)
 	apiResult := h.converter.ResourceSync().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

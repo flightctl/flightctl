@@ -495,6 +495,21 @@
         "clusterLevelSecretAccess": {
           "type": "boolean",
           "description": "Allow worker to access cluster-level secrets for embedding in device configs"
+        },
+        "vmRender": {
+          "type": "object",
+          "description": "VM application render options passed to vm-to-quadlet",
+          "additionalProperties": false,
+          "properties": {
+            "launcherImage": {
+              "type": "string",
+              "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
+            },
+            "passtWorkarounds": {
+              "type": "boolean",
+              "description": "Enable passt networking workarounds for older virt-launcher images"
+            }
+          }
         }
       }
     },
@@ -544,6 +559,32 @@
                   "additionalProperties": false,
                   "properties": {
                     "interval": { "type": "string", "description": "Interval for the resource sync task" }
+                  }
+                }
+              }
+            },
+            "dependencySync": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the dependency-sync-git and dependency-sync-http tasks" }
+                  }
+                }
+              }
+            },
+            "repositoryTester": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the repository-tester task, which probes Repository resources and sets their Accessible condition" }
                   }
                 }
               }

@@ -159,8 +159,10 @@ func (s *systemInfoCmd) Execute() error {
 }
 
 type healthCmd struct {
-	timeout time.Duration
-	verbose bool
+	timeout         time.Duration
+	stabilityWindow time.Duration
+	pollInterval    time.Duration
+	verbose         bool
 }
 
 // NewHealthCommand creates a new health check command.
@@ -169,6 +171,8 @@ func NewHealthCommand() *healthCmd {
 	cmd := &healthCmd{}
 
 	fs.DurationVar(&cmd.timeout, "timeout", 150*time.Second, "Maximum time to wait for checks.")
+	fs.DurationVar(&cmd.stabilityWindow, "stability-window", 60*time.Second, "How long the service must remain active after becoming healthy before the boot is considered stable.")
+	fs.DurationVar(&cmd.pollInterval, "poll-interval", 5*time.Second, "How often to poll service status.")
 	fs.BoolVar(&cmd.verbose, "verbose", false, "Print detailed check results.")
 
 	if hasHelpFlag(os.Args[2:]) {
@@ -202,6 +206,8 @@ func (h *healthCmd) Execute() error {
 	checker := health.NewChecker(
 		logger,
 		health.WithTimeout(h.timeout),
+		health.WithStabilityWindow(h.stabilityWindow),
+		health.WithPollInterval(h.pollInterval),
 		health.WithVerbose(h.verbose),
 		health.WithOutput(os.Stdout),
 	)

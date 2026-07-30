@@ -304,7 +304,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	serversWg.Add(1)
 	go func() {
 		defer serversWg.Done()
-		err := workerServer.Run(context.WithValue(ctx, consts.InternalRequestCtxKey, true))
+		err := workerServer.Run(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
 			cancel() // cascade failure to other servers

@@ -48,7 +48,7 @@ func NewCertificateSigningRequestFromApiResource(resource *domain.CertificateSig
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},

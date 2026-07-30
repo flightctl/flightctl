@@ -112,6 +112,7 @@ var _ = Describe("FleetStore create", func() {
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
 					},
+					Capabilities: &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)},
 				},
 			}
 			_, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil)
@@ -119,24 +120,28 @@ var _ = Describe("FleetStore create", func() {
 			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
+			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
 			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
 			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-4")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			device.Status.Capabilities = nil
 			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-5")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
 			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -147,12 +152,12 @@ var _ = Describe("FleetStore create", func() {
 			// A device in another org that shouldn't be included
 			testutil.CreateTestDevice(ctx, deviceStore, otherOrgId, "other-org-dev", util.SetResourceOwner(api.FleetKind, "myfleet-1"), nil, nil)
 
-			//				App:        Device:     updated:
-			// mydevice-1 | Healthy   | Online    | UpToDate
-			// mydevice-2 | Degraded  | Degraded  | UpToDate
-			// mydevice-3 | Healthy   | Online    | Updating
-			// mydevice-4 | Healthy   | Rebooting | Updating
-			// mydevice-5 | Error     | Error     | Unknown
+			//				App:        Device:     updated:   osMode:
+			// mydevice-1 | Healthy   | Online    | UpToDate | image
+			// mydevice-2 | Degraded  | Degraded  | UpToDate | package
+			// mydevice-3 | Healthy   | Online    | Updating | image
+			// mydevice-4 | Healthy   | Rebooting | Updating | unknown
+			// mydevice-5 | Error     | Error     | Unknown  | package
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1", fleetstore.GetWithDeviceSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
@@ -173,6 +178,12 @@ var _ = Describe("FleetStore create", func() {
 			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(int64(2)))
 			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(int64(2)))
 			Expect(updateStatus[string(api.DeviceUpdatedStatusUnknown)]).To(Equal(int64(1)))
+			Expect(fleet.Status.DevicesSummary.Capabilities).ToNot(BeNil())
+			Expect(fleet.Status.DevicesSummary.Capabilities.OsMode).ToNot(BeNil())
+			osModeStatus := *fleet.Status.DevicesSummary.Capabilities.OsMode
+			Expect(osModeStatus[string(api.OsModeImage)]).To(Equal(int64(2)))
+			Expect(osModeStatus[string(api.OsModePackage)]).To(Equal(int64(2)))
+			Expect(osModeStatus[model.CapabilityCountUnknown]).To(Equal(int64(1)))
 		})
 
 		It("Delete fleet success", func() {
@@ -371,7 +382,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback)
+			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, &fleet, nil, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
@@ -410,7 +421,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Metadata.Labels = nil
 			updatedFleet.Metadata.Annotations = nil
 
-			returnedFleet, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
+			returnedFleet, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
@@ -433,7 +444,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, true, callback)
+			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
@@ -706,8 +717,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(orgIds).To(HaveKey(otherOrgId.String()))
 		})
 
-		It("Cannot update fleet spec or labels when owned by resourcesync", func() {
-			// Create a resourcesync first
+		It("Store allows updating owned fleet spec and labels (ownership enforced in service)", func() {
 			resourceSync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("test-resourcesync"),
@@ -720,7 +730,6 @@ var _ = Describe("FleetStore create", func() {
 			_, err := resourceSyncStore.Create(ctx, orgId, &resourceSync, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Create a fleet owned by the resourcesync
 			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
@@ -737,33 +746,28 @@ var _ = Describe("FleetStore create", func() {
 			_, err = fleetStore.Create(ctx, orgId, &fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify the fleet was created with the owner
 			createdFleet, err := fleetStore.Get(ctx, orgId, "owned-fleet")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
 			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/test-resourcesync"))
 
-			// Try to update the fleet's spec - should fail
 			updatedFleet := *createdFleet
 			updatedFleet.Spec.Selector = &api.LabelSelector{
 				MatchLabels: &map[string]string{"key": "updated"},
 			}
-			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, true, nil)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			// Try to update the fleet's labels - should fail
-			updatedFleet = *createdFleet
-			updatedFleet.Metadata.Labels = &map[string]string{"updated": "label"}
-			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, true, nil)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
-
-			// Verify the original fleet is unchanged
-			unchangedFleet, err := fleetStore.Get(ctx, orgId, "owned-fleet")
+			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(unchangedFleet.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "original"}))
-			Expect(unchangedFleet.Metadata.Labels).To(Equal(&map[string]string{"original": "label"}))
+
+			refetched, err := fleetStore.Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			refetched.Metadata.Labels = &map[string]string{"updated": "label"}
+			_, err = fleetStore.Update(ctx, orgId, refetched, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := fleetStore.Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "updated"}))
+			Expect(got.Metadata.Labels).To(Equal(&map[string]string{"updated": "label"}))
 		})
 
 		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {
