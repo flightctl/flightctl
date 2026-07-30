@@ -470,6 +470,9 @@ func (r EnrollmentRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport([]byte(r.Spec.Csr))...)
+	if r.Spec.OsMode != nil && *r.Spec.OsMode != OsModeImage && *r.Spec.OsMode != OsModePackage {
+		allErrs = append(allErrs, fmt.Errorf("spec.osMode: invalid value %q (must be %q or %q)", *r.Spec.OsMode, OsModeImage, OsModePackage))
+	}
 
 	return allErrs
 }

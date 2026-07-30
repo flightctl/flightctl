@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/samber/lo"
@@ -115,6 +116,63 @@ func TestEnrollmentRequestSpecOsModeJSON(t *testing.T) {
 			}
 			require.NotNil(t, spec.OsMode)
 			assert.Equal(t, *tt.wantOsMode, *spec.OsMode)
+		})
+	}
+}
+
+func TestEnrollmentRequestValidateOsMode(t *testing.T) {
+	baseER := func(mode *OsModeType) EnrollmentRequest {
+		return EnrollmentRequest{
+			Metadata: ObjectMeta{Name: lo.ToPtr("test-er")},
+			Spec:     EnrollmentRequestSpec{Csr: "pem-data", OsMode: mode},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		osMode    *OsModeType
+		wantError bool
+	}{
+		{
+			name:   "When osMode is absent it should pass validation",
+			osMode: nil,
+		},
+		{
+			name:   "When osMode is image it should pass validation",
+			osMode: lo.ToPtr(OsModeImage),
+		},
+		{
+			name:   "When osMode is package it should pass validation",
+			osMode: lo.ToPtr(OsModePackage),
+		},
+		{
+			name:      "When osMode is invalid it should return an error",
+			osMode:    lo.ToPtr(OsModeType("foo")),
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			er := baseER(tt.osMode)
+			errs := er.Validate()
+			if tt.wantError {
+				require.NotEmpty(t, errs)
+				found := false
+				for _, e := range errs {
+					if strings.Contains(e.Error(), "spec.osMode") {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected an error mentioning spec.osMode, got: %v", errs)
+			} else {
+				for _, e := range errs {
+					if strings.Contains(e.Error(), "spec.osMode") {
+						t.Errorf("unexpected osMode error: %v", e)
+					}
+				}
+			}
 		})
 	}
 }
