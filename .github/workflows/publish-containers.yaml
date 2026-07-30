@@ -122,6 +122,10 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # buildah needs pinned crun on ubuntu-24.04 (apt ships 1.14.1).
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
       - name: Prepare version variables
         id: version-vars
         run: |
