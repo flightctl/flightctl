@@ -74,7 +74,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, appItemName) })
 	})
 
-	It("resolves OS catalog ref and delivers to agent", func() {
+	It("resolves OS catalog ref and delivers to agent", Label("OCP-90123"), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
@@ -145,7 +145,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 			}, e2e.TIMEOUT)
 	})
 
-	It("deploys and removes application via catalog ref", func() {
+	It("deploys and removes application via catalog ref", Label("OCP-90124"), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
@@ -188,7 +188,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		harness.WaitForNoApplications(deviceId)
 	})
 
-	It("propagates fleet catalog refs to enrolled device", func() {
+	It("propagates fleet catalog refs to enrolled device", Label("OCP-90125"), func() {
 		harness = e2e.GetWorkerHarness()
 		testID := harness.GetTestIDFromContext()
 		fleetName := fmt.Sprintf("catalog-fleet-%s", testID)
@@ -245,7 +245,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("rejects deletion of in-use catalog item", func() {
+	It("rejects deletion of in-use catalog item", Label("OCP-90126"), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
@@ -296,7 +296,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("surfaces render error for type-mismatched ref", func() {
+	It("surfaces render error for type-mismatched ref", Label("OCP-90127"), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
