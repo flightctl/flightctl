@@ -1249,6 +1249,37 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(forcedVersion).ToNot(Equal(firstVersion))
 		})
 
+		It("SetServiceConditions skips write and callback when conditions are unchanged", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-svc-conditions-noop", nil, nil, nil)
+
+			condition := domain.Condition{
+				Type:    domain.ConditionTypeDeviceSpecValid,
+				Status:  domain.ConditionStatusTrue,
+				Reason:  "Valid",
+				Message: "Valid",
+			}
+			callbackCalls := 0
+			callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
+				callbackCalls++
+			}
+
+			err := devStore.SetServiceConditions(ctx, orgId, "dev-svc-conditions-noop", []domain.Condition{condition}, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalls).To(Equal(1))
+
+			afterWrite, err := devStore.Get(ctx, orgId, "dev-svc-conditions-noop")
+			Expect(err).ToNot(HaveOccurred())
+			resourceVersion := lo.FromPtr(afterWrite.Metadata.ResourceVersion)
+
+			err = devStore.SetServiceConditions(ctx, orgId, "dev-svc-conditions-noop", []domain.Condition{condition}, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalls).To(Equal(1))
+
+			afterNoop, err := devStore.Get(ctx, orgId, "dev-svc-conditions-noop")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(afterNoop.Metadata.ResourceVersion)).To(Equal(resourceVersion))
+		})
+
 		It("OverwriteRepositoryRefs", func() {
 			repositoryStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
 			err := testutil.CreateRepositories(ctx, 2, repositoryStore, orgId)
