@@ -101,8 +101,11 @@ runs:
           oras version
           echo "::endgroup::"
 
-      # Custom runner image already has apt packages, crun, protoc, oras, Go, and KVM.
+      # Custom runner image already has apt packages, crun, protoc, Go, and KVM.
       # Still prime Podman and validate the binary Podman actually invokes.
+      # oras is installed via `go install` into GOPATH/bin at image bake time; setup-go
+      # is skipped here so that dir is often missing from PATH — fix PATH, then install
+      # only if the binary is truly absent (older image snapshots).
       - name: Verify preinstalled dependencies
         if: ${{ inputs.skip_package_install == 'true' }}
         shell: bash
@@ -110,6 +113,8 @@ runs:
           echo "::group::Verifying preinstalled dependencies (custom runner image)"
           set -euo pipefail
           go version
+          # Match non-skip path: go-installed tools live under GOPATH/bin.
+          export PATH="$(go env GOPATH)/bin:${HOME}/go/bin:${PATH}"
           podman info >/dev/null 2>&1 || true
           podman --version
           # Podman uses /usr/bin/crun by absolute path — check that binary, not PATH.
@@ -125,7 +130,13 @@ runs:
             exit 1
           fi
           protoc --version
+          if ! command -v oras >/dev/null 2>&1; then
+            go install oras.land/oras/cmd/oras@v1.3.0
+          fi
           oras version
+          # Persist for later steps in this job (setup-go is skipped in this mode).
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
           echo "::endgroup::"
       
       - name: Install bubblewrap for unit tests
