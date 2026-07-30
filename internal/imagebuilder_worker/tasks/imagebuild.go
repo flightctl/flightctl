@@ -39,6 +39,12 @@ const (
 	// during image builds. A unique subdirectory is created per job and removed when
 	// the job completes. Any leftovers from a crash are swept on worker startup.
 	buildStorageBaseDir = "/var/tmp/flightctl-builds"
+
+	// containerAuthFile is the path to the container auth file used for registry login.
+	// It lives inside the mounted /build directory so the same path is visible to both
+	// the host (via podmanWorker.TmpDir) and all subsequent podman exec calls, regardless
+	// of XDG_RUNTIME_DIR or HOME being set consistently across exec invocations.
+	containerAuthFile = "/build/auth.json"
 )
 
 // containerfileTemplate is embedded from the templates directory for easier editing
@@ -925,7 +931,9 @@ func (c *Consumer) loginToRegistry(
 
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
-	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin"}
+	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login",
+		"--authfile", containerAuthFile,
+		"-u", username, "--password-stdin"}
 
 	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		loginArgs = append(loginArgs, "--tls-verify=false")
@@ -1075,9 +1083,12 @@ func (c *Consumer) buildImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			decryptedPassword, ok, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
 			if decErr != nil {
 				return fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
+			if !ok {
+				log.WithField("registry", sourceRegistryHostname).Warn("source registry password is stored as plaintext; expected an encrypted value")
 			}
 			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
@@ -1146,7 +1157,10 @@ func (c *Consumer) buildImageWithPodman(
 		containerBuildDir,
 	)
 
-	if err := podmanWorker.runInWorker(ctx, log, "build", nil, podmanBuildArgs...); err != nil {
+	buildEnvVars := map[string]string{
+		"REGISTRY_AUTH_FILE": containerAuthFile,
+	}
+	if err := podmanWorker.runInWorker(ctx, log, "build", buildEnvVars, podmanBuildArgs...); err != nil {
 		return err
 	}
 
@@ -1191,9 +1205,12 @@ func (c *Consumer) pushImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			decryptedPassword, _, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
+			decryptedPassword, ok, decErr := encryption.Decrypt(ctx, encryption.Ciphertext(dockerAuth.Password))
 			if decErr != nil {
 				return "", "", fmt.Errorf("failed to decrypt OCI password: %w", decErr)
+			}
+			if !ok {
+				log.WithField("registry", destRegistryHostname).Warn("destination registry password is stored as plaintext; expected an encrypted value")
 			}
 			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, string(decryptedPassword), ociSpec, log); err != nil {
 				return "", "", fmt.Errorf("failed to login to destination registry: %w", err)
@@ -1223,7 +1240,10 @@ func (c *Consumer) pushImageWithPodman(
 	}
 
 	pushArgs = append(pushArgs, imageRef)
-	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
+	pushEnvVars := map[string]string{
+		"REGISTRY_AUTH_FILE": containerAuthFile,
+	}
+	if err := podmanWorker.runInWorker(ctx, log, "push", pushEnvVars, pushArgs...); err != nil {
 		return "", "", err
 	}
 

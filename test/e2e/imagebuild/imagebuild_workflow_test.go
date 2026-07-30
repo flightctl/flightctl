@@ -22,19 +22,25 @@ import (
 
 // Shared constants used across all imagebuild test files
 const (
-	// Test timeouts
-	imageBuildTimeout    = 15 * time.Minute
-	imageExportTimeout   = 15 * time.Minute
-	processingTimeout    = 2 * time.Minute
-	failureTimeout       = 3 * time.Minute
+	// Timeouts
+	imageBuildTimeout   = 15 * time.Minute
+	imageExportTimeout  = 15 * time.Minute
+	processingTimeout   = 2 * time.Minute
+	failureTimeout      = 3 * time.Minute
+	cancelTimeout       = 1 * time.Minute
+	vmBootTimeout       = 2 * time.Minute
+	sbomReferrerTimeout = 30 * time.Second
+
+	// Poll periods
 	processingPollPeriod = 5 * time.Second
-	pollPeriodLong       = 10 * time.Second
-	vmBootTimeout        = 2 * time.Minute
-	cancelTimeout        = 1 * time.Minute
 	vmBootPollPeriod     = 5 * time.Second
-	agentServiceName     = "flightctl-agent"
-	labelEnvironment     = "environment"
-	imageBuildUsername   = "flightctl-ssh-user"
+	pollPeriodLong       = 10 * time.Second
+	sbomPollPeriod       = 2 * time.Second
+
+	// Labels and names
+	labelEnvironment   = "environment"
+	imageBuildUsername = "flightctl-ssh-user"
+	agentServiceName   = "flightctl-agent"
 )
 
 const (
@@ -56,11 +62,10 @@ var sourceRegistryOnce sync.Once
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild end-to-end workflow", func() {
 		It("should verify basic image build process - build, export, download, use in an agent", Label("87335", "88406", "imagebuild", "slow"), func() {
-			Expect(workerHarness).ToNot(BeNil())
-			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
-
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
+			registryAddress := auxSvcs.Registry.Authenticated.HostPort
+			authUsername := auxSvcs.Registry.Authenticated.Username
+			authPassword := auxSvcs.Registry.Authenticated.Password
 
 			sshPublicKey, sshPrivateKeyPath, cleanupSSHKeys, keyErr := testutil.GenerateTempSSHKeyPair()
 			Expect(keyErr).ToNot(HaveOccurred(), "Should generate temporary SSH key pair")
@@ -82,8 +87,8 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
-				lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, nil)
+			err = applyOCIRepositoryWithDockerAuth(workerHarness, destRepoName, registryAddress,
+				lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, authUsername, authPassword)
 			Expect(err).ToNot(HaveOccurred())
 
 			// ============================================================
@@ -129,9 +134,11 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			GinkgoWriter.Printf("ImageBuild %s status verified\n", imageBuildName)
 
 			// Assert the build completed successfully
-			reason, _ := workerHarness.GetImageBuildConditionReason(imageBuildName)
+			reason, message, err := workerHarness.GetImageBuildConditionReasonAndMessage(imageBuildName)
+			Expect(err).ToNot(HaveOccurred(), "Failed to get ImageBuild condition")
+			GinkgoWriter.Printf("ImageBuild %s condition: reason=%s message=%s\n", imageBuildName, reason, message)
 			Expect(reason).To(Equal(string(imagebuilderapi.ImageBuildConditionReasonCompleted)),
-				"Expected ImageBuild to complete successfully")
+				"Expected ImageBuild to complete successfully (message: %s)", message)
 
 			// ============================================================
 			// Step 2b: Verify image upload and SBOM
@@ -146,7 +153,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			GinkgoWriter.Printf("ImageBuild manifest digest from status: %s\n", manifestDigest)
 
 			// Resolve the image in the registry and verify the digest matches
-			resolvedDesc, err := workerHarness.ResolveImage(registryAddress, destImageName, testID)
+			resolvedDesc, err := workerHarness.ResolveImageWithCredentials(registryAddress, destImageName, testID, authUsername, authPassword)
 			Expect(err).ToNot(HaveOccurred(), "Should be able to resolve image in registry")
 			resolvedDigest := resolvedDesc.Digest.String()
 			GinkgoWriter.Printf("Resolved image digest from registry: %s\n", resolvedDigest)
@@ -160,12 +167,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			var sbomResult *e2e.SBOMValidationResult
 			Eventually(func(g Gomega) {
 				var err error
-				sbomResult, err = workerHarness.ValidateImageSBOM(registryAddress, destImageName, manifestDigest)
+				sbomResult, err = workerHarness.ValidateImageSBOMWithCredentials(registryAddress, destImageName, manifestDigest, authUsername, authPassword)
 				g.Expect(err).ToNot(HaveOccurred(), "Should be able to validate SBOM")
 				g.Expect(sbomResult.Found).To(BeTrue(), "SBOM should be found as a referrer")
 				g.Expect(sbomResult.DigestMatches).To(BeTrue(),
 					"SBOM should contain the correct image digest (expected: %s, got: %s)", manifestDigest, sbomResult.ImageDigest)
-			}, "30s", "2s").Should(Succeed(), "SBOM validation should eventually succeed")
+			}, sbomReferrerTimeout, sbomPollPeriod).Should(Succeed(), "SBOM validation should eventually succeed")
 			GinkgoWriter.Printf("SBOM referrer digest: %s\n", sbomResult.ReferrerDigest)
 			GinkgoWriter.Printf("SBOM image PURL: %s\n", sbomResult.ImagePURL)
 			GinkgoWriter.Printf("SBOM image digest: %s\n", sbomResult.ImageDigest)
@@ -382,21 +389,26 @@ func isLocalSourceRegistry() bool {
 	return sourceRegistry != defaultSourceRegistry
 }
 
-// getAgentServiceStatus returns the systemctl is-active status of the flightctl-agent service.
+// getAgentServiceStatus returns the systemctl is-active status of the flightctl-agent service on the given VM.
+// Returns an error if the VM is nil or the SSH command fails; callers should wrap this in Eventually.
 func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getAgentServiceStatus: VM is nil\n")
-		return "", nil
+		return "", fmt.Errorf("VM is nil")
 	}
 	stdout, err := libvirtVM.RunSSH([]string{"sudo", "systemctl", "is-active", agentServiceName}, nil)
 	if err != nil {
-		GinkgoWriter.Printf("getAgentServiceStatus: %v\n", err)
+		GinkgoWriter.Printf("getAgentServiceStatus: SSH error: %v\n", err)
 		return "", err
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	status := strings.TrimSpace(stdout.String())
+	GinkgoWriter.Printf("getAgentServiceStatus: %s=%s\n", agentServiceName, status)
+	return status, nil
 }
 
-// getEnrollmentIDFromAgentLogs extracts the enrollment ID from flightctl-agent journal logs.
+// getEnrollmentIDFromAgentLogs extracts the enrollment ID from flightctl-agent journal logs via SSH.
+// Returns an empty string (not an error) when no enrollment ID has appeared yet, so callers can
+// use this inside an Eventually block waiting for the ID to appear.
 func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
 	if libvirtVM == nil {
 		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: VM is nil\n")
@@ -404,8 +416,12 @@ func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
 	}
 	stdout, err := libvirtVM.RunSSH([]string{"sudo", "journalctl", "-u", agentServiceName, "--no-pager"}, nil)
 	if err != nil {
-		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: %v\n", err)
+		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: SSH error: %v\n", err)
 		return ""
 	}
-	return testutil.GetEnrollmentIdFromText(stdout.String())
+	id := testutil.GetEnrollmentIdFromText(stdout.String())
+	if id == "" {
+		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: enrollment ID not yet in logs\n")
+	}
+	return id
 }
