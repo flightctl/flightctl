@@ -567,13 +567,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 			updated = nil
 			if device.Status != nil {
 				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
-			}
-			// device.Status.Conditions still holds the pre-render SpecValid at this point
-			// (oldConditions above is the diff baseline for event emission). Apply the
-			// SpecValid=Valid that this render is about to commit before computing derived
-			// status, so e.g. Status.Updated (via IsUpdatedToDeviceSpec) isn't computed
-			// against a stale Invalid condition from before this render.
-			if device.Status != nil {
+				// Apply the SpecValid this render is about to commit before computing derived status.
 				domain.SetStatusCondition(&device.Status.Conditions, specValid)
 			}
 			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {
@@ -588,8 +582,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
-		// No rendered write; still ensure SpecValid=Valid (e.g. recovered from Invalid), and
-		// refresh derived status since it may have been computed against the stale condition.
+		// No rendered write; still ensure SpecValid=Valid and refresh derived status.
 		status := h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
 		if status.Code != http.StatusOK {
 			return status
@@ -612,10 +605,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
 	}
 
-	// StoreAndNotify only wakes up agents already long-polling for a new version; it is not
-	// the source of truth (the render above already persisted successfully). Treat failure
-	// here as best-effort: agents still pick up the new rendered version on their next poll.
-	// Do not fail the call or touch SpecValid over a notify-only failure.
+	// Best-effort: StoreAndNotify only wakes up already-polling agents, it's not the source of truth.
 	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion); err != nil {
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
 	}
