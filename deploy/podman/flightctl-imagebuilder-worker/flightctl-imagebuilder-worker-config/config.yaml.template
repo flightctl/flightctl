@@ -154,3 +154,12 @@ profiling:
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .encryption }}
+encryption:
+  activeKeyID: {{ .activeKeyID }}
+  keys:
+  {{- range .keys }}
+    - id: {{ .id }}
+      path: {{ .path }}
+  {{- end }}
+{{- end }}

@@ -199,3 +199,13 @@ userinfoProxy:
 
 gateway:
   suppressOldPorts: false
+
+# Encryption-at-rest key configuration.
+# The encryption key files live in /etc/flightctl/encryption/ and are mounted
+# at /root/.flightctl/encryption/ inside each service container.
+# For key rotation: add a new key file, add it here, then change activeKeyID.
+encryption:
+  activeKeyID: default
+  keys:
+    - id: default
+      path: /root/.flightctl/encryption/key
