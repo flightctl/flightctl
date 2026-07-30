@@ -25,6 +25,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # make e2e-agent-images uses podman; pin crun so ubuntu-24.04 doesn't hit
+      # "unknown version specified" (apt ships crun 1.14.1).
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
         uses: actions/cache/restore@v4

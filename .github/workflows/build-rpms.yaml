@@ -16,6 +16,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # make rpm uses podman; pin crun so ubuntu-24.04 doesn't hit
+      # "unknown version specified" (apt ships crun 1.14.1).
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
       - name: Restore Go modules cache
         id: cache-go-restore
         uses: actions/cache/restore@v4
