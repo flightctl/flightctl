@@ -4,6 +4,12 @@
 # one word per line, to define a file override use ' - filename'
 # where filename is relative to this configuration file
 AAP
+AES
+ciphertext
+decryptable
+GCM
+nonces
+plaintext
 ACM
 Alertmanager
 amd64
@@ -596,6 +602,14 @@ quadlets
 Sanitization
 SNI
 VPN
+- docs/user/installing/configuring-encryption.md
+256-bit
+256-GCM
+32-byte
+AES-256-GCM
+base64-encoded
+plaintext-to-encrypted
+pre-install
 - docs/user/references/events.md
 lifecycles
 Rollouts

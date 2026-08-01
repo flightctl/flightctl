@@ -105,6 +105,17 @@ When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Contro
 * `resourceKey` — the dependency that failed
 * `errorMessage` — sanitized error description (credentials redacted)
 
+### Encryption Events
+
+| Event Reason | Type | Description |
+|-------------|------|-------------|
+| `EncryptionMigrationStarted` | Normal | Encryption migration started for a new active key. |
+| `EncryptionMigrationCompleted` | Normal | Encryption migration completed. Old keys can be retired after migration completes. |
+
+These events have `involvedObject.kind` set to `System` and `involvedObject.name` set to `encryption`.
+
+For more information about encryption key rotation and migration, see [Configuring encryption at rest](../installing/configuring-encryption.md).
+
 ### System Events
 
 - `InternalTaskFailed`
