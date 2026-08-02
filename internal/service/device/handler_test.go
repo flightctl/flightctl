@@ -945,6 +945,7 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
 		name             string
 		capabilities     *domain.DeviceCapabilities
+		existingOs       *domain.DeviceOsSpec
 		incomingOs       *domain.DeviceOsSpec
 		enforceOwnership bool
 		wantCode         int32
@@ -993,6 +994,23 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership: true,
 			wantCode:         http.StatusOK,
 		},
+		{
+			name:             "When package-mode device retains the same os.image it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When package-mode device changes os.image it should return 400",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/other-img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusBadRequest,
+			wantMessage:      "OS image is not supported on package-mode devices",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1003,7 +1021,7 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 
 			existing := domain.Device{
 				Metadata: domain.ObjectMeta{Name: lo.ToPtr("pkg-dev")},
-				Spec:     &domain.DeviceSpec{},
+				Spec:     &domain.DeviceSpec{Os: tt.existingOs},
 				Status:   &domain.DeviceStatus{Capabilities: tt.capabilities},
 			}
 			_, err := st.device.Create(ctx, orgId, &existing, nil)
@@ -1026,6 +1044,7 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
 		name             string
 		capabilities     *domain.DeviceCapabilities
+		existingOs       *domain.DeviceOsSpec
 		patch            domain.PatchRequest
 		enforceOwnership bool
 		wantCode         int32
@@ -1042,6 +1061,14 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 		{
 			name:             "When package-mode device gets non-OS patch it should allow",
 			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:            patchAddLabel("env", "prod"),
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When package-mode device already has os.image and gets non-OS patch it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
 			patch:            patchAddLabel("env", "prod"),
 			enforceOwnership: true,
 			wantCode:         http.StatusOK,
@@ -1068,7 +1095,7 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 					Name:   lo.ToPtr("pkg-dev"),
 					Labels: &map[string]string{"env": "staging"},
 				},
-				Spec:   &domain.DeviceSpec{},
+				Spec:   &domain.DeviceSpec{Os: tt.existingOs},
 				Status: &status,
 			}
 			_, err := st.device.Create(ctx, orgId, &existing, nil)

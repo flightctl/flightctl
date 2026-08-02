@@ -812,9 +812,9 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 	return false
 }
 
-// isPackageModeOsImageConflict reports whether the incoming device spec assigns an OS
-// image to a device that is known to be in package mode. Package-mode devices cannot
-// satisfy image-based OS targets, so the caller should reject the request early.
+// isPackageModeOsImageConflict reports whether the incoming device spec newly assigns
+// or changes a non-empty OS image on a package-mode device. Unrelated updates that
+// retain an existing image (e.g. a label PATCH after fleet rollout) are not conflicts.
 func isPackageModeOsImageConflict(existing *domain.Device, incoming *domain.Device) bool {
 	if existing.Status == nil || existing.Status.Capabilities == nil || existing.Status.Capabilities.OsMode == nil {
 		return false
@@ -822,5 +822,16 @@ func isPackageModeOsImageConflict(existing *domain.Device, incoming *domain.Devi
 	if *existing.Status.Capabilities.OsMode != domain.OsModePackage {
 		return false
 	}
-	return incoming.Spec != nil && incoming.Spec.Os != nil && incoming.Spec.Os.Image != ""
+	incomingImage := ""
+	if incoming.Spec != nil && incoming.Spec.Os != nil {
+		incomingImage = incoming.Spec.Os.Image
+	}
+	if incomingImage == "" {
+		return false
+	}
+	existingImage := ""
+	if existing.Spec != nil && existing.Spec.Os != nil {
+		existingImage = existing.Spec.Os.Image
+	}
+	return incomingImage != existingImage
 }
