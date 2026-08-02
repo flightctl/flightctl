@@ -159,7 +159,7 @@ Monitors encryption at rest operations, including encrypt and decrypt activity, 
 **Notes:**
 
 - Encryption metrics do not require a separate collector configuration. They are available from `flightctl-api` and `flightctl-worker` when metrics are enabled for those services.
-- Canary validation failures that prevent service startup are reported through service logs and service status. Successful canary validations are reported through `flightctl_encryption_canary_validations_total`.
+- Startup canary validations run before the encryption metrics collector is registered, so they are not reflected in `flightctl_encryption_canary_validations_total`. Canary validation failures that prevent service startup are reported through service logs and service status.
 - For more information about encryption at rest, key rotation, and canary validation, see [Configuring encryption at rest](../installing/configuring-encryption.md).
 
 ## Configuration Examples

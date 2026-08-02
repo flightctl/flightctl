@@ -138,10 +138,9 @@ podman exec flightctl-api ls -la /root/.flightctl/encryption/key
 
 The key file contains a base64-encoded 32-byte, or 256-bit, random value.
 
-Requirements:
+Flight Control validates the key material at startup:
 
 * The base64-decoded value must be exactly 32 bytes.
-* The file must have restricted permissions.
 * All-zero keys are rejected as a configuration error.
 * Missing, malformed, or incorrectly sized keys prevent services from starting.
 
@@ -153,22 +152,45 @@ openssl rand -base64 32
 
 ### Providing your own key
 
-Flight Control generates the initial encryption key automatically. To use your own key after deployment, rotate from the generated key to a custom key. See [Rotating encryption keys](#rotating-encryption-keys).
+#### Fresh installs
 
-Rotation adds the custom key alongside the existing key, marks the custom key as active for new encryptions, and migrates existing encrypted data to the active key. The original key remains configured for decryption until migration completes.
+For fresh installations, you can provide a custom encryption key before the first deployment. If an encryption key already exists, Flight Control preserves it and does not generate a replacement key, so no rotation or migration is needed.
+
+The key must be a base64-encoded 32-byte random value. See [Key file format](#key-file-format).
+
+On **OpenShift / Kubernetes**, create the `flightctl-encryption-key` Secret before running `helm install`:
+
+```bash
+kubectl create secret generic flightctl-encryption-key \
+  -n <namespace> \
+  --from-file=key=<path-to-your-key-file>
+```
+
+On **Quadlet / Podman**, place the key file before starting Flight Control services:
+
+```bash
+sudo mkdir -p /etc/flightctl/encryption
+sudo install -m 0600 <path-to-your-key-file> /etc/flightctl/encryption/key
+```
+
+#### Existing deployments
+
+For deployments that already have encrypted data, use key rotation to switch to a custom key. Rotation adds the custom key alongside the existing key, marks the custom key as active for new encryptions, and migrates existing encrypted data to the active key. The original key remains configured for decryption until migration completes. See [Rotating encryption keys](#rotating-encryption-keys).
 
 ## Backup and restore requirements
 
 Encryption keys are required to read encrypted data stored in PostgreSQL. Losing the required encryption keys makes the affected encrypted fields permanently unreadable.
 
-Encryption keys are included automatically in Flight Control backup archives created by `flightctl-backup`. Restoring from a backup archive with `flightctl-restore` restores the encryption keys alongside the database and other server state.
+Flight Control includes encryption keys in backup archives created by `flightctl-backup` when the encryption key Secret or key directory is available at backup time. If the encryption key Secret in Kubernetes, or the encryption key directory in Podman, cannot be found, the backup completes with a warning and the archive is created without key material.
 
-Do not restore a database backup without restoring the matching encryption keys. A replacement key cannot decrypt data that was encrypted with a previous key.
+After each backup, check the backup logs and verify that the archive contains the expected encryption key material before relying on the archive for disaster recovery.
+
+Restoring from a backup archive with `flightctl-restore` restores the encryption keys alongside the database and other server state. Do not restore a database backup without restoring the matching encryption keys. A replacement key cannot decrypt data that was encrypted with a previous key.
 
 For backup and restore procedures, archive contents, scheduling, and post-restore verification, see [Backup and restore](backup-restore.md).
 
 > [!WARNING]
-> Backup archives contain encryption keys, database contents, CA private keys, and TLS certificates. Store backup archives on encrypted storage with restricted access.
+> Backup archives may contain encryption keys, database contents, CA private keys, and TLS certificates. Store backup archives on encrypted storage with restricted access.
 
 ## Rotating encryption keys
 
@@ -185,7 +207,7 @@ Before rotating encryption keys:
 * Generate a new 32-byte key:
 
 ```bash
-openssl rand -base64 32 > key-2026-07
+(umask 077 && openssl rand -base64 32 > key-2026-07)
 ```
 
 ### Add the new key and update the configuration
@@ -220,7 +242,21 @@ encryption:
       file: "key-2026-07"
 ```
 
-Run `helm upgrade` to apply the changes.
+Run `helm upgrade` to apply the configuration changes, then restart the Flight Control deployments that initialize encryption. Encryption keys and the active key configuration are loaded once at process startup, so running pods do not pick up the new active key until they are restarted:
+
+```bash
+helm upgrade <release> deploy/helm/flightctl -n <namespace> -f values.yaml
+
+kubectl rollout restart -n <namespace> \
+  deployment/flightctl-api \
+  deployment/flightctl-worker \
+  deployment/flightctl-periodic \
+  deployment/flightctl-alert-exporter \
+  deployment/flightctl-alertmanager-proxy \
+  deployment/flightctl-remote-access \
+  deployment/flightctl-imagebuilder-api \
+  deployment/flightctl-imagebuilder-worker
+```
 
 #### Quadlet / Podman
 
@@ -229,8 +265,7 @@ For Quadlet or Podman deployments, place the new key file on the host, update th
 Add the new key file:
 
 ```bash
-cp key-2026-07 /etc/flightctl/encryption/key-2026-07
-chmod 0600 /etc/flightctl/encryption/key-2026-07
+sudo install -m 0600 key-2026-07 /etc/flightctl/encryption/key-2026-07
 ```
 
 Update the `encryption` block in `/etc/flightctl/service-config.yaml` so that both keys are listed and the new key is active:
@@ -273,8 +308,30 @@ To retire an old key:
 
 1. Confirm that `EncryptionMigrationCompleted` was emitted for the migration.
 2. Remove the old key entry from the `keys` list in the encryption configuration.
-3. Restart Flight Control services.
+3. Apply the updated configuration and restart the Flight Control deployments or services that initialize encryption.
 4. Remove the old key file from the Secret or host filesystem.
+
+For OpenShift or Kubernetes deployments, run `helm upgrade` and then restart the Flight Control deployments that initialize encryption:
+
+```bash
+helm upgrade <release> deploy/helm/flightctl -n <namespace> -f values.yaml
+
+kubectl rollout restart -n <namespace> \
+  deployment/flightctl-api \
+  deployment/flightctl-worker \
+  deployment/flightctl-periodic \
+  deployment/flightctl-alert-exporter \
+  deployment/flightctl-alertmanager-proxy \
+  deployment/flightctl-remote-access \
+  deployment/flightctl-imagebuilder-api \
+  deployment/flightctl-imagebuilder-worker
+```
+
+For Quadlet or Podman deployments, restart Flight Control services:
+
+```bash
+sudo systemctl restart flightctl.target
+```
 
 > [!WARNING]
 > Do not remove an old key before migration completes. If an existing canary still depends on that key, affected services fail startup. If any encrypted data still references the removed key, that data cannot be decrypted until the key is restored. If the old key material is lost, values encrypted with that key become permanently unreadable.
@@ -323,13 +380,7 @@ During startup, Flight Control ensures that a canary exists for the active strat
 
 If an existing canary cannot be decrypted or does not match the expected value, the affected service fails startup. The absence of a canary for a newly configured key is not treated as a startup failure.
 
-Canary validation failures are reported through service logs and service status.
-
-Successful validations are reported through the `flightctl_encryption_canary_validations_total` metric:
-
-```text
-flightctl_encryption_canary_validations_total{strategy="v1",key_id="default",status="success"}
-```
+Canary validation failures are reported through service logs and service status. Startup canary validations are not reflected in `flightctl_encryption_canary_validations_total`.
 
 Canaries validate that configured keys can decrypt known values previously written by Flight Control. They do not validate every encrypted database record.
 

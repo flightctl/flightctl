@@ -4,13 +4,8 @@
 # one word per line, to define a file override use ' - filename'
 # where filename is relative to this configuration file
 AAP
-AES
-ciphertext
-decryptable
-GCM
-nonces
-plaintext
 ACM
+AES
 Alertmanager
 amd64
 API
@@ -27,6 +22,7 @@ CentOS
 cgroup
 cgroups
 checksum
+ciphertext
 cleanup
 CLI
 cpu
@@ -38,6 +34,7 @@ Containerfile
 CRD
 CSR
 darwin
+decryptable
 DeviceTemplate
 df
 e.g.
@@ -56,6 +53,7 @@ firewalld
 fleetless
 flightctl
 frontend
+GCM
 GitLab
 GitOps
 greenboot
@@ -87,6 +85,7 @@ microservices
 MicroShift
 mTLS
 namespace
+nonces
 non-root
 NAT
 OCI
@@ -101,6 +100,7 @@ ostree
 OTA
 passt
 passtWorkarounds
+plaintext
 pluggable
 Podman
 PostgreSQL
