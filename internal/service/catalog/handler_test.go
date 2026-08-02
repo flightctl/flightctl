@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -23,8 +24,7 @@ import (
 // directly since it lives in a _test.go file in a different package).
 type fakeCatalogStore struct {
 	catalogs map[string]*domain.Catalog
-	items    map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
-	itemOrgs map[string]uuid.UUID           // key: itemKey(catalogName, itemName) -> org that owns the item
+	items    map[string]*domain.CatalogItem // key: itemKey(orgId, catalogName, itemName)
 	err      error
 }
 
@@ -32,12 +32,11 @@ func newFakeCatalogStore() *fakeCatalogStore {
 	return &fakeCatalogStore{
 		catalogs: map[string]*domain.Catalog{},
 		items:    map[string]*domain.CatalogItem{},
-		itemOrgs: map[string]uuid.UUID{},
 	}
 }
 
-func itemKey(catalogName, itemName string) string {
-	return catalogName + "/" + itemName
+func itemKey(orgId uuid.UUID, catalogName, itemName string) string {
+	return orgId.String() + "/" + catalogName + "/" + itemName
 }
 
 func (f *fakeCatalogStore) InitialMigration(ctx context.Context) error { return f.err }
@@ -115,8 +114,9 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 	if !exists {
 		return flterrors.ErrResourceNotFound
 	}
-	for key, it := range f.items {
-		if it.Metadata.Catalog == name && f.itemOrgs[key] == orgId {
+	prefix := orgId.String() + "/" + name + "/"
+	for key := range f.items {
+		if strings.HasPrefix(key, prefix) {
 			return flterrors.ErrResourceNotEmpty
 		}
 	}
@@ -159,9 +159,12 @@ func (f *fakeCatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, li
 	if f.err != nil {
 		return nil, f.err
 	}
+	prefix := orgId.String() + "/"
 	items := make([]domain.CatalogItem, 0, len(f.items))
-	for _, it := range f.items {
-		items = append(items, *it)
+	for key, it := range f.items {
+		if strings.HasPrefix(key, prefix) {
+			items = append(items, *it)
+		}
 	}
 	return &domain.CatalogItemList{Items: items}, nil
 }
@@ -170,9 +173,10 @@ func (f *fakeCatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catal
 	if _, ok := f.catalogs[catalogName]; !ok {
 		return nil, flterrors.ErrParentResourceNotFound
 	}
+	prefix := orgId.String() + "/" + catalogName + "/"
 	items := make([]domain.CatalogItem, 0)
-	for _, it := range f.items {
-		if it.Metadata.Catalog == catalogName {
+	for key, it := range f.items {
+		if strings.HasPrefix(key, prefix) {
 			items = append(items, *it)
 		}
 	}
@@ -183,7 +187,7 @@ func (f *fakeCatalogStore) GetItem(ctx context.Context, orgId uuid.UUID, catalog
 	if _, ok := f.catalogs[catalogName]; !ok {
 		return nil, flterrors.ErrParentResourceNotFound
 	}
-	it, ok := f.items[itemKey(catalogName, itemName)]
+	it, ok := f.items[itemKey(orgId, catalogName, itemName)]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
 	}
@@ -195,9 +199,8 @@ func (f *fakeCatalogStore) CreateItem(ctx context.Context, orgId uuid.UUID, cata
 		return nil, flterrors.ErrParentResourceNotFound
 	}
 	item.Metadata.Catalog = catalogName
-	key := itemKey(catalogName, lo.FromPtr(item.Metadata.Name))
+	key := itemKey(orgId, catalogName, lo.FromPtr(item.Metadata.Name))
 	f.items[key] = item
-	f.itemOrgs[key] = orgId
 	return item, nil
 }
 
@@ -205,7 +208,7 @@ func (f *fakeCatalogStore) UpdateItem(ctx context.Context, orgId uuid.UUID, cata
 	if _, ok := f.catalogs[catalogName]; !ok {
 		return nil, flterrors.ErrParentResourceNotFound
 	}
-	key := itemKey(catalogName, lo.FromPtr(item.Metadata.Name))
+	key := itemKey(orgId, catalogName, lo.FromPtr(item.Metadata.Name))
 	old, ok := f.items[key]
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
@@ -224,7 +227,7 @@ func (f *fakeCatalogStore) CreateOrUpdateItem(ctx context.Context, orgId uuid.UU
 	if _, ok := f.catalogs[catalogName]; !ok {
 		return nil, false, flterrors.ErrParentResourceNotFound
 	}
-	key := itemKey(catalogName, lo.FromPtr(item.Metadata.Name))
+	key := itemKey(orgId, catalogName, lo.FromPtr(item.Metadata.Name))
 	if _, ok := f.items[key]; ok {
 		result, err := f.UpdateItem(ctx, orgId, catalogName, item)
 		return result, false, err
@@ -237,12 +240,11 @@ func (f *fakeCatalogStore) DeleteItem(ctx context.Context, orgId uuid.UUID, cata
 	if _, ok := f.catalogs[catalogName]; !ok {
 		return flterrors.ErrParentResourceNotFound
 	}
-	key := itemKey(catalogName, itemName)
+	key := itemKey(orgId, catalogName, itemName)
 	if _, ok := f.items[key]; !ok {
 		return flterrors.ErrResourceNotFound
 	}
 	delete(f.items, key)
-	delete(f.itemOrgs, key)
 	return nil
 }
 
@@ -653,9 +655,7 @@ func TestDeleteCatalogNonEmpty(t *testing.T) {
 		catalog := createTestCatalog("catalog-with-items", nil)
 		fakeStore.catalogs["catalog-with-items"] = &catalog
 		item := createTestCatalogItem("catalog-with-items", "app-1", nil)
-		key := itemKey("catalog-with-items", "app-1")
-		fakeStore.items[key] = &item
-		fakeStore.itemOrgs[key] = orgId
+		fakeStore.items[itemKey(orgId, "catalog-with-items", "app-1")] = &item
 
 		status := h.DeleteCatalog(context.Background(), orgId, "catalog-with-items", true)
 		require.Equal(t, int32(http.StatusConflict), status.Code)
@@ -671,9 +671,7 @@ func TestDeleteCatalogNonEmpty(t *testing.T) {
 		catalog := createTestCatalog("shared-name", nil)
 		fakeStore.catalogs["shared-name"] = &catalog
 		item := createTestCatalogItem("shared-name", "app-1", nil)
-		key := itemKey("shared-name", "app-1")
-		fakeStore.items[key] = &item
-		fakeStore.itemOrgs[key] = otherOrgId
+		fakeStore.items[itemKey(otherOrgId, "shared-name", "app-1")] = &item
 
 		status := h.DeleteCatalog(context.Background(), orgId, "shared-name", true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
@@ -768,12 +766,13 @@ func TestPatchCatalogStatus(t *testing.T) {
 func TestListAllCatalogItems(t *testing.T) {
 	t.Run("When the store succeeds it should return the list with StatusOK", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
-		fakeStore.items[itemKey("c1", "i1")] = &item
+		fakeStore.items[itemKey(orgId, "c1", "i1")] = &item
 
-		result, status := h.ListAllCatalogItems(context.Background(), uuid.New(), domain.ListAllCatalogItemsParams{})
+		result, status := h.ListAllCatalogItems(context.Background(), orgId, domain.ListAllCatalogItemsParams{})
 		require.Equal(t, domain.StatusOK(), status)
 		require.Len(t, result.Items, 1)
 	})
@@ -790,12 +789,13 @@ func TestListAllCatalogItems(t *testing.T) {
 func TestListCatalogItems(t *testing.T) {
 	t.Run("When the catalog exists it should return its items with StatusOK", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
-		fakeStore.items[itemKey("c1", "i1")] = &item
+		fakeStore.items[itemKey(orgId, "c1", "i1")] = &item
 
-		result, status := h.ListCatalogItems(context.Background(), uuid.New(), "c1", domain.ListCatalogItemsParams{})
+		result, status := h.ListCatalogItems(context.Background(), orgId, "c1", domain.ListCatalogItemsParams{})
 		require.Equal(t, domain.StatusOK(), status)
 		require.Len(t, result.Items, 1)
 	})
@@ -811,12 +811,13 @@ func TestListCatalogItems(t *testing.T) {
 func TestGetCatalogItem(t *testing.T) {
 	t.Run("When the item exists it should return it with StatusOK", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
-		fakeStore.items[itemKey("c1", "i1")] = &item
+		fakeStore.items[itemKey(orgId, "c1", "i1")] = &item
 
-		result, status := h.GetCatalogItem(context.Background(), uuid.New(), "c1", "i1")
+		result, status := h.GetCatalogItem(context.Background(), orgId, "c1", "i1")
 		require.Equal(t, domain.StatusOK(), status)
 		require.Equal(t, "i1", lo.FromPtr(result.Metadata.Name))
 	})
@@ -841,14 +842,15 @@ func TestGetCatalogItem(t *testing.T) {
 func TestCreateCatalogItem(t *testing.T) {
 	t.Run("When the item is valid it should create it", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
 
-		result, status := h.CreateCatalogItem(context.Background(), uuid.New(), "c1", item)
+		result, status := h.CreateCatalogItem(context.Background(), orgId, "c1", item)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
 		require.NotNil(t, result)
-		require.Contains(t, fakeStore.items, itemKey("c1", "i1"))
+		require.Contains(t, fakeStore.items, itemKey(orgId, "c1", "i1"))
 	})
 
 	t.Run("When the parent catalog does not exist it should return a not-found status", func(t *testing.T) {
@@ -861,30 +863,32 @@ func TestCreateCatalogItem(t *testing.T) {
 
 	t.Run("When managed metadata fields are set by the caller CreateCatalogItemFromUntrusted should clear them before creation", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i2", nil)
 		item.Metadata.Owner = lo.ToPtr("someone")
 		item.Metadata.Generation = lo.ToPtr(int64(5))
 
-		_, status := CreateCatalogItemFromUntrusted(context.Background(), h, uuid.New(), "c1", item)
+		_, status := CreateCatalogItemFromUntrusted(context.Background(), h, orgId, "c1", item)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
-		require.Nil(t, fakeStore.items[itemKey("c1", "i2")].Metadata.Owner)
-		require.Nil(t, fakeStore.items[itemKey("c1", "i2")].Metadata.Generation)
+		require.Nil(t, fakeStore.items[itemKey(orgId, "c1", "i2")].Metadata.Owner)
+		require.Nil(t, fakeStore.items[itemKey(orgId, "c1", "i2")].Metadata.Generation)
 	})
 
 	t.Run("When managed metadata fields are set by the caller CreateCatalogItem (trusted) should preserve them", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i3", nil)
 		item.Metadata.Owner = lo.ToPtr("someone")
 		item.Metadata.Generation = lo.ToPtr(int64(5))
 
-		_, status := h.CreateCatalogItem(context.Background(), uuid.New(), "c1", item)
+		_, status := h.CreateCatalogItem(context.Background(), orgId, "c1", item)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
-		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey("c1", "i3")].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey("c1", "i3")].Metadata.Generation))
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "i3")].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "i3")].Metadata.Generation))
 	})
 }
 
@@ -925,8 +929,8 @@ func TestReplaceCatalogItem(t *testing.T) {
 
 		_, status := ReplaceCatalogItemFromUntrusted(context.Background(), h, orgId, "c1", "replace-untrusted", item, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
-		require.Nil(t, fakeStore.items[itemKey("c1", "replace-untrusted")].Metadata.Owner)
-		require.Nil(t, fakeStore.items[itemKey("c1", "replace-untrusted")].Metadata.Generation)
+		require.Nil(t, fakeStore.items[itemKey(orgId, "c1", "replace-untrusted")].Metadata.Owner)
+		require.Nil(t, fakeStore.items[itemKey(orgId, "c1", "replace-untrusted")].Metadata.Generation)
 	})
 
 	t.Run("When managed metadata fields are set by the caller ReplaceCatalogItem (trusted) should preserve them", func(t *testing.T) {
@@ -940,8 +944,8 @@ func TestReplaceCatalogItem(t *testing.T) {
 
 		_, status := h.ReplaceCatalogItem(context.Background(), orgId, "c1", "replace-trusted", item, true)
 		require.Equal(t, int32(http.StatusCreated), status.Code)
-		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey("c1", "replace-trusted")].Metadata.Owner))
-		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey("c1", "replace-trusted")].Metadata.Generation))
+		require.Equal(t, "someone", lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "replace-trusted")].Metadata.Owner))
+		require.Equal(t, int64(5), lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "replace-trusted")].Metadata.Generation))
 	})
 }
 
@@ -950,51 +954,54 @@ func TestReplaceCatalogItemOwnership(t *testing.T) {
 
 	t.Run("When replacing an owned item with a changed spec it should return conflict", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		existing := createTestCatalogItem("c1", "owned-item", &owner)
-		fakeStore.items[itemKey("c1", "owned-item")] = &existing
+		fakeStore.items[itemKey(orgId, "c1", "owned-item")] = &existing
 
 		updated := createTestCatalogItem("c1", "owned-item", nil)
 		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
 
-		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", updated, true)
+		_, status := h.ReplaceCatalogItem(context.Background(), orgId, "c1", "owned-item", updated, true)
 		require.Equal(t, int32(http.StatusConflict), status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
-		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey(orgId, "c1", "owned-item")].Spec.Artifacts[0].Uri)
 	})
 
 	t.Run("When enforceOwnership is false it should allow updating an owned item", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		existing := createTestCatalogItem("c1", "owned-item", &owner)
-		fakeStore.items[itemKey("c1", "owned-item")] = &existing
+		fakeStore.items[itemKey(orgId, "c1", "owned-item")] = &existing
 
 		updated := createTestCatalogItem("c1", "owned-item", nil)
 		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
 
-		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", updated, false)
+		result, status := h.ReplaceCatalogItem(context.Background(), orgId, "c1", "owned-item", updated, false)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
-		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
-		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey("c1", "owned-item")].Metadata.Owner))
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey(orgId, "c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "owned-item")].Metadata.Owner))
 	})
 
 	t.Run("When replacing an unowned item with a changed spec it should allow the update", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		existing := createTestCatalogItem("c1", "unowned-item", nil)
-		fakeStore.items[itemKey("c1", "unowned-item")] = &existing
+		fakeStore.items[itemKey(orgId, "c1", "unowned-item")] = &existing
 
 		updated := createTestCatalogItem("c1", "unowned-item", nil)
 		updated.Spec.Artifacts[0].Uri = "quay.io/example/changed"
 
-		result, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "unowned-item", updated, true)
+		result, status := h.ReplaceCatalogItem(context.Background(), orgId, "c1", "unowned-item", updated, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
-		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "unowned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey(orgId, "c1", "unowned-item")].Spec.Artifacts[0].Uri)
 	})
 }
 
@@ -1010,15 +1017,16 @@ func TestPatchCatalogItem(t *testing.T) {
 
 	t.Run("When the patch is valid it should apply it", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "i1", nil)
-		fakeStore.items[itemKey("c1", "i1")] = &item
+		fakeStore.items[itemKey(orgId, "c1", "i1")] = &item
 
 		var value interface{} = map[string]string{"env": "prod"}
 		patch := domain.PatchRequest{{Op: "replace", Path: "/metadata/labels", Value: &value}}
 
-		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "i1", patch, true)
+		result, status := h.PatchCatalogItem(context.Background(), orgId, "c1", "i1", patch, true)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
 	})
@@ -1027,36 +1035,37 @@ func TestPatchCatalogItem(t *testing.T) {
 func TestPatchCatalogItemOwnership(t *testing.T) {
 	owner := "ResourceSync/my-resourcesync"
 
-	setup := func(t *testing.T) (*ServiceHandler, *fakeCatalogStore) {
+	setup := func(t *testing.T) (*ServiceHandler, *fakeCatalogStore, uuid.UUID) {
 		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
 		catalog := createTestCatalog("c1", nil)
 		fakeStore.catalogs["c1"] = &catalog
 		item := createTestCatalogItem("c1", "owned-item", &owner)
-		fakeStore.items[itemKey("c1", "owned-item")] = &item
-		return h, fakeStore
+		fakeStore.items[itemKey(orgId, "c1", "owned-item")] = &item
+		return h, fakeStore, orgId
 	}
 
 	t.Run("When patching an owned item spec it should return conflict", func(t *testing.T) {
-		h, fakeStore := setup(t)
+		h, fakeStore, orgId := setup(t)
 		var value interface{} = "quay.io/example/changed"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/artifacts/0/uri", Value: &value}}
 
-		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", patch, true)
+		_, status := h.PatchCatalogItem(context.Background(), orgId, "c1", "owned-item", patch, true)
 		require.Equal(t, int32(http.StatusConflict), status.Code)
 		require.Equal(t, flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(), status.Message)
-		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, "quay.io/example/app", fakeStore.items[itemKey(orgId, "c1", "owned-item")].Spec.Artifacts[0].Uri)
 	})
 
 	t.Run("When enforceOwnership is false it should allow patching an owned item", func(t *testing.T) {
-		h, fakeStore := setup(t)
+		h, fakeStore, orgId := setup(t)
 		var value interface{} = "quay.io/example/changed"
 		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/artifacts/0/uri", Value: &value}}
 
-		result, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "owned-item", patch, false)
+		result, status := h.PatchCatalogItem(context.Background(), orgId, "c1", "owned-item", patch, false)
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result)
-		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey("c1", "owned-item")].Spec.Artifacts[0].Uri)
-		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey("c1", "owned-item")].Metadata.Owner))
+		require.Equal(t, "quay.io/example/changed", fakeStore.items[itemKey(orgId, "c1", "owned-item")].Spec.Artifacts[0].Uri)
+		require.Equal(t, owner, lo.FromPtr(fakeStore.items[itemKey(orgId, "c1", "owned-item")].Metadata.Owner))
 	})
 }
 
@@ -1127,7 +1136,7 @@ func TestDeleteCatalogItem(t *testing.T) {
 
 			if tt.createItem {
 				item := createTestCatalogItem(tt.catalogName, tt.itemName, tt.itemOwner)
-				fakeStore.items[itemKey(tt.catalogName, tt.itemName)] = &item
+				fakeStore.items[itemKey(testOrgId, tt.catalogName, tt.itemName)] = &item
 			}
 
 			status := h.DeleteCatalogItem(ctx, testOrgId, tt.catalogName, tt.itemName, tt.enforceOwnership)
@@ -1137,7 +1146,7 @@ func TestDeleteCatalogItem(t *testing.T) {
 				require.Equal(t, tt.expectedError.Error(), status.Message)
 			}
 
-			_, ok := fakeStore.items[itemKey(tt.catalogName, tt.itemName)]
+			_, ok := fakeStore.items[itemKey(testOrgId, tt.catalogName, tt.itemName)]
 			require.Equal(t, !tt.expectItemDeleted, ok)
 		})
 	}
