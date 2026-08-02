@@ -130,7 +130,7 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = fleetStore.Delete(ctx, otherOrgId, "myfleet", nil)
+			_, err = fleetStore.Delete(ctx, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
 			templateVersions, err := tvStore.List(ctx, orgId, store.ListParams{})
@@ -175,7 +175,7 @@ var _ = Describe("TemplateVersion", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
-			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1", nil)
+			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
 			_, err = tvStore.Get(ctx, orgId, "myfleet", "1.0.1")
@@ -184,7 +184,7 @@ var _ = Describe("TemplateVersion", func() {
 		})
 
 		It("Delete templateVersion success when not found", func() {
-			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1", nil)
+			deleted, err := tvStore.Delete(ctx, orgId, "myfleet", "1.0.1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
 		})

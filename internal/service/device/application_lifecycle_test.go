@@ -52,7 +52,7 @@ func newLifecycleTestDevice(t *testing.T, appName string) (h Service, st *fakeSt
 	ev = &fakeEvents{}
 	h = NewDeviceServiceHandler(st.device, st.fleet, ev, nil, "agent.example.com", logrus.New())
 	orgId = uuid.New()
-	_, err := st.device.Create(context.Background(), orgId, &device, nil)
+	_, err := st.device.Create(context.Background(), orgId, &device)
 	require.NoError(err)
 
 	return h, st, ev, orgId, deviceName

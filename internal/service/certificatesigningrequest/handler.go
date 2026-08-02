@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -227,7 +228,8 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		}
 	}
 
-	result, err := h.store.Create(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, err := h.store.Create(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, true, domain.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
@@ -248,7 +250,10 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name, h.callbackCertificateSigningRequestDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 }
 
@@ -328,7 +333,8 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		}
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -395,7 +401,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}
@@ -544,28 +551,32 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.Certifi
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
 func (h *ServiceHandler) callbackCertificateSigningRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldCSR, newCSR *domain.CertificateSigningRequest
-				ok             bool
-			)
-			if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+	store.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldCSR, newCSR *domain.CertificateSigningRequest
+					ok             bool
+				)
+				if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackCertificateSigningRequestDeleted is the certificate signing request-specific callback that handles CSR deletion events
 func (h *ServiceHandler) callbackCertificateSigningRequestDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	store.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // setCSRFailedCondition sets the Failed condition on the provided CSR, persists the change, and logs any error during persistence.

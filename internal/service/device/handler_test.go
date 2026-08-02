@@ -106,7 +106,7 @@ func TestGetDevice(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 		require.NoError(t, err)
 		result, status := svc.GetDevice(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusOK), status.Code)
@@ -242,7 +242,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -263,7 +263,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -285,7 +285,7 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("unowned-device")},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &existing, nil)
+		_, err := st.device.Create(ctx, orgId, &existing)
 		require.NoError(t, err)
 
 		updated := domain.Device{
@@ -312,7 +312,7 @@ func TestDeleteDevice(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 		require.NoError(t, err)
 		status := svc.DeleteDevice(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusOK), status.Code)
@@ -333,7 +333,7 @@ func TestPatchDevice(t *testing.T) {
 			},
 			Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &device, nil)
+		_, err := st.device.Create(ctx, orgId, &device)
 		require.NoError(t, err)
 		return st, svc, orgId
 	}
@@ -385,7 +385,7 @@ func TestPatchDeviceOwnership(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("owned-device"), Owner: lo.ToPtr(owner)},
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		}
-		_, err := st.device.Create(ctx, orgId, &device, nil)
+		_, err := st.device.Create(ctx, orgId, &device)
 		require.NoError(t, err)
 		return st, svc, orgId
 	}
@@ -426,7 +426,7 @@ func TestPatchDeviceStatus(t *testing.T) {
 			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 			Status:   &status,
 		}
-		_, err := st.device.Create(ctx, orgId, &device, nil)
+		_, err := st.device.Create(ctx, orgId, &device)
 		require.NoError(t, err)
 		return svc, orgId
 	}
@@ -482,7 +482,7 @@ func TestDeviceRepositoryRefs(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 		require.NoError(t, err)
 
 		status := svc.OverwriteDeviceRepositoryRefs(ctx, orgId, "foo", "repo1", "repo2")
@@ -520,7 +520,7 @@ func TestResumeDevices(t *testing.T) {
 		annotations := map[string]string{domain.DeviceAnnotationConflictPaused: "true"}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo"), Annotations: &annotations},
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		resp, status := svc.ResumeDevices(ctx, orgId, domain.DeviceResumeRequest{})
@@ -537,7 +537,7 @@ func TestResumeDevices(t *testing.T) {
 		annotations := map[string]string{domain.DeviceAnnotationConflictPaused: "true"}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo"), Annotations: &annotations},
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		require.NotPanics(t, func() {
@@ -568,7 +568,7 @@ func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 		Spec:   &domain.DeviceSpec{},
 		Status: lo.ToPtr(domain.NewDeviceStatus()),
 	}
-	_, err := st.device.Create(ctx, orgId, device, nil)
+	_, err := st.device.Create(ctx, orgId, device)
 	require.NoError(t, err)
 
 	err = svc.UpdateServerSideDeviceStatus(ctx, orgId, "foo")
@@ -586,7 +586,7 @@ func TestUpdateServerSideDeviceStatus_UnmanagedDevice(t *testing.T) {
 		Spec:     &domain.DeviceSpec{},
 		Status:   lo.ToPtr(domain.NewDeviceStatus()),
 	}
-	_, err := st.device.Create(ctx, orgId, device, nil)
+	_, err := st.device.Create(ctx, orgId, device)
 	require.NoError(t, err)
 
 	err = svc.UpdateServerSideDeviceStatus(ctx, orgId, "foo")
@@ -607,7 +607,7 @@ func TestListDevices(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
 	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 	require.NoError(t, err)
 	result, status := svc.ListDevices(ctx, orgId, domain.ListDevicesParams{}, nil)
 	require.Equal(t, int32(http.StatusOK), status.Code)
@@ -627,7 +627,7 @@ func TestCountDevices(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
 	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 	require.NoError(t, err)
 	count, status := svc.CountDevices(ctx, orgId, domain.ListDevicesParams{}, nil)
 	require.Equal(t, int32(http.StatusOK), status.Code)
@@ -686,7 +686,7 @@ func TestGetDeviceStatus(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
 	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 	require.NoError(t, err)
 	result, status := svc.GetDeviceStatus(ctx, orgId, "foo")
 	require.Equal(t, int32(http.StatusOK), status.Code)
@@ -704,7 +704,7 @@ func TestGetDeviceLastSeen(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 		require.NoError(t, err)
 		_, status := svc.GetDeviceLastSeen(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusNoContent), status.Code)
@@ -721,7 +721,7 @@ func TestUpdateDeviceAnnotations(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
 	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 	require.NoError(t, err)
 	status := svc.UpdateDeviceAnnotations(ctx, orgId, "foo", map[string]string{"k": "v"}, nil)
 	require.Equal(t, int32(http.StatusOK), status.Code)
@@ -752,7 +752,7 @@ func TestUpdateDevice(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}, Spec: &domain.DeviceSpec{}}, nil)
+		_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}, Spec: &domain.DeviceSpec{}})
 		require.NoError(t, err)
 		device := domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
@@ -837,7 +837,7 @@ func TestDecommissionDevice(t *testing.T) {
 			},
 			Spec:   &domain.DeviceSpec{},
 			Status: lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		decom := domain.DeviceDecommission{}
@@ -893,7 +893,7 @@ func TestUpdateRenderedDevice(t *testing.T) {
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 		Spec:     &domain.DeviceSpec{},
 		Status:   lo.ToPtr(domain.NewDeviceStatus()),
-	}, nil)
+	})
 	require.NoError(t, err)
 	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", nil)
 	require.Equal(t, int32(http.StatusOK), status.Code)
@@ -925,7 +925,7 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{
@@ -952,7 +952,7 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 			Status: &domain.DeviceStatus{
 				Conditions: []domain.Condition{cond},
 			},
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{cond})
@@ -997,7 +997,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		incoming := domain.Device{
@@ -1017,7 +1017,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour)
@@ -1043,7 +1043,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 			Spec:     &domain.DeviceSpec{},
 			Status:   lo.ToPtr(domain.NewDeviceStatus()),
-		}, nil)
+		})
 		require.NoError(t, err)
 
 		callerProvidedLastSeen := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
@@ -1064,7 +1064,7 @@ func TestGetRenderedDevice(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
 	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}})
 	require.NoError(t, err)
 	// Non-agent caller with no KnownRenderedVersion: skips the healthchecker/rendered.Bus
 	// global singletons entirely, exercising only the store round-trip.

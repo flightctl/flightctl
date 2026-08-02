@@ -41,6 +41,10 @@ type GenericStore[P extInt[M], M any, A any, AL any] struct {
 
 	// Callback for integration tests to inject logic
 	IntegrationTestCreateOrUpdateCallback IntegrationTestCallback
+
+	// prePersistValidate is an optional persistence-contract check run inside
+	// createOrUpdate (and therefore inside CAS retries). Not a service callback.
+	prePersistValidate func(ctx context.Context, before, after *A) error
 }
 
 type Resource struct {
@@ -70,25 +74,29 @@ func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
 	return s.dbHandler.WithContext(ctx)
 }
 
+func (s *GenericStore[P, M, A, AL]) SetPrePersistValidate(fn func(ctx context.Context, before, after *A) error) {
+	s.prePersistValidate = fn
+}
+
 func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {
-	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, ModeCreateOnly, nil)
+	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, ModeCreateOnly)
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string) (*A, *A, error) {
 	updated, before, _, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeUpdateOnly, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeUpdateOnly)
 	})
 	return updated, before, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string) (*A, *A, bool, error) {
 	return retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeCreateOrUpdate, validationCallback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, ModeCreateOrUpdate)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, mode CreateOrUpdateMode) (*A, *A, bool, bool, error) {
 	if resource == nil {
 		return nil, nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -114,13 +122,13 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		}
 	}
 
-	if validationCallback != nil {
+	if s.prePersistValidate != nil {
 		modifiedAPIResource, err := s.modelPtrToAPI(modelInst)
 		if err != nil {
 			return nil, nil, creating, false, err
 		}
 
-		err = validationCallback(ctx, existingAPIResource, modifiedAPIResource)
+		err = s.prePersistValidate(ctx, existingAPIResource, modifiedAPIResource)
 		if err != nil {
 			return nil, nil, creating, false, err
 		}

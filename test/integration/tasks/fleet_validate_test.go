@@ -109,11 +109,9 @@ var _ = Describe("FleetValidate", func() {
 			},
 			Spec: specHttp,
 		}
-
-		repoCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Create(ctx, orgId, repository, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repository)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = repositoryStore.Create(ctx, orgId, repositoryHttp, repoCallback)
+		_, err = repositoryStore.Create(ctx, orgId, repositoryHttp)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
@@ -201,7 +199,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -260,7 +258,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -317,7 +315,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -371,7 +369,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)

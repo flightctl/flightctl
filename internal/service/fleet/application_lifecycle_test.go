@@ -49,7 +49,7 @@ func newLifecycleTestFleet(t *testing.T, appName string) (h *ServiceHandler, st 
 	ev = &fakeEventsService{}
 	h = NewServiceHandler(st, ev, nil)
 	orgId = uuid.New()
-	_, err := st.Create(context.Background(), orgId, &fleet, nil)
+	_, err := st.Create(context.Background(), orgId, &fleet)
 	require.NoError(err)
 
 	return h, st, ev, orgId, fleetName
