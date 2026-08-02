@@ -546,8 +546,9 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	if err != nil {
 		return err
 	}
-	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
+	result, oldDevice, err := h.deviceStore.UpdateStatus(ctx, orgId, device)
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, oldDevice, result, false, err)
 	if err != nil {
 		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 		return err
