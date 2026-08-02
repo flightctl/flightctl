@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -242,6 +243,76 @@ var _ = Describe("Encryption migration", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ok3).To(BeTrue())
 		Expect(unlock3()).To(Succeed())
+	})
+
+	It("When key rotates migration should re-encrypt all rows with the new key", func() {
+		seedPlaintextRepository("repo-rotate", "rotate-secret")
+		migrator := newMigrator()
+		runUntilComplete(migrator, domain.RepositoryKind, orgId)
+
+		var repo model.Repository
+		Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, "repo-rotate").Error).To(Succeed())
+		specJSON, err := json.Marshal(repo.Spec.Data)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(specJSON)).To(ContainSubstring("enc:v1:default:"))
+
+		v1 := addEncryptionKey("mig-rotated")
+		Expect(v1.SetActiveKey("mig-rotated")).To(Succeed())
+		defer func() { Expect(v1.SetActiveKey("default")).To(Succeed()) }()
+
+		migrator = newMigrator()
+		runUntilComplete(migrator, domain.RepositoryKind, orgId)
+
+		Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, "repo-rotate").Error).To(Succeed())
+		specJSON, err = json.Marshal(repo.Spec.Data)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(specJSON)).To(ContainSubstring("enc:v1:mig-rotated:"))
+		Expect(string(specJSON)).ToNot(ContainSubstring("enc:v1:default:"))
+
+		Expect(decryptString(readStoredRepoPassword(db, ctx, orgId, "repo-rotate"))).To(Equal("rotate-secret"))
+	})
+
+	It("When key changes mid-migration it should restart and re-encrypt everything with the final key", func() {
+		seedPlaintextRepository("repo-1", "secret-1")
+		seedPlaintextRepository("repo-2", "secret-2")
+		seedPlaintextRepository("repo-3", "secret-3")
+
+		v1 := addEncryptionKey("key-b")
+		Expect(v1.SetActiveKey("key-b")).To(Succeed())
+		defer func() { Expect(v1.SetActiveKey("default")).To(Succeed()) }()
+
+		// newMigrator sets batchSize=1, so each RunBatch processes exactly one row.
+		// After one batch: repo-1 is on key-b, repo-2 and repo-3 are still plaintext.
+		migrator := newMigrator()
+		report, err := migrator.RunBatch(ctx, domain.RepositoryKind, orgId)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(report.Complete).To(BeFalse())
+		Expect(report.Updated).To(Equal(1))
+
+		var repo1 model.Repository
+		Expect(db.WithContext(ctx).First(&repo1, "org_id = ? AND name = ?", orgId, "repo-1").Error).To(Succeed())
+		repo1SpecJSON, err := json.Marshal(repo1.Spec.Data)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(repo1SpecJSON)).To(ContainSubstring("enc:v1:key-b:"), "repo-1 should be on key-b after first batch")
+
+		addEncryptionKey("key-c")
+		Expect(v1.SetActiveKey("key-c")).To(Succeed())
+
+		migrator = newMigrator()
+		runUntilComplete(migrator, domain.RepositoryKind, orgId)
+
+		for i, name := range []string{"repo-1", "repo-2", "repo-3"} {
+			var repo model.Repository
+			Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, name).Error).To(Succeed())
+			specJSON, err := json.Marshal(repo.Spec.Data)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(specJSON)).To(ContainSubstring("enc:v1:key-c:"), "repo %s should be on key-c", name)
+			Expect(string(specJSON)).ToNot(ContainSubstring("enc:v1:key-b:"), "repo %s should not have key-b", name)
+			Expect(string(specJSON)).ToNot(ContainSubstring("enc:v1:default:"), "repo %s should not have default", name)
+
+			expectedSecret := fmt.Sprintf("secret-%d", i+1)
+			Expect(decryptString(readStoredRepoPassword(db, ctx, orgId, name))).To(Equal(expectedSecret), "repo %s secret should decrypt", name)
+		}
 	})
 
 	It("When multiple orgs exist it should migrate each independently", func() {
