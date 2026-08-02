@@ -3,8 +3,10 @@ package quadlet
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/template"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/stretchr/testify/assert"
@@ -509,4 +511,73 @@ func TestDeepCopyMap(t *testing.T) {
 	inner := copied["b"].(map[string]interface{})
 	inner["c"] = 100
 	assert.Equal(t, 2, orig["b"].(map[string]interface{})["c"], "nested map should be copied")
+}
+
+func TestEncryptionConfigSurvivesRender(t *testing.T) {
+	serviceConfig := map[string]interface{}{
+		"global": map[string]interface{}{
+			"baseDomain":           "test.example.com",
+			"generateCertificates": "builtin",
+			"auth": map[string]interface{}{
+				"type":                  "none",
+				"insecureSkipTlsVerify": true,
+			},
+		},
+		"db": map[string]interface{}{
+			"name": "flightctl",
+			"type": "builtin",
+		},
+		"service": map[string]interface{}{
+			"rateLimit": map[string]interface{}{
+				"enabled": false,
+			},
+		},
+		"encryption": map[string]interface{}{
+			"activeKeyID": "key-2026-07",
+			"keys": []interface{}{
+				map[string]interface{}{"id": "default", "path": "/root/.flightctl/encryption/key"},
+				map[string]interface{}{"id": "key-2026-07", "path": "/root/.flightctl/encryption/key-2026-07"},
+			},
+		},
+	}
+
+	encryptionServices := []string{
+		"flightctl-api",
+		"flightctl-worker",
+		"flightctl-periodic",
+		"flightctl-alert-exporter",
+		"flightctl-alertmanager-proxy",
+		"flightctl-remote-access",
+		"flightctl-imagebuilder-api",
+		"flightctl-imagebuilder-worker",
+	}
+
+	repoRoot := findRepoRoot(t)
+	for _, svc := range encryptionServices {
+		t.Run(svc, func(t *testing.T) {
+			tplPath := filepath.Join(repoRoot, "deploy", "podman", svc, svc+"-config", "config.yaml.template")
+			if _, err := os.Stat(tplPath); err != nil {
+				t.Fatalf("template not found (run from repo root): %s", tplPath)
+			}
+
+			outDir := t.TempDir()
+			outPath := filepath.Join(outDir, "config.yaml")
+			err := template.RenderWithData(serviceConfig, tplPath, outPath,
+				template.WithFuncMap(v1beta1.GetGoTemplateFuncMap()))
+			require.NoError(t, err)
+
+			rendered, err := os.ReadFile(outPath)
+			require.NoError(t, err)
+			content := string(rendered)
+
+			assert.True(t, strings.Contains(content, "activeKeyID: key-2026-07"),
+				"%s: rendered config should contain activeKeyID: key-2026-07", svc)
+			assert.True(t, strings.Contains(content, "id: default"),
+				"%s: rendered config should contain the default key entry", svc)
+			assert.True(t, strings.Contains(content, "id: key-2026-07"),
+				"%s: rendered config should contain the rotated key entry", svc)
+			assert.True(t, strings.Contains(content, "path: /root/.flightctl/encryption/key-2026-07"),
+				"%s: rendered config should contain the rotated key path", svc)
+		})
+	}
 }
