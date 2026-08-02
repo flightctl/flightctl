@@ -175,7 +175,7 @@ const fakePodUnit = "[Pod]\nNetwork=podman\n\n[Install]\nWantedBy=default.target
 // pod convention (not the raw VM name) to mirror real vm-to-quadlet output.
 var fakeQuadletFiles = map[string]string{
 	"virt-launcher-my-vm.pod":               fakePodUnit,
-	"virt-launcher-my-vm-compute.container": "[Container]\nImage=quay.io/kubevirt/virt-launcher:v1.8.4\n",
+	"virt-launcher-my-vm-compute.container": "[Container]\nImage=quay.io/kubevirt/virt-launcher:v1.9.0\n",
 }
 
 func TestRenderVmApplication(t *testing.T) {
