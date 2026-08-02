@@ -301,6 +301,16 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
+			name: "When one workload is unhealthy and one is stopping it should report Running degraded",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusUnhealthy},
+				{Name: "container2", Status: StatusStop},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
 			name: "When running workloads are healthy and init containers have exited it should report Running healthy",
 			workloads: []Workload{
 				{Name: "compute", Status: StatusRunning},

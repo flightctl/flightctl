@@ -303,6 +303,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	restarts := 0
 	exited := 0
 	stopped := 0
+	stopping := 0
 	unhealthy := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
@@ -315,6 +316,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			unhealthy++
 		case StatusExited:
 			exited++
+		case StatusStop:
+			stopping++
 		}
 		// A workload that has reached a terminal container state counts as stopped
 		// regardless of exit code: when we asked the app to stop, a non-zero exit
@@ -354,7 +357,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningUnhealthy(total, healthy, unhealthy, initializing, stopped):
+	case isRunningUnhealthy(total, healthy, unhealthy, initializing, stopped+stopping):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isRunningDegraded(total, healthy, initializing):
