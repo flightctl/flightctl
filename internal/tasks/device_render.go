@@ -34,8 +34,8 @@ import (
 // by the edge device, and stores the rendered output.
 //
 // To ensure idempotency:
-// - If the device spec hasn't changed (as determined by UpdateRenderedDevice), the rendered
-//   version is not bumped.
+// - If the device spec hasn't changed (as determined by shouldPersistRenderedUpdate), the
+//   rendered version is not bumped and UpdateRenderedDevice is not called.
 // - The rendering process is deterministic, based on the device spec, configuration sources,
 //   and application specs.
 // - External inputs (e.g., Git repositories, HTTP endpoints, Kubernetes secrets) are frozen per
@@ -151,14 +151,11 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render, unless
-		// bypassHashCheck says this event must always produce a fresh render.
-		if !bypassHashCheck {
-			if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
-				if val == specHash {
-					t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
-					return nil
-				}
-			}
+		// bypassHashCheck / fingerprints would force a persist (fingerprints are unknown
+		// until after render, so the early gate uses an empty fingerprint list).
+		if !shouldPersistRenderedUpdate(annotations, specHash, nil, bypassHashCheck) {
+			t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
+			return nil
 		}
 	}
 
@@ -235,9 +232,13 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	// forceUpdate tells the store layer to persist this render and bump the rendered version
-	// even though specHash is unchanged (see bypassHashCheck above).
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
+	annotations = lo.FromPtr(device.Metadata.Annotations)
+	if !shouldPersistRenderedUpdate(annotations, specHash, syncRefs, bypassHashCheck) {
+		t.log.Infof("Device %s rendered output unchanged; skipping persist", t.event.InvolvedObject.Name)
+		return t.setStatus(ctx, nil)
+	}
+
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs)
 	return t.setStatus(ctx, common.ApiStatusToErr(status))
 }
 
@@ -255,6 +256,16 @@ func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, spec
 	}
 }
 
+func shouldPersistRenderedUpdate(annotations map[string]string, specHash string, fingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) bool {
+	if forceUpdate || len(fingerprints) > 0 {
+		return true
+	}
+	existing, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]
+	if !ok {
+		return true
+	}
+	return existing != specHash
+}
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
 	condition := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid}
 
