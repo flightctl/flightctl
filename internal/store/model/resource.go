@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -54,11 +55,13 @@ type APIResourceOption func(*apiResourceOptions)
 type apiResourceOptions struct {
 	devicesSummary *domain.DevicesSummary // Used by Fleet
 	isRendered     bool                   // Used by Device
+	ctx            context.Context
 }
 
-func WithRendered() APIResourceOption {
+func WithRendered(ctx context.Context) APIResourceOption {
 	return func(o *apiResourceOptions) {
 		o.isRendered = true
+		o.ctx = ctx
 	}
 }
 
