@@ -120,19 +120,23 @@ func TestEnrollmentRequestSpecOsModeJSON(t *testing.T) {
 	}
 }
 
-func TestEnrollmentRequestValidateOsMode(t *testing.T) {
-	baseER := func(mode *OsModeType) EnrollmentRequest {
-		return EnrollmentRequest{
-			Metadata: ObjectMeta{Name: lo.ToPtr("test-er")},
-			Spec:     EnrollmentRequestSpec{Csr: "pem-data", OsMode: mode},
-		}
-	}
+type enrollmentRequestValidateOsModeCase struct {
+	name      string
+	osMode    *OsModeType
+	wantError bool
+}
 
-	tests := []struct {
-		name      string
-		osMode    *OsModeType
-		wantError bool
-	}{
+func enrollmentRequestWithOsMode(mode *OsModeType) EnrollmentRequest {
+	return EnrollmentRequest{
+		Metadata: ObjectMeta{Name: lo.ToPtr("test-er")},
+		Spec:     EnrollmentRequestSpec{Csr: "pem-data", OsMode: mode},
+	}
+}
+
+// TestEnrollmentRequestValidateOsMode verifies EnrollmentRequest.Validate accepts
+// nil/image/package osMode and rejects other values with a spec.osMode error.
+func TestEnrollmentRequestValidateOsMode(t *testing.T) {
+	tests := []enrollmentRequestValidateOsModeCase{
 		{
 			name:   "When osMode is absent it should pass validation",
 			osMode: nil,
@@ -154,7 +158,7 @@ func TestEnrollmentRequestValidateOsMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			er := baseER(tt.osMode)
+			er := enrollmentRequestWithOsMode(tt.osMode)
 			errs := er.Validate()
 			if tt.wantError {
 				require.NotEmpty(t, errs)

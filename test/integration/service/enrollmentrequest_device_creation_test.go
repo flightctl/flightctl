@@ -188,24 +188,6 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 	})
 
 	Context("createDeviceFromEnrollmentRequest with osMode capabilities", func() {
-		approveER := func(suite *ServiceTestSuite, erName string) {
-			defaultOrg := &model.Organization{
-				ID:          org.DefaultID,
-				ExternalID:  org.DefaultID.String(),
-				DisplayName: org.DefaultID.String(),
-			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
-			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
-
-			approval := api.EnrollmentRequestApproval{
-				Approved: true,
-				Labels:   &map[string]string{"approved": "true"},
-			}
-
-			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
-			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
-		}
-
 		It("When osMode is package it should set device capabilities.osMode to package", func() {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)
@@ -217,7 +199,12 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(created).ToNot(BeNil())
 
 			By("approving the enrollment request")
-			approveER(suite, erName)
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device capabilities")
 			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
@@ -238,7 +225,12 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(created).ToNot(BeNil())
 
 			By("approving the enrollment request")
-			approveER(suite, erName)
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device capabilities")
 			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
@@ -258,7 +250,12 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(created).ToNot(BeNil())
 
 			By("approving the enrollment request")
-			approveER(suite, erName)
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device capabilities are nil")
 			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
