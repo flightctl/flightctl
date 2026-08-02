@@ -1302,34 +1302,25 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 	// Capture old conditions with deep copy
 	var oldConditions []domain.Condition
 	if existingRecord.ServiceConditions != nil && existingRecord.ServiceConditions.Data.Conditions != nil {
-		// Deep copy the conditions to avoid shared memory issues
 		oldConditions = append(oldConditions, *existingRecord.ServiceConditions.Data.Conditions...)
 	}
 
-	// Initialize service conditions if needed
 	if existingRecord.ServiceConditions == nil {
 		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
 	}
-	if existingRecord.ServiceConditions.Data.Conditions == nil {
-		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
-	}
+	prepared := append([]domain.Condition(nil), conditions...)
+	existingRecord.ServiceConditions.Data.Conditions = &prepared
 
-	// Set new conditions
-	for _, condition := range conditions {
-		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
-	}
-
-	// Update using the original pattern with specific field updates and optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
 	err = store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 
 	// Call callback if provided (but don't fail the operation if callback fails)

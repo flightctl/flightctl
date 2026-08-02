@@ -420,23 +420,11 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	if existingRecord.Status == nil {
 		existingRecord.Status = model.MakeJSONField(domain.FleetStatus{})
 	}
-	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []domain.Condition{}
-	}
 
-	// Make a full copy of the existing conditions
 	existingConditions := make([]domain.Condition, len(existingRecord.Status.Data.Conditions))
 	copy(existingConditions, existingRecord.Status.Data.Conditions)
 
-	changed := false
-	for _, condition := range conditions {
-		if domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition) {
-			changed = true
-		}
-	}
-	if !changed {
-		return false, nil
-	}
+	existingRecord.Status.Data.Conditions = conditions
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,
@@ -444,10 +432,10 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	})
 	err := store.ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return false, err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return false, flterrors.ErrNoRowsUpdated
 	}
 
 	oldFleet, _ := existingRecord.ToApiResource()

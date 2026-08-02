@@ -99,3 +99,11 @@ func (_d *TracedService) UpdateCertificateSigningRequestApproval(ctx context.Con
 	endSpan(span, s1)
 	return cp1, s1
 }
+
+func (_d *TracedService) UpdateCertificateSigningRequestConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (s1 domain.Status) {
+	ctx, span := startSpan(ctx, "UpdateCertificateSigningRequestConditions")
+
+	s1 = _d.inner.UpdateCertificateSigningRequestConditions(ctx, orgId, name, conditions)
+	endSpan(span, s1)
+	return s1
+}
