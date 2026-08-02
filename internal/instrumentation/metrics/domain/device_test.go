@@ -121,8 +121,8 @@ func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner st
 	return nil
 }
 
-func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
-	return false, nil
+func (m *MockDevice) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uuid.UUID, name string, outcome devicestore.AwaitingReconnectOutcome) error {
+	return nil
 }
 
 func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {

@@ -28,14 +28,14 @@ func PrepareDevices(ctx context.Context, rs *RestoreStore, kv kvstore.KVStore, l
 	}
 
 	log.Info("Updating device annotations and clearing lastSeen timestamps")
-	devicesUpdated, err = rs.PrepareDevicesAfterRestore(ctx)
+	devicesUpdated, err = rs.PrepareDevicesAfterRestore(ctx, NewDeviceAwaitingReconnectPrepareParams())
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare devices after restore")
 		return 0, fmt.Errorf("failed to prepare devices after restore: %w", err)
 	}
 
 	log.Info("Updating enrollment request annotations for non-approved requests")
-	enrollmentRequestsUpdated, err := rs.PrepareEnrollmentRequestsAfterRestore(ctx)
+	enrollmentRequestsUpdated, err := rs.PrepareEnrollmentRequestsAfterRestore(ctx, NewEnrollmentAwaitingReconnectPrepareParams())
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare enrollment requests after restore")
 		return 0, fmt.Errorf("failed to prepare enrollment requests after restore: %w", err)

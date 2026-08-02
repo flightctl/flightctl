@@ -66,6 +66,8 @@ type fakeDeviceStore struct {
 	setServiceConditionsCalls int
 	healthcheckCalls          [][]string
 	healthcheckErr            error
+	applyAwaitingOutcomes     []devicestore.AwaitingReconnectOutcome
+	applyAwaitingErrs         []error
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, error) {
@@ -323,6 +325,42 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	prepared := append([]domain.Condition(nil), conditions...)
 	d.Status.Conditions = append(kept, prepared...)
 	return d, oldServiceConditions, prepared, nil
+}
+
+func (s *fakeDeviceStore) ApplyAwaitingReconnectOutcome(ctx context.Context, orgId uuid.UUID, name string, outcome devicestore.AwaitingReconnectOutcome) error {
+	s.applyAwaitingOutcomes = append(s.applyAwaitingOutcomes, outcome)
+	if len(s.applyAwaitingErrs) > 0 {
+		err := s.applyAwaitingErrs[0]
+		s.applyAwaitingErrs = s.applyAwaitingErrs[1:]
+		if err != nil {
+			return err
+		}
+	}
+	d, ok := s.devices[name]
+	if !ok {
+		return flterrors.ErrNoRowsUpdated
+	}
+	if d.Metadata.Annotations == nil || (*d.Metadata.Annotations)[domain.DeviceAnnotationAwaitingReconnect] != "true" {
+		return flterrors.ErrNoRowsUpdated
+	}
+	annotations := map[string]string{}
+	for k, v := range *d.Metadata.Annotations {
+		if k != domain.DeviceAnnotationAwaitingReconnect {
+			annotations[k] = v
+		}
+	}
+	if outcome.ConflictPaused {
+		annotations[domain.DeviceAnnotationConflictPaused] = "true"
+	}
+	d.Metadata.Annotations = &annotations
+	if d.Status == nil {
+		d.Status = lo.ToPtr(domain.NewDeviceStatus())
+	}
+	d.Status.Summary.Status = domain.DeviceSummaryStatusType(outcome.SummaryStatus)
+	d.Status.Summary.Info = lo.ToPtr(outcome.SummaryInfo)
+	d.Status.Updated.Status = domain.DeviceUpdatedStatusType(outcome.UpdatedStatus)
+	d.Status.Config.RenderedVersion = outcome.ConfigRenderedVersion
+	return nil
 }
 
 func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {

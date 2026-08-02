@@ -943,8 +943,24 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 			versionStr = *deviceReportedVersion
 		}
 		h.log.Infof("Processing awaiting reconnect annotation for device %s (orgId: %s, version: %s)", deviceName, orgId, versionStr)
-		// Only process the annotation if the KV store contains the key with value "true"
-		wasConflictPaused, err := h.deviceStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
+
+		var wasConflictPaused bool
+		err := common.RetryOnNoRowsUpdated(func() error {
+			device, getErr := h.deviceStore.Get(ctx, orgId, deviceName)
+			if getErr != nil {
+				return getErr
+			}
+			apply, outcome := decideAwaitingReconnect(device, deviceReportedVersion)
+			if !apply {
+				wasConflictPaused = false
+				return nil
+			}
+			if applyErr := h.deviceStore.ApplyAwaitingReconnectOutcome(ctx, orgId, deviceName, outcome); applyErr != nil {
+				return applyErr
+			}
+			wasConflictPaused = outcome.ConflictPaused
+			return nil
+		})
 		if err != nil {
 			h.log.WithError(err).Warnf("failed to process awaiting reconnect annotation for device %s", deviceName)
 			// Don't fail the request, just log the warning
