@@ -15,7 +15,10 @@ ARG TARGETARCH
 COPY --from=project-root go.mod /tmp/go.mod
 
 # Tools: curl for download, yq (Go), tar/gzip, coreutils, shadow-utils for user/group
-RUN dnf -y install --setopt=install_weak_deps=0 --nodocs \
+# --allowerasing: package-mode bases ship curl-minimal/coreutils-single which
+# conflict with full curl/coreutils; allow DNF to replace them.
+# On bootc bases the full packages are already present so this is a no-op.
+RUN dnf -y install --allowerasing --setopt=install_weak_deps=0 --nodocs \
       curl yq tar gzip coreutils shadow-utils ca-certificates \
   && dnf clean all
 
