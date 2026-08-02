@@ -484,6 +484,7 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 
 	testCases := []struct {
 		name                   string
+		appType                v1beta1.AppType
 		initialWorkloadStatus  StatusType
 		health                 string
 		expectedWorkloadStatus StatusType
@@ -492,7 +493,8 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 		expectedSummary        v1beta1.ApplicationsSummaryStatusType
 	}{
 		{
-			name:                   "When running workload becomes unhealthy it should report Running degraded",
+			name:                   "When running VM workload becomes unhealthy it should report Running degraded",
+			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusRunning,
 			health:                 "unhealthy",
 			expectedWorkloadStatus: StatusUnhealthy,
@@ -501,7 +503,8 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name:                   "When unhealthy workload becomes healthy it should report Running healthy",
+			name:                   "When unhealthy VM workload becomes healthy it should report Running healthy",
+			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusUnhealthy,
 			health:                 "healthy",
 			expectedWorkloadStatus: StatusRunning,
@@ -510,7 +513,8 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name:                   "When health is starting it should leave workload status unchanged",
+			name:                   "When VM health is starting it should leave workload status unchanged",
+			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusRunning,
 			health:                 "starting",
 			expectedWorkloadStatus: StatusRunning,
@@ -519,13 +523,34 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name:                   "When workload is still initializing it should ignore health_status",
+			name:                   "When VM workload is still initializing it should ignore health_status",
+			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusInit,
 			health:                 "unhealthy",
 			expectedWorkloadStatus: StatusInit,
 			expectedReady:          "0/1",
 			expectedAppStatus:      v1beta1.ApplicationStatusPreparing,
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusUnknown,
+		},
+		{
+			name:                   "When compose app receives health_status it should leave workload unchanged",
+			appType:                v1beta1.AppTypeCompose,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name:                   "When quadlet app receives health_status it should leave workload unchanged",
+			appType:                v1beta1.AppTypeQuadlet,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 	}
 
@@ -538,7 +563,7 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 				log:  log,
 			}
 
-			app := createTestApplication(require, appName, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+			app := createTestApplicationWithType(require, appName, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, tc.appType)
 			app.AddWorkload(&Workload{
 				Name:   containerName,
 				Status: tc.initialWorkloadStatus,

@@ -601,6 +601,12 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 
 func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	if event.Status == podmanHealthStatusEvent {
+		// HealthCmd-driven status is VM-specific (vm-to-quadlet). Other app
+		// types keep lifecycle-only status so ordinary container healthchecks
+		// do not change application summary.
+		if app.AppType() != v1beta1.AppTypeVm {
+			return
+		}
 		m.updateContainerHealthStatus(app, event)
 		return
 	}
