@@ -78,9 +78,9 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 }
 
 // ReplaceDeviceFromUntrusted sanitizes an untrusted device document, then replaces it.
-func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
+func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	SanitizeDevice(&device)
-	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
+	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
@@ -222,7 +222,7 @@ func DeviceVerificationCallback(ctx context.Context, before, after *domain.Devic
 	return nil
 }
 
-func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, domain.StatusBadRequest(flterrors.ErrDecommission.Error())
@@ -235,19 +235,19 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
+	if enforceOwnership || enforceCapabilities {
 		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
 		if getErr != nil {
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
 				return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
 			}
 		} else {
-			if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+			if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
 				if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
 					return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 				}
 			}
-			if isPackageModeOsImageConflict(existing, &device) {
+			if enforceCapabilities && isPackageModeOsImageConflict(existing, &device) {
 				return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
 			}
 		}
@@ -451,7 +451,7 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Device, domain.Status) {
+func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
@@ -485,15 +485,13 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	if enforceOwnership {
-		if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
-			if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
-			}
+	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
+		if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 		}
-		if isPackageModeOsImageConflict(currentObj, newObj) {
-			return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
-		}
+	}
+	if enforceCapabilities && isPackageModeOsImageConflict(currentObj, newObj) {
+		return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)

@@ -751,7 +751,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(409)))
 			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
 
@@ -766,7 +766,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			var value interface{} = "img-updated"
 			patch := api.PatchRequest{{Op: "replace", Path: "/spec/os/image", Value: &value}}
-			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true)
+			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
 			Expect(status.Code).To(Equal(int32(409)))
 			Expect(status.Message).To(Equal(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error()))
 
@@ -783,7 +783,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img-updated"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, false)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, false, false)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
@@ -822,7 +822,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
 		})
@@ -833,7 +833,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			var value interface{} = map[string]interface{}{"image": "quay.io/img:latest"}
 			patch := api.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
-			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true)
+			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
 		})
@@ -846,7 +846,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(200)))
 		})
 
@@ -858,7 +858,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
 			}
-			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(200)))
 		})
 	})
