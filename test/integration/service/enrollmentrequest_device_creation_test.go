@@ -187,6 +187,83 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 		})
 	})
 
+	Context("createDeviceFromEnrollmentRequest with osMode capabilities", func() {
+		It("When osMode is package it should set device capabilities.osMode to package", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			er.Spec.OsMode = lo.ToPtr(api.OsModePackage)
+
+			By("creating enrollment request with osMode=package")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device capabilities")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).ToNot(BeNil())
+			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModePackage))
+		})
+
+		It("When osMode is image it should set device capabilities.osMode to image", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			er.Spec.OsMode = lo.ToPtr(api.OsModeImage)
+
+			By("creating enrollment request with osMode=image")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device capabilities")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).ToNot(BeNil())
+			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModeImage))
+		})
+
+		It("When osMode is absent it should leave device capabilities nil", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			By("creating enrollment request without osMode")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device capabilities are nil")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).To(BeNil())
+		})
+	})
+
 	Context("createDeviceFromEnrollmentRequest with replaceLabels", func() {
 		DescribeTable("should handle replaceLabels correctly",
 			func(
