@@ -46,11 +46,13 @@ var _ = Describe("Encryption key rotation", func() {
 		orgId = uuid.New()
 		Expect(testutil.CreateTestOrganization(ctx, organizationStore, orgId)).To(Succeed())
 
-		v1Strategy = addEncryptionKey("rotated")
+		v1Strategy = addEncryptionKey("rot-rotated")
 	})
 
 	AfterEach(func() {
-		Expect(v1Strategy.SetActiveKey("default")).To(Succeed())
+		if v1Strategy != nil {
+			Expect(v1Strategy.SetActiveKey("default")).To(Succeed())
+		}
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
@@ -97,7 +99,7 @@ var _ = Describe("Encryption key rotation", func() {
 		rawBefore := readRawSpec("rotation-test")
 		Expect(rawBefore).To(ContainSubstring("enc:v1:default:"))
 
-		Expect(v1Strategy.SetActiveKey("rotated")).To(Succeed())
+		Expect(v1Strategy.SetActiveKey("rot-rotated")).To(Succeed())
 
 		repo, err := repositoryStore.Get(ctx, orgId, "rotation-test")
 		Expect(err).ToNot(HaveOccurred())
@@ -106,7 +108,7 @@ var _ = Describe("Encryption key rotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		rawAfter := readRawSpec("rotation-test")
-		Expect(rawAfter).To(ContainSubstring("enc:v1:rotated:"))
+		Expect(rawAfter).To(ContainSubstring("enc:v1:rot-rotated:"))
 		Expect(rawAfter).ToNot(ContainSubstring("enc:v1:default:"))
 
 		updatedRepo, err := repositoryStore.Get(ctx, orgId, "rotation-test")
@@ -119,7 +121,7 @@ var _ = Describe("Encryption key rotation", func() {
 	It("When key rotates old-key data should still decrypt", func() {
 		createRepoWithPassword("old-key-test", "old-key-secret")
 
-		Expect(v1Strategy.SetActiveKey("rotated")).To(Succeed())
+		Expect(v1Strategy.SetActiveKey("rot-rotated")).To(Succeed())
 
 		repo, err := repositoryStore.Get(ctx, orgId, "old-key-test")
 		Expect(err).ToNot(HaveOccurred())
@@ -131,7 +133,7 @@ var _ = Describe("Encryption key rotation", func() {
 	It("When ProcessEncryption is called on old-key data it should re-encrypt with new key", func() {
 		createRepoWithPassword("process-test", "process-secret")
 
-		Expect(v1Strategy.SetActiveKey("rotated")).To(Succeed())
+		Expect(v1Strategy.SetActiveKey("rot-rotated")).To(Succeed())
 
 		oldEncrypted := readStoredRepoPassword(db, ctx, orgId, "process-test")
 		Expect(oldEncrypted).To(ContainSubstring("enc:v1:default:"))
@@ -139,7 +141,7 @@ var _ = Describe("Encryption key rotation", func() {
 		mgr := encryption.GlobalManager()
 		reencrypted, err := mgr.ProcessEncryption(ctx, []byte(oldEncrypted))
 		Expect(err).ToNot(HaveOccurred())
-		Expect(string(reencrypted)).To(ContainSubstring("enc:v1:rotated:"))
+		Expect(string(reencrypted)).To(ContainSubstring("enc:v1:rot-rotated:"))
 
 		decrypted, err := mgr.Decrypt(ctx, reencrypted)
 		Expect(err).ToNot(HaveOccurred())
@@ -159,7 +161,7 @@ var _ = Describe("Encryption key rotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(oldCanary).ToNot(BeNil())
 
-		Expect(v1Strategy.SetActiveKey("rotated")).To(Succeed())
+		Expect(v1Strategy.SetActiveKey("rot-rotated")).To(Succeed())
 
 		repo, err := repositoryStore.Get(ctx, orgId, "canary-test")
 		Expect(err).ToNot(HaveOccurred())
@@ -167,7 +169,7 @@ var _ = Describe("Encryption key rotation", func() {
 		_, err = repositoryStore.Update(ctx, orgId, repo, callback)
 		Expect(err).ToNot(HaveOccurred())
 
-		newCanary, err := cs.Get(ctx, "v1", "rotated")
+		newCanary, err := cs.Get(ctx, "v1", "rot-rotated")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(newCanary).ToNot(BeNil())
 

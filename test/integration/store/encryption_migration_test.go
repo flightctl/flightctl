@@ -256,8 +256,8 @@ var _ = Describe("Encryption migration", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(string(specJSON)).To(ContainSubstring("enc:v1:default:"))
 
-		v1 := addEncryptionKey("rotated")
-		Expect(v1.SetActiveKey("rotated")).To(Succeed())
+		v1 := addEncryptionKey("mig-rotated")
+		Expect(v1.SetActiveKey("mig-rotated")).To(Succeed())
 		defer func() { Expect(v1.SetActiveKey("default")).To(Succeed()) }()
 
 		migrator = newMigrator()
@@ -266,7 +266,7 @@ var _ = Describe("Encryption migration", func() {
 		Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, "repo-rotate").Error).To(Succeed())
 		specJSON, err = json.Marshal(repo.Spec.Data)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(string(specJSON)).To(ContainSubstring("enc:v1:rotated:"))
+		Expect(string(specJSON)).To(ContainSubstring("enc:v1:mig-rotated:"))
 		Expect(string(specJSON)).ToNot(ContainSubstring("enc:v1:default:"))
 
 		Expect(decryptString(readStoredRepoPassword(db, ctx, orgId, "repo-rotate"))).To(Equal("rotate-secret"))
@@ -288,6 +288,12 @@ var _ = Describe("Encryption migration", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(report.Complete).To(BeFalse())
 		Expect(report.Updated).To(Equal(1))
+
+		var repo1 model.Repository
+		Expect(db.WithContext(ctx).First(&repo1, "org_id = ? AND name = ?", orgId, "repo-1").Error).To(Succeed())
+		repo1SpecJSON, err := json.Marshal(repo1.Spec.Data)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(repo1SpecJSON)).To(ContainSubstring("enc:v1:key-b:"), "repo-1 should be on key-b after first batch")
 
 		addEncryptionKey("key-c")
 		Expect(v1.SetActiveKey("key-c")).To(Succeed())
