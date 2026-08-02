@@ -130,7 +130,7 @@ var _ = Describe("VmApplicationRender", func() {
 		Expect(appSpec.FromVmApplication(vmApp)).To(Succeed())
 
 		device := &api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName), Generation: lo.ToPtr(int64(1))},
 			Spec:     &api.DeviceSpec{Applications: &[]api.ApplicationProviderSpec{appSpec}},
 		}
 		_, err := deviceStore.Create(ctx, orgId, device)

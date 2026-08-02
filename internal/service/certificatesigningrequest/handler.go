@@ -162,6 +162,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		}
 	}
 
+	setGenerationOnCreate(&csr.Metadata)
 	result, err := h.store.Create(ctx, orgId, &csr)
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, err)
 	if err != nil {
@@ -267,7 +268,21 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		}
 	}
 
-	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	var result, oldCSR *domain.CertificateSigningRequest
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			return getErr
+		}
+
+		toWrite := *newObj
+		setGenerationOnUpdate(existing, &toWrite)
+		common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+
+		var writeErr error
+		result, oldCSR, writeErr = h.store.Update(ctx, orgId, &toWrite)
+		return writeErr
+	})
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
@@ -335,7 +350,29 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	}
 
-	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	var result, oldCSR *domain.CertificateSigningRequest
+	var created bool
+	err = common.RetryOnNoRowsUpdated(func() error {
+		existing, getErr := h.store.Get(ctx, orgId, name)
+		if getErr != nil {
+			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+				return getErr
+			}
+			existing = nil
+		}
+
+		toWrite := csr
+		if existing == nil {
+			setGenerationOnCreate(&toWrite.Metadata)
+		} else {
+			setGenerationOnUpdate(existing, &toWrite)
+			common.PinResourceVersionForCAS(existing.Metadata.ResourceVersion, &toWrite.Metadata)
+		}
+
+		var writeErr error
+		result, oldCSR, created, writeErr = h.store.CreateOrUpdate(ctx, orgId, &toWrite)
+		return writeErr
+	})
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)

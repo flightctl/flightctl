@@ -86,4 +86,17 @@ func TestRetryOnNoRowsUpdated(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 2, attempts)
 	})
+
+	t.Run("When fn returns ErrResourceVersionConflict it should retry", func(t *testing.T) {
+		attempts := 0
+		err := RetryOnNoRowsUpdated(func() error {
+			attempts++
+			if attempts < 3 {
+				return flterrors.ErrResourceVersionConflict
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, 3, attempts)
+	})
 }

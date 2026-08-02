@@ -24,7 +24,7 @@ func MergeStatusConditions(existing []domain.Condition, updates []domain.Conditi
 }
 
 func shouldRetryConditionUpdate(err error) bool {
-	if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+	if errors.Is(err, flterrors.ErrNoRowsUpdated) || errors.Is(err, flterrors.ErrResourceVersionConflict) {
 		return true
 	}
 	return err != nil && strings.Contains(err.Error(), "deadlock")

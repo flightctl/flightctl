@@ -363,7 +363,8 @@ var _ = Describe("FleetStore create", func() {
 		It("CreateOrUpdate create mode", func() {
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr("newresourcename"),
+					Name:       lo.ToPtr("newresourcename"),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -409,6 +410,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Spec.Selector = &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}}
 			updatedFleet.Metadata.Labels = nil
 			updatedFleet.Metadata.Annotations = nil
+			updatedFleet.Metadata.Generation = lo.ToPtr(int64(2))
 
 			returnedFleet, _, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -431,6 +433,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
+			fleet.Metadata.Generation = lo.ToPtr(int64(2))
 
 			_, _, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -704,7 +707,8 @@ var _ = Describe("FleetStore create", func() {
 		It("Store allows updating owned fleet spec and labels (ownership enforced in service)", func() {
 			resourceSync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr("test-resourcesync"),
+					Name:       lo.ToPtr("test-resourcesync"),
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myrepo",
@@ -717,9 +721,10 @@ var _ = Describe("FleetStore create", func() {
 			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name:   lo.ToPtr("owned-fleet"),
-					Labels: &map[string]string{"original": "label"},
-					Owner:  owner,
+					Name:       lo.ToPtr("owned-fleet"),
+					Labels:     &map[string]string{"original": "label"},
+					Owner:      owner,
+					Generation: lo.ToPtr(int64(1)),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{

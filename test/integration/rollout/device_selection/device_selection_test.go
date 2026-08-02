@@ -125,7 +125,8 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 		fleet := &api.Fleet{
 			Metadata: api.ObjectMeta{
-				Name: lo.ToPtr(name),
+				Name:       lo.ToPtr(name),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec: api.FleetSpec{
 				RolloutPolicy: &api.RolloutPolicy{
@@ -147,8 +148,9 @@ var _ = Describe("Rollout batch sequence test", func() {
 	createTestTemplateVersion := func(ownerName string) {
 		templateVersion := api.TemplateVersion{
 			Metadata: api.ObjectMeta{
-				Name:  util.TimeStampStringPtr(),
-				Owner: util.SetResourceOwner(api.FleetKind, ownerName),
+				Name:       util.TimeStampStringPtr(),
+				Owner:      util.SetResourceOwner(api.FleetKind, ownerName),
+				Generation: lo.ToPtr(int64(1)),
 			},
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
