@@ -1,0 +1,32 @@
+package service
+
+import (
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	"github.com/samber/lo"
+)
+
+// setGenerationOnCreate sets the initial generation for a newly created
+// ImageBuilder API resource. Mirrors internal/service/catalog/generation.go —
+// generation decisions live in the service, not the store.
+func setGenerationOnCreate(meta *domain.ObjectMeta) {
+	meta.Generation = lo.ToPtr(int64(1))
+}
+
+// incrementGenerationOnSpecChange increments generation by 1 when specChanged
+// is true, otherwise carries the existing generation forward unchanged. A nil
+// existingGeneration stays nil unless specChanged — mirroring the sibling
+// setGenerationOnUpdate convention (e.g. internal/service/catalog/generation.go)
+// — since 0 is never a valid generation value in this system.
+func incrementGenerationOnSpecChange(existingGeneration *int64, specChanged bool) *int64 {
+	if existingGeneration == nil && !specChanged {
+		return nil
+	}
+	if existingGeneration == nil {
+		return lo.ToPtr(int64(1))
+	}
+	next := *existingGeneration
+	if specChanged {
+		next++
+	}
+	return lo.ToPtr(next)
+}
