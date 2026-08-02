@@ -940,3 +940,155 @@ func TestGetRenderedDevice(t *testing.T) {
 	require.Equal(t, int32(http.StatusOK), status.Code)
 	require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
 }
+
+func TestReplaceDevicePackageModeOsReject(t *testing.T) {
+	tests := []struct {
+		name             string
+		capabilities     *domain.DeviceCapabilities
+		incomingOs       *domain.DeviceOsSpec
+		enforceOwnership bool
+		wantCode         int32
+		wantMessage      string
+	}{
+		{
+			name:             "When package-mode device gets os.image with enforceOwnership it should return 400",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusBadRequest,
+			wantMessage:      "OS image is not supported on package-mode devices",
+		},
+		{
+			name:             "When package-mode device gets os.image with enforceOwnership=false it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			enforceOwnership: false,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When image-mode device gets os.image it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When device has nil capabilities and gets os.image it should allow",
+			capabilities:     nil,
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When package-mode device gets no os spec it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:       nil,
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When capabilities has nil osMode and gets os.image it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: nil},
+			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			ctx := context.Background()
+			orgId := uuid.New()
+
+			existing := domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("pkg-dev")},
+				Spec:     &domain.DeviceSpec{},
+				Status:   &domain.DeviceStatus{Capabilities: tt.capabilities},
+			}
+			_, err := st.device.Create(ctx, orgId, &existing, nil)
+			require.NoError(t, err)
+
+			incoming := domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("pkg-dev")},
+				Spec:     &domain.DeviceSpec{Os: tt.incomingOs},
+			}
+			_, status := svc.ReplaceDevice(ctx, orgId, "pkg-dev", incoming, nil, tt.enforceOwnership)
+			require.Equal(t, tt.wantCode, status.Code)
+			if tt.wantMessage != "" {
+				require.Contains(t, status.Message, tt.wantMessage)
+			}
+		})
+	}
+}
+
+func TestPatchDevicePackageModeOsReject(t *testing.T) {
+	tests := []struct {
+		name             string
+		capabilities     *domain.DeviceCapabilities
+		patch            domain.PatchRequest
+		enforceOwnership bool
+		wantCode         int32
+		wantMessage      string
+	}{
+		{
+			name:             "When package-mode device gets patch adding os.image with enforceOwnership it should return 400",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:            patchAddOsImage("quay.io/img:latest"),
+			enforceOwnership: true,
+			wantCode:         http.StatusBadRequest,
+			wantMessage:      "OS image is not supported on package-mode devices",
+		},
+		{
+			name:             "When package-mode device gets non-OS patch it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:            patchAddLabel("env", "prod"),
+			enforceOwnership: true,
+			wantCode:         http.StatusOK,
+		},
+		{
+			name:             "When package-mode device gets patch adding os.image with enforceOwnership=false it should allow",
+			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:            patchAddOsImage("quay.io/img:latest"),
+			enforceOwnership: false,
+			wantCode:         http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			ctx := context.Background()
+			orgId := uuid.New()
+
+			status := domain.NewDeviceStatus()
+			status.Capabilities = tt.capabilities
+			existing := domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name:   lo.ToPtr("pkg-dev"),
+					Labels: &map[string]string{"env": "staging"},
+				},
+				Spec:   &domain.DeviceSpec{},
+				Status: &status,
+			}
+			_, err := st.device.Create(ctx, orgId, &existing, nil)
+			require.NoError(t, err)
+
+			_, st2 := svc.PatchDevice(ctx, orgId, "pkg-dev", tt.patch, tt.enforceOwnership)
+			require.Equal(t, tt.wantCode, st2.Code)
+			if tt.wantMessage != "" {
+				require.Contains(t, st2.Message, tt.wantMessage)
+			}
+		})
+	}
+}
+
+func patchAddOsImage(image string) domain.PatchRequest {
+	var value interface{} = map[string]interface{}{"image": image}
+	return domain.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
+}
+
+func patchAddLabel(key, value string) domain.PatchRequest {
+	var v interface{} = value
+	return domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/" + key, Value: &v}}
+}
