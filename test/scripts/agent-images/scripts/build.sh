@@ -11,9 +11,21 @@ APP_REPO="${APP_REPO:-quay.io/flightctl}"
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12}"
 
+current_tree_state() {
+  (cd "${ROOT_DIR}" && {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      echo "clean"
+    elif [ -z "$(git status --porcelain)" ]; then
+      echo "clean"
+    else
+      echo "dirty"
+    fi
+  })
+}
+
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
-SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(cd "${ROOT_DIR}" && ( ( [ ! -d ".git" ] || git diff --quiet ) && echo "clean" ) || echo "dirty")}"
-SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(cd "${ROOT_DIR}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null) || echo "unknown"}"
+SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(cd "${ROOT_DIR}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
