@@ -241,9 +241,14 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
 				return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
 			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
-			if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		} else {
+			if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
+				if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
+					return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+				}
+			}
+			if isPackageModeOsImageConflict(existing, &device) {
+				return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
 			}
 		}
 	}
@@ -480,9 +485,14 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
-		if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+	if enforceOwnership {
+		if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
+			if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
+				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+			}
+		}
+		if isPackageModeOsImageConflict(currentObj, newObj) {
+			return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
 		}
 	}
 
@@ -800,4 +810,14 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 	}
 	h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
 	return false
+}
+
+func isPackageModeOsImageConflict(existing *domain.Device, incoming *domain.Device) bool {
+	if existing.Status == nil || existing.Status.Capabilities == nil || existing.Status.Capabilities.OsMode == nil {
+		return false
+	}
+	if *existing.Status.Capabilities.OsMode != domain.OsModePackage {
+		return false
+	}
+	return incoming.Spec != nil && incoming.Spec.Os != nil && incoming.Spec.Os.Image != ""
 }
