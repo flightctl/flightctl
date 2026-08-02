@@ -792,6 +792,77 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("Package-mode OS image rejection", func() {
+		seedDeviceWithOsMode := func(deviceName string, osMode *api.OsModeType) {
+			GinkgoHelper()
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			deviceStatus := api.NewDeviceStatus()
+			if osMode != nil {
+				deviceStatus.Capabilities = &api.DeviceCapabilities{OsMode: osMode}
+			}
+			statusDevice := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Status:   &deviceStatus,
+			}
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, statusDevice, false)
+			Expect(status.Code).To(Equal(int32(200)))
+		}
+
+		It("denies PUT with spec.os.image on a package-mode device", func() {
+			deviceName := "pkg-mode-put-deny"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModePackage))
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
+		})
+
+		It("denies PATCH adding spec.os.image on a package-mode device", func() {
+			deviceName := "pkg-mode-patch-deny"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModePackage))
+
+			var value interface{} = map[string]interface{}{"image": "quay.io/img:latest"}
+			patch := api.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
+			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
+		})
+
+		It("allows PUT with spec.os.image on an image-mode device", func() {
+			deviceName := "img-mode-put-allow"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModeImage))
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(200)))
+		})
+
+		It("allows PUT with spec.os.image on a device with no capabilities", func() {
+			deviceName := "no-caps-put-allow"
+			seedDeviceWithOsMode(deviceName, nil)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/img:latest"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true)
+			Expect(status.Code).To(Equal(int32(200)))
+		})
+	})
+
 	Context("GetRenderedDevice when AwaitingReconnect moves to ConflictPaused", func() {
 		var (
 			suite           *ServiceTestSuite
