@@ -780,6 +780,8 @@ func TestEditCommand_CobraValidation(t *testing.T) {
 	err := cmd.Args(cmd, []string{})
 	if err == nil {
 		t.Errorf("expected error for too few arguments")
+	} else if !strings.Contains(err.Error(), "you must specify a resource") {
+		t.Errorf("expected 'you must specify a resource' error for too few arguments, got: %v", err)
 	}
 
 	// Test too many arguments
@@ -787,6 +789,8 @@ func TestEditCommand_CobraValidation(t *testing.T) {
 	err = cmd.Args(cmd, []string{"device", "name1", "name2"})
 	if err == nil {
 		t.Errorf("expected error for too many arguments")
+	} else if !strings.Contains(err.Error(), "too many arguments") {
+		t.Errorf("expected 'too many arguments' error for too many arguments, got: %v", err)
 	}
 
 	// Test valid argument counts

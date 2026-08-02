@@ -988,7 +988,7 @@ var _ = Describe("cli login", func() {
 		By("failing when too many arguments are provided")
 		out, err = harness.CLI("edit", "1", "2", "3", "4")
 		Expect(err).To(HaveOccurred())
-		Expect(out).To(ContainSubstring("Error: you must specify a resource to edit (TYPE NAME or TYPE/NAME)"))
+		Expect(out).To(ContainSubstring("Error: too many arguments: edit accepts at most 2 arguments (TYPE NAME or TYPE/NAME)"))
 	})
 
 	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470", "client"), func() {
