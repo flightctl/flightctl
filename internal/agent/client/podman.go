@@ -88,6 +88,7 @@ type PodmanEvent struct {
 	Status            string            `json:"Status"`
 	Type              string            `json:"Type"`
 	TimeNano          int64             `json:"timeNano"`
+	HealthStatus      string            `json:"health_status,omitempty"`
 	Attributes        map[string]string `json:"Attributes"`
 }
 

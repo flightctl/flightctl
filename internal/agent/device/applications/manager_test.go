@@ -416,6 +416,7 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) 
 			"--filter", "event=sync",
 			"--filter", "event=remove",
 			"--filter", "event=exited",
+			"--filter", "event=health_status",
 		},
 	).Return(exec.CommandContext(context.Background(), "echo", `{}`))
 }

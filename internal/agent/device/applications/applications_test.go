@@ -224,6 +224,106 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "When single workload is unhealthy it should report Running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusUnhealthy,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When one workload is unhealthy and one is healthy it should report Running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: StatusUnhealthy,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When all workloads are unhealthy it should report Running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusUnhealthy,
+				},
+				{
+					Name:   "container2",
+					Status: StatusUnhealthy,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When one workload is unhealthy and one is exited it should report Running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusUnhealthy,
+				},
+				{
+					Name:   "container2",
+					Status: StatusExited,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When one workload is unhealthy and one has died it should report Running degraded",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusUnhealthy,
+				},
+				{
+					Name:   "container2",
+					Status: StatusDied,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When running workloads are healthy and init containers have exited it should report Running healthy",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusRunning},
+				{Name: "virt-launcher", Status: StatusRunning},
+				{Name: "init-volume", Status: StatusExited},
+				{Name: "init-config", Status: StatusExited},
+			},
+			expectedReady:         "2/4",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "When a running workload is unhealthy and init containers have exited it should report Running degraded",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusUnhealthy},
+				{Name: "virt-launcher", Status: StatusRunning},
+				{Name: "init-volume", Status: StatusExited},
+				{Name: "init-config", Status: StatusExited},
+			},
+			expectedReady:         "1/4",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
 	}
 
 	for _, tt := range tests {
@@ -371,6 +471,28 @@ func TestApplicationStatusWithDesiredStateStopped(t *testing.T) {
 			desiredState:          v1beta1.ApplicationDesiredStateStopped,
 			expectedStatus:        v1beta1.ApplicationStatusStopping,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When desiredState is stopped and a workload is still unhealthy it should report Stopping not Running",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusUnhealthy},
+				{Name: "init-volume", Status: StatusExited},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopping,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "When desiredState is stopped and all workloads including previously unhealthy are terminal it should report Stopped healthy",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusDied},
+				{Name: "virt-launcher", Status: StatusExited},
+				{Name: "init-volume", Status: StatusExited},
+				{Name: "init-config", Status: StatusExited},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 	}
 

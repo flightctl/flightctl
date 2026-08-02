@@ -600,6 +600,14 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 }
 
 func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	if event.Status == podmanHealthStatusEvent {
+		if app.AppType() != v1beta1.AppTypeVm {
+			return
+		}
+		m.updateContainerHealthStatus(app, event)
+		return
+	}
+
 	appType := normalizeActionAppType(app.AppType())
 	switch appType {
 	case v1beta1.AppTypeCompose:
@@ -608,6 +616,37 @@ func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Applicati
 		m.updateQuadletContainerStatus(ctx, app, event)
 	default:
 		m.log.Errorf("Cannot update container status for unknown app type: %s", appType)
+	}
+}
+
+func (m *PodmanMonitor) updateContainerHealthStatus(app Application, event *client.PodmanEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	container, exists := app.Workload(event.Name)
+	if !exists {
+		m.log.Debugf("Ignoring health_status for unknown container %s in app %s", event.Name, app.Name())
+		return
+	}
+	if container.ID != "" && event.ID != "" && container.ID != event.ID {
+		m.log.Debugf("Ignoring stale health_status for container %s: event ID %s != tracked ID %s", event.Name, event.ID, container.ID)
+		return
+	}
+
+	switch container.Status {
+	case StatusRunning, StatusUnhealthy:
+	default:
+		m.log.Debugf("Ignoring health_status=%s for container %s in status %s", event.HealthStatus, event.Name, container.Status)
+		return
+	}
+
+	switch event.HealthStatus {
+	case "unhealthy":
+		container.Status = StatusUnhealthy
+	case "healthy":
+		container.Status = StatusRunning
+	default:
+		m.log.Debugf("Ignoring health_status=%s for container %s", event.HealthStatus, event.Name)
 	}
 }
 
@@ -628,9 +667,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		// update existing container
 		container.Status = status
-		// restarts can only increase
+		if event.ID != "" {
+			container.ID = event.ID
+		}
 		if restarts > container.Restarts {
 			container.Restarts = restarts
 		}
@@ -649,10 +689,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	if event.Status == podmanHealthStatusEvent {
-		return
-	}
-
 	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
 	if !ok {
 		m.log.Errorf("Could not find systemd unit label in event %v", event)
@@ -785,7 +821,7 @@ func (e *podmanEventWatcher) Init(log *log.PrefixLogger, username v1beta1.Userna
 
 func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.PodmanEvent) error {
 	// list of podman events to listen for
-	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited", "health_status"}
 	e.log.Debugf("Replaying podman events for user %s since: %s", e.username, e.lastEventTime.Load())
 
 	ctx, e.cancel = context.WithCancel(ctx)
