@@ -1399,10 +1399,7 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, p
 		return false, nil, flterrors.ErrResourceVersionConflict
 	}
 
-	var oldDevice domain.Device
-	var devices []domain.Device
-	devices = append(devices, *existingDevice)
-	oldDevice = devices[0]
+	oldDevice := *existingDevice
 
 	// Persist the service-prepared state (spec/status/cleared owner+labels).
 	existingRecord.Spec = model.MakeJSONField(lo.FromPtr(prepared.Spec))
