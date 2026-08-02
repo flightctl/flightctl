@@ -53,16 +53,14 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 type APIResourceOption func(*apiResourceOptions)
 
 type apiResourceOptions struct {
-	devicesSummary       *domain.DevicesSummary // Used by Fleet
-	isRendered           bool                   // Used by Device
-	knownRenderedVersion *string
-	ctx                  context.Context
+	devicesSummary *domain.DevicesSummary // Used by Fleet
+	isRendered     bool                   // Used by Device
+	ctx            context.Context
 }
 
-func WithRendered(ctx context.Context, knownRenderedVersion *string) APIResourceOption {
+func WithRendered(ctx context.Context) APIResourceOption {
 	return func(o *apiResourceOptions) {
 		o.isRendered = true
-		o.knownRenderedVersion = knownRenderedVersion
 		o.ctx = ctx
 	}
 }

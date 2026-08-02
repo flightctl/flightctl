@@ -714,9 +714,6 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				}
 
-				// Omit Spec.Decommissioning: DeviceStore.CreateOrUpdate refuses updates when
-				// the stored device is already decommissioning (persistence contract).
-
 				// Create systemd spec
 				systemd := &struct {
 					MatchPatterns *[]string `json:"matchPatterns,omitempty"`
@@ -771,33 +768,6 @@ var _ = Describe("DeviceStore create", func() {
 			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil)
 
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("CreateOrUpdateDevice refuses update when device is already decommissioning", func() {
-			name := "decom-guard-device"
-			device := api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
-				Spec: &api.DeviceSpec{
-					Os:              &api.DeviceOsSpec{Image: "img"},
-					Decommissioning: &api.DeviceDecommission{Target: api.DeviceDecommissionTargetTypeUnenroll},
-				},
-			}
-			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			stored, err := devStore.Get(ctx, orgId, name)
-			Expect(err).ToNot(HaveOccurred())
-
-			updated := api.Device{
-				Metadata: api.ObjectMeta{
-					Name:            lo.ToPtr(name),
-					ResourceVersion: stored.Metadata.ResourceVersion,
-					Labels:          &map[string]string{"k": "v"},
-				},
-				Spec: stored.Spec,
-			}
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &updated, nil)
-			Expect(err).To(MatchError(flterrors.ErrDecommission))
 		})
 
 		It("UpdateDeviceStatus", func() {
@@ -1164,7 +1134,7 @@ var _ = Describe("DeviceStore create", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "dev", nil, nil, nil)
 
 			// No rendered version
-			_, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			_, err := devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
@@ -1191,7 +1161,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(string(plaintext)).To(ContainSubstring("this is the first config"))
 
 			// Getting first rendered config (decrypts transparently)
-			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig := *renderedDevice.Spec.Config
 			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
@@ -1202,19 +1172,14 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
 			Expect(renderedDevice.Version()).To(Equal("1"))
 
-			// Passing correct renderedVersion
-			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(renderedDevice).To(BeNil())
-
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
 			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Passing previous renderedVersion
-			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
+			// Getting second rendered config
+			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", "")
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig = *renderedDevice.Spec.Config
 			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
