@@ -37,7 +37,7 @@ func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
 }
 
 func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
-	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 }
 
 func TestListenForEvents(t *testing.T) {
@@ -467,6 +467,171 @@ func mockPodmanEventSuccess(name string, username v1beta1.Username, service, sta
 
 func mockPodmanEventError(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
 	return createMockPodmanEvent(name, username, service, status, exitCode)
+}
+
+func mockPodmanHealthEvent(name string, username v1beta1.Username, service, health string) client.PodmanEvent {
+	event := createMockPodmanEvent(name, username, service, "health_status", 0)
+	event.HealthStatus = health
+	return event
+}
+
+func TestUpdateContainerHealthStatus(t *testing.T) {
+	const (
+		appName = "app1"
+		service = "app1-service-1"
+	)
+	containerName := fmt.Sprintf("%s-container", service)
+
+	testCases := []struct {
+		name                   string
+		appType                v1beta1.AppType
+		desiredState           v1beta1.ApplicationDesiredState
+		initialWorkloadStatus  StatusType
+		health                 string
+		expectedWorkloadStatus StatusType
+		expectedReady          string
+		expectedAppStatus      v1beta1.ApplicationStatusType
+		expectedSummary        v1beta1.ApplicationsSummaryStatusType
+	}{
+		{
+			name:                   "When running VM workload becomes unhealthy it should report Running degraded",
+			appType:                v1beta1.AppTypeVm,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusUnhealthy,
+			expectedReady:          "0/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name:                   "When unhealthy VM workload becomes healthy it should report Running healthy",
+			appType:                v1beta1.AppTypeVm,
+			initialWorkloadStatus:  StatusUnhealthy,
+			health:                 "healthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name:                   "When VM health is starting it should leave workload status unchanged",
+			appType:                v1beta1.AppTypeVm,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "starting",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name:                   "When VM workload is still initializing it should ignore health_status",
+			appType:                v1beta1.AppTypeVm,
+			initialWorkloadStatus:  StatusInit,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusInit,
+			expectedReady:          "0/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusPreparing,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusUnknown,
+		},
+		{
+			name:                   "When VM desiredState is stopped and workload is still up unhealthy it should report Stopping",
+			appType:                v1beta1.AppTypeVm,
+			desiredState:           v1beta1.ApplicationDesiredStateStopped,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusUnhealthy,
+			expectedReady:          "0/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusStopping,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name:                   "When compose app receives health_status it should leave workload unchanged",
+			appType:                v1beta1.AppTypeCompose,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name:                   "When quadlet app receives health_status it should leave workload unchanged",
+			appType:                v1beta1.AppTypeQuadlet,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name:                   "When container app receives health_status it should leave workload unchanged",
+			appType:                v1beta1.AppTypeContainer,
+			initialWorkloadStatus:  StatusRunning,
+			health:                 "unhealthy",
+			expectedWorkloadStatus: StatusRunning,
+			expectedReady:          "1/1",
+			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+			monitor := &PodmanMonitor{
+				apps: make(map[string]Application),
+				log:  log,
+			}
+
+			app := createTestApplicationWithType(require, appName, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, tc.appType)
+			if tc.desiredState != "" {
+				app.SetDesiredState(tc.desiredState)
+			}
+			app.AddWorkload(&Workload{
+				Name:   containerName,
+				Status: tc.initialWorkloadStatus,
+			})
+			monitor.apps[app.ID()] = app
+
+			event := mockPodmanHealthEvent(appName, v1beta1.CurrentProcessUsername, service, tc.health)
+			monitor.handleEvent(t.Context(), event)
+
+			workload, ok := app.Workload(containerName)
+			require.True(ok)
+			require.Equal(tc.expectedWorkloadStatus, workload.Status)
+
+			status, summary, err := app.Status()
+			require.NoError(err)
+			require.Equal(tc.expectedReady, status.Ready)
+			require.Equal(tc.expectedAppStatus, status.Status)
+			require.Equal(tc.expectedSummary, summary.Status)
+		})
+	}
+
+	t.Run("When health_status event ID does not match tracked container it should leave workload unchanged", func(t *testing.T) {
+		require := require.New(t)
+		monitor := &PodmanMonitor{
+			apps: make(map[string]Application),
+			log:  log.NewPrefixLogger("test"),
+		}
+		app := createTestApplicationWithType(require, appName, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeVm)
+		app.AddWorkload(&Workload{
+			ID:     "current-container-id",
+			Name:   containerName,
+			Status: StatusRunning,
+		})
+		monitor.apps[app.ID()] = app
+
+		event := mockPodmanHealthEvent(appName, v1beta1.CurrentProcessUsername, service, "unhealthy")
+		event.ID = "stale-container-id"
+		monitor.handleEvent(t.Context(), event)
+
+		workload, ok := app.Workload(containerName)
+		require.True(ok)
+		require.Equal(StatusRunning, workload.Status)
+	})
 }
 
 func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {

@@ -22,14 +22,15 @@ const (
 type StatusType string
 
 const (
-	StatusCreate  StatusType = "create"
-	StatusInit    StatusType = "init"
-	StatusRunning StatusType = "start"
-	StatusStop    StatusType = "stop"
-	StatusDie     StatusType = "die" // docker only
-	StatusDied    StatusType = "died"
-	StatusRemove  StatusType = "remove"
-	StatusExited  StatusType = "exited"
+	StatusCreate    StatusType = "create"
+	StatusInit      StatusType = "init"
+	StatusRunning   StatusType = "start"
+	StatusStop      StatusType = "stop"
+	StatusDie       StatusType = "die" // docker only
+	StatusDied      StatusType = "died"
+	StatusRemove    StatusType = "remove"
+	StatusExited    StatusType = "exited"
+	StatusUnhealthy StatusType = "unhealthy"
 )
 
 func (c StatusType) String() string {
@@ -302,6 +303,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	restarts := 0
 	exited := 0
 	stopped := 0
+	stopping := 0
+	unhealthy := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -309,8 +312,12 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			initializing++
 		case StatusRunning:
 			healthy++
+		case StatusUnhealthy:
+			unhealthy++
 		case StatusExited:
 			exited++
+		case StatusStop:
+			stopping++
 		}
 		// A workload that has reached a terminal container state counts as stopped
 		// regardless of exit code: when we asked the app to stop, a non-zero exit
@@ -350,6 +357,9 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case isRunningUnhealthy(total, healthy, unhealthy, initializing, stopped+stopping):
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
@@ -410,6 +420,10 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 
 func isRunningHealthy(total, healthy, initializing, exited int) bool {
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
+}
+
+func isRunningUnhealthy(total, healthy, unhealthy, initializing, terminal int) bool {
+	return total > 0 && unhealthy > 0 && initializing == 0 && healthy+unhealthy+terminal == total
 }
 
 func isErrored(total, healthy, initializing int) bool {
