@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/google/uuid"
@@ -101,6 +102,22 @@ func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Or
 	}
 
 	return mappedIdentity.Organizations, nil
+}
+
+func (h *ServiceHandler) UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
+	return h.store.UpsertMany(ctx, orgs)
+}
+
+func (h *ServiceHandler) ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error) {
+	return h.store.ListByIDs(ctx, ids)
+}
+
+func (h *ServiceHandler) ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error) {
+	return h.store.ListByExternalIDs(ctx, externalIDs)
+}
+
+func (h *ServiceHandler) List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error) {
+	return h.store.List(ctx, listParams)
 }
 
 func parseFieldSelectorForOrgIDs(selectorStr string) map[uuid.UUID]struct{} {

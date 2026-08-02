@@ -5,11 +5,11 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -19,16 +19,16 @@ import (
 )
 
 type ServiceHandler struct {
-	store        resourcesyncstore.Store
-	catalogStore catalogstore.Store
-	fleetStore   fleetstore.Store
-	events       events.Service
-	log          logrus.FieldLogger
+	store    resourcesyncstore.Store
+	catalogs catalog.Service
+	fleets   fleet.Service
+	events   events.Service
+	log      logrus.FieldLogger
 }
 
 // NewServiceHandler creates a new resourcesync ServiceHandler instance.
-func NewServiceHandler(store resourcesyncstore.Store, catalogStore catalogstore.Store, fleetStore fleetstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, catalogStore: catalogStore, fleetStore: fleetStore, events: events, log: log}
+func NewServiceHandler(store resourcesyncstore.Store, catalogs catalog.Service, fleets fleet.Service, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, catalogs: catalogs, fleets: fleets, events: events, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -105,8 +105,8 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	// Service owns the cascade: one TX for delete + owner cleanup. Store Delete joins
-	// the active TX via store.RunInTransaction so UnsetOwner* see the same connection.
+	// Service owns the cascade: one TX for delete + owner cleanup. Catalog/fleet
+	// UnsetOwner* join the active TX from ctx via store.DB(ctx, nil).
 	var deleted bool
 	err := h.store.WithTransaction(ctx, func(ctx context.Context) error {
 		var delErr error
@@ -118,14 +118,13 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID
 			return nil
 		}
 		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
-		tx := store.DB(ctx, nil)
-		if err := h.catalogStore.UnsetItemOwner(ctx, tx, orgId, *owner); err != nil {
+		if err := h.catalogs.UnsetItemOwner(ctx, orgId, *owner); err != nil {
 			return err
 		}
-		if err := h.catalogStore.UnsetOwner(ctx, tx, orgId, *owner); err != nil {
+		if err := h.catalogs.UnsetOwner(ctx, orgId, *owner); err != nil {
 			return err
 		}
-		return h.fleetStore.UnsetOwner(ctx, tx, orgId, *owner)
+		return h.fleets.UnsetOwner(ctx, orgId, *owner)
 	})
 	if err == nil && deleted {
 		h.callbackResourceSyncDeleted(ctx, domain.ResourceSyncKind, orgId, name, nil, nil, false, nil)

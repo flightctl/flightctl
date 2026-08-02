@@ -171,3 +171,27 @@ func (_d *TracedService) ReplaceCatalogStatus(ctx context.Context, orgId uuid.UU
 	endSpan(span, s1)
 	return cp1, s1
 }
+
+func (_d *TracedService) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) (err error) {
+	ctx, span := startSpan(ctx, "UnsetItemOwner")
+
+	err = _d.inner.UnsetItemOwner(ctx, orgId, owner)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}
+
+func (_d *TracedService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) (err error) {
+	ctx, span := startSpan(ctx, "UnsetOwner")
+
+	err = _d.inner.UnsetOwner(ctx, orgId, owner)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return err
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -21,13 +22,10 @@ import (
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
-	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -35,34 +33,27 @@ import (
 )
 
 type ServiceHandler struct {
-	store       enrollmentrequeststore.Store
-	deviceStore devicestore.Store
-	csrStore    certificatesigningrequeststore.Store
-	ca          *crypto.CAClient
-	kvStore     kvstore.KVStore
-	events      events.Service
-	log         logrus.FieldLogger
-	tpmCAPaths  []string
-	agentGate   *semaphore.Weighted
-
-	agentEndpoint string
-	uiUrl         string
+	store      enrollmentrequeststore.Store
+	deviceSvc  device.Service
+	ca         *crypto.CAClient
+	kvStore    kvstore.KVStore
+	events     events.Service
+	log        logrus.FieldLogger
+	tpmCAPaths []string
+	agentGate  *semaphore.Weighted
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceSvc device.Service, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string) *ServiceHandler {
 	return &ServiceHandler{
-		store:         store,
-		deviceStore:   deviceStore,
-		csrStore:      csrStore,
-		ca:            ca,
-		kvStore:       kvStore,
-		events:        events,
-		log:           log,
-		tpmCAPaths:    tpmCAPaths,
-		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint: agentEndpoint,
-		uiUrl:         uiUrl,
+		store:      store,
+		deviceSvc:  deviceSvc,
+		ca:         ca,
+		kvStore:    kvStore,
+		events:     events,
+		log:        log,
+		tpmCAPaths: tpmCAPaths,
+		agentGate:  semaphore.NewWeighted(common.MaxConcurrentAgents),
 	}
 }
 
@@ -312,21 +303,14 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			}
 		}
 	}
-	// fleetStore is nil: apiResource never has Metadata.Owner set above, so domain.Device.IsManaged()
-	// is always false and the only branch of UpdateServiceSideStatus that dereferences fleetStore is
-	// unreachable from this call site (see handler_test.go's regression test for the enforced
-	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
-	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
-
-	created, err := h.deviceStore.Create(ctx, orgId, apiResource)
-	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, created, true, err)
-	if errors.Is(err, flterrors.ErrDuplicateName) {
+	// CreateDevice owns validation, UpdateServiceSideStatus, and device-created events.
+	// apiResource never has Metadata.Owner set above (unenrolled), so the managed-fleet
+	// branch remains unreachable (see TestCreateDeviceFromEnrollmentRequestNeverManaged).
+	_, status := h.deviceSvc.CreateDevice(ctx, orgId, *apiResource)
+	if status.Code == http.StatusConflict {
 		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", name)
 	}
-	if err != nil {
-		return err
-	}
-	return nil
+	return common.ApiStatusToErr(status)
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
@@ -586,34 +570,30 @@ func newSignRequestFromEnrollment(cfg *ca.Config, er *domain.EnrollmentRequest) 
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.deviceStore.Get(ctx, orgId, name)
-	if errors.Is(err, flterrors.ErrResourceNotFound) {
+	dev, status := h.deviceSvc.GetDevice(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
 		return nil // Device not found: allow to create or update
 	}
-	if device != nil {
+	if err := common.ApiStatusToErr(status); err != nil {
+		return err
+	}
+	if dev != nil {
 		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
-	return err
+	return nil
 }
 
-// deviceExists checks if a device with the given name exists in the store.
-// Error is returned if there is an error other than ErrResourceNotFound.
+// deviceExists checks if a device with the given name exists.
+// Error is returned if there is an error other than not-found.
 func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	dev, err := h.deviceStore.Get(ctx, orgId, name)
-	if errors.Is(err, flterrors.ErrResourceNotFound) {
+	dev, status := h.deviceSvc.GetDevice(ctx, orgId, name)
+	if status.Code == http.StatusNotFound {
 		return false, nil
 	}
-	return dev != nil, err
-}
-
-// callbackDeviceUpdated mirrors internal/service/device's own device-updated event logic so
-// createDeviceFromEnrollmentRequest's device-creation callback keeps emitting the same
-// device-updated event it does today. Calls into the device package directly (rather than a
-// shared events hub) since that's the package that owns this decision logic.
-func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
-		device.EmitDeviceUpdatedEvent(ctx, h.events, h.log, resourceKind, orgId, name, oldResource, newResource, created, err)
-	})
+	if err := common.ApiStatusToErr(status); err != nil {
+		return false, err
+	}
+	return dev != nil, nil
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
@@ -658,41 +638,4 @@ func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, 
 			h.events.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovedEvent(ctx, name, h.log))
 		}
 	})
-}
-
-func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	caCert, err := h.ca.GetCABundle()
-	if err != nil {
-		return nil, domain.StatusInternalServerError("failed to get CA certificate")
-	}
-
-	clientCert := []byte{}
-	if params.Csr != nil {
-		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-		}
-
-		csr, err := h.csrStore.Get(ctx, orgId, *params.Csr)
-		if err != nil {
-			return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, params.Csr)
-		}
-
-		if csr.Status != nil && csr.Status.Certificate != nil {
-			clientCert = *csr.Status.Certificate
-		}
-	}
-
-	return &domain.EnrollmentConfig{
-		EnrollmentService: domain.EnrollmentService{
-			Authentication: domain.EnrollmentServiceAuth{
-				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
-				ClientKeyData:         "",
-			},
-			Service: domain.EnrollmentServiceService{
-				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
-				Server:                   h.agentEndpoint,
-			},
-			EnrollmentUiEndpoint: h.uiUrl,
-		},
-	}, domain.StatusOK()
 }

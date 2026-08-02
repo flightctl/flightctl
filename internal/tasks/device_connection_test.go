@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -62,7 +63,8 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		serviceHandler := deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", log)
+		fleetSvc := fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
+		serviceHandler := deviceservice.NewDeviceServiceHandler(deviceStore, fleetSvc, eventsSvc, kvStore, "", log)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
