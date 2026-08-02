@@ -943,73 +943,73 @@ func TestGetRenderedDevice(t *testing.T) {
 
 func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
-		name             string
-		capabilities     *domain.DeviceCapabilities
-		existingOs       *domain.DeviceOsSpec
-		incomingOs       *domain.DeviceOsSpec
+		name                string
+		capabilities        *domain.DeviceCapabilities
+		existingOs          *domain.DeviceOsSpec
+		incomingOs          *domain.DeviceOsSpec
 		enforceCapabilities bool
-		wantCode         int32
-		wantMessage      string
+		wantCode            int32
+		wantMessage         string
 	}{
 		{
-			name:             "When package-mode device gets os.image with enforceCapabilities it should return 400",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			name:                "When package-mode device gets os.image with enforceCapabilities it should return 400",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusBadRequest,
-			wantMessage:      "OS image is not supported on package-mode devices",
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         "OS image is not supported on package-mode devices",
 		},
 		{
-			name:             "When package-mode device gets os.image with enforceCapabilities=false it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			name:                "When package-mode device gets os.image with enforceCapabilities=false it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
 			enforceCapabilities: false,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When image-mode device gets os.image it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			name:                "When image-mode device gets os.image it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When device has nil capabilities and gets os.image it should allow",
-			capabilities:     nil,
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			name:                "When device has nil capabilities and gets os.image it should allow",
+			capabilities:        nil,
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When package-mode device gets no os spec it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			incomingOs:       nil,
+			name:                "When package-mode device gets no os spec it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:          nil,
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When capabilities has nil osMode and gets os.image it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: nil},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
+			name:                "When capabilities has nil osMode and gets os.image it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: nil},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When package-mode device retains the same os.image it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			name:                "When package-mode device retains the same os.image it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When package-mode device changes os.image it should return 400",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
-			incomingOs:       &domain.DeviceOsSpec{Image: "quay.io/other-img:latest"},
+			name:                "When package-mode device changes os.image it should return 400",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			incomingOs:          &domain.DeviceOsSpec{Image: "quay.io/other-img:latest"},
 			enforceCapabilities: true,
-			wantCode:         http.StatusBadRequest,
-			wantMessage:      "OS image is not supported on package-mode devices",
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         "OS image is not supported on package-mode devices",
 		},
 	}
 
@@ -1042,43 +1042,43 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 
 func TestPatchDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
-		name             string
-		capabilities     *domain.DeviceCapabilities
-		existingOs       *domain.DeviceOsSpec
-		patch            domain.PatchRequest
+		name                string
+		capabilities        *domain.DeviceCapabilities
+		existingOs          *domain.DeviceOsSpec
+		patch               domain.PatchRequest
 		enforceCapabilities bool
-		wantCode         int32
-		wantMessage      string
+		wantCode            int32
+		wantMessage         string
 	}{
 		{
-			name:             "When package-mode device gets patch adding os.image with enforceCapabilities it should return 400",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			patch:            patchAddOsImage("quay.io/img:latest"),
+			name:                "When package-mode device gets patch adding os.image with enforceCapabilities it should return 400",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:               patchAddOsImage("quay.io/img:latest"),
 			enforceCapabilities: true,
-			wantCode:         http.StatusBadRequest,
-			wantMessage:      "OS image is not supported on package-mode devices",
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         "OS image is not supported on package-mode devices",
 		},
 		{
-			name:             "When package-mode device gets non-OS patch it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			patch:            patchAddLabel("env", "prod"),
+			name:                "When package-mode device gets non-OS patch it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:               patchAddLabel("env", "prod"),
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When package-mode device already has os.image and gets non-OS patch it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			existingOs:       &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
-			patch:            patchAddLabel("env", "prod"),
+			name:                "When package-mode device already has os.image and gets non-OS patch it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			patch:               patchAddLabel("env", "prod"),
 			enforceCapabilities: true,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 		{
-			name:             "When package-mode device gets patch adding os.image with enforceCapabilities=false it should allow",
-			capabilities:     &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			patch:            patchAddOsImage("quay.io/img:latest"),
+			name:                "When package-mode device gets patch adding os.image with enforceCapabilities=false it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:               patchAddOsImage("quay.io/img:latest"),
 			enforceCapabilities: false,
-			wantCode:         http.StatusOK,
+			wantCode:            http.StatusOK,
 		},
 	}
 
