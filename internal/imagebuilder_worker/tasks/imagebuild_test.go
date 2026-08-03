@@ -381,6 +381,88 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 	require.Nil(t, result.Publickey)
 }
 
+func TestGenerateContainerfile_OnboardingTrue(t *testing.T) {
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "late")
+	imageBuild.Spec.Onboarding = lo.ToPtr(true)
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.BuildArgs.InstallOnboarding)
+}
+
+func TestGenerateContainerfile_OnboardingFalse(t *testing.T) {
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "late")
+	imageBuild.Spec.Onboarding = lo.ToPtr(false)
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, result.BuildArgs.InstallOnboarding)
+}
+
+func TestGenerateContainerfile_OnboardingNil(t *testing.T) {
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "late")
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, result.BuildArgs.InstallOnboarding)
+}
+
+func TestGenerateContainerfile_OnboardingWithEarlyBinding(t *testing.T) {
+	repoStore := newMockRepositoryStore()
+	repoStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "early")
+	imageBuild.Spec.Onboarding = lo.ToPtr(true)
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, repoStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.BuildArgs.InstallOnboarding)
+	require.True(t, result.BuildArgs.EarlyBinding)
+}
+
+func TestContainerfileTemplate_OnboardingARG(t *testing.T) {
+	require.Contains(t, containerfileTemplate, "ARG INSTALL_ONBOARDING", "Template should declare INSTALL_ONBOARDING ARG")
+	require.Contains(t, containerfileTemplate, `if [ "${INSTALL_ONBOARDING}" = "true" ]`, "Template should have conditional for onboarding")
+	require.Contains(t, containerfileTemplate, "flightctl-onboarding", "Template should reference flightctl-onboarding package")
+}
+
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {
 	err := installCACertInWorker(context.Background(), nil, "fake-container", "registry.example.com", log.InitLogs())
 	require.NoError(t, err)
