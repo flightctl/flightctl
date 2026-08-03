@@ -115,6 +115,18 @@ func (m *MockFleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID,
 	return nil, nil
 }
 
+func (m *MockFleetStore) ListFleetsByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	return nil, nil
+}
+
+func (m *MockFleetStore) ListFleetsByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	return nil, nil
+}
+
+func (m *MockFleetStore) ListFleetsByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	return nil, nil
+}
+
 func (m *MockFleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]fleetstore.CountByRolloutStatusResult, error) {
 	if m.shouldError {
 		return nil, assert.AnError

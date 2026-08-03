@@ -111,7 +111,7 @@ func (s *Server) Run(ctx context.Context) error {
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", s.log))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
-	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, eventsSvc, s.log))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 
 	encryptionMigrator := tasks.NewEncryptionMigrator(

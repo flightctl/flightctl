@@ -265,6 +265,18 @@ func (f *fakeFleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.U
 	return nil, f.err
 }
 
+func (f *fakeFleetStore) ListFleetsByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+
+func (f *fakeFleetStore) ListFleetsByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+
+func (f *fakeFleetStore) ListFleetsByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+
 // fakeEventsService is a recording fake for events.Service; embedding events.Service means
 // only the 2 generic methods Fleet's own event logic (EmitFleetUpdatedEvent, in events.go)
 // calls into need overriding. Fleet-specific decisions now live in this package, so tests

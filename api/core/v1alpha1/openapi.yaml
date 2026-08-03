@@ -2050,6 +2050,16 @@ components:
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents.'
+        deployedTo:
+          type: object
+          description: 'The device or fleet that this deployment pertains to.'
+          properties:
+            resourceKind:
+              type: string
+              description: 'Either a Device or Fleet.'
+            resourceName:
+              type: string
+              description: 'The name of the device or fleet.'
         catalog:
           type: string
           description: 'The catalog of the catalogItem.'

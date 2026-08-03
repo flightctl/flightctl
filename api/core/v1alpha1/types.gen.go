@@ -233,6 +233,15 @@ type CatalogItemDeployment struct {
 	// Channel The channel, if any, that is intended to be tracked for the catalog item.
 	Channel *string `json:"channel,omitempty"`
 
+	// DeployedTo The device or fleet that this deployment pertains to.
+	DeployedTo *struct {
+		// ResourceKind Either a Device or Fleet.
+		ResourceKind *string `json:"resourceKind,omitempty"`
+
+		// ResourceName The name of the device or fleet.
+		ResourceName *string `json:"resourceName,omitempty"`
+	} `json:"deployedTo,omitempty"`
+
 	// Kind Kind is a string value representing the REST resource this object represents.
 	Kind string `json:"kind"`
 
