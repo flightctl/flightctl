@@ -47,17 +47,27 @@ mkdir -p "$(dirname "${OUTPUT_PATH}")"
 # Remove existing archive if it exists
 rm -f "${OUTPUT_PATH}"
 
-# Select images using filters and optional pattern
-if [ -n "${IMAGE_PATTERN}" ]; then
-  # Use programmatic filtering with grep pattern
-  mapfile -t refs < <(
-    podman images --format '{{.Repository}}:{{.Tag}}' "${FILTER_ARGS[@]}" | grep "^${IMAGE_PATTERN}$" || true
-  )
-else
-  # Use only podman filters
-  mapfile -t refs < <(
-    podman images --format '{{.Repository}}:{{.Tag}}' "${FILTER_ARGS[@]}" || true
-  )
+# Select images using filters and optional pattern.
+# Filter out <none>:<none> entries — podman save rejects them.
+# Podman failures propagate. Grep exit 1 (no match) → empty list;
+# other grep failures (e.g. invalid regex) propagate. Greps run
+# sequentially so a later no-match cannot mask an earlier error.
+all_images=$(podman images --format '{{.Repository}}:{{.Tag}}' "${FILTER_ARGS[@]}")
+refs=()
+if [ -n "${all_images}" ]; then
+  filtered="${all_images}"
+  status=0
+  if [ -n "${IMAGE_PATTERN}" ]; then
+    filtered=$(printf '%s\n' "${filtered}" | grep "^${IMAGE_PATTERN}$") && status=0 || status=$?
+  fi
+  if [ "${status}" -eq 0 ]; then
+    filtered=$(printf '%s\n' "${filtered}" | grep -v '^<none>:<none>$') && status=0 || status=$?
+  fi
+  if [ "${status}" -eq 0 ]; then
+    mapfile -t refs <<< "${filtered}"
+  elif [ "${status}" -ne 1 ]; then
+    exit "${status}"
+  fi
 fi
 
 if [ "${#refs[@]}" -eq 0 ]; then

@@ -227,7 +227,7 @@ echo "  Variants to build: ${variants_list:-none}"
         --build-context "variant-context='"${BASE_DIR}"'/variants/{}" \
         --build-context "common='"${BASE_DIR}"'/common" \
         --build-arg BASE_IMAGE="'"${base_img_canonical}"'" \
-        --label "io.flightctl.e2e.component=app" \
+        --label "io.flightctl.e2e.component=device" \
         -f "'"${BASE_DIR}"'/variants/{}/Containerfile" \
         -t "$v_img_canonical" \
         -t "$v_img_plain" \
