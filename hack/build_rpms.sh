@@ -53,7 +53,82 @@ PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-bui
 ##############################################################################
 
 current_tree_state() {
-  (cd "${REPO_ROOT}" && ( ( [ ! -d ".git" ] || git diff --quiet ) && echo "clean" ) || echo "dirty")
+  # Use git status --porcelain to detect all dirty states: unstaged changes,
+  # staged changes, and untracked files. Linked worktrees use a .git *file*,
+  # so the old `[ ! -d .git ]` probe would always report "clean".
+  (cd "${REPO_ROOT}" && {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      echo "clean"
+    elif [ -z "$(git status --porcelain)" ]; then
+      echo "clean"
+    else
+      echo "dirty"
+    fi
+  })
+}
+
+# Absolute path to the shared git object store for repo_root.
+# Falls back when --path-format=absolute is unavailable (git < 2.31).
+absolute_git_common_dir() {
+  local repo_root="$1"
+  local common
+  if common="$(git -C "${repo_root}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+    printf '%s\n' "${common}"
+    return 0
+  fi
+  common="$(git -C "${repo_root}" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  if [[ "${common}" != /* ]]; then
+    common="$(cd "${repo_root}" && cd "${common}" && pwd)"
+  fi
+  printf '%s\n' "${common}"
+}
+
+# Extra podman -v args so Packit can resolve git metadata from a linked worktree.
+# Normal clones need nothing: .git lives under the /work mount. Linked worktrees
+# store objects under the main repo's .git, referenced via absolute paths in the
+# worktree's .git file — mount that common dir at the same host path.
+collect_git_worktree_mounts() {
+  local repo_root="$1"
+  local -n _mounts="$2"
+  local git_common_dir
+
+  if [[ ! -f "${repo_root}/.git" ]]; then
+    return 0
+  fi
+
+  if ! git_common_dir="$(absolute_git_common_dir "${repo_root}")" || [[ ! -d "${git_common_dir}" ]]; then
+    echo "ERROR: Linked git worktree detected at ${repo_root}, but the git common directory could not be resolved." >&2
+    echo "Packit requires git metadata for 'git archive'. Use a full clone, or ensure the main repository .git is readable." >&2
+    return 1
+  fi
+
+  repo_root="$(cd "${repo_root}" && pwd)"
+  git_common_dir="$(cd "${git_common_dir}" && pwd)"
+
+  case "${git_common_dir}/" in
+    "${repo_root}/"*)
+      return 0
+      ;;
+  esac
+
+  # Validate the resolved path is a legitimate git directory to prevent
+  # mounting arbitrary host paths via a crafted .git file.
+  if [[ ! -f "${git_common_dir}/HEAD" ]] || [[ ! -d "${git_common_dir}/objects" ]]; then
+    echo "ERROR: Resolved git common directory ${git_common_dir} does not look like a valid git directory." >&2
+    return 1
+  fi
+
+  # Verify bidirectional worktree relationship: the common dir must have a
+  # worktrees/ entry whose gitdir points back to our repo.
+  local worktree_name
+  worktree_name="$(basename "$(git -C "${repo_root}" rev-parse --absolute-git-dir 2>/dev/null || git -C "${repo_root}" rev-parse --git-dir)")"
+  if [[ ! -d "${git_common_dir}/worktrees/${worktree_name}" ]]; then
+    echo "ERROR: ${git_common_dir} does not contain a worktree entry for this repository." >&2
+    return 1
+  fi
+
+  echo "Linked git worktree detected; mounting git common dir read-only at ${git_common_dir}"
+  _mounts+=(-v "${git_common_dir}:${git_common_dir}:ro,z")
 }
 
 current_commit() {
@@ -373,10 +448,14 @@ run_build_in_container() {
   local repo_root="${REPO_ROOT}"
   cd "${repo_root}"
 
+  local -a git_mount_args=()
+  collect_git_worktree_mounts "${repo_root}" git_mount_args
+
   podman run --rm \
     --privileged \
     --network=host \
     -v "${repo_root}:/work:z" \
+    ${git_mount_args[@]+"${git_mount_args[@]}"} \
     -v "${host_gomodcache}:${container_gomodcache}" \
     -v "${host_gocache}:${container_gocache}" \
     -e GOPATH="${container_gopath}" \
