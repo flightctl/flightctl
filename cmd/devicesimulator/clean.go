@@ -25,17 +25,27 @@ type cleanupProgress struct {
 	log       *logrus.Logger
 	kind      string
 	deleted   int
+	processed int
 	remaining *int64
 	lastLog   time.Time
 }
 
 func (p *cleanupProgress) maybeLog() {
-	if p.deleted%cleanupProgressEveryN != 0 && time.Since(p.lastLog) < cleanupProgressInterval {
+	count := p.processed
+	if count == 0 {
+		count = p.deleted
+	}
+	if count%cleanupProgressEveryN != 0 && time.Since(p.lastLog) < cleanupProgressInterval {
 		return
 	}
-	if p.remaining != nil {
+	switch {
+	case p.remaining != nil && p.processed > 0:
+		p.log.Infof("deleted %d %s so far (%d processed, %d remaining)", p.deleted, p.kind, p.processed, *p.remaining)
+	case p.remaining != nil:
 		p.log.Infof("deleted %d %s so far (%d remaining)", p.deleted, p.kind, *p.remaining)
-	} else {
+	case p.processed > 0:
+		p.log.Infof("deleted %d %s so far (%d processed)", p.deleted, p.kind, p.processed)
+	default:
 		p.log.Infof("deleted %d %s so far", p.deleted, p.kind)
 	}
 	p.lastLog = time.Now()
@@ -140,22 +150,31 @@ func deleteLabeledDevices(ctx context.Context, log *logrus.Logger, serviceClient
 }
 
 func deleteEnrollmentRequestsByName(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, names []string) (int, error) {
-	progress := &cleanupProgress{log: log, kind: "matched enrollment requests", lastLog: time.Now()}
+	if len(names) == 0 {
+		return 0, nil
+	}
+	log.Infof("deleting enrollment requests for %d devices", len(names))
+	total := int64(len(names))
+	remaining := total
+	progress := &cleanupProgress{log: log, kind: "matched enrollment requests", remaining: &remaining, lastLog: time.Now()}
 	for _, name := range names {
 		delResp, err := serviceClient.DeleteEnrollmentRequestWithResponse(ctx, name)
+		progress.processed++
+		remaining = total - int64(progress.processed)
 		if err != nil {
 			log.Warnf("delete enrollment request %s: %v", name, err)
+			progress.maybeLog()
 			continue
 		}
 		code := delResp.StatusCode()
-		if code == http.StatusNotFound {
-			continue
-		}
-		if code != http.StatusOK && code != http.StatusNoContent {
+		if code != http.StatusNotFound && code != http.StatusOK && code != http.StatusNoContent {
 			log.Warnf("delete enrollment request %s: status %d", name, code)
+			progress.maybeLog()
 			continue
 		}
-		progress.deleted++
+		if code != http.StatusNotFound {
+			progress.deleted++
+		}
 		progress.maybeLog()
 	}
 	return progress.deleted, nil
@@ -165,6 +184,7 @@ func deletePendingSimulatorEnrollmentRequests(ctx context.Context, log *logrus.L
 	fieldSelector := "status.approval.approved!=true"
 	limit := cleanupListLimit
 	var continueToken *string
+	log.Infoln("deleting pending simulator enrollment requests")
 	progress := &cleanupProgress{log: log, kind: "pending simulator enrollment requests", lastLog: time.Now()}
 
 	for {
@@ -182,10 +202,9 @@ func deletePendingSimulatorEnrollmentRequests(ctx context.Context, log *logrus.L
 
 		progress.remaining = resp.JSON200.Metadata.RemainingItemCount
 		for _, er := range resp.JSON200.Items {
-			if er.Metadata.Name == nil || er.Spec.Labels == nil {
-				continue
-			}
-			if (*er.Spec.Labels)["created_by"] != simulatorCreatedByValue {
+			progress.processed++
+			if er.Metadata.Name == nil || er.Spec.Labels == nil || (*er.Spec.Labels)["created_by"] != simulatorCreatedByValue {
+				progress.maybeLog()
 				continue
 			}
 			name := *er.Metadata.Name
@@ -195,6 +214,7 @@ func deletePendingSimulatorEnrollmentRequests(ctx context.Context, log *logrus.L
 			}
 			code := delResp.StatusCode()
 			if code == http.StatusNotFound {
+				progress.maybeLog()
 				continue
 			}
 			if code != http.StatusOK && code != http.StatusNoContent {
