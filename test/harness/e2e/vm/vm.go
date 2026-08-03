@@ -153,8 +153,25 @@ func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []stri
 		logrus.Infof("Connecting to vm %s. To close connection, use `~.` or `exit`", v.VMName)
 	}
 
-	logrus.Debugf("Running ssh command: %s", cmd.String())
+	logrus.Debugf("Running ssh command: %s", redactSSHCommandArgs(cmd.Args))
 	return cmd
+}
+
+// redactSSHCommandArgs masks the sshpass password argument before logging the SSH command.
+func redactSSHCommandArgs(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+
+	redacted := append([]string(nil), args...)
+	for i := 0; i < len(redacted)-1; i++ {
+		if redacted[i] == "-p" && redacted[0] == "sshpass" {
+			redacted[i+1] = "[REDACTED]"
+			break
+		}
+	}
+
+	return strings.Join(redacted, " ")
 }
 
 // RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
