@@ -73,7 +73,13 @@ func main() {
 	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
-	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of source IP addresses for device management HTTP connections")
+	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of existing source IP addresses for device management HTTP connections (non-root)")
+	setupSourceIPsFlag := pflag.Bool("setup-source-ips", false, "standalone root-capable mode: create source IP aliases on an interface, then exit")
+	teardownSourceIPsFlag := pflag.Bool("teardown-source-ips", false, "standalone root-capable mode: remove source IP aliases created for scale tests, then exit")
+	sourceIPIface := pflag.String("source-ip-iface", "", "interface for --setup-source-ips/--teardown-source-ips (e.g. eno1)")
+	sourceIPBase := pflag.String("source-ip-base", "", "first IPv4 address for --setup-source-ips/--teardown-source-ips (e.g. 192.168.223.60)")
+	sourceIPCount := pflag.Int("source-ip-count", 0, "number of consecutive IPv4 aliases for --setup-source-ips/--teardown-source-ips")
+	sourceIPPrefix := pflag.Int("source-ip-prefix", 24, "prefix length for --setup-source-ips/--teardown-source-ips")
 	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
 	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
 	skipAutoApprove := pflag.Bool("skip-auto-approve", false, "do not auto-approve enrollment requests (agents wait for manual approval)")
@@ -119,6 +125,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *setupSourceIPsFlag && *teardownSourceIPsFlag {
+		log.Fatalf("--setup-source-ips and --teardown-source-ips are mutually exclusive")
+	}
+	if (*setupSourceIPsFlag || *teardownSourceIPsFlag) && len(*sourceIPs) > 0 {
+		log.Fatalf("--source-ips is mutually exclusive with --setup-source-ips/--teardown-source-ips")
+	}
+	if (*setupSourceIPsFlag || *teardownSourceIPsFlag) && (*clean || *cleanOnly || *rollout) {
+		log.Fatalf("--setup-source-ips/--teardown-source-ips are mutually exclusive with --clean/--clean-only/--rollout")
+	}
+	autoSourceIPFlags := *sourceIPIface != "" || *sourceIPBase != "" || *sourceIPCount > 0
+	if autoSourceIPFlags && !*setupSourceIPsFlag && !*teardownSourceIPsFlag {
+		log.Fatalf("--source-ip-iface/--source-ip-base/--source-ip-count require --setup-source-ips or --teardown-source-ips")
+	}
 	if *rollout && (*clean || *cleanOnly) {
 		log.Fatalf("--rollout is mutually exclusive with --clean/--clean-only")
 	}
@@ -129,26 +148,39 @@ func main() {
 		log.Fatalf("--rollout requires --fleet-count > 0")
 	}
 
+	log.Infoln("command line flags:")
+	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
+		log.Infof("  %s=%s", flg.Name, flg.Value)
+	})
+
+	if *setupSourceIPsFlag {
+		ips, err := setupSourceIPs(log, *sourceIPIface, *sourceIPBase, *sourceIPCount, *sourceIPPrefix)
+		if err != nil {
+			log.Fatalf("source IP setup failed: %v", err)
+		}
+		flagValue := sourceIPsFlagValue(ips)
+		log.Infof("source IPs ready; run the simulator as a non-root user with --source-ips=%s", flagValue)
+		fmt.Printf("--source-ips=%s\n", flagValue)
+		return
+	}
+	if *teardownSourceIPsFlag {
+		if err := teardownSourceIPs(log, *sourceIPIface, *sourceIPBase, *sourceIPCount, *sourceIPPrefix); err != nil {
+			log.Fatalf("source IP teardown failed: %v", err)
+		}
+		log.Infoln("source IP teardown complete")
+		return
+	}
+
 	// Disable console banner for all simulated agents
 	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
 		log.Fatalf("Error setting banner disable environment variable: %v", err)
 	}
 
-	// Parse and validate source IPs
-	var parsedSourceIPs []net.IP
-	for _, ipStr := range *sourceIPs {
-		if ip := net.ParseIP(ipStr); ip != nil {
-			parsedSourceIPs = append(parsedSourceIPs, ip)
-			log.Infof("Using source IP: %s", ip.String())
-		} else {
-			log.Fatalf("Invalid source IP address: %s", ipStr)
-		}
+	// Explicit --source-ips only binds to existing addresses; no privileges required.
+	parsedSourceIPs, err := parseExplicitSourceIPs(log, *sourceIPs)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
-
-	log.Infoln("command line flags:")
-	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
-		log.Infof("  %s=%s", flg.Name, flg.Value)
-	})
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
