@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -161,7 +162,10 @@ func main() {
 	}
 	cfg, err := client.ParseConfigFile(baseDir)
 	if err != nil {
-		log.Fatalf("could not parse config file: %v", err)
+		if errors.Is(err, os.ErrNotExist) {
+			log.Fatalf("no client config found at %s — run 'flightctl login' first", baseDir)
+		}
+		log.Fatalf("could not parse config file %s: %v", baseDir, err)
 	}
 	if cfg.Organization != "" {
 		log.Infof("using organization %s from client config", cfg.Organization)

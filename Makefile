@@ -102,6 +102,7 @@ help:
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 	@echo "    verify-rpm-install: verify package-mode and image-mode RPM install paths (requires podman, bin/rpm)"
+	@echo "    simulate-devices: build and run devicesimulator (pass flags via ARGS=...)"
 	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
@@ -205,6 +206,10 @@ build-remote-access: bin
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
+
+.PHONY: simulate-devices
+simulate-devices: build-devicesimulator
+	bin/devicesimulator $(ARGS)
 
 build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
