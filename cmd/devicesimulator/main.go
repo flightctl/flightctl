@@ -553,7 +553,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string, []*map
 		)
 
 		cfg.LogLevel = agentCfg.agentConfigTemplate.LogLevel
-		agentInstance, err := testutil.NewSimulatedAgent(cfg, agentName)
+		agentInstance, err := testutil.NewSimulatedAgent(cfg, agentName, agent.WithExecuter(newSimulatorExecuter()))
 		if err != nil {
 			logger.Fatalf("agent config %d: %v", i, err)
 		}
