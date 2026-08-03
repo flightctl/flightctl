@@ -150,6 +150,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not parse config file: %v", err)
 	}
+	if cfg.Organization != "" {
+		log.Infof("using organization %s from client config", cfg.Organization)
+	} else {
+		log.Infoln("no organization set in client config")
+	}
 	// allow many idle conns to prevent tearing down connections we may need again
 	cfg.AddHTTPOptions(client.WithMaxIdleConnsPerHost(*maxConcurrency))
 	serviceClient, err := client.NewFromConfig(cfg, baseDir)
@@ -248,6 +253,7 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
 	log.Infof("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
 	enrollmentID, err := testutil.WaitForEnrollmentID(ctx, agentDir, 5*time.Second, 5*time.Minute)
+	recordEnrollmentOutcome(ctx, err)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Errorf("Error waiting for enrollment request: %v", err)
@@ -477,6 +483,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
 	log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 	enrollmentID, err := testutil.ApproveEnrollment(ctx, serviceClient, agentDir, labels, 5*time.Second, 5*time.Minute)
+	recordEnrollmentOutcome(ctx, err)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Errorf("Error approving device enrollment: %v", err)
