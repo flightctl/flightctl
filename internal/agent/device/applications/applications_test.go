@@ -504,6 +504,27 @@ func TestApplicationStatusWithDesiredStateStopped(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusStopped,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "When desiredState is stopped and all workloads are StatusStop it should report Stopped healthy",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusStop},
+				{Name: "virt-launcher", Status: StatusStop},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "When desiredState is stopped and workloads mix StatusStop with terminal it should report Stopped healthy",
+			workloads: []Workload{
+				{Name: "compute", Status: StatusStop},
+				{Name: "init-volume", Status: StatusExited},
+				{Name: "init-config", Status: StatusDied},
+			},
+			desiredState:          v1beta1.ApplicationDesiredStateStopped,
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
 	}
 
 	for _, tt := range tests {

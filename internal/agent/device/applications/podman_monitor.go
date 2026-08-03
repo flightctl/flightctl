@@ -623,6 +623,11 @@ func (m *PodmanMonitor) updateContainerHealthStatus(app Application, event *clie
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if app.DesiredState() == v1beta1.ApplicationDesiredStateStopped {
+		m.log.Debugf("Ignoring health_status=%s for container %s in stopped app %s", event.HealthStatus, event.Name, app.Name())
+		return
+	}
+
 	container, exists := app.Workload(event.Name)
 	if !exists {
 		m.log.Debugf("Ignoring health_status for unknown container %s in app %s", event.Name, app.Name())

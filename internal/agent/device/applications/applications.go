@@ -335,7 +335,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	// order is important
 	switch {
-	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, stopped)):
+	case a.desiredState == v1beta1.ApplicationDesiredStateStopped && (isUnknown(total, healthy, initializing) || isCompleted(total, stopped+stopping)):
 		newStatus = v1beta1.ApplicationStatusStopped
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case a.desiredState == v1beta1.ApplicationDesiredStateStopped:
