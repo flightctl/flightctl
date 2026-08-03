@@ -91,7 +91,8 @@ func main() {
 	rolloutTemplate := pflag.String("rollout-template", "", "path to a Fleet YAML whose .spec.template is applied during --rollout")
 	rolloutTimeout := pflag.Duration("rollout-timeout", 15*time.Minute, "how long --rollout waits for devices to become UpToDate")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
-	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
+	logLevel := pflag.StringP("log-level", "v", "error", "log level for simulated device agents only (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
+	orchestratorLogLevel := pflag.String("orchestrator-log-level", "info", "log level for devicesimulator orchestration (cleanup, fleets, enrollment progress)")
 
 	pflag.Usage = printUsage
 
@@ -118,12 +119,18 @@ func main() {
 		}
 	}
 
-	log := flightlog.InitLogs(*logLevel)
-	if log == nil {
-		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
+	if _, err := logrus.ParseLevel(*logLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid device log level: %s\n\n", *logLevel)
 		printUsage()
 		os.Exit(1)
 	}
+	if _, err := logrus.ParseLevel(*orchestratorLogLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid orchestrator log level: %s\n\n", *orchestratorLogLevel)
+		printUsage()
+		os.Exit(1)
+	}
+
+	log := flightlog.InitLogs(*orchestratorLogLevel)
 
 	if *setupSourceIPsFlag && *teardownSourceIPsFlag {
 		log.Fatalf("--setup-source-ips and --teardown-source-ips are mutually exclusive")
