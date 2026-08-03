@@ -1352,6 +1352,95 @@ func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
 	})
 }
 
+func makeCatalogItemWithSchema(version string, configSchema *map[string]interface{}) *domain.CatalogItem {
+	return &domain.CatalogItem{
+		Spec: domain.CatalogItemSpec{
+			Versions: []domain.CatalogItemVersion{
+				{
+					Version:      version,
+					ConfigSchema: configSchema,
+					Channels:     []string{"stable"},
+					References:   map[domain.CatalogItemArtifactType]string{},
+				},
+			},
+		},
+	}
+}
+
+func makeAppSpecWithEnvVars(t *testing.T, catalog, item, version string, envVars *map[string]string) domain.ApplicationProviderSpec {
+	t.Helper()
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr("myapp"),
+		EnvVars: envVars,
+	}
+	err := container.FromCatalogItemRefApplicationProviderSpec(domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
+	requireEnvVarsSchema := &map[string]interface{}{
+		"type":     "object",
+		"required": []interface{}{"envVars"},
+		"properties": map[string]interface{}{
+			"envVars": map[string]interface{}{"type": "object"},
+		},
+	}
+
+	t.Run("When app conforms to configSchema it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema("1.0.0", requireEnvVarsSchema)
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", &map[string]string{"KEY": "val"})
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+
+	t.Run("When app violates configSchema it should return bad request", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema("1.0.0", requireEnvVarsSchema)
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "configSchema")
+	})
+
+	t.Run("When catalog item has no configSchema it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+}
+
 func TestReplaceDevice_CatalogItemRefValidation(t *testing.T) {
 	t.Run("When replacing with a valid catalog ref it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()

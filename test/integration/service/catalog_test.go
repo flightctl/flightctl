@@ -704,6 +704,32 @@ var _ = Describe("Catalog Integration Tests", func() {
 			}
 			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			for _, itemDef := range []struct {
+				name     string
+				versions []string
+			}{
+				{"os-image", []string{"9.4.0"}},
+				{"web-server", []string{"2.1.0"}},
+				{"multi-item", []string{"1.0.0"}},
+				{"data-image", []string{"1.2.0"}},
+				{"mount-data", []string{"3.0.0"}},
+				{"triple-item", []string{"1.0.0", "2.0.0", "3.0.0"}},
+				{"other-vol-item", []string{"1.0.0"}},
+				{"different-item", []string{"1.0.0"}},
+			} {
+				item := createValidCatalogItem(itemDef.name)
+				item.Spec.Versions = nil
+				for _, v := range itemDef.versions {
+					item.Spec.Versions = append(item.Spec.Versions, api.CatalogItemVersion{
+						Version:    v,
+						References: map[api.CatalogItemArtifactType]string{"container": "v" + v},
+						Channels:   []string{"stable"},
+					})
+				}
+				_, itemStatus := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+				Expect(itemStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
 		})
 
 		It("should return an empty list when no devices reference the catalog item", func() {
@@ -1261,6 +1287,360 @@ var _ = Describe("Catalog Integration Tests", func() {
 
 			status = suite.Catalog.DeleteCatalogItem(suite.Ctx, suite.OrgID, catalogName, "unreferenced-item", true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+		})
+	})
+
+	Context("ConfigSchema validation for devices", func() {
+		var catalogName string
+
+		BeforeEach(func() {
+			catalogName = "schema-catalog"
+			catalog := api.Catalog{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr(catalogName),
+				},
+				Spec: api.CatalogSpec{
+					DisplayName: lo.ToPtr("Schema Catalog"),
+				},
+			}
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
+		It("should accept a device whose app conforms to the catalog item configSchema", func() {
+			item := createValidCatalogItem("schema-app")
+			item.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:   []string{"stable"},
+					ConfigSchema: &map[string]interface{}{
+						"type":     "object",
+						"required": []interface{}{"envVars"},
+						"properties": map[string]interface{}{
+							"envVars": map[string]interface{}{
+								"type":     "object",
+								"required": []interface{}{"environment"},
+								"properties": map[string]interface{}{
+									"environment": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			}
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("my-app"),
+				EnvVars: &map[string]string{"environment": "production"},
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "schema-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("schema-ok-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
+		It("should reject a device whose app is missing a required envvar", func() {
+			item := createValidCatalogItem("strict-app")
+			item.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:   []string{"stable"},
+					ConfigSchema: &map[string]interface{}{
+						"type":     "object",
+						"required": []interface{}{"envVars"},
+						"properties": map[string]interface{}{
+							"envVars": map[string]interface{}{
+								"type":     "object",
+								"required": []interface{}{"environment"},
+								"properties": map[string]interface{}{
+									"environment": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			}
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("my-app"),
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "strict-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("schema-fail-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusBadRequest))
+			Expect(devStatus.Message).To(ContainSubstring("configSchema"))
+		})
+
+		It("should accept a device when the catalog item has no configSchema", func() {
+			item := createValidCatalogItem("no-schema-app")
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("my-app"),
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "no-schema-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("no-schema-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
+		It("should use defaults configSchema when version has none", func() {
+			item := createValidCatalogItem("defaults-schema-app")
+			item.Spec.Defaults = &api.CatalogItemConfigurable{
+				ConfigSchema: &map[string]interface{}{
+					"type":     "object",
+					"required": []interface{}{"envVars"},
+					"properties": map[string]interface{}{
+						"envVars": map[string]interface{}{
+							"type":     "object",
+							"required": []interface{}{"environment"},
+							"properties": map[string]interface{}{
+								"environment": map[string]interface{}{"type": "string"},
+							},
+						},
+					},
+				},
+			}
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("my-app"),
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "defaults-schema-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := apiv1beta1.Device{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("defaults-schema-device"),
+				},
+				Spec: &apiv1beta1.DeviceSpec{
+					Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+				},
+			}
+			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusBadRequest))
+			Expect(devStatus.Message).To(ContainSubstring("configSchema"))
+		})
+	})
+
+	Context("ConfigSchema validation for fleets", func() {
+		var catalogName string
+
+		BeforeEach(func() {
+			catalogName = "fleet-schema-catalog"
+			catalog := api.Catalog{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr(catalogName),
+				},
+				Spec: api.CatalogSpec{
+					DisplayName: lo.ToPtr("Fleet Schema Catalog"),
+				},
+			}
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+
+		It("should reject a fleet whose template app violates configSchema", func() {
+			item := createValidCatalogItem("fleet-strict-app")
+			item.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:   []string{"stable"},
+					ConfigSchema: &map[string]interface{}{
+						"type":     "object",
+						"required": []interface{}{"envVars"},
+						"properties": map[string]interface{}{
+							"envVars": map[string]interface{}{
+								"type":     "object",
+								"required": []interface{}{"environment"},
+								"properties": map[string]interface{}{
+									"environment": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			}
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("fleet-app"),
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "fleet-strict-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := apiv1beta1.Fleet{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("schema-fail-fleet"),
+				},
+				Spec: apiv1beta1.FleetSpec{
+					Template: struct {
+						Metadata *apiv1beta1.ObjectMeta `json:"metadata,omitempty"`
+						Spec     apiv1beta1.DeviceSpec  `json:"spec"`
+					}{
+						Spec: apiv1beta1.DeviceSpec{
+							Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+						},
+					},
+				},
+			}
+			_, fleetStatus := suite.Fleet.ReplaceFleet(suite.Ctx, suite.OrgID, "schema-fail-fleet", fleet, false)
+			Expect(fleetStatus.Code).To(BeEquivalentTo(http.StatusBadRequest))
+			Expect(fleetStatus.Message).To(ContainSubstring("configSchema"))
+		})
+
+		It("should accept a fleet whose template app conforms to configSchema with environment envvar", func() {
+			item := createValidCatalogItem("fleet-ok-app")
+			item.Spec.Versions = []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:   []string{"stable"},
+					ConfigSchema: &map[string]interface{}{
+						"type":     "object",
+						"required": []interface{}{"envVars"},
+						"properties": map[string]interface{}{
+							"envVars": map[string]interface{}{
+								"type":     "object",
+								"required": []interface{}{"environment"},
+								"properties": map[string]interface{}{
+									"environment": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			}
+			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			container := apiv1beta1.ContainerApplication{
+				AppType: apiv1beta1.AppTypeContainer,
+				Name:    lo.ToPtr("fleet-app"),
+				EnvVars: &map[string]string{"environment": "staging"},
+			}
+			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    "fleet-ok-app",
+					Version: "1.0.0",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var appSpec apiv1beta1.ApplicationProviderSpec
+			err = appSpec.FromContainerApplication(container)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := apiv1beta1.Fleet{
+				Metadata: apiv1beta1.ObjectMeta{
+					Name: lo.ToPtr("schema-ok-fleet"),
+				},
+				Spec: apiv1beta1.FleetSpec{
+					Template: struct {
+						Metadata *apiv1beta1.ObjectMeta `json:"metadata,omitempty"`
+						Spec     apiv1beta1.DeviceSpec  `json:"spec"`
+					}{
+						Spec: apiv1beta1.DeviceSpec{
+							Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+						},
+					},
+				},
+			}
+			_, fleetStatus := suite.Fleet.ReplaceFleet(suite.Ctx, suite.OrgID, "schema-ok-fleet", fleet, false)
+			Expect(fleetStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 		})
 	})
 })

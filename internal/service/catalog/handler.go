@@ -567,7 +567,9 @@ func (h *ServiceHandler) validateInUseVersions(ctx context.Context, orgId uuid.U
 	for ver := range deployedVersions {
 		newV, newExists := newVersionMap[ver]
 		if !newExists {
-			affected = append(affected, ver)
+			if _, oldExists := oldVersionMap[ver]; oldExists {
+				affected = append(affected, ver)
+			}
 			continue
 		}
 		if oldV, oldExists := oldVersionMap[ver]; oldExists && !domain.CatalogItemVersionsAreEqual(oldV, newV) {

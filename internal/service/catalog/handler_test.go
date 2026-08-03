@@ -1683,6 +1683,39 @@ func TestReplaceCatalogItemInUse(t *testing.T) {
 		require.Equal(t, int32(http.StatusOK), status.Code)
 	})
 
+	t.Run("When a deployed version is absent from both old and new specs it should not block the update", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"fast"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0-patched"},
+			},
+		}
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
 	t.Run("When the item does not exist yet it should create it without in-use check", func(t *testing.T) {
 		ds := newFakeDeviceStore()
 		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)

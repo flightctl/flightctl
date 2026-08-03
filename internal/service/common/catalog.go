@@ -2,13 +2,17 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/google/uuid"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // CollectCatalogItemRefs extracts all CatalogItemRefSpec values from a device spec's
@@ -201,5 +205,104 @@ func ValidateCatalogItemRefs(ctx context.Context, orgId uuid.UUID, store catalog
 		}
 	}
 
+	if spec.Applications != nil {
+		for i, app := range *spec.Applications {
+			ref, appName := ExtractAppCatalogItemRef(&app)
+			if ref == nil {
+				continue
+			}
+
+			key := itemKey{ref.Catalog, ref.Item}
+			catalogItem := fetched[key]
+			version := catalogItem.Spec.FindVersion(ref.Version)
+
+			configSchema := getEffectiveConfigSchema(catalogItem, version)
+			if configSchema == nil {
+				continue
+			}
+
+			appBytes, err := json.Marshal(&app)
+			if err != nil {
+				return domain.StatusInternalServerError(fmt.Sprintf("failed to marshal application %d: %v", i, err))
+			}
+
+			dec := json.NewDecoder(strings.NewReader(string(appBytes)))
+			dec.UseNumber()
+			var appData interface{}
+			if err := dec.Decode(&appData); err != nil {
+				return domain.StatusInternalServerError(fmt.Sprintf("failed to decode application %d: %v", i, err))
+			}
+
+			appIdentifier := fmt.Sprintf("application[%d]", i)
+			if appName != nil {
+				appIdentifier = fmt.Sprintf("application %q", *appName)
+			}
+
+			if errs := validateDataAgainstConfigSchema(configSchema, appData); len(errs) > 0 {
+				return domain.StatusBadRequest(
+					fmt.Sprintf("%s does not conform to configSchema of catalog item %s/%s version %s: %v",
+						appIdentifier, ref.Catalog, ref.Item, ref.Version, errors.Join(errs...)))
+			}
+		}
+	}
+
 	return domain.StatusOK()
+}
+
+func getEffectiveConfigSchema(item *domain.CatalogItem, version *domain.CatalogItemVersion) *map[string]interface{} {
+	if version != nil && version.ConfigSchema != nil {
+		return version.ConfigSchema
+	}
+	if item.Spec.Defaults != nil && item.Spec.Defaults.ConfigSchema != nil {
+		return item.Spec.Defaults.ConfigSchema
+	}
+	return nil
+}
+
+func validateDataAgainstConfigSchema(schema *map[string]interface{}, data interface{}) []error {
+	if schema == nil {
+		return nil
+	}
+
+	schemaCopy := make(map[string]interface{}, len(*schema))
+	for k, v := range *schema {
+		schemaCopy[k] = v
+	}
+	schemaCopy["additionalProperties"] = true
+
+	schemaBytes, err := json.Marshal(schemaCopy)
+	if err != nil {
+		return []error{fmt.Errorf("failed to marshal configSchema: %v", err)}
+	}
+
+	compiler := jsonschema.NewCompiler()
+	compiler.LoadURL = func(u string) (io.ReadCloser, error) {
+		return nil, fmt.Errorf("external schema references are forbidden")
+	}
+	if err := compiler.AddResource("configSchema.json", strings.NewReader(string(schemaBytes))); err != nil {
+		return []error{fmt.Errorf("invalid configSchema: %v", err)}
+	}
+
+	compiled, err := compiler.Compile("configSchema.json")
+	if err != nil {
+		return []error{fmt.Errorf("invalid configSchema: %v", err)}
+	}
+
+	if err := compiled.Validate(data); err != nil {
+		var ve *jsonschema.ValidationError
+		if errors.As(err, &ve) {
+			var errs []error
+			for _, detail := range ve.BasicOutput().Errors {
+				if detail.Error != "" {
+					errs = append(errs, fmt.Errorf("%s: %s", detail.InstanceLocation, detail.Error))
+				}
+			}
+			if len(errs) > 0 {
+				return errs
+			}
+		}
+		return []error{err}
+	}
+
+	return nil
 }
