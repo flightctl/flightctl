@@ -49,18 +49,25 @@ rm -f "${OUTPUT_PATH}"
 
 # Select images using filters and optional pattern.
 # Filter out <none>:<none> entries — podman save rejects them.
-# Podman errors propagate (no || true on podman); grep no-match (exit 1)
-# is expected when no images exist, so only grep gets || true.
+# Podman failures propagate. Grep exit 1 (no match) → empty list;
+# other grep failures (e.g. invalid regex) propagate. Greps run
+# sequentially so a later no-match cannot mask an earlier error.
 all_images=$(podman images --format '{{.Repository}}:{{.Tag}}' "${FILTER_ARGS[@]}")
-if [ -z "${all_images}" ]; then
-  refs=()
-elif [ -n "${IMAGE_PATTERN}" ]; then
-  mapfile -t refs < <(printf '%s\n' "${all_images}" \
-    | grep "^${IMAGE_PATTERN}$" \
-    | grep -v '^<none>:<none>$' || true)
-else
-  mapfile -t refs < <(printf '%s\n' "${all_images}" \
-    | grep -v '^<none>:<none>$' || true)
+refs=()
+if [ -n "${all_images}" ]; then
+  filtered="${all_images}"
+  status=0
+  if [ -n "${IMAGE_PATTERN}" ]; then
+    filtered=$(printf '%s\n' "${filtered}" | grep "^${IMAGE_PATTERN}$") && status=0 || status=$?
+  fi
+  if [ "${status}" -eq 0 ]; then
+    filtered=$(printf '%s\n' "${filtered}" | grep -v '^<none>:<none>$') && status=0 || status=$?
+  fi
+  if [ "${status}" -eq 0 ]; then
+    mapfile -t refs <<< "${filtered}"
+  elif [ "${status}" -ne 1 ]; then
+    exit "${status}"
+  fi
 fi
 
 if [ "${#refs[@]}" -eq 0 ]; then
