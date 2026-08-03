@@ -80,6 +80,9 @@ func main() {
 	cleanOnly := pflag.Bool("clean-only", false, "wipe local simulator state and delete simulator-created devices/enrollment requests, then exit")
 	fleetCount := pflag.Int("fleet-count", 0, "number of scale fleets to create and distribute devices across (0 disables)")
 	fleetPrefix := pflag.String("fleet-prefix", "scale-fleet", "prefix for scale fleet names (<prefix>-NN)")
+	rollout := pflag.Bool("rollout", false, "standalone mode: update fleet templates and measure rollout convergence, then exit")
+	rolloutTemplate := pflag.String("rollout-template", "", "path to a Fleet YAML whose .spec.template is applied during --rollout")
+	rolloutTimeout := pflag.Duration("rollout-timeout", 15*time.Minute, "how long --rollout waits for devices to become UpToDate")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
@@ -115,6 +118,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *rollout && (*clean || *cleanOnly) {
+		log.Fatalf("--rollout is mutually exclusive with --clean/--clean-only")
+	}
+	if *rollout && *rolloutTemplate == "" {
+		log.Fatalf("--rollout requires --rollout-template")
+	}
+	if *rollout && *fleetCount <= 0 {
+		log.Fatalf("--rollout requires --fleet-count > 0")
+	}
+
 	// Disable console banner for all simulated agents
 	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
 		log.Fatalf("Error setting banner disable environment variable: %v", err)
@@ -135,10 +148,6 @@ func main() {
 	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
 		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
-
-	formattedLables := formatLabels(labels)
-
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -181,6 +190,16 @@ func main() {
 			return
 		}
 	}
+
+	if *rollout {
+		if err := runRollout(ctx, log, serviceClient.ClientWithResponses, *fleetPrefix, *fleetCount, *rolloutTemplate, *rolloutTimeout); err != nil {
+			log.Fatalf("rollout failed: %v", err)
+		}
+		return
+	}
+
+	formattedLables := formatLabels(labels)
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
 
 	log.Infoln("creating agents")
 

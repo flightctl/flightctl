@@ -65,6 +65,15 @@ var (
 		},
 		[]string{"result"},
 	)
+	rolloutDevicesByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "rollout_devices_by_status",
+			Help:      "Current device counts during rollout, partitioned by fleet and updated status",
+		},
+		[]string{"fleet", "status"},
+	)
 )
 
 func setupMetricsEndpoint(metricsAddress string) {
@@ -81,6 +90,7 @@ func setupMetricsEndpoint(metricsAddress string) {
 	prometheus.MustRegister(apiErrors)
 	prometheus.MustRegister(apiRequestDurations)
 	prometheus.MustRegister(enrollmentOutcomes)
+	prometheus.MustRegister(rolloutDevicesByStatus)
 }
 
 func rpcMetricsCallback(operation string, duractionSeconds float64, err error) {
