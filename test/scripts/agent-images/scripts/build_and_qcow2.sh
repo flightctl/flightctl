@@ -54,11 +54,20 @@ fi
 export OS_ID="${OS_ID_ENV}"
 export AGENT_OS_ID="${OS_ID}"
 
+if [[ "${OS_ID}" == *-regular ]]; then
+  SKIP_VARIANTS_BUILD="${SKIP_VARIANTS_BUILD:-true}"
+else
+  SKIP_VARIANTS_BUILD="${SKIP_VARIANTS_BUILD:-false}"
+fi
+
 # Handle v7/v12 variant exclusion for CS10 (no MicroShift support)
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     if [ "${AGENT_OS_ID}" = "cs10-bootc" ]; then
-        export EXCLUDE_VARIANTS="v7,v12"
+        export EXCLUDE_VARIANTS="v7 v12"
         echo "cs10: v7,v12 excluded (no MicroShift for cs10)"
+    elif [ "${AGENT_OS_ID}" = "cs9-regular" ]; then
+        export EXCLUDE_VARIANTS="v7 v11 v12"
+        echo "cs9-regular: v7, v11, v12 excluded (bootc-specific variants)"
     fi
 fi
 
@@ -70,44 +79,55 @@ mkdir -p "${LOG_DIR}"
 variants_log="${LOG_DIR}/variants.log"
 qcow2_log="${LOG_DIR}/qcow2.log"
 
-echo "Building variants and creating bundle for ${OS_ID}"
+# Keep the top-level banner generic because *-regular defaults to a qcow-only
+# flow here, while bootc flavors still build variants, a bundle, and qcow2.
+echo "Building artifacts for ${OS_ID}"
 echo "Variants log: ${variants_log}"
 echo "QCOW2 log: ${qcow2_log}"
 
 sudo rm -f "${variants_log}" "${qcow2_log}"
 
-(
-  set -euo pipefail
-  echo "Building variants and creating bundle for ${OS_ID}"
-  sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
+VARIANTS_PID=""
+if [ "${SKIP_VARIANTS_BUILD}" != "true" ]; then
+  (
+    set -euo pipefail
+    echo "Building variants and creating bundle for ${OS_ID}"
+    sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
 
-  printf '%s\n' "----------" "Bundle variants" "----------"
+    printf '%s\n' "----------" "Bundle variants" "----------"
 
-  sudo -E "${SCRIPT_DIR}/bundle.sh" \
-    --filter "label=io.flightctl.e2e.component" \
-    --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
-    --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
-  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+    sudo -E "${SCRIPT_DIR}/bundle.sh" \
+      --filter "label=io.flightctl.e2e.component" \
+      --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
+      --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
+    sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
 
-  # Push images if requested
-  if [ "${DO_PUSH}" = "true" ]; then
-    BUNDLE_TAR="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
-    if [ -f "${BUNDLE_TAR}" ]; then
-      echo "Pushing images from bundle..."
-      "${SCRIPT_DIR}/upload-images.sh" "${BUNDLE_TAR}" 2>&1 | tee -a "${variants_log}"
-    else
-      echo "Warning: Bundle not found at ${BUNDLE_TAR}, skipping push"
+    # Push images if requested
+    if [ "${DO_PUSH}" = "true" ]; then
+      BUNDLE_TAR="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
+      if [ -f "${BUNDLE_TAR}" ]; then
+        echo "Pushing images from bundle..."
+        "${SCRIPT_DIR}/upload-images.sh" "${BUNDLE_TAR}" 2>&1 | tee -a "${variants_log}"
+      else
+        echo "Warning: Bundle not found at ${BUNDLE_TAR}, skipping push"
+      fi
     fi
-  fi
-) &
-VARIANTS_PID=$!
+  ) &
+  VARIANTS_PID=$!
+else
+  echo "Skipping variants and bundle for ${OS_ID}"
+fi
 
 QCOW2_PID=""
 if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
   (
     set -euo pipefail
     echo "Building qcow2 for ${OS_ID}"
-    OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
+    if [[ "${OS_ID}" == *-regular ]]; then
+      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2_regular.sh" 2>&1 | tee "${qcow2_log}"
+    else
+      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
+    fi
     sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
     echo "endgroup"
   ) &
@@ -118,7 +138,9 @@ fi
 
 variants_exit=0
 qcow2_exit=0
-wait "${VARIANTS_PID}" || variants_exit=$?
+if [ -n "${VARIANTS_PID}" ]; then
+  wait "${VARIANTS_PID}" || variants_exit=$?
+fi
 if [ -n "${QCOW2_PID}" ]; then
   wait "${QCOW2_PID}" || qcow2_exit=$?
 fi

@@ -31,12 +31,25 @@ fi
 
 export JOBS="${PARALLEL_JOBS}"
 
+if [ "${BUILD_TYPE}" = "regular" ]; then
+    if [ -z "${AGENT_OS_ID:-}" ]; then
+        AGENT_OS_ID="cs9-regular"
+        echo "BUILD_TYPE=regular defaults AGENT_OS_ID to cs9-regular"
+    elif [ "${AGENT_OS_ID}" != "cs9-regular" ]; then
+        echo "BUILD_TYPE=regular supports only AGENT_OS_ID=cs9-regular, got ${AGENT_OS_ID}" >&2
+        exit 1
+    fi
+fi
+
 # Handle v7 variant based on OS and RHOCP access
 # Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
         export EXCLUDE_VARIANTS="v7"
         echo "cs10: v7 excluded (no RHOCP MicroShift for cs10)"
+    elif [ "${AGENT_OS_ID:-cs9-bootc}" = "cs9-regular" ]; then
+        export EXCLUDE_VARIANTS="v7 v11 v12"
+        echo "cs9-regular: v7, v11, v12 excluded (bootc-specific variants)"
     elif has_rhocp_access; then
         export EXCLUDE_VARIANTS=""
         echo "RHOCP access available, enabling v7"
@@ -46,7 +59,7 @@ if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     fi
 fi
 
-# Determine OS suffix based on flavor
+# Determine the RPM suffix used when the selected COPR package name is versioned.
 get_os_suffix() {
     local flavor="${1:-cs9-bootc}"
     case "${flavor}" in
@@ -56,12 +69,17 @@ get_os_suffix() {
     esac
 }
 
+# Treat the shared qcow output as current only when it matches the requested
+# flavor and is newer than the last relevant build input we can observe here.
 qcow_is_up_to_date() {
     local os_id="$1"
     local qcow_path="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
+    local qcow_os_id_path="${ROOT_DIR}/bin/output/qcow2/disk.qcow2.os-id"
     local touch_file="${ROOT_DIR}/bin/.e2e-agent-images-${os_id}"
 
     [[ -f "${qcow_path}" ]] || return 1
+    [[ -f "${qcow_os_id_path}" ]] || return 1
+    [[ "$(cat "${qcow_os_id_path}")" = "${os_id}" ]] || return 1
 
     if [[ -f "${touch_file}" && "${qcow_path}" -nt "${touch_file}" ]]; then
         return 0
@@ -87,16 +105,75 @@ qcow_is_up_to_date() {
     return 1
 }
 
-# Build extra flags for RPM source
+# Record which OS flavor produced the shared qcow path so later runs do not
+# mistake a bootc artifact for a regular one, or vice versa.
+write_qcow_os_id_sidecar() {
+    local os_id="$1"
+    local qcow_dir="${ROOT_DIR}/bin/output/qcow2"
+
+    mkdir -p "${qcow_dir}"
+    printf '%s\n' "${os_id}" > "${qcow_dir}/disk.qcow2.os-id"
+}
+
+# Build extra flags for RPM source.
+# Keep these source selectors initialized here so the OCI build path and the
+# regular qcow path consume the same RPM-source inputs when this wrapper is used.
 BUILD_ARGS=""
+RPM_DIR="${RPM_DIR:-rpm}"
+RPM_COPR_REPO="${RPM_COPR_REPO:-}"
+RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
+
+# Log only the brew host so build logs stay useful without echoing caller-supplied
+# URLs verbatim. Some URLs may carry embedded credentials or tokens.
+safe_brew_build_url() {
+    local brew_url="$1"
+    local host
+
+    host="$(printf '%s\n' "${brew_url}" | sed -E 's#^[A-Za-z]+://([^/@]+@)?([^/:?#]+).*#\2#')"
+    if [ -z "${host}" ] || [ "${host}" = "${brew_url}" ]; then
+        echo "<redacted>"
+        return
+    fi
+
+    echo "${host}"
+}
+
+# Accept only owner/project COPR references before forwarding them into build args.
+validate_copr_repo() {
+    local copr_repo="$1"
+    if [[ ! "${copr_repo}" =~ ^@?[A-Za-z0-9._+-]+/[A-Za-z0-9._+-]+$ ]]; then
+        echo "Invalid RPM_COPR_REPO: ${copr_repo}" >&2
+        exit 1
+    fi
+}
+
+# Accept only package-name characters before forwarding the package into build args.
+validate_copr_package() {
+    local copr_package="$1"
+    if [[ ! "${copr_package}" =~ ^[A-Za-z0-9._:+-]+$ ]]; then
+        echo "Invalid RPM_COPR_PACKAGE: ${copr_package}" >&2
+        exit 1
+    fi
+}
+
+# Keep local RPM lookups confined to a simple directory name beneath bin/.
+validate_rpm_dir() {
+    local rpm_dir="$1"
+    if [[ ! "${rpm_dir}" =~ ^[A-Za-z0-9._+-]+$ ]] || [[ "${rpm_dir}" == *"/"* ]] || [[ "${rpm_dir}" == *".."* ]]; then
+        echo "Invalid RPM_DIR: ${rpm_dir}" >&2
+        exit 1
+    fi
+}
 
 if [ -n "${BREW_BUILD_URL:-}" ]; then
-    echo "Using BREW_BUILD_URL=${BREW_BUILD_URL} for brew registry RPMs"
+    echo "Using brew registry RPMs from host: $(safe_brew_build_url "${BREW_BUILD_URL}")"
 
     if ! download_brew_rpms "${ROOT_DIR}/bin/brew-rpm" "${BREW_BUILD_URL}" "flightctl-agent-*" "flightctl-selinux*"; then
         exit 1
     fi
 
+    RPM_DIR="brew-rpm"
+    validate_rpm_dir "${RPM_DIR}"
     BUILD_ARGS="--build-arg RPM_DIR=brew-rpm"
 
 elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
@@ -111,11 +188,15 @@ elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
         RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE}${OS_SUFFIX}"
     fi
 
+    validate_copr_repo "${RPM_COPR_REPO}"
+    validate_copr_package "${RPM_COPR_PACKAGE}"
+
     BUILD_ARGS="--build-arg RPM_COPR_REPO=${RPM_COPR_REPO}"
     BUILD_ARGS="${BUILD_ARGS} --build-arg RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE}"
 
 else
     echo "No BREW_BUILD_URL or FLIGHTCTL_RPM provided, using local RPMs only"
+    validate_rpm_dir "${RPM_DIR}"
 fi
 
 # Merge with any existing PODMAN_BUILD_EXTRA_FLAGS
@@ -128,13 +209,17 @@ fi
 export PODMAN_BUILD_EXTRA_FLAGS
 export IMAGE_REPO
 export TAG
+export RPM_DIR
+export RPM_COPR_REPO
+export RPM_COPR_PACKAGE
 # Calculate registry endpoint for pushing (if not already set)
 export REGISTRY_ENDPOINT
 
 # Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 case "${AGENT_OS_ID}" in
-    cs9*)  OS_ID="cs9-bootc" ;;
+    cs9-bootc)   OS_ID="cs9-bootc" ;;
+    cs9-regular) OS_ID="cs9-regular" ;;
     cs10*) OS_ID="cs10-bootc" ;;
     *)     OS_ID="${AGENT_OS_ID}" ;;
 esac
@@ -144,7 +229,11 @@ export AGENT_OS_ID
 export OS_ID
 
 build_base() {
-    echo "Building base image with PODMAN_BUILD_EXTRA_FLAGS: ${PODMAN_BUILD_EXTRA_FLAGS}"
+    if [ -n "${PODMAN_BUILD_EXTRA_FLAGS}" ]; then
+        echo "Building base image with caller-provided podman build extra flags"
+    else
+        echo "Building base image"
+    fi
     sudo -E "${SCRIPT_DIR}/scripts/build.sh" --base
 }
 
@@ -176,6 +265,7 @@ build_variants_and_qcow2() {
     if [ -f "${QCOW_SRC}" ]; then
         mkdir -p "${ROOT_DIR}/bin/output/qcow2"
         mv "${QCOW_SRC}" "${QCOW_DST}"
+        write_qcow_os_id_sidecar "${OS_ID}"
         echo "Moved qcow2 to ${QCOW_DST}"
 
         # Resize disk if v7 is enabled (for MicroShift)
@@ -189,9 +279,30 @@ build_variants_and_qcow2() {
     fi
 }
 
+# Build the package-mode path: regular base image plus qcow2 only, then move the
+# resulting qcow into the shared output location and record its OS flavor.
+build_regular_qcow2() {
+    echo "Building package-mode base and qcow2 for OS_ID=${OS_ID}"
+    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD=false "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
+
+    sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
+
+    OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
+    QCOW_SRC="${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2"
+    QCOW_DST="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
+    if [ -f "${QCOW_SRC}" ]; then
+        mkdir -p "${ROOT_DIR}/bin/output/qcow2"
+        mv "${QCOW_SRC}" "${QCOW_DST}"
+        write_qcow_os_id_sidecar "${OS_ID}"
+        echo "Moved qcow2 to ${QCOW_DST}"
+        sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
+    fi
+}
+
 case "$BUILD_TYPE" in
     regular)
         build_base
+        build_regular_qcow2
         ;;
     bootc)
         build_base

@@ -120,10 +120,19 @@ if [ "${DISTRO:-}" = "redhat" ] || [ -n "${RHEM:-}" ]; then
   DISTRO_SUFFIX="-redhat"
 fi
 
+if [ "${AGENT_OS_ID}" = "cs9-regular" ] && [ -n "${DISTRO_SUFFIX}" ]; then
+  echo "[ERROR] AGENT_OS_ID=cs9-regular does not support DISTRO=redhat/RHEM package-mode builds" >&2
+  exit 1
+fi
+
 case "${AGENT_OS_ID}" in
   cs9-bootc)
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc${DISTRO_SUFFIX}"
     OS_ID="cs9-bootc"
+    ;;
+  cs9-regular)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-regular${DISTRO_SUFFIX}"
+    OS_ID="cs9-regular"
     ;;
   cs10-bootc)
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
@@ -131,7 +140,7 @@ case "${AGENT_OS_ID}" in
     ;;
   *)
     echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
-    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    echo "Supported values: cs9-bootc, cs9-regular, cs10-bootc" >&2
     exit 1
     ;;
 esac
