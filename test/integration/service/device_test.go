@@ -824,7 +824,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
-			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
+			Expect(status.Message).To(Equal(flterrors.ErrOsImageNotSupportedOnPackageMode.Error()))
 		})
 
 		It("denies PATCH adding spec.os.image on a package-mode device", func() {
@@ -835,7 +835,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			patch := api.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
 			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
-			Expect(status.Message).To(ContainSubstring("OS image is not supported on package-mode devices"))
+			Expect(status.Message).To(Equal(flterrors.ErrOsImageNotSupportedOnPackageMode.Error()))
 		})
 
 		It("allows PUT with spec.os.image on an image-mode device", func() {
@@ -860,6 +860,32 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(200)))
+		})
+
+		It("allows an unrelated PATCH when a package-mode device already has os.image", func() {
+			deviceName := "pkg-mode-retain-image-patch"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModePackage))
+
+			fleetApplied := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr(deviceName),
+					Labels: &map[string]string{"env": "staging"},
+				},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fleet-img:latest"}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, fleetApplied, nil, false, false)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			var value interface{} = "prod"
+			patch := api.PatchRequest{{Op: "replace", Path: "/metadata/labels/env", Value: &value}}
+			_, status = suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Os).ToNot(BeNil())
+			Expect(stored.Spec.Os.Image).To(Equal("quay.io/fleet-img:latest"))
+			Expect(lo.FromPtr(stored.Metadata.Labels)["env"]).To(Equal("prod"))
 		})
 	})
 

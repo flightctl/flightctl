@@ -237,23 +237,14 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 
 	if enforceOwnership || enforceCapabilities {
 		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
-		if getErr != nil {
-			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
-			}
-		} else {
-			if enforceOwnership {
-				if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
-					if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
-						return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
-					}
-				}
-			}
-			if enforceCapabilities {
-				if isPackageModeOsImageConflict(existing, &device) {
-					return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
-				}
-			}
+		if getErr != nil && !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+			return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
+		}
+		if existing != nil && enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		}
+		if existing != nil && enforceCapabilities && isPackageModeOsImageConflict(existing, &device) {
+			return nil, domain.StatusBadRequest(flterrors.ErrOsImageNotSupportedOnPackageMode.Error())
 		}
 	}
 
@@ -489,17 +480,11 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	if enforceOwnership {
-		if len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
-			if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
-			}
-		}
+	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 	}
-	if enforceCapabilities {
-		if isPackageModeOsImageConflict(currentObj, newObj) {
-			return nil, domain.StatusBadRequest("OS image is not supported on package-mode devices")
-		}
+	if enforceCapabilities && isPackageModeOsImageConflict(currentObj, newObj) {
+		return nil, domain.StatusBadRequest(flterrors.ErrOsImageNotSupportedOnPackageMode.Error())
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
