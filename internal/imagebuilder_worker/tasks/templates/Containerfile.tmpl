@@ -17,7 +17,10 @@ ARG RPM_REPO_ENABLE
 ARG DNF_TIMEOUT=5
 ARG DNF_RETRIES=0
 ARG DNF_SKIP_UNAVAILABLE=True
-RUN if [ "${RPM_REPO_ADD}" = "true" ]; then \
+ARG INSTALL_ONBOARDING=false
+RUN PACKAGES="flightctl-agent" && \
+    if [ "${INSTALL_ONBOARDING}" = "true" ]; then PACKAGES="$PACKAGES flightctl-onboarding"; fi && \
+    if [ "${RPM_REPO_ADD}" = "true" ]; then \
         dnf -y config-manager --add-repo ${RPM_REPO_ADD_URL}; \
     fi && \
     dnf install -y \
@@ -25,22 +28,12 @@ RUN if [ "${RPM_REPO_ADD}" = "true" ]; then \
         --setopt=retries=${DNF_RETRIES} \
         --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
         ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} \
-        flightctl-agent && \
+        $PACKAGES && \
     dnf clean all
 
-# Enable Flight Control agent service
-RUN systemctl enable flightctl-agent.service
-
-# Install onboarding wizard (optional, for first-boot device configuration via Cockpit)
-ARG INSTALL_ONBOARDING=false
-RUN if [ "${INSTALL_ONBOARDING}" = "true" ]; then \
-        dnf install -y \
-            --setopt=timeout=${DNF_TIMEOUT} \
-            --setopt=retries=${DNF_RETRIES} \
-            --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
-            ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} \
-            flightctl-onboarding && \
-        dnf clean all; \
+RUN systemctl enable flightctl-agent.service && \
+    if [ "${INSTALL_ONBOARDING}" = "true" ]; then \
+        systemctl enable flightctl-onboarding-setup.service; \
     fi
 
 # Install VM and cloud tools (needed for both early and late binding)

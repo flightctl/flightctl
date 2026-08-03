@@ -181,15 +181,6 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	statusUpdater, cleanupStatusUpdater := StartStatusUpdater(ctx, cancelBuild, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.kvStore, c.cfg, log)
 	defer cleanupStatusUpdater()
 
-	// Validate onboarding requires RPM repo
-	if imageBuild.Spec.Onboarding != nil && *imageBuild.Spec.Onboarding && !c.getRPMRepoAdd() {
-		err := fmt.Errorf("onboarding requires RPM repo to be enabled (rpmRepoAdd must be true)")
-		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
-			return nil
-		}
-		return err
-	}
-
 	// Step 1: Generate Containerfile
 	log.Info("Generating Containerfile for image build")
 	containerfileResult, err := c.generateContainerfile(buildCtx, orgID, imageBuild, log)
