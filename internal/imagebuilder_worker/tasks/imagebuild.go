@@ -181,6 +181,15 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	statusUpdater, cleanupStatusUpdater := StartStatusUpdater(ctx, cancelBuild, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.kvStore, c.cfg, log)
 	defer cleanupStatusUpdater()
 
+	// Validate onboarding requires RPM repo
+	if imageBuild.Spec.Onboarding != nil && *imageBuild.Spec.Onboarding && !c.getRPMRepoAdd() {
+		err := fmt.Errorf("onboarding requires RPM repo to be enabled (rpmRepoAdd must be true)")
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil
+		}
+		return err
+	}
+
 	// Step 1: Generate Containerfile
 	log.Info("Generating Containerfile for image build")
 	containerfileResult, err := c.generateContainerfile(buildCtx, orgID, imageBuild, log)
@@ -401,6 +410,7 @@ type containerfileBuildArgs struct {
 	AgentConfigDestPath string
 	Username            string
 	HasUserConfig       bool
+	InstallOnboarding   bool
 	RPMRepoAdd          bool
 	RPMRepoAddURL       string
 	RPMRepoEnable       string
@@ -550,6 +560,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 
 	isEarlyBinding := bindingType == string(domain.BindingTypeEarly)
 	hasUserConfig := spec.UserConfiguration != nil
+	installOnboarding := spec.Onboarding != nil && *spec.Onboarding
 
 	// Prepare build arguments (passed via --build-arg to podman build)
 	buildArgs := containerfileBuildArgs{
@@ -559,6 +570,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
 		HasUserConfig:       hasUserConfig,
+		InstallOnboarding:   installOnboarding,
 		RPMRepoAdd:          c.getRPMRepoAdd(),
 		RPMRepoAddURL:       c.getRPMRepoAddURL(),
 		RPMRepoEnable:       c.getRPMRepoEnable(),
@@ -1128,6 +1140,7 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
 		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
 		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
+		"--build-arg", fmt.Sprintf("INSTALL_ONBOARDING=%t", args.InstallOnboarding),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),

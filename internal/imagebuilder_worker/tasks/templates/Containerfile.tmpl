@@ -31,6 +31,18 @@ RUN if [ "${RPM_REPO_ADD}" = "true" ]; then \
 # Enable Flight Control agent service
 RUN systemctl enable flightctl-agent.service
 
+# Install onboarding wizard (optional, for first-boot device configuration via Cockpit)
+ARG INSTALL_ONBOARDING=false
+RUN if [ "${INSTALL_ONBOARDING}" = "true" ]; then \
+        dnf install -y \
+            --setopt=timeout=${DNF_TIMEOUT} \
+            --setopt=retries=${DNF_RETRIES} \
+            --setopt=skip_if_unavailable=${DNF_SKIP_UNAVAILABLE} \
+            ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} \
+            flightctl-onboarding && \
+        dnf clean all; \
+    fi
+
 # Install VM and cloud tools (needed for both early and late binding)
 # afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
 RUN dnf install -y \
