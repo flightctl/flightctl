@@ -82,9 +82,63 @@ func TestEngineRun(t *testing.T) {
 	cancel()
 }
 
+func TestEngineStatusStartupJitter(t *testing.T) {
+	require := require.New(t)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockClock := newMockClock(startTime)
+
+	var (
+		mu          sync.Mutex
+		statusCount int
+	)
+	engine := Engine{
+		syncSpecFn:         func(context.Context) {},
+		pushStatusInterval: util.Duration(60 * time.Second),
+		pushStatusFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			statusCount++
+		},
+		statusStartupDelay: 30 * time.Second,
+		clock:              mockClock,
+		startedCh:          make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		require.NoError(engine.Run(ctx))
+	}()
+	<-engine.startedCh
+
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(0, statusCount, "status should wait for startup jitter")
+	mu.Unlock()
+
+	mockClock.Advance(30 * time.Second)
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, statusCount, "status should push after jitter")
+	mu.Unlock()
+
+	mockClock.Advance(60 * time.Second)
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	require.Equal(2, statusCount, "status ticker should start after first push")
+	mu.Unlock()
+}
+
 type mockClock struct {
-	now   time.Time
-	ticks map[time.Duration]*mockTicker
+	now    time.Time
+	ticks  map[time.Duration]*mockTicker
+	afters []mockAfter
+}
+
+type mockAfter struct {
+	at time.Time
+	ch chan time.Time
 }
 
 type mockTicker struct {
@@ -117,6 +171,17 @@ func (m *mockClock) NewTicker(d time.Duration) Ticker {
 	return t
 }
 
+func (m *mockClock) After(d time.Duration) <-chan time.Time {
+	ch := make(chan time.Time, 1)
+	at := m.now.Add(d)
+	if !at.After(m.now) {
+		ch <- m.now
+		return ch
+	}
+	m.afters = append(m.afters, mockAfter{at: at, ch: ch})
+	return ch
+}
+
 func (m *mockTicker) C() <-chan time.Time {
 	return m.c
 }
@@ -127,6 +192,15 @@ func (m *mockTicker) Stop() {
 
 func (m *mockClock) Advance(d time.Duration) {
 	m.now = m.now.Add(d)
+	remaining := m.afters[:0]
+	for _, a := range m.afters {
+		if !a.at.After(m.now) {
+			a.ch <- a.at
+			continue
+		}
+		remaining = append(remaining, a)
+	}
+	m.afters = remaining
 	// check how many intervals (dur) we crossed,
 	// send ticks for each crossing.
 	for dur, t := range m.ticks {
