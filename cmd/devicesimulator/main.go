@@ -76,6 +76,8 @@ func main() {
 	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
 	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
 	skipAutoApprove := pflag.Bool("skip-auto-approve", false, "do not auto-approve enrollment requests (agents wait for manual approval)")
+	clean := pflag.Bool("clean", false, "wipe local simulator state and delete simulator-created devices/enrollment requests before starting")
+	cleanOnly := pflag.Bool("clean-only", false, "wipe local simulator state and delete simulator-created devices/enrollment requests, then exit")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
@@ -162,12 +164,23 @@ func main() {
 		log.Fatalf("Error creating service client: %v", err)
 	}
 
-	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	serviceClient.Start(ctx)
 	defer serviceClient.Stop()
+
+	if *clean || *cleanOnly {
+		if err := cleanSimulatorState(ctx, log, serviceClient.ClientWithResponses, *dataDir); err != nil {
+			log.Fatalf("cleanup failed: %v", err)
+		}
+		if *cleanOnly {
+			log.Infoln("clean-only complete, exiting")
+			return
+		}
+	}
+
+	log.Infoln("creating agents")
 
 	// Create simulator fleet configuration
 	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
@@ -521,7 +534,7 @@ func formatLabels(lableArgs *[]string) *map[string]string {
 		formattedLabels = util.LabelArrayToMap(*lableArgs)
 	}
 
-	formattedLabels["created_by"] = "device-simulator"
+	formattedLabels["created_by"] = simulatorCreatedByValue
 	return &formattedLabels
 }
 
