@@ -383,22 +383,24 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 		agentName := fmt.Sprintf("device-%05d", agentCfg.initialDeviceIndex+i)
 		certDir := filepath.Join(agentCfg.agentConfigTemplate.ConfigDir, "certs")
 		agentDir := filepath.Join(agentCfg.agentConfigTemplate.DataDir, agentName)
-		// Cleanup if exists and initialize the agent's expected
-		os.RemoveAll(agentDir)
-		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
-			logger.Fatalf("Error creating directory: %v", err)
+
+		_, err := os.Stat(agentDir)
+		resuming := err == nil
+		if resuming {
+			logger.Infof("resuming existing state for agent %s", agentName)
+		} else {
+			if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
+				logger.Fatalf("Error creating directory: %v", err)
+			}
+			if ex.IsEnabled() {
+				setupTPMLinks(agentDir, logger)
+			}
+			copyAgentFiles(logger, certDir, agentDir)
 		}
 
-		if ex.IsEnabled() {
-			setupTPMLinks(agentDir, logger)
-		}
-
-		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
-		if err != nil {
+		if err := os.Setenv(client.TestRootDirEnvKey, agentDir); err != nil {
 			logger.Fatalf("Error setting environment variable: %v", err)
 		}
-
-		copyAgentFiles(logger, certDir, agentDir)
 
 		cfg := agent_config.NewDefault()
 		if agentCfg.simulatorLabels != nil {
