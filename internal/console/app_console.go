@@ -56,7 +56,9 @@ type ConsoleEventNotifier interface {
 
 // AppConsoleSessionManager manages application console sessions using device annotations.
 // It mirrors ConsoleSessionManager, keyed on DeviceAnnotationRemoteSession with
-// per-appName uniqueness enforcement (stored as a JSON array of DeviceRemoteSession).
+// per-(appName, consoleType) uniqueness enforcement (stored as a JSON array of
+// DeviceRemoteSession). A serial and a vnc session may be active on the same app at once;
+// only two sessions of the same consoleType for the same app conflict.
 type AppConsoleSessionManager struct {
 	svc                 AppConsoleDeviceService
 	log                 logrus.FieldLogger
@@ -137,7 +139,7 @@ func (m *AppConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId 
 }
 
 // addAppSession returns an updater closure that appends a new session entry, returning 409 if
-// an entry for appName already exists.
+// an entry for (appName, consoleType) already exists.
 func addAppSession(sessionID, appName, consoleType string) func(string) (string, error) {
 	return func(existing string) (string, error) {
 		var sessions []domain.DeviceRemoteSession
@@ -147,8 +149,8 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 			}
 		}
 		for _, s := range sessions {
-			if s.AppName == appName {
-				return "", &duplicateAppSessionError{appName: appName}
+			if s.AppName == appName && s.ConsoleType == consoleType {
+				return "", &duplicateAppSessionError{appName: appName, consoleType: consoleType}
 			}
 		}
 		sessions = append(sessions, domain.DeviceRemoteSession{
@@ -165,10 +167,11 @@ func addAppSession(sessionID, appName, consoleType string) func(string) (string,
 }
 
 // replaceAppSession returns an updater closure that atomically removes any existing session
-// entry for appName and adds a new one in its place, recording the removed entry's SessionID
-// (if any) via ReplacesSessionID. That field is what lets the agent distinguish an explicit
-// takeover from an unrelated close-then-reopen of the same app: it only cancels a running
-// session when a new entry explicitly names it as replaced, never just because it vanished.
+// entry for (appName, consoleType) and adds a new one in its place, recording the removed
+// entry's SessionID (if any) via ReplacesSessionID. That field is what lets the agent
+// distinguish an explicit takeover from an unrelated close-then-reopen of the same app: it
+// only cancels a running session when a new entry explicitly names it as replaced, never just
+// because it vanished. A session for the same app but a different consoleType is left untouched.
 // If no existing entry is found, this behaves exactly like addAppSession.
 //
 // The updater may run more than once (modifyAnnotations retries on conflict), so
@@ -186,7 +189,7 @@ func replaceAppSession(sessionID, appName, consoleType string, replacedSessionID
 		var replacesSessionID string
 		filtered := sessions[:0]
 		for _, s := range sessions {
-			if s.AppName == appName {
+			if s.AppName == appName && s.ConsoleType == consoleType {
 				replacesSessionID = s.SessionID
 				continue
 			}
@@ -242,19 +245,22 @@ func removeAppSession(sessionID string) func(string) (string, error) {
 	}
 }
 
-// duplicateAppSessionError signals a 409 conflict when a session for the same appName already exists.
+// duplicateAppSessionError signals a 409 conflict when a session for the same (appName,
+// consoleType) already exists.
 type duplicateAppSessionError struct {
-	appName string
+	appName     string
+	consoleType string
 }
 
 func (e *duplicateAppSessionError) Error() string {
-	return "console session already active for application " + e.appName
+	return fmt.Sprintf("%s console session already active for application %s", e.consoleType, e.appName)
 }
 
 // StartSession validates inputs, guards against duplicates via annotation, and registers the session.
-// When force is true and a session already exists for appName, that session's annotation entry
-// is atomically replaced (see replaceAppSession) instead of returning a 409 conflict; the agent
-// is responsible for noticing the takeover and tearing down the replaced session itself.
+// When force is true and a session already exists for (appName, consoleType), that session's
+// annotation entry is atomically replaced (see replaceAppSession) instead of returning a 409
+// conflict; the agent is responsible for noticing the takeover and tearing down the replaced
+// session itself. A session of a different consoleType for the same app is unaffected either way.
 func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, appName, consoleType string, force bool) (*AppConsoleSession, domain.Status) {
 	if appName == "" {
 		return nil, domain.StatusBadRequest("appName is required")
@@ -281,15 +287,16 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		return nil, domain.StatusConflict("Device is paused due to conflicts")
 	}
 
-	// Check for duplicate session for this appName in the current annotation value (fast path).
-	// Skipped when force is set: the atomic updater below replaces any existing entry instead.
+	// Check for duplicate session for this (appName, consoleType) in the current annotation
+	// value (fast path). Skipped when force is set: the atomic updater below replaces any
+	// existing entry instead.
 	if !force {
 		if val, ok := annotations[domain.DeviceAnnotationRemoteSession]; ok && val != "" {
 			var sessions []domain.DeviceRemoteSession
 			if err := json.Unmarshal([]byte(val), &sessions); err == nil {
 				for _, s := range sessions {
-					if s.AppName == appName {
-						return nil, domain.StatusConflict("console session already active for application " + appName)
+					if s.AppName == appName && s.ConsoleType == consoleType {
+						return nil, domain.StatusConflict(fmt.Sprintf("%s console session already active for application %s", consoleType, appName))
 					}
 				}
 			}
