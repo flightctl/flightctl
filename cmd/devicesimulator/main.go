@@ -329,7 +329,7 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 		case <-time.After(time.Duration(rand.Float64() * float64(params.jitterDuration))): //nolint:gosec
 		}
 	}
-	agentInstance, agentDir, labels, err := createOneAgent(params.createCfg, params.createMu, i)
+	agentInstance, agentDir, labels, alreadyEnrolled, err := createOneAgent(params.createCfg, params.createMu, i)
 	if err != nil {
 		params.log.Errorf("creating agent %d: %v", i, err)
 		recordEnrollmentOutcome(ctx, err)
@@ -338,9 +338,14 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 	// leave the agent process running in the background
 	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
 	go startAgent(ctx, agentInstance, params.log, i)
-	if params.skipAutoApprove {
+	switch {
+	case params.skipAutoApprove:
 		waitForEnrollmentRequest(ctx, params.log, agentDir)
-	} else {
+	case alreadyEnrolled:
+		// Resume path: management cert exists; approve would 404-poll for up to enrollmentTimeout.
+		params.log.Debugf("agent %s already enrolled, skipping approve", filepath.Base(agentDir))
+		recordEnrollmentOutcome(ctx, nil)
+	default:
 		approveAgent(ctx, params.log, params.serviceClient, agentDir, labels)
 	}
 	done := params.enrolled.Add(1)
@@ -479,7 +484,11 @@ type agentLaunchParams struct {
 	started         time.Time
 }
 
-func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*agent.Agent, string, *map[string]string, error) {
+func managementCertPath(agentDir string) string {
+	return filepath.Join(agentDir, agent_config.DefaultConfigDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+}
+
+func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*agent.Agent, string, *map[string]string, bool, error) {
 	logger := agentCfg.log
 	agentName := fmt.Sprintf("device-%05d", agentCfg.initialDeviceIndex+i)
 	certDir := filepath.Join(agentCfg.agentConfigTemplate.ConfigDir, "certs")
@@ -491,13 +500,19 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 		logger.Debugf("resuming existing state for agent %s", agentName)
 	} else {
 		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
-			return nil, "", nil, fmt.Errorf("creating directory: %w", err)
+			return nil, "", nil, false, fmt.Errorf("creating directory: %w", err)
 		}
 		if experimental.NewFeatures().IsEnabled() {
 			setupTPMLinks(agentDir, logger)
 		}
 		if err := copyAgentFiles(certDir, agentDir); err != nil {
-			return nil, "", nil, err
+			return nil, "", nil, false, err
+		}
+	}
+	alreadyEnrolled := false
+	if resuming {
+		if _, err := os.Stat(managementCertPath(agentDir)); err == nil {
+			alreadyEnrolled = true
 		}
 	}
 
@@ -515,7 +530,7 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 	createMu.Lock()
 	if err := os.Setenv(client.TestRootDirEnvKey, agentDir); err != nil {
 		createMu.Unlock()
-		return nil, "", nil, fmt.Errorf("setting %s: %w", client.TestRootDirEnvKey, err)
+		return nil, "", nil, false, fmt.Errorf("setting %s: %w", client.TestRootDirEnvKey, err)
 	}
 	cfg := agent_config.NewDefault()
 	enrollmentCfg := client.NewDefault()
@@ -572,9 +587,9 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 	cfg.LogLevel = agentCfg.agentConfigTemplate.LogLevel
 	agentInstance, err := testutil.NewSimulatedAgent(cfg, agentName, agent.WithExecuter(newSimulatorExecuter()))
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("agent config %d: %w", i, err)
+		return nil, "", nil, false, fmt.Errorf("agent config %d: %w", i, err)
 	}
-	return agentInstance, agentDir, &labels, nil
+	return agentInstance, agentDir, &labels, alreadyEnrolled, nil
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
