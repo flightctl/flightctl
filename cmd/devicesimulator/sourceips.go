@@ -10,6 +10,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func resolveRuntimeSourceIPs(log *logrus.Logger, explicit []string, iface, base string, count, prefixLen int) ([]net.IP, error) {
+	explicitSet := len(explicit) > 0
+	rangeSet := iface != "" || base != "" || count > 0
+	if explicitSet && rangeSet {
+		return nil, fmt.Errorf("--source-ips is mutually exclusive with --source-ip-iface/--source-ip-base/--source-ip-count")
+	}
+	if explicitSet {
+		return parseExplicitSourceIPs(log, explicit)
+	}
+	if !rangeSet {
+		return nil, nil
+	}
+	// Non-root path: expand the same range flags used by setup; do not create addresses.
+	_ = prefixLen
+	ips, err := expandSourceIPRange(base, count)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		log.Infof("Using source IP: %s", ip.String())
+	}
+	if iface != "" {
+		log.Infof("source IP range expanded for interface %s (addresses must already exist)", iface)
+	}
+	return ips, nil
+}
+
 func parseExplicitSourceIPs(log *logrus.Logger, explicit []string) ([]net.IP, error) {
 	ips := make([]net.IP, 0, len(explicit))
 	for _, ipStr := range explicit {
@@ -24,7 +51,10 @@ func parseExplicitSourceIPs(log *logrus.Logger, explicit []string) ([]net.IP, er
 }
 
 func setupSourceIPs(log *logrus.Logger, iface, base string, count, prefixLen int) ([]net.IP, error) {
-	ips, err := expandSourceIPRange(iface, base, count, prefixLen)
+	if err := validateSourceIPSetupArgs(iface, base, count, prefixLen); err != nil {
+		return nil, err
+	}
+	ips, err := expandSourceIPRange(base, count)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +74,10 @@ func setupSourceIPs(log *logrus.Logger, iface, base string, count, prefixLen int
 }
 
 func teardownSourceIPs(log *logrus.Logger, iface, base string, count, prefixLen int) error {
-	ips, err := expandSourceIPRange(iface, base, count, prefixLen)
+	if err := validateSourceIPSetupArgs(iface, base, count, prefixLen); err != nil {
+		return err
+	}
+	ips, err := expandSourceIPRange(base, count)
 	if err != nil {
 		return err
 	}
@@ -70,12 +103,20 @@ func teardownSourceIPs(log *logrus.Logger, iface, base string, count, prefixLen 
 	return firstErr
 }
 
-func expandSourceIPRange(iface, base string, count, prefixLen int) ([]net.IP, error) {
-	if iface == "" || base == "" || count <= 0 {
-		return nil, fmt.Errorf("--source-ip-iface, --source-ip-base, and --source-ip-count (>0) are all required")
+func validateSourceIPSetupArgs(iface, base string, count, prefixLen int) error {
+	if iface == "" {
+		return fmt.Errorf("--source-ip-iface is required")
 	}
 	if prefixLen < 1 || prefixLen > 32 {
-		return nil, fmt.Errorf("--source-ip-prefix must be between 1 and 32")
+		return fmt.Errorf("--source-ip-prefix must be between 1 and 32")
+	}
+	_, err := expandSourceIPRange(base, count)
+	return err
+}
+
+func expandSourceIPRange(base string, count int) ([]net.IP, error) {
+	if base == "" || count <= 0 {
+		return nil, fmt.Errorf("--source-ip-base and --source-ip-count (>0) are required")
 	}
 	baseIP := net.ParseIP(base)
 	if baseIP == nil || baseIP.To4() == nil {
