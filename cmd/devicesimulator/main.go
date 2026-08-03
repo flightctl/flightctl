@@ -9,7 +9,6 @@ import (
 	"log"
 	"math/rand/v2"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
-	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -248,23 +246,15 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 }
 
 func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
-		log.Infof("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
-		bannerFileData, err := readBannerFile(agentDir)
-		if err != nil {
-			return false, nil
+	log.Infof("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
+	enrollmentID, err := testutil.WaitForEnrollmentID(ctx, agentDir, 5*time.Second, 5*time.Minute)
+	if err != nil {
+		if ctx.Err() == nil {
+			log.Errorf("Error waiting for enrollment request: %v", err)
 		}
-		enrollmentID := testutil.GetEnrollmentIdFromText(bannerFileData)
-		if enrollmentID == "" {
-			log.Warnf("No enrollment id found in banner file %s", bannerFileData)
-			return false, nil
-		}
-		log.Infof("Enrollment request visible for agent %s (id: %s)", filepath.Base(agentDir), enrollmentID)
-		return true, nil
-	})
-	if err != nil && ctx.Err() == nil {
-		log.Errorf("Error waiting for enrollment request: %v", err)
+		return
 	}
+	log.Infof("Enrollment request visible for agent %s (id: %s)", filepath.Base(agentDir), enrollmentID)
 }
 
 func reportVersion(versionFormat *string) error {
@@ -471,80 +461,27 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 			enrollmentTransport,
 		)
 
-		if err := cfg.Complete(); err != nil {
+		cfg.LogLevel = agentCfg.agentConfigTemplate.LogLevel
+		agentInstance, err := testutil.NewSimulatedAgent(cfg, agentName)
+		if err != nil {
 			logger.Fatalf("agent config %d: %v", i, err)
 		}
-		if err := cfg.Validate(); err != nil {
-			logger.Fatalf("agent config %d: %v", i, err)
-		}
-
-		logWithPrefix := flightlog.NewPrefixLogger(agentName)
-		logWithPrefix.Level(agentCfg.agentConfigTemplate.LogLevel)
-		agents[i] = agent.New(logWithPrefix, cfg, "")
+		agents[i] = agentInstance
 		agentsFolders[i] = agentDir
 	}
 	return agents, agentsFolders
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
-	enrollmentId := ""
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
-		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
-		if enrollmentId == "" {
-			bannerFileData, err := readBannerFile(agentDir)
-			if err != nil {
-				log.Warnf("Error reading banner file: %v", err)
-				return false, nil
-			}
-			enrollmentId = testutil.GetEnrollmentIdFromText(bannerFileData)
-			if enrollmentId == "" {
-				log.Warnf("No enrollment id found in banner file %s", bannerFileData)
-				return false, nil
-			}
-		}
-		// timeout after 30s and retry
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		resp, err := serviceClient.ApproveEnrollmentRequestWithResponse(
-			ctx,
-			enrollmentId,
-			v1beta1.EnrollmentRequestApproval{
-				Approved: true,
-				Labels:   labels,
-			})
-		if err != nil {
-			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
-			return false, nil
-		}
-		responseCode := resp.StatusCode()
-		if responseCode == http.StatusNotFound {
-			// no error, but don't log this. There could be a race condition in posting vs approving and is not exceptional
-			return false, nil
-		}
-		if responseCode < http.StatusOK || responseCode >= http.StatusMultipleChoices {
-			log.Warnf("Failed approving device %s enrollment: %d", enrollmentId, responseCode)
-			return false, nil
-		}
-		log.Infof("Approved device enrollment %s", enrollmentId)
-		return true, nil
-	})
-	if err != nil && ctx.Err() == nil {
-		log.Errorf("Error approving device enrollment: %v", err)
-	}
-}
-
-func readBannerFile(agentDir string) (string, error) {
-	var data []byte
-	var err error
-	bannerFile := filepath.Join(agentDir, lifecycle.BannerFile)
-	if _, err = os.Stat(bannerFile); err != nil {
-		return "", err
-	}
-	data, err = os.ReadFile(bannerFile)
+	log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
+	enrollmentID, err := testutil.ApproveEnrollment(ctx, serviceClient, agentDir, labels, 5*time.Second, 5*time.Minute)
 	if err != nil {
-		return "", err
+		if ctx.Err() == nil {
+			log.Errorf("Error approving device enrollment: %v", err)
+		}
+		return
 	}
-	return string(data), nil
+	log.Infof("Approved device enrollment %s", enrollmentID)
 }
 
 func copyFile(from, to string) error {

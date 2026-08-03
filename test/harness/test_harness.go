@@ -456,11 +456,13 @@ func (h *TestHarness) StopAgent() {
 }
 
 func (h *TestHarness) StartAgent() {
-	agentLog := log.NewPrefixLogger("")
-
 	// Use SafeExecuter in tests to prevent dangerous commands like systemctl reboot
 	safeExec := testutil.NewDefaultSafeExecuter()
-	agentInstance := agent.New(agentLog, h.agentConfig, "", agent.WithExecuter(safeExec))
+	agentInstance, err := testutil.NewSimulatedAgent(h.agentConfig, "", agent.WithExecuter(safeExec))
+	if err != nil {
+		h.goRoutineErrorHandler(fmt.Errorf("error constructing agent: %w", err))
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h.agentFinished = make(chan struct{})
