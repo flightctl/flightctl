@@ -331,18 +331,18 @@ func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, nam
 }
 
 // PatchDevice mocks base method.
-func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool) (*domain.Device, domain.Status) {
+func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch, enforceOwnership)
+	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch, enforceOwnership, enforceCapabilities)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchDevice indicates an expected call of PatchDevice.
-func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch, enforceOwnership any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch, enforceOwnership, enforceCapabilities any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, orgId, name, patch, enforceOwnership)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, orgId, name, patch, enforceOwnership, enforceCapabilities)
 }
 
 // PatchDeviceStatus mocks base method.
@@ -361,18 +361,18 @@ func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch any
 }
 
 // ReplaceDevice mocks base method.
-func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
+func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
+	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDevice indicates an expected call of ReplaceDevice.
-func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
 // ReplaceDeviceStatus mocks base method.

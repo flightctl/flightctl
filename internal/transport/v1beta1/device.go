@@ -47,7 +47,7 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 	}
 
 	domainDevice := h.converter.Device().ToDomain(device)
-	body, status := deviceservice.ReplaceDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainDevice, nil, true)
+	body, status := deviceservice.ReplaceDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainDevice, nil, true, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
@@ -103,7 +103,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true)
+	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }
