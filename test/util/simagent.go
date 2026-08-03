@@ -52,7 +52,7 @@ func ReadBannerFile(agentDir string) (string, error) {
 // the poll error, if any.
 func WaitForEnrollmentID(ctx context.Context, agentDir string, pollInterval, timeout time.Duration) (string, error) {
 	enrollmentID := ""
-	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
 		bannerFileData, err := ReadBannerFile(agentDir)
 		if err != nil {
 			return false, nil
@@ -68,7 +68,7 @@ func WaitForEnrollmentID(ctx context.Context, agentDir string, pollInterval, tim
 // Returns the discovered enrollment ID (empty if never found) and a terminal error (nil on success).
 func ApproveEnrollment(ctx context.Context, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string, pollInterval, timeout time.Duration) (string, error) {
 	enrollmentID := ""
-	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
 		if enrollmentID == "" {
 			bannerFileData, err := ReadBannerFile(agentDir)
 			if err != nil {
