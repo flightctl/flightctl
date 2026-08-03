@@ -78,6 +78,8 @@ func main() {
 	skipAutoApprove := pflag.Bool("skip-auto-approve", false, "do not auto-approve enrollment requests (agents wait for manual approval)")
 	clean := pflag.Bool("clean", false, "wipe local simulator state and delete simulator-created devices/enrollment requests before starting")
 	cleanOnly := pflag.Bool("clean-only", false, "wipe local simulator state and delete simulator-created devices/enrollment requests, then exit")
+	fleetCount := pflag.Int("fleet-count", 0, "number of scale fleets to create and distribute devices across (0 disables)")
+	fleetPrefix := pflag.String("fleet-prefix", "scale-fleet", "prefix for scale fleet names (<prefix>-NN)")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
@@ -182,12 +184,19 @@ func main() {
 
 	log.Infoln("creating agents")
 
-	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
+	var fleetNames []string
+	if *fleetCount > 0 {
+		log.Infof("skipping default simulator-disk-monitoring fleet because --fleet-count=%d", *fleetCount)
+		var err error
+		fleetNames, err = createScaleFleets(ctx, log, serviceClient.ClientWithResponses, *fleetPrefix, *fleetCount)
+		if err != nil {
+			log.Fatalf("Failed to create scale fleets: %v", err)
+		}
+	} else if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
-	agents, agentsFolders := createAgents(createAgentsConfig{
+	agents, agentsFolders, perAgentLabels := createAgents(createAgentsConfig{
 		log:                 log,
 		numDevices:          *numDevices,
 		initialDeviceIndex:  *initialDeviceIndex,
@@ -195,6 +204,7 @@ func main() {
 		parsedSourceIPs:     parsedSourceIPs,
 		maxConcurrency:      *maxConcurrency,
 		simulatorLabels:     formattedLables,
+		fleetNames:          fleetNames,
 	})
 
 	sigShutdown := make(chan os.Signal, 1)
@@ -221,7 +231,7 @@ func main() {
 		agentFolders:    agentsFolders,
 		log:             log,
 		serviceClient:   serviceClient.ClientWithResponses,
-		formattedLabels: formattedLables,
+		perAgentLabels:  perAgentLabels,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
 		skipAutoApprove: *skipAutoApprove,
@@ -260,7 +270,7 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 		waitForEnrollmentRequest(ctx, params.log, params.agentFolders[i])
 		return
 	}
-	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.perAgentLabels[i])
 }
 
 func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
@@ -373,6 +383,7 @@ type createAgentsConfig struct {
 	parsedSourceIPs     []net.IP
 	maxConcurrency      int
 	simulatorLabels     *map[string]string
+	fleetNames          []string
 }
 
 type agentLaunchParams struct {
@@ -380,17 +391,18 @@ type agentLaunchParams struct {
 	agentFolders    []string
 	log             *logrus.Logger
 	serviceClient   *apiClient.ClientWithResponses
-	formattedLabels *map[string]string
+	perAgentLabels  []*map[string]string
 	sem             *semaphore.Weighted
 	jitterDuration  time.Duration
 	skipAutoApprove bool
 }
 
-func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
+func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string, []*map[string]string) {
 	logger := agentCfg.log
 	logger.Infoln("creating agents")
 	agents := make([]*agent.Agent, agentCfg.numDevices)
 	agentsFolders := make([]string, agentCfg.numDevices)
+	perAgentLabels := make([]*map[string]string, agentCfg.numDevices)
 	ex := experimental.NewFeatures()
 	if ex.IsEnabled() && agentCfg.numDevices > 1 {
 		logger.Warnf("Using experimental features with more than one device could cause unexpected issues.")
@@ -421,11 +433,20 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 			logger.Fatalf("Error setting environment variable: %v", err)
 		}
 
-		cfg := agent_config.NewDefault()
+		labels := map[string]string{}
 		if agentCfg.simulatorLabels != nil {
 			for k, v := range *agentCfg.simulatorLabels {
-				cfg.DefaultLabels[k] = v
+				labels[k] = v
 			}
+		}
+		if len(agentCfg.fleetNames) > 0 {
+			labels["fleet"] = agentCfg.fleetNames[i%len(agentCfg.fleetNames)]
+		}
+		perAgentLabels[i] = &labels
+
+		cfg := agent_config.NewDefault()
+		for k, v := range labels {
+			cfg.DefaultLabels[k] = v
 		}
 		cfg.DefaultLabels["alias"] = agentName
 		cfg.ConfigDir = agent_config.DefaultConfigDir
@@ -490,7 +511,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 		agents[i] = agentInstance
 		agentsFolders[i] = agentDir
 	}
-	return agents, agentsFolders
+	return agents, agentsFolders, perAgentLabels
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
