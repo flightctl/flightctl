@@ -153,7 +153,8 @@ func (s *CatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string,
 			return store.ErrorFromGormError(result.Error)
 		}
 
-		// Check if catalog has any items - cannot delete non-empty catalogs
+		// Persistence contract of this delete path: count+delete in one TX.
+		// Returns ErrResourceNotEmpty when items still exist (not a separate policy API).
 		var itemCount int64
 		if err := innerTx.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ?", orgId, name).Count(&itemCount).Error; err != nil {
 			return store.ErrorFromGormError(err)

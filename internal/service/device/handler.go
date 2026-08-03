@@ -21,6 +21,7 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -214,12 +215,14 @@ func (h *DeviceServiceHandler) GetDevice(ctx context.Context, orgId uuid.UUID, n
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-// DeviceVerificationCallback ensures the device wasn't decommissioned before an update proceeds.
-func DeviceVerificationCallback(ctx context.Context, before, after *domain.Device) error {
-	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
-		return flterrors.ErrDecommission
+func rejectIfAlreadyDecommissioning(existing *domain.Device) error {
+	if existing == nil || existing.Spec == nil {
+		return nil
 	}
-	return nil
+	if existing.Spec.Decommissioning == nil {
+		return nil
+	}
+	return flterrors.ErrDecommission
 }
 
 func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool) (*domain.Device, domain.Status) {
@@ -235,22 +238,23 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
-		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
-		if getErr != nil {
-			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
-			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 {
-			if !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
-				return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
-			}
+	existing, getErr := h.deviceStore.Get(ctx, orgId, name)
+	if getErr != nil && !errors.Is(getErr, flterrors.ErrResourceNotFound) {
+		return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
+	}
+	if getErr == nil {
+		if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
+		if enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
+			!domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 		}
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, nil, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
 
@@ -267,10 +271,18 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
+	existing, err := h.deviceStore.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectIfAlreadyDecommissioning(existing); err != nil {
+		return nil, err
+	}
+
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
-	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, nil, h.callbackDeviceUpdated)
 }
 
 func (h *DeviceServiceHandler) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
@@ -375,12 +387,16 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		return nil, domain.StatusBadRequest("spec is immutable")
 	}
 
+	if err := rejectIfAlreadyDecommissioning(currentObj); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, nil, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -480,15 +496,18 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 {
-		if !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
-		}
+	if err := rejectIfAlreadyDecommissioning(currentObj); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+
+	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 &&
+		!domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
+		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, nil, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -525,9 +544,57 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	return nil
 }
 
+// prepareDeviceForDecommission applies decommission mutations: set Spec.Decommissioning,
+// Lifecycle status Decommissioning, and clear Owner and Labels.
+func prepareDeviceForDecommission(existing *domain.Device, decom domain.DeviceDecommission) *domain.Device {
+	prepared := util.Clone(existing)
+
+	spec := domain.DeviceSpec{}
+	if prepared.Spec != nil {
+		spec = *prepared.Spec
+	}
+	spec.Decommissioning = &decom
+	prepared.Spec = &spec
+
+	status := domain.NewDeviceStatus()
+	if prepared.Status != nil {
+		status = *prepared.Status
+	}
+	status.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
+	prepared.Status = &status
+
+	prepared.Metadata.Owner = nil
+	prepared.Metadata.Labels = nil
+	return prepared
+}
+
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
-	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	// Re-Get + re-prepare on CAS conflicts so concurrent renders/status writes cannot
+	// permanently block decommission with a stale prepared ResourceVersion.
+	const maxAttempts = 10
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		existing, err := h.deviceStore.Get(ctx, orgId, name)
+		if err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
+
+		// Product rule: refuse a second decommission without calling the store (no success event).
+		if existing.Spec != nil && existing.Spec.Decommissioning != nil {
+			return nil, common.StoreErrorToApiStatus(flterrors.ErrResourceVersionConflict, false, domain.DeviceKind, &name)
+		}
+
+		prepared := prepareDeviceForDecommission(existing, decom)
+		result, err := h.deviceStore.DecommissionDevice(ctx, orgId, prepared, h.callbackDeviceDecommission)
+		if err == nil {
+			return result, common.StoreErrorToApiStatus(nil, false, domain.DeviceKind, &name)
+		}
+		lastErr = err
+		if !errors.Is(err, flterrors.ErrResourceVersionConflict) && !errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
+	}
+	return nil, common.StoreErrorToApiStatus(lastErr, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {

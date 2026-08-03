@@ -5,6 +5,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -708,6 +709,12 @@ var _ = Describe("Catalog Integration Tests", func() {
 
 			status = suite.Catalog.DeleteCatalog(suite.Ctx, suite.OrgID, catalogName, true)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+			Expect(status.Message).To(Equal(flterrors.ErrResourceNotEmpty.Error()))
+
+			stored, getStatus := suite.Catalog.GetCatalog(suite.Ctx, suite.OrgID, catalogName)
+			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(stored).ToNot(BeNil())
+			Expect(lo.FromPtr(stored.Metadata.Name)).To(Equal(catalogName))
 		})
 
 		It("should allow deletion of empty catalog", func() {

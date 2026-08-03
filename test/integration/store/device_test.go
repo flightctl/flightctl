@@ -731,10 +731,8 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				}
 
-				// Create decommissioning spec
-				decommissioning := &api.DeviceDecommission{
-					Target: api.DeviceDecommissionTargetTypeUnenroll,
-				}
+				// Omit Spec.Decommissioning: DeviceStore.CreateOrUpdate refuses updates when
+				// the stored device is already decommissioning (persistence contract).
 
 				// Create systemd spec
 				systemd := &struct {
@@ -762,14 +760,13 @@ var _ = Describe("DeviceStore create", func() {
 						Owner:  owner,
 					},
 					Spec: &api.DeviceSpec{
-						Os:              osSpec,
-						Config:          &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
-						Applications:    &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
-						Resources:       &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
-						Consoles:        &consoles,
-						Decommissioning: decommissioning,
-						Systemd:         systemd,
-						UpdatePolicy:    updatePolicy,
+						Os:           osSpec,
+						Config:       &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
+						Applications: &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
+						Resources:    &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
+						Consoles:     &consoles,
+						Systemd:      systemd,
+						UpdatePolicy: updatePolicy,
 					},
 				}
 			}
@@ -792,6 +789,33 @@ var _ = Describe("DeviceStore create", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
+		})
+
+		It("CreateOrUpdateDevice refuses update when device is already decommissioning", func() {
+			name := "decom-guard-device"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec: &api.DeviceSpec{
+					Os:              &api.DeviceOsSpec{Image: "img"},
+					Decommissioning: &api.DeviceDecommission{Target: api.DeviceDecommissionTargetTypeUnenroll},
+				},
+			}
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			stored, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:            lo.ToPtr(name),
+					ResourceVersion: stored.Metadata.ResourceVersion,
+					Labels:          &map[string]string{"k": "v"},
+				},
+				Spec: stored.Spec,
+			}
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &updated, nil, nil, callback)
+			Expect(err).To(MatchError(flterrors.ErrDecommission))
 		})
 
 		It("UpdateDeviceStatus", func() {
