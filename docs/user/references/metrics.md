@@ -1,6 +1,6 @@
 # Flight Control Metrics
 
-This document describes the metrics collectors available in Flight Control and how to configure them. All collectors can be enabled/disabled independently and expose Prometheus-compatible metrics.
+This document describes the metrics available in Flight Control and how to configure metrics collection. Most collectors can be enabled or disabled independently. Some metrics are registered automatically when the corresponding service starts and metrics are enabled.
 
 **Global Configuration:**
 
@@ -141,6 +141,26 @@ Monitors the automated dependency synchronization subsystem that probes Git, HTT
 
 - The dependency sync collector is always enabled when the periodic service starts. It does not require configuration in the `metrics` section beyond enabling the metrics endpoint.
 - The `informer_connected` and `secrets_watched` gauges are only meaningful when `clusterLevelSecretAccess` is enabled in the periodic configuration.
+
+### Encryption Metrics
+
+Monitors encryption at rest operations, including encrypt and decrypt activity, errors, canary validations, and the active encryption key configuration. These metrics are registered by `flightctl-api` and `flightctl-worker`.
+
+**Metrics:**
+
+- `flightctl_encryption_active_key_info`: Active encryption configuration, including strategy, key ID, and algorithm
+- `flightctl_encryption_operations_total`: Total encryption and decryption operations by operation type, strategy, key, and status
+- `flightctl_encryption_operation_duration_seconds`: Encryption and decryption operation latency
+- `flightctl_encryption_errors_total`: Encryption and decryption errors by operation, strategy, key, and error type
+- `flightctl_encryption_canary_validations_total`: Canary validation attempts and outcomes by strategy, key, and status
+
+**Labels:** Labels vary by metric and include `operation`, `strategy`, `key_id`, `status`, `algorithm`, and `error_type`.
+
+**Notes:**
+
+- Encryption metrics do not require a separate collector configuration. They are available from `flightctl-api` and `flightctl-worker` when metrics are enabled for those services.
+- Startup canary validations run before the encryption metrics collector is registered, so they are not reflected in `flightctl_encryption_canary_validations_total`. Canary validation failures that prevent service startup are reported through service logs and service status.
+- For more information about encryption at rest, key rotation, and canary validation, see [Configuring encryption at rest](../installing/configuring-encryption.md).
 
 ## Configuration Examples
 

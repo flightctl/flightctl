@@ -27,6 +27,7 @@ Welcome to the Flight Control user documentation.
     * [Configuring Device Attestation](installing/configuring-device-attestation.md)
     * [Configuring Rate Limits on API Requests](installing/configuring-rate-limiting.md)
     * [Configuring Vulnerability Integration](installing/configuring-vulnerability-integration.md)
+    * [Configuring Encryption at Rest](installing/configuring-encryption.md)
 
   * Monitoring the Flight Control Service
     * [Deploying the Observability Stack on Kubernetes](installing/deploying-observability-kubernetes.md)
