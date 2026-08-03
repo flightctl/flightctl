@@ -967,7 +967,7 @@ A VM application is not otherwise reachable over the network, so a user with the
 
 Use the `flightctl app console` command to open a serial or VNC console to a VM application. See the [`flightctl app console`](../references/cli-commands.md#flightctl-app-console) CLI reference page for command syntax, flags, and examples.
 
-Only one console session — serial or VNC — is allowed per application at a time. If you attempt to connect while another session is already active, the command fails unless you pass `--force`, which takes over the existing session and disconnects it.
+Only one console session of a given type (serial or VNC) is allowed per application at a time; a serial and a VNC session may be open on the same application simultaneously, since they use independent sockets. If you attempt to open a second session of the same type while one is already active, the command fails unless you pass `--force`, which takes over that same-type session and disconnects it.
 
 > [!NOTE]
 > A VNC console session additionally supports only one connected viewer. The command exits once that viewer disconnects; run it again to start a new session.

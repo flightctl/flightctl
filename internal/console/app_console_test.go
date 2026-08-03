@@ -181,8 +181,14 @@ func TestAppConsoleSessionManager_StartSession_DifferentConsoleTypeSameApp_Allow
 	device := makeTestDevice("device1")
 	// Pre-populate with an existing serial session for app1.
 	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1","consoleType":"serial"}]`
+
+	var capturedDevice domain.Device
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
-	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).Return(device, nil)
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
 	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
 	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
 
@@ -191,6 +197,18 @@ func TestAppConsoleSessionManager_StartSession_DifferentConsoleTypeSameApp_Allow
 	assert.Equal(t, http.StatusOK, int(status.Code), "vnc must not conflict with an existing serial session on the same app")
 	require.NotNil(t, session)
 	reg.AssertCalled(t, "StartSession", mock.AnythingOfType("*console.AppConsoleSession"))
+
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	val := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession]
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(val), &sessions))
+	require.Len(t, sessions, 2, "the pre-existing serial session must be preserved alongside the new vnc session")
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, "existing-id", byType["serial"].SessionID, "unrelated serial session must be untouched")
+	assert.Equal(t, session.UUID, byType["vnc"].SessionID)
 }
 
 func TestAppConsoleSessionManager_CloseSession_RemovesAnnotation(t *testing.T) {
@@ -326,6 +344,26 @@ func TestAddAppSession_DuplicateAppName_ReturnsConflict(t *testing.T) {
 	var dupErr *duplicateAppSessionError
 	assert.ErrorAs(t, err, &dupErr)
 	assert.Contains(t, dupErr.Error(), "app1")
+}
+
+// A different consoleType for the same app is not a conflict, so addAppSession must append
+// alongside the existing entry rather than rejecting it.
+func TestAddAppSession_DifferentConsoleType_AddsAlongsideExisting(t *testing.T) {
+	existing := `[{"sessionID":"serial-id","appName":"app1","consoleType":"serial"}]`
+	updater := addAppSession("vnc-id", "app1", "vnc")
+
+	result, err := updater(existing)
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 2, "the existing serial session must not be rejected by a vnc request")
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, "serial-id", byType["serial"].SessionID, "unrelated serial session must be untouched")
+	assert.Equal(t, "vnc-id", byType["vnc"].SessionID)
 }
 
 func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {

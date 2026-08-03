@@ -3503,7 +3503,7 @@ type GetDeviceApplicationConsoleParams struct {
 	// ConsoleType The type of console session to open. "serial" opens a text terminal; "vnc" opens a VNC proxy tunnel.
 	ConsoleType GetDeviceApplicationConsoleParamsConsoleType `form:"consoleType" json:"consoleType"`
 
-	// Force If true, take over an already-active console session for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
+	// Force If true, take over an already-active console session of the same type for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
 }
 

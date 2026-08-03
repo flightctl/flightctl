@@ -2290,7 +2290,7 @@ paths:
         - name: force
           in: query
           required: false
-          description: If true, take over an already-active console session for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
+          description: If true, take over an already-active console session of the same type for this application instead of failing with a 409 Conflict. The replaced session is disconnected and told why.
           schema:
             type: boolean
             default: false
