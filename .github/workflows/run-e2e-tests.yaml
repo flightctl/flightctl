@@ -22,6 +22,36 @@ on:
         required: false
         type: string
         default: "sanity"
+      go_e2e_dirs:
+        description: "Space-separated Go e2e package dirs passed to run_e2e_tests.sh"
+        required: false
+        type: string
+        default: "./test/e2e/..."
+      excluded_go_e2e_dirs:
+        description: "Optional Go e2e package dirs to exclude after resolving go_e2e_dirs"
+        required: false
+        type: string
+        default: ""
+      package_mode_qcow_os_id:
+        description: "Optional OS flavor whose qcow should be staged as the primary package-mode qcow"
+        required: false
+        type: string
+        default: ""
+      image_mode_qcow_os_id:
+        description: "Optional OS flavor whose qcow should be injected for mixed-fleet package-mode tests"
+        required: false
+        type: string
+        default: ""
+      package_mode_qcow_env_var:
+        description: "Optional env var name that should point to the primary staged qcow"
+        required: false
+        type: string
+        default: ""
+      image_mode_qcow_env_var:
+        description: "Optional env var name that should point to the secondary staged qcow"
+        required: false
+        type: string
+        default: ""
       tag:
         description: "Image tag"
         required: true
@@ -103,9 +133,25 @@ jobs:
           path: test-artifacts
           merge-multiple: true
 
+      - name: Download image-mode qcow artifact
+        if: ${{ inputs.image_mode_qcow_os_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-qcow2-image-${{ inputs.image_mode_qcow_os_id }}-${{ inputs.tag }}
+          path: test-artifacts-image-mode
+
+      - name: Download package-mode qcow artifact
+        if: ${{ inputs.package_mode_qcow_os_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-qcow2-image-${{ inputs.package_mode_qcow_os_id }}-${{ inputs.tag }}
+          path: test-artifacts-package-mode
+
       - name: Stage test artifacts
         env:
           OS_ID: ${{ inputs.os_id }}
+          PACKAGE_MODE_QCOW_OS_ID: ${{ inputs.package_mode_qcow_os_id }}
+          IMAGE_MODE_QCOW_OS_ID: ${{ inputs.image_mode_qcow_os_id }}
         run: |
           set -euo pipefail
           echo "Downloaded test artifacts:"
@@ -120,17 +166,37 @@ jobs:
           mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
           echo "Agent bundle: bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
 
-          # Stage qcow2
+          # Stage the primary qcow2 used by prepare-e2e-qcow-config.
           mkdir -p bin/output/qcow2
-          if [ ! -f "test-artifacts/disk.qcow2" ]; then
-            echo "ERROR: QCOW2 image not found"
-            exit 1
+          if [ -n "${PACKAGE_MODE_QCOW_OS_ID}" ]; then
+            if [ ! -f "test-artifacts-package-mode/disk.qcow2" ]; then
+              echo "ERROR: Package-mode QCOW2 image not found"
+              exit 1
+            fi
+            mv "test-artifacts-package-mode/disk.qcow2" bin/output/qcow2/disk.qcow2
+          else
+            if [ ! -f "test-artifacts/disk.qcow2" ]; then
+              echo "ERROR: QCOW2 image not found"
+              exit 1
+            fi
+            mv "test-artifacts/disk.qcow2" bin/output/qcow2/disk.qcow2
           fi
-          mv "test-artifacts/disk.qcow2" bin/output/qcow2/
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
+
+          if [ -n "${IMAGE_MODE_QCOW_OS_ID}" ]; then
+            if [ ! -f "test-artifacts-image-mode/disk.qcow2" ]; then
+              echo "ERROR: Image-mode QCOW2 image not found"
+              exit 1
+            fi
+            mkdir -p bin/output/qcow2-image-mode
+            mv "test-artifacts-image-mode/disk.qcow2" bin/output/qcow2-image-mode/
+            echo "✓ Image-mode QCOW2 image: bin/output/qcow2-image-mode/disk.qcow2"
+          fi
 
           # Cleanup
           rm -rf test-artifacts
+          rm -rf test-artifacts-package-mode
+          rm -rf test-artifacts-image-mode
 
           echo "Staged artifacts:"
           tree bin
@@ -154,6 +220,21 @@ jobs:
           # All dependencies are resolved automatically by Make
           make prepare-e2e-test
 
+      - name: Inject image-mode qcow for package-mode mixed-fleet tests
+        if: ${{ inputs.image_mode_qcow_os_id != '' }}
+        env:
+          IMAGE_MODE_QCOW: bin/output/qcow2-image-mode/disk.qcow2
+        run: |
+          set -euo pipefail
+          if [ ! -f "${IMAGE_MODE_QCOW}" ]; then
+            echo "ERROR: Secondary image-mode qcow not staged at ${IMAGE_MODE_QCOW}"
+            exit 1
+          fi
+
+          QCOW="${IMAGE_MODE_QCOW}" \
+          AGENT_DIR=bin/agent/etc/flightctl \
+          test/scripts/inject_agent_files_into_qcow.sh
+
       # ========== RUN E2E TESTS ==========
       - name: Restore Go cache
         uses: actions/cache/restore@v4
@@ -169,11 +250,62 @@ jobs:
         id: compute-hash
         env:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
+          GO_E2E_DIRS: ${{ inputs.go_e2e_dirs }}
+          EXCLUDED_GO_E2E_DIRS: ${{ inputs.excluded_go_e2e_dirs }}
         run: |
-          HASH=$(printf '%s' "${GINKGO_LABEL_FILTER}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s::%s::%s' "${GINKGO_LABEL_FILTER}" "${GO_E2E_DIRS}" "${EXCLUDED_GO_E2E_DIRS}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
           echo "Label filter: ${GINKGO_LABEL_FILTER}"
+          echo "GO_E2E_DIRS: ${GO_E2E_DIRS}"
+          echo "EXCLUDED_GO_E2E_DIRS: ${EXCLUDED_GO_E2E_DIRS}"
           echo "Hash: ${HASH}"
+
+      - name: Resolve Go E2E dirs
+        id: resolve-go-e2e-dirs
+        env:
+          GO_E2E_DIRS: ${{ inputs.go_e2e_dirs }}
+          EXCLUDED_GO_E2E_DIRS: ${{ inputs.excluded_go_e2e_dirs }}
+        run: |
+          set -euo pipefail
+
+          repo_root="$(pwd -P)"
+          mapfile -t included_dirs_abs < <(go list -f '{{.Dir}}' ${GO_E2E_DIRS})
+          included_dirs=()
+          for dir in "${included_dirs_abs[@]}"; do
+            rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+            included_dirs+=("./${rel_dir#./}")
+          done
+
+          excluded_dirs=()
+          if [[ -n "${EXCLUDED_GO_E2E_DIRS}" ]]; then
+            mapfile -t excluded_dirs_abs < <(go list -f '{{.Dir}}' ${EXCLUDED_GO_E2E_DIRS} 2>/dev/null || true)
+            for dir in "${excluded_dirs_abs[@]}"; do
+              rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+              excluded_dirs+=("./${rel_dir#./}")
+            done
+          fi
+
+          resolved_dirs=()
+          for dir in "${included_dirs[@]}"; do
+            skip=false
+            for excluded in "${excluded_dirs[@]}"; do
+              if [[ "${dir}" == "${excluded}" ]]; then
+                skip=true
+                break
+              fi
+            done
+            if [[ "${skip}" != "true" ]]; then
+              resolved_dirs+=("${dir}")
+            fi
+          done
+
+          if [[ "${#resolved_dirs[@]}" -eq 0 ]]; then
+            echo "ERROR: No Go E2E dirs remain after exclusions"
+            exit 1
+          fi
+
+          printf 'resolved_go_e2e_dirs=%s\n' "${resolved_dirs[*]}" >> "$GITHUB_OUTPUT"
+          printf 'Resolved dirs: %s\n' "${resolved_dirs[*]}"
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
@@ -184,15 +316,41 @@ jobs:
       - name: Check disk space
         run: df -h
 
+      - name: Validate qcow inputs
+        env:
+          PACKAGE_MODE_QCOW_ENV_VAR: ${{ inputs.package_mode_qcow_env_var }}
+          IMAGE_MODE_QCOW_ENV_VAR: ${{ inputs.image_mode_qcow_env_var }}
+          PACKAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2/disk.qcow2
+          IMAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2-image-mode/disk.qcow2
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${PACKAGE_MODE_QCOW_ENV_VAR}" && ! -f "${PACKAGE_MODE_QCOW_PATH}" ]]; then
+            echo "ERROR: ${PACKAGE_MODE_QCOW_ENV_VAR} requires qcow at ${PACKAGE_MODE_QCOW_PATH}"
+            exit 1
+          fi
+
+          if [[ -n "${IMAGE_MODE_QCOW_ENV_VAR}" && ! -f "${IMAGE_MODE_QCOW_PATH}" ]]; then
+            echo "ERROR: ${IMAGE_MODE_QCOW_ENV_VAR} requires qcow at ${IMAGE_MODE_QCOW_PATH}"
+            exit 1
+          fi
+
       - name: Run E2E Test Slice
         env:
+          GO_E2E_DIRS: ${{ steps.resolve-go-e2e-dirs.outputs.resolved_go_e2e_dirs }}
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
+          PACKAGE_MODE_QCOW_ENV_VAR: ${{ inputs.package_mode_qcow_env_var }}
+          IMAGE_MODE_QCOW_ENV_VAR: ${{ inputs.image_mode_qcow_env_var }}
+          PACKAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2/disk.qcow2
+          IMAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2-image-mode/disk.qcow2
           RUNNER_DEBUG: ${{ runner.debug }}
         run: |
+          set -euo pipefail
+
           if [[ "${RUNNER_DEBUG}" == "1" ]]; then
             echo "Debug mode enabled"
             export DEBUG_VM_CONSOLE=1
@@ -200,6 +358,15 @@ jobs:
           else
             echo "Debug mode disabled"
           fi
+
+          if [[ -n "${PACKAGE_MODE_QCOW_ENV_VAR}" ]]; then
+            export "${PACKAGE_MODE_QCOW_ENV_VAR}=${PACKAGE_MODE_QCOW_PATH}"
+          fi
+
+          if [[ -n "${IMAGE_MODE_QCOW_ENV_VAR}" ]]; then
+            export "${IMAGE_MODE_QCOW_ENV_VAR}=${IMAGE_MODE_QCOW_PATH}"
+          fi
+
           make -e run-e2e-test
 
       - name: Check disk space after E2E tests

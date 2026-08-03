@@ -109,12 +109,22 @@ jobs:
         include:
           - os_id: cs9-bootc
             rpm_suffix: centos-stream+epel-next-9-x86_64
+            build_type: bootc
+            upload_bundle: true
+          - os_id: cs9-regular
+            rpm_suffix: centos-stream+epel-next-9-x86_64
+            build_type: regular
+            upload_bundle: false
           - os_id: cs10-bootc
             rpm_suffix: epel-10-x86_64
+            build_type: bootc
+            upload_bundle: true
     uses: ./.github/workflows/build-agent-images.yaml
     with:
       rpm_suffix: ${{ matrix.rpm_suffix }}
       os_id: ${{ matrix.os_id }}
+      build_type: ${{ matrix.build_type }}
+      upload_bundle: ${{ matrix.upload_bundle }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   discover-e2e-tests:
@@ -127,8 +137,12 @@ jobs:
       matrix:
         include:
           - label_filter: 'sanity'
+            go_e2e_dirs: './test/e2e/...'
+            excluded_go_e2e_dirs: './test/e2e/package_mode'
             ginkgo_total_nodes: 10
           - label_filter: 'sanity && agent && !microshift'
+            go_e2e_dirs: './test/e2e/...'
+            excluded_go_e2e_dirs: './test/e2e/package_mode'
             ginkgo_total_nodes: 5
     steps:
       - name: Checkout
@@ -139,20 +153,76 @@ jobs:
 
       - name: Compute label filter hash
         id: compute-hash
+        env:
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter }}
+          GO_E2E_DIRS: ${{ matrix.go_e2e_dirs }}
+          EXCLUDED_GO_E2E_DIRS: ${{ matrix.excluded_go_e2e_dirs }}
         run: |
-          HASH=$(printf '%s' "${{ matrix.label_filter }}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s::%s::%s' "${GINKGO_LABEL_FILTER}" "${GO_E2E_DIRS}" "${EXCLUDED_GO_E2E_DIRS}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
-          echo "Label filter: ${{ matrix.label_filter }}"
+          echo "Label filter: ${GINKGO_LABEL_FILTER}"
+          echo "GO_E2E_DIRS: ${GO_E2E_DIRS}"
+          echo "EXCLUDED_GO_E2E_DIRS: ${EXCLUDED_GO_E2E_DIRS}"
           echo "Hash: ${HASH}"
+
+      - name: Resolve Go E2E dirs
+        id: resolve-go-e2e-dirs
+        env:
+          GO_E2E_DIRS: ${{ matrix.go_e2e_dirs }}
+          EXCLUDED_GO_E2E_DIRS: ${{ matrix.excluded_go_e2e_dirs }}
+        run: |
+          set -euo pipefail
+
+          repo_root="$(pwd -P)"
+          mapfile -t included_dirs_abs < <(go list -f '{{.Dir}}' ${GO_E2E_DIRS})
+          included_dirs=()
+          for dir in "${included_dirs_abs[@]}"; do
+            rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+            included_dirs+=("./${rel_dir#./}")
+          done
+
+          excluded_dirs=()
+          if [[ -n "${EXCLUDED_GO_E2E_DIRS}" ]]; then
+            # EDM-4765 lands before the package-mode suite itself, so tolerate a
+            # not-yet-present exclude path here and keep the bootc discovery legs working.
+            mapfile -t excluded_dirs_abs < <(go list -f '{{.Dir}}' ${EXCLUDED_GO_E2E_DIRS} 2>/dev/null || true)
+            for dir in "${excluded_dirs_abs[@]}"; do
+              rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+              excluded_dirs+=("./${rel_dir#./}")
+            done
+          fi
+
+          resolved_dirs=()
+          for dir in "${included_dirs[@]}"; do
+            skip=false
+            for excluded in "${excluded_dirs[@]}"; do
+              if [[ "${dir}" == "${excluded}" ]]; then
+                skip=true
+                break
+              fi
+            done
+            if [[ "${skip}" != "true" ]]; then
+              resolved_dirs+=("${dir}")
+            fi
+          done
+
+          if [[ "${#resolved_dirs[@]}" -eq 0 ]]; then
+            echo "ERROR: No Go E2E dirs remain after exclusions"
+            exit 1
+          fi
+
+          printf 'resolved_go_e2e_dirs=%s\n' "${resolved_dirs[*]}" >> "$GITHUB_OUTPUT"
+          printf 'Resolved dirs: %s\n' "${resolved_dirs[*]}"
 
       - name: Run test discovery
         env:
           GINKGO_LABEL_FILTER: ${{ matrix.label_filter }}
+          GO_E2E_DIRS: ${{ steps.resolve-go-e2e-dirs.outputs.resolved_go_e2e_dirs }}
           DISCOVERY_ONLY: "true"
           DISCOVERY_PATH: discovery.json
         run: |
           mkdir -p reports
-          test/scripts/run_e2e_tests.sh reports ./test/e2e/...
+          test/scripts/run_e2e_tests.sh reports ${GO_E2E_DIRS}
 
       - name: Validate discovery results
         run: |
@@ -216,20 +286,38 @@ jobs:
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity'
+            go_e2e_dirs: './test/e2e/...'
+            excluded_go_e2e_dirs: './test/e2e/package_mode'
             ginkgo_total_nodes: 10
+            package_mode_qcow_os_id: ''
+            image_mode_qcow_os_id: ''
+            package_mode_qcow_env_var: ''
+            image_mode_qcow_env_var: ''
           ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
           ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
           ## full microshift coverage via the v12 OKD SCOS variant.
           - os_id: cs10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !microshift'
+            go_e2e_dirs: './test/e2e/...'
+            excluded_go_e2e_dirs: './test/e2e/package_mode'
             ginkgo_total_nodes: 5
+            package_mode_qcow_os_id: ''
+            image_mode_qcow_os_id: ''
+            package_mode_qcow_env_var: ''
+            image_mode_qcow_env_var: ''
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
       backend_type: ${{ matrix.backend_type }}
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
       ginkgo_label_filter: ${{ matrix.label_filter }}
+      go_e2e_dirs: ${{ matrix.go_e2e_dirs }}
+      excluded_go_e2e_dirs: ${{ matrix.excluded_go_e2e_dirs }}
+      package_mode_qcow_os_id: ${{ matrix.package_mode_qcow_os_id }}
+      image_mode_qcow_os_id: ${{ matrix.image_mode_qcow_os_id }}
+      package_mode_qcow_env_var: ${{ matrix.package_mode_qcow_env_var }}
+      image_mode_qcow_env_var: ${{ matrix.image_mode_qcow_env_var }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   api-tests:

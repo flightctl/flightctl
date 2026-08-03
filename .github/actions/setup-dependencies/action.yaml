@@ -58,7 +58,7 @@ runs:
           sudo apt update -y 
           sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
-                              swtpm apparmor-utils
+                              swtpm apparmor-utils libguestfs-tools
           sudo usermod -a -G kvm,libvirt,swtpm $USER
           echo "::endgroup::"
 

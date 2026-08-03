@@ -8,9 +8,19 @@ on:
         required: true
         type: string
       os_id:
-        description: "Agent Image OS ID (cs9-bootc / cs10-bootc)"
+        description: "Agent image OS ID (cs9-bootc / cs9-regular / cs10-bootc)"
         required: true
         type: string
+      build_type:
+        description: "Agent image build type (bootc / regular)"
+        required: false
+        type: string
+        default: "bootc"
+      upload_bundle:
+        description: "Whether this flavor should upload an agent image bundle artifact"
+        required: false
+        type: boolean
+        default: true
       tag:
         description: "Image tag"
         required: true
@@ -29,6 +39,8 @@ jobs:
       # "unknown version specified" (apt ships crun 1.14.1).
       - name: Setup dependencies
         uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
 
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
@@ -54,6 +66,7 @@ jobs:
           TAG: ${{ inputs.tag }}
           AGENT_IMAGE_OUTPUT: bundle
           AGENT_OS_ID: ${{ inputs.os_id }}
+          BUILD_TYPE: ${{ inputs.build_type }}
         run: |
           mkdir -p bin/rpm
           # Validate that both agent and selinux RPMs are present from the download step
@@ -87,6 +100,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload agent images bundle (per flavor)
+        if: ${{ inputs.upload_bundle }}
         uses: actions/upload-artifact@v4
         with:
           name: agent-images-bundle-${{ inputs.os_id }}-${{ inputs.tag }}
@@ -105,6 +119,7 @@ jobs:
           retention-days: 1
 
       - name: List bundled agent images
+        if: ${{ inputs.upload_bundle }}
         id: list-agent-images
         env:
           OS_ID: ${{ inputs.os_id }}
@@ -141,6 +156,7 @@ jobs:
           TAG: ${{ inputs.tag }}
           OS_ID: ${{ inputs.os_id }}
           RUN_ID: ${{ github.run_id }}
+          UPLOAD_BUNDLE: ${{ inputs.upload_bundle }}
           IMAGES: ${{ steps.list-agent-images.outputs.images }}
         run: |
           set -euo pipefail
@@ -151,7 +167,7 @@ jobs:
             echo "**Tag:** \`${TAG}\` | [All artifacts](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts)"
             echo ""
             
-            if [ -n "$IMAGES" ] && [ "$IMAGES" != "Bundle inspection failed" ]; then
+            if [ "${UPLOAD_BUNDLE}" = "true" ] && [ -n "$IMAGES" ] && [ "$IMAGES" != "Bundle inspection failed" ]; then
               echo "<details>"
               echo "<summary><strong>Container Images in Bundle</strong></summary>"
               echo ""
@@ -167,11 +183,17 @@ jobs:
             echo '```bash'
             echo "# Download artifacts"
             echo "mkdir -p bin/agent-artifacts bin/output/qcow2"
-            echo "gh run download ${RUN_ID} -n agent-images-bundle-${OS_ID}-${TAG} -D bin/agent-artifacts"
+            if [ "${UPLOAD_BUNDLE}" = "true" ]; then
+              echo "gh run download ${RUN_ID} -n agent-images-bundle-${OS_ID}-${TAG} -D bin/agent-artifacts"
+            fi
             echo "gh run download ${RUN_ID} -n agent-qcow2-image-${OS_ID}-${TAG} -D bin/output/qcow2"
             echo ""
             echo "# Run e2e tests"
-            echo "AGENT_OS_ID=${OS_ID} make prepare-e2e-test run-e2e-test"
+            if [ "${UPLOAD_BUNDLE}" = "true" ]; then
+              echo "AGENT_OS_ID=${OS_ID} make prepare-e2e-test run-e2e-test"
+            else
+              echo "# ${OS_ID} is qcow-only in CI; pair this qcow with a bootc agent bundle when running mixed-fleet package-mode tests"
+            fi
             echo '```'
             echo ""
             echo "</details>"
