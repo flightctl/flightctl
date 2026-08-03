@@ -19,11 +19,11 @@ import (
 
 const (
 	longPollTimeout = 4 * time.Minute
-	// minPollDelay is the minimum delay between polls to prevent hot-looping
-	minPollDelay = 5 * time.Second
-	// maxErrorPollDelay caps exponential backoff after /rendered failures
-	maxErrorPollDelay = 5 * time.Minute
-	errorBackoffFactor = 2.0
+	// defaultMinPollDelay is used when errorBackoff.BaseDelay is unset (tests).
+	defaultMinPollDelay = 5 * time.Second
+	defaultErrorBackoffFactor = 2.0
+	defaultMaxErrorPollDelay  = 5 * time.Minute
+	defaultErrorJitterFactor  = 0.2
 )
 
 // watcher wraps a ring buffer to implement the Watcher interface
@@ -67,20 +67,31 @@ type publisher struct {
 	stopped                     atomic.Bool
 	log                         *log.PrefixLogger
 	pollConfig                  poll.Config
+	errorBackoff                poll.Config
 	deviceNotFoundHandler       func() error
 	onConflictPausedInvalidator LastStatusInvalidator
-	minDelay                    time.Duration
 	mu                          sync.Mutex
+}
+
+func defaultErrorBackoff() poll.Config {
+	return poll.Config{
+		BaseDelay:    defaultMinPollDelay,
+		Factor:       defaultErrorBackoffFactor,
+		MaxDelay:     defaultMaxErrorPollDelay,
+		JitterFactor: defaultErrorJitterFactor,
+	}
 }
 
 func newPublisher(deviceName string,
 	pollConfig poll.Config,
+	errorBackoff poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
 		pollConfig:            pollConfig,
+		errorBackoff:          errorBackoff,
 		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
 		log:                   log,
@@ -237,29 +248,13 @@ func (n *publisher) pollAndPublish(ctx context.Context) error {
 	return nil
 }
 
-func (n *publisher) errorBackoffConfig() poll.Config {
-	base := n.minDelay
-	if base == 0 {
-		base = minPollDelay
-	}
-	return poll.Config{
-		BaseDelay:    base,
-		Factor:       errorBackoffFactor,
-		MaxDelay:     maxErrorPollDelay,
-		JitterFactor: 0.2,
-	}
-}
-
 func (n *publisher) Run(ctx context.Context) {
 	defer n.stop()
 	n.log.Debug("Starting publisher with continuous long-polling")
 
-	minDelay := n.minDelay
-	if minDelay == 0 {
-		minDelay = minPollDelay
-	}
+	minDelay := n.errorBackoff.BaseDelay
 	errorTries := 0
-	backoffCfg := n.errorBackoffConfig()
+	backoffCfg := n.errorBackoff
 
 	for {
 		if ctx.Err() != nil {

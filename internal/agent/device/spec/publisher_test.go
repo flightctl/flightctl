@@ -52,6 +52,7 @@ func setupWithInitialVersion(t *testing.T, initialVersion string) *vars {
 		log:                         log.NewPrefixLogger(""),
 		lastKnownVersion:            initialVersion,
 		pollConfig:                  poll.NewConfig(time.Second, 1.5),
+		errorBackoff:                defaultErrorBackoff(),
 		deviceNotFoundHandler:       deviceNotFoundHandler,
 		onConflictPausedInvalidator: nil,
 	}
@@ -188,8 +189,9 @@ func TestDevicePublisher_Run(t *testing.T) {
 		v := setup(tt)
 		defer v.ctrl.Finish()
 
-		// short minDelay for testing
-		v.notifier.minDelay = 10 * time.Millisecond
+		// short base delay for testing
+		v.notifier.errorBackoff.BaseDelay = 10 * time.Millisecond
+		v.notifier.errorBackoff.MaxDelay = 50 * time.Millisecond
 
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, http.StatusNoContent, nil).AnyTimes()
@@ -538,7 +540,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with initial version", func(t *testing.T) {
 		initialVersion := "42"
-		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, defaultErrorBackoff(), initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)
@@ -547,7 +549,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with empty initial version", func(t *testing.T) {
 		initialVersion := ""
-		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, defaultErrorBackoff(), initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)

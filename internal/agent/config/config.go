@@ -33,6 +33,10 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// DefaultSpecFetchErrorBaseDelay is the initial backoff after a failed /rendered poll
+	DefaultSpecFetchErrorBaseDelay = util.Duration(5 * time.Second)
+	// DefaultSpecFetchErrorMaxDelay caps exponential backoff after failed /rendered polls
+	DefaultSpecFetchErrorMaxDelay = util.Duration(5 * time.Minute)
 	// DefaultEnrollmentVerifyInterval is the default initial interval between checks for
 	// enrollment approval while the agent waits to be enrolled.
 	DefaultEnrollmentVerifyInterval = util.Duration(10 * time.Second)
@@ -106,6 +110,11 @@ type Config struct {
 	// This field is deprecated and will be removed in a future release. The functionality
 	// is controlled by the server rendered wait timeout.
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
+	// SpecFetchErrorBaseDelay is the initial delay after a failed /rendered poll before retrying.
+	// Subsequent failures double this delay up to SpecFetchErrorMaxDelay.
+	SpecFetchErrorBaseDelay util.Duration `json:"spec-fetch-error-base-delay,omitempty"`
+	// SpecFetchErrorMaxDelay is the maximum delay between /rendered retries after repeated failures.
+	SpecFetchErrorMaxDelay util.Duration `json:"spec-fetch-error-max-delay,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 	// EnrollmentVerifyInterval is the initial interval between checks for enrollment
@@ -228,6 +237,8 @@ func NewDefault() *Config {
 		DataDir:                  DefaultDataDir,
 		StatusUpdateInterval:     DefaultStatusUpdateInterval,
 		SpecFetchInterval:        DefaultSpecFetchInterval,
+		SpecFetchErrorBaseDelay:  DefaultSpecFetchErrorBaseDelay,
+		SpecFetchErrorMaxDelay:   DefaultSpecFetchErrorMaxDelay,
 		EnrollmentVerifyInterval: DefaultEnrollmentVerifyInterval,
 		EnrollmentVerifyCap:      DefaultEnrollmentVerifyCap,
 		EnrollmentVerifySteps:    DefaultEnrollmentVerifySteps,
@@ -493,6 +504,12 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
+	if cfg.SpecFetchErrorBaseDelay < MinSyncInterval {
+		return fmt.Errorf("minimum spec fetch error base delay is %s have %s", MinSyncInterval, cfg.SpecFetchErrorBaseDelay)
+	}
+	if cfg.SpecFetchErrorMaxDelay < cfg.SpecFetchErrorBaseDelay {
+		return fmt.Errorf("spec fetch error max delay %s must be >= base delay %s", cfg.SpecFetchErrorMaxDelay, cfg.SpecFetchErrorBaseDelay)
+	}
 	if cfg.EnrollmentVerifyInterval < MinSyncInterval {
 		return fmt.Errorf("minimum enrollment verify interval is %s have %s", MinSyncInterval, cfg.EnrollmentVerifyInterval)
 	}
@@ -562,6 +579,9 @@ func mergeConfigs(base, override *Config) {
 	// log
 	overrideIfNotEmpty(&base.LogLevel, override.LogLevel)
 	overrideIfNotEmpty(&base.LogPrefix, override.LogPrefix)
+
+	overrideIfNotEmpty(&base.SpecFetchErrorBaseDelay, override.SpecFetchErrorBaseDelay)
+	overrideIfNotEmpty(&base.SpecFetchErrorMaxDelay, override.SpecFetchErrorMaxDelay)
 
 	// system info
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
