@@ -179,8 +179,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	osMode := os.DetectMode(stdexec.LookPath)
 	a.log.Infof("OS mode detected: %s", osMode)
 
-	// create podman client
-	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
+	// create podman client (honors Agent.WithExecuter for the current-process user)
+	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory, exec)
 	rootPodmanClient, err := podmanClientFactory("")
 	if err != nil {
 		return err
@@ -457,6 +457,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsManager,
 		rootSystemdManager,
 		a.config.StatusUpdateInterval,
+		a.config.StatusUpdateJitter,
 		hookManager,
 		osManager,
 		policyManager,

@@ -54,6 +54,7 @@ type Agent struct {
 	osMode                 v1beta1.OsModeType
 
 	statusUpdateInterval util.Duration
+	statusUpdateJitter   util.Duration
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -69,6 +70,7 @@ func NewAgent(
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	statusUpdateInterval util.Duration,
+	statusUpdateJitter util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
@@ -99,6 +101,7 @@ func NewAgent(
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		statusUpdateInterval:   statusUpdateInterval,
+		statusUpdateJitter:     statusUpdateJitter,
 		applicationsController: applicationsController,
 		configController:       configController,
 		resourceManager:        resourceManager,
@@ -121,6 +124,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
+		time.Duration(a.statusUpdateJitter),
 	)
 
 	return engine.Run(ctx)

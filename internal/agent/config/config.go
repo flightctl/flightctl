@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -33,6 +34,8 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// DefaultStatusUpdateJitter is the default max random delay before the first status push
+	DefaultStatusUpdateJitter = DefaultStatusUpdateInterval
 	// DefaultSpecFetchErrorBaseDelay is the initial backoff after a failed /rendered poll
 	DefaultSpecFetchErrorBaseDelay = util.Duration(5 * time.Second)
 	// DefaultSpecFetchErrorMaxDelay caps exponential backoff after failed /rendered polls
@@ -98,6 +101,8 @@ const (
 	DefaultProfilingEnabled = false
 )
 
+var testRootDirWarningOnce sync.Once
+
 type Config struct {
 	config.ServiceConfig
 
@@ -117,6 +122,10 @@ type Config struct {
 	SpecFetchErrorMaxDelay util.Duration `json:"spec-fetch-error-max-delay,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
+	// StatusUpdateJitter is the maximum random delay before the first status push after
+	// agent start. The delay is chosen uniformly in [0, StatusUpdateJitter). Zero disables
+	// jitter (immediate first push). Defaults to StatusUpdateInterval.
+	StatusUpdateJitter util.Duration `json:"status-update-jitter,omitempty"`
 	// EnrollmentVerifyInterval is the initial interval between checks for enrollment
 	// approval. Retries back off from this value (see agent.go's enrollment backoff).
 	EnrollmentVerifyInterval util.Duration `json:"enrollment-verify-interval,omitempty"`
@@ -236,6 +245,7 @@ func NewDefault() *Config {
 		ConfigDir:                DefaultConfigDir,
 		DataDir:                  DefaultDataDir,
 		StatusUpdateInterval:     DefaultStatusUpdateInterval,
+		StatusUpdateJitter:       DefaultStatusUpdateJitter,
 		SpecFetchInterval:        DefaultSpecFetchInterval,
 		SpecFetchErrorBaseDelay:  DefaultSpecFetchErrorBaseDelay,
 		SpecFetchErrorMaxDelay:   DefaultSpecFetchErrorMaxDelay,
@@ -266,7 +276,9 @@ func NewDefault() *Config {
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
-		fmt.Fprintf(os.Stderr, "WARNING: Setting testRootDir is intended for testing only. Do not use in production.\n")
+		testRootDirWarningOnce.Do(func() {
+			fmt.Fprintf(os.Stderr, "WARNING: Setting testRootDir is intended for testing only. Do not use in production.\n")
+		})
 		c.testRootDir = filepath.Clean(value)
 	}
 
@@ -504,6 +516,9 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
+	if cfg.StatusUpdateJitter < 0 {
+		return fmt.Errorf("status update jitter must be >= 0 have %s", cfg.StatusUpdateJitter)
+	}
 	if cfg.SpecFetchErrorBaseDelay < MinSyncInterval {
 		return fmt.Errorf("minimum spec fetch error base delay is %s have %s", MinSyncInterval, cfg.SpecFetchErrorBaseDelay)
 	}
@@ -582,6 +597,7 @@ func mergeConfigs(base, override *Config) {
 
 	overrideIfNotEmpty(&base.SpecFetchErrorBaseDelay, override.SpecFetchErrorBaseDelay)
 	overrideIfNotEmpty(&base.SpecFetchErrorMaxDelay, override.SpecFetchErrorMaxDelay)
+	overrideIfNotEmpty(&base.StatusUpdateJitter, override.StatusUpdateJitter)
 
 	// system info
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)

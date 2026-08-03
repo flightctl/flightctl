@@ -29,15 +29,17 @@ type Engine struct {
 }
 
 // NewEngine creates a new device engine.
+// statusJitterMax is the maximum random delay before the first status push
+// (uniform in [0, statusJitterMax)). Zero disables jitter.
 func NewEngine(
 	syncSpecFn func(context.Context),
 	pushStatusInterval util.Duration,
 	pushStatusFn func(context.Context),
+	statusJitterMax time.Duration,
 ) *Engine {
-	interval := time.Duration(pushStatusInterval)
 	var startupDelay time.Duration
-	if interval > 0 {
-		startupDelay = time.Duration(rand.Int64N(int64(interval)))
+	if statusJitterMax > 0 {
+		startupDelay = time.Duration(rand.Int64N(int64(statusJitterMax)))
 	}
 	return &Engine{
 		syncSpecFn:         syncSpecFn,
