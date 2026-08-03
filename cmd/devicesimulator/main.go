@@ -539,6 +539,8 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 		ClientKey:         filepath.Join(cfg.ConfigDir, agent_config.EnrollmentKeyFile),
 	}
 	cfg.SpecFetchInterval = agentCfg.agentConfigTemplate.SpecFetchInterval
+	cfg.SpecFetchErrorBaseDelay = agentCfg.agentConfigTemplate.SpecFetchErrorBaseDelay
+	cfg.SpecFetchErrorMaxDelay = agentCfg.agentConfigTemplate.SpecFetchErrorMaxDelay
 	cfg.StatusUpdateInterval = agentCfg.agentConfigTemplate.StatusUpdateInterval
 	cfg.TPM = agentCfg.agentConfigTemplate.TPM
 	cfg.LogPrefix = agentName
