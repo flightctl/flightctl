@@ -1447,6 +1447,9 @@ components:
           $ref: '#/components/schemas/ImageBuildBinding'
         userConfiguration:
           $ref: '#/components/schemas/ImageBuildUserConfiguration'
+        onboarding:
+          type: boolean
+          description: Whether to install the flightctl-onboarding RPM for first-boot device configuration via Cockpit wizard.
       required:
         - source
         - destination

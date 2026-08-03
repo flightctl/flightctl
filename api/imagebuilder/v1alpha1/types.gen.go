@@ -314,6 +314,9 @@ type ImageBuildSpec struct {
 	// Destination ImageBuildDestination specifies the destination for the built image.
 	Destination ImageBuildDestination `json:"destination"`
 
+	// Onboarding Whether to install the flightctl-onboarding RPM for first-boot device configuration via Cockpit wizard.
+	Onboarding *bool `json:"onboarding,omitempty"`
+
 	// Source ImageBuildSource specifies the source image for the build.
 	Source ImageBuildSource `json:"source"`
 
