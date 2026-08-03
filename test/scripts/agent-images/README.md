@@ -14,6 +14,9 @@ The `AGENT_OS_ID` parameter controls which OS flavor to build:
 # Build for default OS (cs9-bootc)
 make e2e-agent-images
 
+# Build package-mode images
+BUILD_TYPE=regular AGENT_OS_ID=cs9-regular make e2e-agent-images
+
 # Build for specific OS
 AGENT_OS_ID=cs10-bootc make e2e-agent-images
 ```
@@ -22,16 +25,25 @@ AGENT_OS_ID=cs10-bootc make e2e-agent-images
 
 The script is a wrapper that delegates to the modular build system:
 1. **Base image**: Built using `scripts/build.sh --base`
-2. **Variants and qcow2**: Built using `scripts/build_and_qcow2.sh`
+2. **Bootc path**: `scripts/build_and_qcow2.sh` builds variants and a bootc qcow2
+3. **Package-mode path**: `BUILD_TYPE=regular AGENT_OS_ID=cs9-regular` builds the package-mode base image and qcow2 only
 
-The build process automatically handles different OS flavors (cs9-bootc, cs10-bootc)
+The build process automatically handles different OS flavors (cs9-bootc, cs9-regular, cs10-bootc)
 and RPM source detection (local, COPR, or Brew registry).
+
+`BUILD_TYPE=regular` is a package-mode-only path in `create_agent_images.sh`. There,
+omitting `AGENT_OS_ID` defaults it to `cs9-regular`, and any other `AGENT_OS_ID`
+with `BUILD_TYPE=regular` fails fast.
+
+For the `make e2e-agent-images` entrypoint, pass `AGENT_OS_ID=cs9-regular`
+explicitly. Make still defaults `AGENT_OS_ID` to `cs9-bootc`.
 
 ## OS Flavors and Tagging
 
 The build system supports multiple OS flavors with dedicated Containerfiles:
 
 - **cs9-bootc** - Based on CentOS Stream 9 bootc (default)
+- **cs9-regular** - Package-mode base for non-bootc E2E coverage
 - **cs10-bootc** - Based on CentOS Stream 10 bootc
 
 Each flavor has its own explicit Containerfile eliminating conditional logic.
@@ -42,12 +54,17 @@ Each flavor has its own explicit Containerfile eliminating conditional logic.
 # Build cs9-bootc images (default, community)
 ./scripts/build.sh --base
 
+# Build cs9-regular package-mode images
+AGENT_OS_ID=cs9-regular ./scripts/build.sh --base
+
 # Build cs10-bootc images (community)
 AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
 
 # Build Red Hat variants
 DISTRO=redhat AGENT_OS_ID=cs9-bootc ./scripts/build.sh --base
 DISTRO=redhat AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
+
+# cs9-regular package-mode does not support DISTRO=redhat/RHEM
 ```
 
 ### Image Tagging
@@ -79,6 +96,8 @@ agent-images/
 ├── containerfiles/        # OS flavor-specific Containerfiles
 │   ├── cs9-bootc/         # CentOS Stream 9 bootc
 │   │   └── Containerfile
+│   ├── cs9-regular/       # Package-mode base image
+│   │   └── Containerfile
 │   ├── cs9-bootc-redhat/  # RHEL 9 bootc
 │   │   └── Containerfile
 │   ├── cs10-bootc/        # CentOS Stream 10 bootc
@@ -105,9 +124,10 @@ The images are built using the `Containerfile` files in the respective directori
 The `scripts/` directory contains modular build automation:
 
 - **`build.sh`** - Main build script with options: `--base`, `--variants`, `--apps`
-- **`build_and_qcow2.sh`** - Orchestrates variants and QCOW2 builds in parallel
+- **`build_and_qcow2.sh`** - Orchestrates variant and QCOW2 builds; for `*-regular` it is QCOW2-only by default unless `SKIP_VARIANTS_BUILD=false` is set explicitly
 - **`bundle.sh`** - Creates tar bundles of built images for distribution
 - **`qcow2.sh`** - Generates bootable QCOW2 disk images using bootc-image-builder
+- **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from the configured cloud image using `virt-customize`
 - **`upload-images.sh`** - Uploads image bundles to container registries
 
 Use `./scripts/build.sh --help` for detailed usage and options.
@@ -135,6 +155,15 @@ Where `<name>` is `base`, `v2`, `v3`, etc.
 
 > **Note:** `qcow2.sh` writes the disk image to `bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2`.
 > When using `create_agent_images.sh`, the image is moved to `bin/output/qcow2/disk.qcow2`.
+
+For `BUILD_TYPE=regular AGENT_OS_ID=cs9-regular`, `create_agent_images.sh` still writes the final QCOW2 to the same `bin/output/qcow2/disk.qcow2` path, but it is produced by `scripts/qcow2_regular.sh` from the configured cloud image instead of `bootc-image-builder`.
+
+That means the package-mode OCI base and package-mode qcow2 are parallel build paths:
+- `containerfiles/cs9-regular/Containerfile` is the source of truth for the OCI base image
+- `scripts/qcow2_regular.sh` is the source of truth for the package-mode qcow2 guest customization
+
+They are intentionally parallel because the qcow2 is built from a cloud image, not converted from the OCI base image.
+Agent config, certificates, and registry remapping are expected to be injected into the qcow2 after build via the existing e2e injection flow.
 
 ### Local Usage and Registry Remapping
 
