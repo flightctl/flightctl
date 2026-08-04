@@ -60,7 +60,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			agentConfigDir := e2e.GetAgentConfigDir()
 			Expect(e2e.AgentConfigDirExists()).To(BeTrue(), "agent config dir must exist")
 
-			packageModeAgent, err = e2e.StartPackageModeAgent(context.Background(), agentConfigDir)
+			startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer startCancel()
+			packageModeAgent, err = e2e.StartPackageModeAgent(startCtx, agentConfigDir)
 			Expect(err).ToNot(HaveOccurred())
 
 			inlineConfig, err := e2e.NewInlineConfigSpec("package-mode-inline", []v1beta1.FileSpec{{
@@ -96,6 +98,12 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 		})
 
 		AfterAll(func() {
+			if CurrentSpecReport().Failed() && packageModeAgent != nil {
+				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				if err == nil {
+					GinkgoWriter.Printf("=== flightctl-agent logs (normal context) ===\n%s\n", logs)
+				}
+			}
 			if strings.TrimSpace(deviceID) != "" {
 				if err := harness.DeleteDeviceIgnoreNotFound(deviceID); err != nil {
 					GinkgoWriter.Printf("DeleteDeviceIgnoreNotFound(%s): %v\n", deviceID, err)
@@ -107,7 +115,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				}
 			}
 			if packageModeAgent != nil {
-				if err := packageModeAgent.Stop(context.Background()); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := packageModeAgent.Stop(ctx); err != nil {
 					GinkgoWriter.Printf("StopPackageModeAgent: %v\n", err)
 				}
 			}
@@ -138,7 +148,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			Expect(harness.WaitForApplicationSummary(deviceID, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)).ToNot(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				output, err := packageModeAgent.RunSSH(context.Background(), []string{"cat", packageModeConfigPath})
+				sshCtx, sshCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer sshCancel()
+				output, err := packageModeAgent.RunSSH(sshCtx, []string{"cat", packageModeConfigPath})
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(output).To(ContainSubstring(packageModeConfigContent))
 			}, packageModeEnrollTimeout, packageModePollInterval).Should(Succeed())
@@ -189,7 +201,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			agentConfigDir := e2e.GetAgentConfigDir()
 			Expect(e2e.AgentConfigDirExists()).To(BeTrue(), "agent config dir must exist")
 
-			packageModeAgent, err = e2e.StartPackageModeAgent(context.Background(), agentConfigDir)
+			startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer startCancel()
+			packageModeAgent, err = e2e.StartPackageModeAgent(startCtx, agentConfigDir)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.CreateOrUpdateTestFleet(fleetName, selector, v1beta1.DeviceSpec{})
@@ -215,6 +229,12 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 		})
 
 		AfterAll(func() {
+			if CurrentSpecReport().Failed() && packageModeAgent != nil {
+				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				if err == nil {
+					GinkgoWriter.Printf("=== flightctl-agent logs (reject context) ===\n%s\n", logs)
+				}
+			}
 			if strings.TrimSpace(deviceID) != "" {
 				if err := harness.DeleteDeviceIgnoreNotFound(deviceID); err != nil {
 					GinkgoWriter.Printf("DeleteDeviceIgnoreNotFound(%s): %v\n", deviceID, err)
@@ -226,7 +246,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				}
 			}
 			if packageModeAgent != nil {
-				if err := packageModeAgent.Stop(context.Background()); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := packageModeAgent.Stop(ctx); err != nil {
 					GinkgoWriter.Printf("StopPackageModeAgent: %v\n", err)
 				}
 			}

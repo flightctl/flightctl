@@ -142,12 +142,13 @@ func (a *PackageModeAgent) setupFlightctlUser(ctx context.Context) error {
 		"chown -R flightctl:flightctl /home/flightctl",
 	}
 	for _, cmd := range commands {
-		exitCode, _, err := a.Container.Exec(ctx, []string{"sh", "-c", cmd})
+		exitCode, reader, err := a.Container.Exec(ctx, []string{"sh", "-c", cmd})
 		if err != nil {
 			return fmt.Errorf("exec %q: %w", cmd, err)
 		}
 		if exitCode != 0 {
-			return fmt.Errorf("exec %q: exit code %d", cmd, exitCode)
+			out, _ := io.ReadAll(reader)
+			return fmt.Errorf("exec %q: exit code %d: %s", cmd, exitCode, string(out))
 		}
 	}
 	return nil
@@ -219,7 +220,7 @@ func (a *PackageModeAgent) Stop(ctx context.Context) error {
 
 // GetAgentLogs returns the flightctl-agent journal logs.
 func (a *PackageModeAgent) GetAgentLogs(ctx context.Context) (string, error) {
-	exitCode, reader, err := a.Container.Exec(ctx, []string{"journalctl", "-u", "flightctl-agent", "--no-pager"})
+	exitCode, reader, err := a.Container.Exec(ctx, []string{"journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "500"})
 	if err != nil {
 		return "", fmt.Errorf("get agent logs: %w", err)
 	}

@@ -27,9 +27,8 @@ func PrepareAgentConfigForContainer(ctx context.Context) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("running prepare_agent_config.sh: %w", err)
+		return fmt.Errorf("running prepare_agent_config.sh: %w\noutput: %s", err, string(output))
 	}
-	_ = output
 
 	logrus.Info("Agent config prepared for container-based tests")
 	return nil

@@ -167,11 +167,18 @@ jobs:
           BUNDLE="bin/agent-artifacts/agent-images-bundle-cs9-regular.tar"
           if [ -f "${BUNDLE}" ]; then
             echo "Loading cs9-regular images for package-mode testcontainers..."
-            podman load -i "${BUNDLE}"
-            echo "✓ cs9-regular images loaded into podman"
-            podman images | grep cs9-regular || true
+            # testcontainers-go uses Docker (not Podman) on GHA runners because
+            # /var/run/docker.sock exists; load into the matching runtime.
+            if [ -S /var/run/docker.sock ]; then
+              docker load -i "${BUNDLE}"
+              docker images | grep cs9-regular || true
+            else
+              podman load -i "${BUNDLE}"
+              podman images | grep cs9-regular || true
+            fi
+            echo "✓ cs9-regular images loaded"
           else
-            echo "No cs9-regular bundle found; package-mode tests may be skipped"
+            echo "::warning::No cs9-regular bundle found; package-mode tests will use whatever image is available"
           fi
 
       # ========== PREP E2E ENV ==========
