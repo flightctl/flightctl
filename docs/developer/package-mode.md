@@ -25,14 +25,16 @@ Image-mode installs use the default weak-dependency behavior and pull in
 
 ## Package-mode e2e
 
-Package-mode e2e uses a `cs9-regular` **OCI** agent image and a dedicated
-Ginkgo suite under [`test/e2e/package_mode`](../../test/e2e/package_mode).
-Tests run the agent in a **testcontainer** (systemd as init, nested Podman for
-apps), not a package-mode QCOW2 VM.
+> This section describes the package-mode e2e model from the package-mode e2e
+> suite (OCI image + testcontainer). Until that suite is merged to `main`,
+> treat the Package-mode E2E section of `test/AGENTS.md` on the suite branch
+> as authoritative. Suite paths and harness symbols below may not exist on
+> `main` yet.
 
-> Until the package-mode e2e suite is merged to `main`, the Package-mode E2E
-> section in [`test/AGENTS.md`](../../test/AGENTS.md) on the suite branch is
-> the authoritative reference for CI and harness details.
+Package-mode e2e uses a `cs9-regular` **OCI** agent image and a dedicated
+Ginkgo suite under `test/e2e/package_mode`. Tests run the agent in a
+**testcontainer** (systemd as init, nested Podman for apps), not a
+package-mode QCOW2 VM.
 
 ### Build the cs9-regular image
 
@@ -40,8 +42,9 @@ apps), not a package-mode QCOW2 VM.
 BUILD_TYPE=regular AGENT_OS_ID=cs9-regular SKIP_QCOW_BUILD=true make e2e-agent-images
 ```
 
-That path builds the package-mode OCI base (and bundle) only. Package-mode
-does not produce a QCOW2 disk image; `*-regular` QCOW builds are unsupported.
+With `SKIP_QCOW_BUILD=true` (the CI default for package-mode), the path builds
+the package-mode OCI base and bundle only. After the suite lands, `*-regular`
+QCOW builds are unsupported; do not rely on a package-mode QCOW2 disk for e2e.
 
 CI builds `cs9-regular` with `build_type: regular`, `upload_bundle: true`, and
 `skip_qcow_build: true`, then loads `agent-images-bundle-cs9-regular.tar` into
@@ -51,13 +54,17 @@ Image reference used by the harness:
 
 `quay.io/flightctl/flightctl-device:base-cs9-regular`
 
-For flavors, tagging, and bundling details, see
+For OS flavors, tagging, and bundling, see
 [test/scripts/agent-images/README.md](../../test/scripts/agent-images/README.md).
+Ignore any package-mode QCOW / `virt-customize` wording there until the suite
+branch documentation is on `main`.
 
 ### Run the package-mode suite
 
+Once the suite is available on your tree:
+
 ```bash
-GO_E2E_DIRS=./test/e2e/package_mode make in-cluster-e2e-test
+make in-cluster-e2e-test GO_E2E_DIRS=test/e2e/package_mode
 ```
 
 Prerequisites:
@@ -65,10 +72,10 @@ Prerequisites:
 * Agent config under `bin/agent/etc/flightctl` (from a normal deploy / e2e setup)
 * The `cs9-regular` OCI image loaded locally (from the build or CI bundle)
 
-`StartPackageModeAgent()` in
-[`test/harness/e2e/package_mode_agent.go`](../../test/harness/e2e/package_mode_agent.go)
-starts a privileged testcontainer with `/sbin/init`, mounts agent config and
-certs, and waits for `flightctl-agent` to become active.
+The harness helper `StartPackageModeAgent` (in
+`test/harness/e2e/package_mode_agent.go` on the suite branch) starts a
+privileged testcontainer with `/sbin/init`, mounts agent config and certs, and
+waits for `flightctl-agent` to become active.
 
 ### What the suite covers
 
@@ -78,6 +85,6 @@ certs, and waits for `flightctl-agent` to become active.
   `OutOfDate` and does not advance the committed config version
 
 Mixed package-mode + image-mode **VM** scenarios remain skipped until
-image-mode VM infrastructure is available for that pairing. See
-[test/AGENTS.md](../../test/AGENTS.md) (Package-mode E2E) for CI wiring and
-harness notes.
+image-mode VM infrastructure is available for that pairing. See the
+Package-mode E2E section of `test/AGENTS.md` on the suite branch for CI
+wiring and harness notes.
