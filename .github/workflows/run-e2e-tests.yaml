@@ -262,50 +262,10 @@ jobs:
 
       - name: Resolve Go E2E dirs
         id: resolve-go-e2e-dirs
-        env:
-          GO_E2E_DIRS: ${{ inputs.go_e2e_dirs }}
-          EXCLUDED_GO_E2E_DIRS: ${{ inputs.excluded_go_e2e_dirs }}
-        run: |
-          set -euo pipefail
-
-          repo_root="$(pwd -P)"
-          mapfile -t included_dirs_abs < <(go list -f '{{.Dir}}' ${GO_E2E_DIRS})
-          included_dirs=()
-          for dir in "${included_dirs_abs[@]}"; do
-            rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
-            included_dirs+=("./${rel_dir#./}")
-          done
-
-          excluded_dirs=()
-          if [[ -n "${EXCLUDED_GO_E2E_DIRS}" ]]; then
-            mapfile -t excluded_dirs_abs < <(go list -f '{{.Dir}}' ${EXCLUDED_GO_E2E_DIRS} 2>/dev/null || true)
-            for dir in "${excluded_dirs_abs[@]}"; do
-              rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
-              excluded_dirs+=("./${rel_dir#./}")
-            done
-          fi
-
-          resolved_dirs=()
-          for dir in "${included_dirs[@]}"; do
-            skip=false
-            for excluded in "${excluded_dirs[@]}"; do
-              if [[ "${dir}" == "${excluded}" ]]; then
-                skip=true
-                break
-              fi
-            done
-            if [[ "${skip}" != "true" ]]; then
-              resolved_dirs+=("${dir}")
-            fi
-          done
-
-          if [[ "${#resolved_dirs[@]}" -eq 0 ]]; then
-            echo "ERROR: No Go E2E dirs remain after exclusions"
-            exit 1
-          fi
-
-          printf 'resolved_go_e2e_dirs=%s\n' "${resolved_dirs[*]}" >> "$GITHUB_OUTPUT"
-          printf 'Resolved dirs: %s\n' "${resolved_dirs[*]}"
+        uses: ./.github/actions/resolve-go-e2e-dirs
+        with:
+          go_e2e_dirs: ${{ inputs.go_e2e_dirs }}
+          excluded_go_e2e_dirs: ${{ inputs.excluded_go_e2e_dirs }}
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
