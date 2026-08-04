@@ -147,7 +147,7 @@ func TestAppConsoleSessionManager_StartSession_DecommissionedDevice(t *testing.T
 	reg.AssertNotCalled(t, "StartSession")
 }
 
-func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
+func TestAppConsoleSessionManager_StartSession_DuplicateAppNameAndConsoleType(t *testing.T) {
 	svc := &mockAppDeviceService{}
 	reg := &mockAppSessionRegistration{}
 	pub := &mockConsoleEventNotifier{}
@@ -156,8 +156,8 @@ func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
 	device := makeTestDevice("device1")
-	// Pre-populate with an existing session for app1
-	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1"}]`
+	// Pre-populate with an existing serial session for app1
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1","consoleType":"serial"}]`
 	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
 
 	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", false)
@@ -166,6 +166,49 @@ func TestAppConsoleSessionManager_StartSession_DuplicateAppName(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, int(status.Code))
 	assert.Contains(t, status.Message, "app1")
 	reg.AssertNotCalled(t, "StartSession")
+}
+
+// A serial session and a vnc session on the same app do not contend for the same resource
+// (different sockets: virt-serial0 vs virt-vnc) and must be allowed to coexist.
+func TestAppConsoleSessionManager_StartSession_DifferentConsoleTypeSameApp_Allowed(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{}
+	mgr := newTestAppManager(svc, reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := makeTestDevice("device1")
+	// Pre-populate with an existing serial session for app1.
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"existing-id","appName":"app1","consoleType":"serial"}]`
+
+	var capturedDevice domain.Device
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
+
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "vnc", false)
+
+	assert.Equal(t, http.StatusOK, int(status.Code), "vnc must not conflict with an existing serial session on the same app")
+	require.NotNil(t, session)
+	reg.AssertCalled(t, "StartSession", mock.AnythingOfType("*console.AppConsoleSession"))
+
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	val := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession]
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(val), &sessions))
+	require.Len(t, sessions, 2, "the pre-existing serial session must be preserved alongside the new vnc session")
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, "existing-id", byType["serial"].SessionID, "unrelated serial session must be untouched")
+	assert.Equal(t, session.UUID, byType["vnc"].SessionID)
 }
 
 func TestAppConsoleSessionManager_CloseSession_RemovesAnnotation(t *testing.T) {
@@ -303,10 +346,30 @@ func TestAddAppSession_DuplicateAppName_ReturnsConflict(t *testing.T) {
 	assert.Contains(t, dupErr.Error(), "app1")
 }
 
+// A different consoleType for the same app is not a conflict, so addAppSession must append
+// alongside the existing entry rather than rejecting it.
+func TestAddAppSession_DifferentConsoleType_AddsAlongsideExisting(t *testing.T) {
+	existing := `[{"sessionID":"serial-id","appName":"app1","consoleType":"serial"}]`
+	updater := addAppSession("vnc-id", "app1", "vnc")
+
+	result, err := updater(existing)
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 2, "the existing serial session must not be rejected by a vnc request")
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, "serial-id", byType["serial"].SessionID, "unrelated serial session must be untouched")
+	assert.Equal(t, "vnc-id", byType["vnc"].SessionID)
+}
+
 func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {
 	existing := `[{"sessionID":"old-id","appName":"app1","consoleType":"serial"}]`
 	var replacedSessionID string
-	updater := replaceAppSession("new-id", "app1", "vnc", &replacedSessionID)
+	updater := replaceAppSession("new-id", "app1", "serial", &replacedSessionID)
 
 	result, err := updater(existing)
 
@@ -316,11 +379,34 @@ func TestReplaceAppSession_ExistingEntry_SetsReplacesSessionID(t *testing.T) {
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "new-id", sessions[0].SessionID)
 	assert.Equal(t, "app1", sessions[0].AppName)
-	assert.Equal(t, "vnc", sessions[0].ConsoleType)
+	assert.Equal(t, "serial", sessions[0].ConsoleType)
 	assert.Equal(t, "old-id", sessions[0].ReplacesSessionID,
 		"the new entry must name the session it replaced")
 	assert.Equal(t, "old-id", replacedSessionID,
 		"the out-param must report the evicted session so callers can audit-log it")
+}
+
+// A different consoleType for the same app is not a conflict, so replaceAppSession must add
+// alongside the existing entry rather than evicting it.
+func TestReplaceAppSession_DifferentConsoleType_AddsAlongsideExisting(t *testing.T) {
+	existing := `[{"sessionID":"serial-id","appName":"app1","consoleType":"serial"}]`
+	var replacedSessionID string
+	updater := replaceAppSession("vnc-id", "app1", "vnc", &replacedSessionID)
+
+	result, err := updater(existing)
+
+	assert.NoError(t, err)
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(result), &sessions))
+	require.Len(t, sessions, 2, "the existing serial session must not be evicted by a vnc request")
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, "serial-id", byType["serial"].SessionID, "unrelated serial session must be untouched")
+	assert.Equal(t, "vnc-id", byType["vnc"].SessionID)
+	assert.Empty(t, byType["vnc"].ReplacesSessionID, "nothing of the same consoleType existed to replace")
+	assert.Empty(t, replacedSessionID)
 }
 
 func TestReplaceAppSession_NoExistingEntry_BehavesLikeAdd(t *testing.T) {
@@ -404,6 +490,50 @@ func TestAppConsoleSessionManager_StartSession_Force_ReplacesExistingSession(t *
 	require.NotNil(t, auditEntry, "a forced takeover must emit an audit log line naming the evicted session")
 	assert.Contains(t, auditEntry.Message, "existing-id")
 	assert.Contains(t, auditEntry.Message, session.UUID)
+}
+
+// Force takeover of a serial session must not disturb a concurrently active vnc session
+// (or vice versa) for the same app: it should only replace the entry with the same consoleType.
+func TestAppConsoleSessionManager_StartSession_Force_OnlyReplacesSameConsoleType(t *testing.T) {
+	svc := &mockAppDeviceService{}
+	reg := &mockAppSessionRegistration{}
+	pub := &mockConsoleEventNotifier{}
+	mgr := newTestAppManager(svc, reg, pub)
+
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := makeTestDevice("device1")
+	(*device.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession] = `[{"sessionID":"serial-id","appName":"app1","consoleType":"serial"},{"sessionID":"vnc-id","appName":"app1","consoleType":"vnc"}]`
+
+	var capturedDevice domain.Device
+	svc.On("GetDevice", mock.Anything, orgId, "device1").Return(device, domain.StatusOK())
+	svc.On("UpdateDevice", mock.Anything, orgId, "device1", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedDevice = args.Get(3).(domain.Device)
+		}).
+		Return(device, nil)
+	pub.On("NotifyConsole", mock.Anything, orgId, "device1").Return(nil)
+	reg.On("StartSession", mock.AnythingOfType("*console.AppConsoleSession")).Return(nil)
+
+	session, status := mgr.StartSession(ctx, orgId, "device1", "app1", "serial", true)
+
+	assert.Equal(t, http.StatusOK, int(status.Code))
+	require.NotNil(t, session)
+
+	require.NotNil(t, capturedDevice.Metadata.Annotations)
+	val := (*capturedDevice.Metadata.Annotations)[domain.DeviceAnnotationRemoteSession]
+	var sessions []domain.DeviceRemoteSession
+	require.NoError(t, json.Unmarshal([]byte(val), &sessions))
+	require.Len(t, sessions, 2, "the vnc entry must remain alongside the replaced serial entry")
+
+	byType := map[string]domain.DeviceRemoteSession{}
+	for _, s := range sessions {
+		byType[s.ConsoleType] = s
+	}
+	assert.Equal(t, session.UUID, byType["serial"].SessionID)
+	assert.Equal(t, "serial-id", byType["serial"].ReplacesSessionID)
+	assert.Equal(t, "vnc-id", byType["vnc"].SessionID, "the unrelated vnc session must be untouched")
+	assert.Empty(t, byType["vnc"].ReplacesSessionID)
 }
 
 func TestAppConsoleSessionManager_StartSession_Force_NoExistingSession_AddsNormally(t *testing.T) {

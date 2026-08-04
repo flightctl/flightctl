@@ -149,7 +149,7 @@ func (o *AppConsoleOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVar(&o.name, "name", o.name, "Application name to open a console for (required)")
 	fs.StringVar(&o.consoleType, "type", o.consoleType, "Console type: serial or vnc (required)")
 	fs.IntVar(&o.exposedPort, "exposed-port", o.exposedPort, "Local TCP port for VNC port-forward (0 = random ephemeral port; only valid with --type vnc)")
-	fs.BoolVar(&o.force, "force", o.force, "Take over an already-active console session for the same --name, disconnecting it")
+	fs.BoolVar(&o.force, "force", o.force, "Take over an already-active console session of the same --type for the same --name, disconnecting it")
 }
 
 func (o *AppConsoleOptions) Complete(cmd *cobra.Command, args []string) error {

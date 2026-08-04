@@ -467,7 +467,7 @@ flightctl app console device/NAME --name APP --type serial|vnc [flags]
 * `--tty` - Allocate a remote pseudo terminal
 * `--notty` - Don't allocate a remote pseudo terminal (mutually exclusive with `--tty`)
 * `--exposed-port <port>` - Local TCP port for the VNC port-forward (`0` = random ephemeral port; only valid with `--type vnc`)
-* `--force` - Take over an already-active console session for the same `--name`, disconnecting it
+* `--force` - Take over an already-active console session of the same `--type` for the same `--name`, disconnecting it
 
 ### Description
 
@@ -477,7 +477,7 @@ A `serial` console bridges stdin/stdout over a WebSocket connection to the devic
 
 A `vnc` console opens a local TCP listener and bridges a single VNC viewer connection through the agent to the application's VNC server. The session ends once that viewer disconnects; run the command again to start a new session.
 
-Only one console session — serial or VNC — is allowed per application at a time. If a console session for the same application is already active, regardless of its type, the command fails with a conflict error unless `--force` is passed, which disconnects the existing session.
+Only one console session of a given type (serial or VNC) is allowed per application at a time; a serial and a VNC session may be open on the same application simultaneously. If a console session of the same type for the same application is already active, the command fails with a conflict error unless `--force` is passed, which disconnects that same-type session.
 
 ### Examples
 
