@@ -16,13 +16,13 @@ RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
 TMP_CLOUD_IMAGE_PATH=""
 RPM_SOURCE_DIR=""
 
-DISABLED_PASST_BIN=""
+PKG_CACHE_DIR=""
 cleanup() {
   if [ -n "${TMP_CLOUD_IMAGE_PATH}" ] && [ -f "${TMP_CLOUD_IMAGE_PATH}" ]; then
     rm -f "${TMP_CLOUD_IMAGE_PATH}"
   fi
-  if [ -n "${DISABLED_PASST_BIN}" ] && [ -f "${DISABLED_PASST_BIN}" ]; then
-    sudo mv "${DISABLED_PASST_BIN}" "${DISABLED_PASST_BIN%.disabled}" 2>/dev/null || true
+  if [ -n "${PKG_CACHE_DIR}" ] && [ -d "${PKG_CACHE_DIR}" ]; then
+    rm -rf "${PKG_CACHE_DIR}"
   fi
 }
 
@@ -105,6 +105,7 @@ fi
 require_command curl
 require_command qemu-img
 require_command virt-customize
+require_command podman
 
 resolve_output_dir "${OUTPUT_DIR}"
 OUTPUT_QCOW_DIR="${OUTPUT_DIR}/qcow2"
@@ -125,14 +126,50 @@ echo "Preparing package-mode qcow2 at ${OUTPUT_QCOW_PATH}"
 qemu-img convert -O qcow2 "${BASE_CLOUD_IMAGE_PATH}" "${OUTPUT_QCOW_PATH}"
 qemu-img resize "${OUTPUT_QCOW_PATH}" +5G
 
+# Download all required packages on the host using a CentOS 9 container so
+# virt-customize can install them offline (--no-network).  This sidesteps the
+# libguestfs/passt networking issue: on QEMU >= 7.2 libguestfs uses passt for
+# appliance networking, which needs user-namespace creation — denied on
+# GitHub-hosted runners.
+echo "Downloading required packages for offline guest installation"
+PKG_CACHE_DIR=$(mktemp -d)
+
+CONTAINER_CMD='
+  set -euo pipefail
+  dnf install -y epel-release epel-next-release
+  dnf download --resolve --destdir=/output \
+    epel-release epel-next-release \
+    cloud-init dnf-plugins-core firewalld openssh-server \
+    podman podman-compose python-dotenv sudo
+'
+
+if [ -n "${RPM_COPR_REPO}" ]; then
+  package_name="${RPM_COPR_PACKAGE:-flightctl-agent}"
+  validate_copr_repo "${RPM_COPR_REPO}"
+  validate_copr_package "${package_name}"
+  CONTAINER_CMD+="
+    dnf copr -y enable ${RPM_COPR_REPO}
+    dnf download --resolve --destdir=/output ${package_name}
+  "
+else
+  validate_rpm_dir "${RPM_DIR}"
+  resolve_rpm_source_dir "${RPM_DIR}"
+fi
+
+podman run --rm -v "${PKG_CACHE_DIR}:/output:Z" quay.io/centos/centos:stream9 \
+  bash -c "${CONTAINER_CMD}"
+
+if [ -z "${RPM_COPR_REPO}" ]; then
+  cp "${RPM_SOURCE_DIR}"/flightctl-agent-*.rpm "${RPM_SOURCE_DIR}"/flightctl-selinux-*.rpm \
+    "${PKG_CACHE_DIR}/"
+fi
+
 VIRT_CUSTOMIZE_ARGS=(
   -a "${OUTPUT_QCOW_PATH}"
-  # QEMU SLIRP networking provides a DNS forwarder at 10.0.2.3.  The cloud
-  # image's /etc/resolv.conf may point to an unreachable nameserver, so
-  # inject the SLIRP DNS before any dnf commands.
-  --run-command "echo 'nameserver 10.0.2.3' > /etc/resolv.conf"
-  --run-command "dnf install -y epel-release epel-next-release"
-  --run-command "dnf install -y cloud-init dnf-plugins-core firewalld openssh-server podman podman-compose python-dotenv sudo"
+  --no-network
+  --copy-in "${PKG_CACHE_DIR}:/tmp/pkg-cache"
+  --run-command "dnf install -y /tmp/pkg-cache/*.rpm"
+  --run-command "rm -rf /tmp/pkg-cache"
   --run-command "systemctl enable firewalld.service"
   --run-command "systemctl enable podman.service"
   --run-command "systemctl enable sshd.service"
@@ -144,43 +181,12 @@ VIRT_CUSTOMIZE_ARGS=(
   --run-command "printf '#!/bin/bash\necho \"\"\n' > /usr/lib/flightctl/custom-info.d/emptyValue"
   --run-command "printf '#!/bin/bash\necho \"no-show\"\n' > /usr/lib/flightctl/custom-info.d/keyNotShown"
   --run-command "chmod 755 /usr/lib/flightctl/custom-info.d/*"
-)
-
-if [ -n "${RPM_COPR_REPO}" ]; then
-  package_name="${RPM_COPR_PACKAGE:-flightctl-agent}"
-  validate_copr_repo "${RPM_COPR_REPO}"
-  validate_copr_package "${package_name}"
-  VIRT_CUSTOMIZE_ARGS+=(
-    --run-command "dnf copr -y enable ${RPM_COPR_REPO}"
-    --run-command "dnf install -y ${package_name}"
-  )
-else
-  validate_rpm_dir "${RPM_DIR}"
-  resolve_rpm_source_dir "${RPM_DIR}"
-  VIRT_CUSTOMIZE_ARGS+=(
-    --copy-in "${RPM_SOURCE_DIR}:/tmp"
-    --run-command "dnf install -y /tmp/${RPM_DIR}/flightctl-agent-*.rpm /tmp/${RPM_DIR}/flightctl-selinux-*.rpm"
-    --run-command "rm -rf /tmp/${RPM_DIR}"
-  )
-fi
-
-VIRT_CUSTOMIZE_ARGS+=(
   --run-command "systemctl enable flightctl-agent.service"
   --run-command "dnf clean all"
   --selinux-relabel
 )
 
 echo "Customizing regular package-mode qcow2"
-# libguestfs on QEMU ≥ 7.2 prefers passt for appliance networking (even with
-# LIBGUESTFS_BACKEND=direct).  passt needs user-namespace creation which is
-# denied on GitHub-hosted runners.  Temporarily hiding the passt binary forces
-# libguestfs to fall back to QEMU's built-in SLIRP networking, which works
-# without extra privileges.  The cleanup trap restores passt on exit.
-PASST_BIN="$(command -v passt 2>/dev/null || true)"
-if [[ -n "${PASST_BIN}" ]]; then
-  sudo mv "${PASST_BIN}" "${PASST_BIN}.disabled"
-  DISABLED_PASST_BIN="${PASST_BIN}.disabled"
-fi
 sudo env LIBGUESTFS_BACKEND=direct virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
 
 sudo chown "${USER}:$(id -gn "${USER}")" "${OUTPUT_QCOW_PATH}"
