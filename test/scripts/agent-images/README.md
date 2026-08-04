@@ -127,7 +127,7 @@ The `scripts/` directory contains modular build automation:
 - **`build_and_qcow2.sh`** - Orchestrates variant and QCOW2 builds; for `*-regular` it is QCOW2-only by default unless `SKIP_VARIANTS_BUILD=false` is set explicitly
 - **`bundle.sh`** - Creates tar bundles of built images for distribution
 - **`qcow2.sh`** - Generates bootable QCOW2 disk images using bootc-image-builder
-- **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from a bootable cloud image via host-side `dnf --installroot`
+- **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from a bootable cloud image via host-side `dnf --installroot` plus `virt-customize` post-config
 - **`upload-images.sh`** - Uploads image bundles to container registries
 
 Use `./scripts/build.sh --help` for detailed usage and options.
@@ -166,11 +166,12 @@ They are intentionally parallel because the qcow2 must start from a **bootable**
 GenericCloud image (kernel/bootloader). The OCI image is a container rootfs and is not
 exported as the disk.
 
-`qcow2_regular.sh` mounts that cloud disk on the host (`guestmount`) and installs the same
-package set via `dnf --installroot` inside a CentOS Stream 9 container. The container
-resolves packages over the runner network stack, not through a libguestfs appliance.
-It does **not** run guest `dnf` inside `virt-customize` — libguestfs guest networking is
-unreliable on GitHub-hosted runners.
+`qcow2_regular.sh` mounts that cloud disk on the host (`guestmount`) and installs packages
+via `dnf --installroot` inside a CentOS Stream 9 container (runner network, not libguestfs
+guest networking). Flightctl RPMs use `tsflags=noscripts` — agent/selinux `%post` is
+unreliable under guestmount FUSE. After unmount, `virt-customize` loads the
+`flightctl_agent` SELinux module (build fails if it is missing), finishes user/linger
+setup, and runs `--selinux-relabel`. Guest `dnf` inside `virt-customize` is avoided.
 
 Agent config, certificates, and registry remapping are expected to be injected into the
 qcow2 after build via the existing e2e injection flow.

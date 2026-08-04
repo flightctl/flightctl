@@ -45,10 +45,11 @@ BUILD_TYPE=regular AGENT_OS_ID=cs9-regular make e2e-agent-images
 ```
 
 **Disk construction:** Uses a bootable CentOS GenericCloud qcow as the base, then
-installs packages on the host via `guestmount` + `dnf --installroot` (CentOS
-container). Guest `dnf` inside `virt-customize` is avoided — libguestfs guest
-networking is unreliable on GitHub-hosted runners. The OCI container image is not
-exported as the disk (no kernel/bootloader).
+installs packages via `guestmount` + `dnf --installroot` (CentOS container; flightctl
+RPMs with `tsflags=noscripts`). `virt-customize` then loads `flightctl_agent`, configures
+users/linger, and relabels — the build fails if the SELinux module is not loaded. Guest
+`dnf` inside `virt-customize` is avoided. The OCI container image is not exported as the
+disk (no kernel/bootloader).
 
 **E2E suite activation** is deferred to EDM-4768 / PR #3323 (`./test/e2e/package_mode`).
 The current bootc e2e rows exclude `./test/e2e/package_mode` via `excluded_go_e2e_dirs`.

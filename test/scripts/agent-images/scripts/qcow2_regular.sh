@@ -101,6 +101,10 @@ resolve_output_dir() {
 # Install packages into a mounted cloud-image root using CentOS Stream 9's dnf
 # (host runners are Ubuntu and have no native dnf). Networking stays on the
 # container/host — never inside a libguestfs appliance.
+#
+# Flightctl RPMs are installed with tsflags=noscripts: agent/selinux %post
+# (semodule, useradd, linger) is unreliable under guestmount FUSE. That work
+# runs later in virt-customize after the disk is unmounted.
 install_into_root() {
   local install_root="$1"
   local container_cmd
@@ -108,22 +112,6 @@ install_into_root() {
   container_cmd=$(cat <<'EOS'
 set -euo pipefail
 root=/installroot
-
-cleanup_mounts() {
-  umount -l "${root}/dev" 2>/dev/null || true
-  umount -l "${root}/sys" 2>/dev/null || true
-  umount -l "${root}/proc" 2>/dev/null || true
-}
-trap cleanup_mounts EXIT
-
-# Minimal stream9 image has no mount/umount; util-linux provides them.
-dnf -y install util-linux
-
-# RPM %post (systemd-tmpfiles, semodule, useradd) needs a live-ish root.
-mkdir -p "${root}/proc" "${root}/sys" "${root}/dev"
-mount -t proc proc "${root}/proc"
-mount -t sysfs sysfs "${root}/sys"
-mount --bind /dev "${root}/dev"
 
 dnf --installroot="${root}" -y install epel-release epel-next-release
 # dnf resolves file:/// GPG key URLs against the running system, not installroot.
@@ -140,12 +128,9 @@ dnf --installroot="${root}" -y install \
   python-dotenv \
   sudo
 
-# Stale semodule sandbox breaks flightctl-selinux %post under installroot.
-rm -rf "${root}/var/lib/selinux/targeted/tmp"
-
 if [ -n "${RPM_COPR_REPO}" ]; then
   dnf --installroot="${root}" copr -y enable "${RPM_COPR_REPO}"
-  dnf --installroot="${root}" -y install "${RPM_COPR_PACKAGE}"
+  dnf --installroot="${root}" --setopt=tsflags=noscripts -y install "${RPM_COPR_PACKAGE}"
 else
   shopt -s nullglob
   rpms=(/rpms/flightctl-agent-*.rpm /rpms/flightctl-selinux-*.rpm)
@@ -154,23 +139,8 @@ else
     echo "No flightctl-agent/flightctl-selinux RPMs found in /rpms" >&2
     exit 1
   fi
-  dnf --installroot="${root}" -y install "${rpms[@]}"
+  dnf --installroot="${root}" --setopt=tsflags=noscripts -y install "${rpms[@]}"
 fi
-
-# Ensure the SELinux module is loaded even if %post hit a transient sandbox error.
-if ! chroot "${root}" semodule -l | grep -q '^flightctl_agent'; then
-  rm -rf "${root}/var/lib/selinux/targeted/tmp"
-  chroot "${root}" semodule -s targeted -i /usr/share/selinux/packages/targeted/flightctl_agent.pp.bz2
-fi
-
-# Finish agent %post work that may have failed without a full systemd environment.
-# User/home/custom-info setup runs later via virt-customize: creating
-# /home/flightctl through the guestmount FUSE bind from the container hits
-# EACCES on GHA even though package installs to the same mount succeed.
-mkdir -p "${root}/var/lib/flightctl"
-chmod 0755 "${root}/var/lib/flightctl"
-mkdir -p "${root}/var/lib/systemd/linger"
-touch "${root}/var/lib/systemd/linger/flightctl"
 
 # centos:stream9 has no systemctl; enable units via the mounted root (has systemd).
 chroot "${root}" systemctl enable firewalld.service
@@ -183,7 +153,7 @@ EOS
 )
 
   local -a podman_args=(
-    run --rm --privileged
+    run --rm
     -e "RPM_COPR_REPO=${RPM_COPR_REPO}"
     -e "RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE:-flightctl-agent}"
     # No :Z — guestmount is FUSE; SELinux relabel of the mount is useless on
@@ -259,19 +229,45 @@ done
 rmdir "${GUEST_MOUNT}" 2>/dev/null || true
 GUEST_MOUNT=""
 
-# Configure users/homedirs and relabel in the libguestfs appliance (not via FUSE).
-echo "Configuring e2e users and SELinux relabel"
+# Finish flightctl %post work and e2e users in the libguestfs appliance (not via FUSE).
+# Load the SELinux module before --selinux-relabel so flightctl_agent_* types exist.
+echo "Configuring SELinux module, e2e users, and SELinux relabel"
 POST_CONFIG_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/cs9-regular-post.XXXXXX.sh")"
 cat >"${POST_CONFIG_SCRIPT}" <<'EOF'
 #!/bin/bash
 set -euo pipefail
+
+flightctl_pp=/usr/share/selinux/packages/targeted/flightctl_agent.pp.bz2
+if [ ! -f "${flightctl_pp}" ]; then
+  echo "Missing flightctl SELinux policy package: ${flightctl_pp}" >&2
+  exit 1
+fi
+if ! semodule -l | grep -q '^flightctl_agent'; then
+  echo "Loading flightctl_agent SELinux module"
+  semodule -s targeted -i "${flightctl_pp}"
+fi
+if ! semodule -l | grep -q '^flightctl_agent'; then
+  echo "flightctl_agent SELinux module is not loaded after semodule -i" >&2
+  exit 1
+fi
+echo "flightctl_agent SELinux module is loaded"
+
+mkdir -p /var/lib/flightctl
+chmod 0755 /var/lib/flightctl
 id -u flightctl >/dev/null 2>&1 || useradd --create-home --user-group flightctl
 flightctl_home="$(getent passwd flightctl | cut -d: -f6)"
+if [ -z "${flightctl_home}" ]; then
+  echo "flightctl user has no home directory in passwd" >&2
+  exit 1
+fi
 mkdir -p \
   "${flightctl_home}/.config/containers/systemd" \
   "${flightctl_home}/.config/systemd/user" \
   "${flightctl_home}/.local"
 chown -R flightctl:flightctl "${flightctl_home}/.config" "${flightctl_home}/.local"
+mkdir -p /var/lib/systemd/linger
+touch /var/lib/systemd/linger/flightctl
+
 id -u user >/dev/null 2>&1 || useradd -ms /bin/bash user
 echo 'user:user' | chpasswd
 if ! grep -q '^user ALL=(ALL) NOPASSWD: ALL' /etc/sudoers; then
