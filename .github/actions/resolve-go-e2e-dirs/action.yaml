@@ -1,0 +1,90 @@
+name: "Resolve Go E2E dirs"
+description: "Expand go_e2e_dirs globs to filesystem paths and subtract excluded dirs"
+
+inputs:
+  go_e2e_dirs:
+    description: "Space-separated Go package patterns (e.g. ./test/e2e/...)"
+    required: true
+  excluded_go_e2e_dirs:
+    description: "Optional space-separated Go package patterns to exclude"
+    required: false
+    default: ""
+
+outputs:
+  resolved_go_e2e_dirs:
+    description: "Space-separated repo-relative filesystem paths for ginkgo"
+    value: ${{ steps.resolve.outputs.resolved_go_e2e_dirs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve dirs
+      id: resolve
+      shell: bash
+      env:
+        GO_E2E_DIRS: ${{ inputs.go_e2e_dirs }}
+        EXCLUDED_GO_E2E_DIRS: ${{ inputs.excluded_go_e2e_dirs }}
+      run: |
+        set -euo pipefail
+
+        repo_root="$(pwd -P)"
+        mapfile -t included_dirs_abs < <(go list -f '{{.Dir}}' ${GO_E2E_DIRS})
+        included_dirs=()
+        for dir in "${included_dirs_abs[@]}"; do
+          rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+          included_dirs+=("./${rel_dir#./}")
+        done
+
+        excluded_dirs=()
+        if [[ -n "${EXCLUDED_GO_E2E_DIRS}" ]]; then
+          # Tolerate only absent exclude paths so infra PRs can land before the
+          # suite directory exists. Propagate other go list failures.
+          exclude_err_file="$(mktemp)"
+          set +e
+          mapfile -t excluded_dirs_abs < <(go list -f '{{.Dir}}' ${EXCLUDED_GO_E2E_DIRS} 2>"${exclude_err_file}")
+          exclude_status=$?
+          set -e
+          if [[ "${exclude_status}" -ne 0 ]]; then
+            exclude_err="$(cat "${exclude_err_file}")"
+            rm -f "${exclude_err_file}"
+            if [[ "${exclude_err}" == *"no Go files"* ]] || \
+               [[ "${exclude_err}" == *"matched no packages"* ]] || \
+               [[ "${exclude_err}" == *"cannot find package"* ]] || \
+               [[ "${exclude_err}" == *"directory not found"* ]]; then
+              echo "Exclusion path not present yet; continuing without exclusions"
+              echo "${exclude_err}"
+            else
+              echo "ERROR: failed to resolve excluded_go_e2e_dirs: ${EXCLUDED_GO_E2E_DIRS}" >&2
+              echo "${exclude_err}" >&2
+              exit "${exclude_status}"
+            fi
+          else
+            rm -f "${exclude_err_file}"
+            for dir in "${excluded_dirs_abs[@]}"; do
+              rel_dir="$(realpath --relative-to="${repo_root}" "${dir}")"
+              excluded_dirs+=("./${rel_dir#./}")
+            done
+          fi
+        fi
+
+        resolved_dirs=()
+        for dir in "${included_dirs[@]}"; do
+          skip=false
+          for excluded in "${excluded_dirs[@]}"; do
+            if [[ "${dir}" == "${excluded}" ]]; then
+              skip=true
+              break
+            fi
+          done
+          if [[ "${skip}" != "true" ]]; then
+            resolved_dirs+=("${dir}")
+          fi
+        done
+
+        if [[ "${#resolved_dirs[@]}" -eq 0 ]]; then
+          echo "ERROR: No Go E2E dirs remain after exclusions"
+          exit 1
+        fi
+
+        printf 'resolved_go_e2e_dirs=%s\n' "${resolved_dirs[*]}" >> "$GITHUB_OUTPUT"
+        printf 'Resolved dirs: %s\n' "${resolved_dirs[*]}"
