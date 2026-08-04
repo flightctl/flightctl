@@ -146,36 +146,47 @@ func (q *Quadlet) add(ctx context.Context, action Action, systemctl systemd.Mana
 	return nil
 }
 
-func (q *Quadlet) remove(ctx context.Context, action Action, systemctl systemd.Manager) error {
+// stopUnits stops the application target and all loaded dependent services, then
+// clears any failed state left by non-zero exits. That is common when stopping
+// VM/virt-launcher units, which exit non-zero when killed by systemctl stop.
+// It does not remove unit files or Podman resources.
+//
+// An empty dependency list is not treated as target absence: list-dependencies
+// does not include the queried unit and a loaded target can have no transitive
+// deps. The target's load state is checked first; ListDependencies runs only
+// for loaded targets so a missing unit does not fail stop.
+//
+// Returns the dependency list (may be empty) so callers can update exclusions.
+func (q *Quadlet) stopUnits(ctx context.Context, action Action, systemctl systemd.Manager, target string) ([]string, error) {
 	appName := action.Name
 
-	target, err := targetName(action.ID)
+	targetUnits, err := q.loadedUnits(ctx, systemctl, []string{target})
 	if err != nil {
-		return fmt.Errorf("target name: %w", err)
+		return nil, fmt.Errorf("listing loading units: %w", err)
+	}
+	if _, loaded := targetUnits[target]; !loaded {
+		q.log.Debugf("Skipping stop for %s: target %s is not loaded", appName, target)
+		return nil, nil
 	}
 
 	services, err := systemctl.ListDependencies(ctx, target)
 	if err != nil {
-		return fmt.Errorf("listing dependencies: %w", err)
-	}
-
-	// If there are no dependencies, the target was never created or has already
-	// been removed. Skip stopping and proceed directly to resource cleanup for
-	// idempotent removal.
-	if len(services) == 0 {
-		q.log.Debugf("Skipping stop for %s: target has no dependencies", appName)
-		return q.cleanResources(ctx, action)
+		return nil, fmt.Errorf("listing dependencies: %w", err)
 	}
 
 	q.log.Debugf("Stopping quadlet: %s target: %s", appName, target)
-	// stopping the target will begin stopping the individual services, but it is not a synchronous operation.
+	// Stopping the target begins stopping the individual services, but it is not synchronous.
 	if err := systemctl.Stop(ctx, target); err != nil {
-		return fmt.Errorf("stopping target %s: %w", target, err)
+		return nil, fmt.Errorf("stopping target %s: %w", target, err)
+	}
+
+	if len(services) == 0 {
+		return services, nil
 	}
 
 	unitSet, err := q.loadedUnits(ctx, systemctl, services)
 	if err != nil {
-		return fmt.Errorf("listing loading units: %w", err)
+		return nil, fmt.Errorf("listing loading units: %w", err)
 	}
 
 	if len(unitSet) > 0 {
@@ -183,17 +194,32 @@ func (q *Quadlet) remove(ctx context.Context, action Action, systemctl systemd.M
 		for service := range unitSet {
 			servicesToStop = append(servicesToStop, service)
 		}
-		// stop and wait for all services to finish
+		// Stop and wait for all services to finish.
 		q.log.Debugf("Stopping quadlet: %s services: %s", appName, strings.Join(servicesToStop, ", "))
 		if err := systemctl.Stop(ctx, servicesToStop...); err != nil {
-			return fmt.Errorf("stopping services: %w", err)
+			return nil, fmt.Errorf("stopping services: %w", err)
 		}
 		q.log.Debugf("Resetting failed state for services: %q", strings.Join(servicesToStop, ", "))
-		// Reset all services so that properties such as restart counts are reset
+		// Clear failed state (and restart counts) so stopped units do not linger in "Failed Units".
 		if err := systemctl.ResetFailed(ctx, servicesToStop...); err != nil {
-			return fmt.Errorf("resetting failed: %w", err)
+			return nil, fmt.Errorf("resetting failed: %w", err)
 		}
 	}
+
+	return services, nil
+}
+
+func (q *Quadlet) remove(ctx context.Context, action Action, systemctl systemd.Manager) error {
+	target, err := targetName(action.ID)
+	if err != nil {
+		return fmt.Errorf("target name: %w", err)
+	}
+
+	services, err := q.stopUnits(ctx, action, systemctl, target)
+	if err != nil {
+		return err
+	}
+
 	systemctl.RemoveExclusions(append(services, target)...)
 
 	return q.cleanResources(ctx, action)
@@ -284,13 +310,17 @@ func (q *Quadlet) resolveTarget(action Action) (systemd.Manager, string, error) 
 	return systemctl, target, nil
 }
 
-// Stop stops the application's systemd target without removing files or Podman resources.
+// Stop stops the application's systemd target and dependent services without
+// removing files or Podman resources. It also clears failed unit state so that
+// expected non-zero exits (for example virt-launcher killed on stop) do not
+// remain listed as Failed Units.
 func (q *Quadlet) Stop(ctx context.Context, action Action) error {
 	systemctl, target, err := q.resolveTarget(action)
 	if err != nil {
 		return err
 	}
-	return systemctl.Stop(ctx, target)
+	_, err = q.stopUnits(ctx, action, systemctl, target)
+	return err
 }
 
 // Start starts a previously stopped application's systemd target.

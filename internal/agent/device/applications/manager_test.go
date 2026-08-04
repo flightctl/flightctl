@@ -162,6 +162,8 @@ func TestManager(t *testing.T) {
 					mockExecPodmanEvents(mockExec, bootTime),
 
 					// remove quadlet app (second AfterUpdate after syncProviders)
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{target}).Return(
+						[]client.SystemDUnitListEntry{{Unit: target, LoadState: "loaded"}}, nil),
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockSystemdMgr.EXPECT().Stop(gomock.Any(), target).Return(nil),
 					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
@@ -197,6 +199,8 @@ func TestManager(t *testing.T) {
 					mockExecPodmanEvents(mockExec, bootTime),
 
 					// update: stop current quadlet app (remove phase)
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{target}).Return(
+						[]client.SystemDUnitListEntry{{Unit: target, LoadState: "loaded"}}, nil),
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockSystemdMgr.EXPECT().Stop(gomock.Any(), target).Return(nil),
 					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
