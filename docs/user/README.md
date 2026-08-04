@@ -47,7 +47,10 @@ Welcome to the Flight Control user documentation.
 
 * **[Installing the Flight Control CLI](installing/installing-cli.md)**
 
-* **[Installing the Flight Control Agent](installing/installing-agent.md)**
+* **[Installing and configuring the Flight Control Agent](installing/installing-agent.md)**
+  * [Installing the agent RPM](installing/installing-agent.md#installing-the-agent-rpm)
+  * [Package-mode installation](installing/installing-agent.md#package-mode-installation)
+  * [Image-mode installation](installing/installing-agent.md#image-mode-installation)
   * [Integrating with Greenboot](installing/configuring-device-greenboot.md)
   * [Installing the Flight Control agent offline on RHEL](installing/installing-agent-offline.md)
 

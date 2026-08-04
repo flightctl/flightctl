@@ -142,6 +142,7 @@ SpiceDB
 stream9
 stream10
 subdomains
+subpackage
 substring
 systemd
 targetRevision

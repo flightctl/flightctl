@@ -1,4 +1,84 @@
-# Configuring the Flight Control Agent
+# Installing and configuring the Flight Control Agent
+
+This document describes how to install `flightctl-agent` from the public RPM
+repository on Fedora or CentOS Stream, and how to configure the agent after
+installation.
+
+For air-gapped RHEL installs, see
+[Installing the Flight Control agent offline on RHEL](installing-agent-offline.md).
+
+## Installing the agent RPM
+
+Agent RPM packages are hosted at [rpm.flightctl.io](https://rpm.flightctl.io/).
+Enable the repository, then install the package that matches the device OS mode.
+
+The syntax for adding a repository depends on your `dnf` version (4 or 5).
+
+Get the `dnf` version:
+
+```bash
+dnf --version
+```
+
+### Add the FlightCtl repository
+
+With dnf 4:
+
+```bash
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+```
+
+With dnf 5:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://rpm.flightctl.io/flightctl-epel.repo
+```
+
+### Package-mode installation
+
+On package-mode hosts (traditional package management, without `bootc` or
+`rpm-ostree` image management), install the agent without weak dependencies so
+`flightctl-greenboot` is not pulled in:
+
+```bash
+sudo dnf install -y --setopt=install_weak_deps=False flightctl-agent
+```
+
+This installs the agent binary, systemd unit, and related core files. It does
+not install greenboot health checks or bootc timer masking. See
+[Integrating with Greenboot](configuring-device-greenboot.md) for the optional
+`flightctl-greenboot` subpackage.
+
+### Image-mode installation
+
+On image-mode hosts (`bootc` or `rpm-ostree`), install the agent with the
+default weak-dependency behavior:
+
+```bash
+sudo dnf install -y flightctl-agent
+```
+
+This pulls in `flightctl-greenboot` through a `Recommends` dependency and
+enables greenboot integration for image-based OS updates.
+
+### Start the agent
+
+After installation, enable and start the agent service:
+
+```bash
+sudo systemctl enable --now flightctl-agent
+```
+
+Verify that the service is running:
+
+```bash
+systemctl status flightctl-agent
+```
+
+Configure enrollment and other agent settings before or after starting the
+service. See the configuration sections below.
+
+## Configuring the agent
 
 When the `flightctl-agent` starts, it reads its configuration from `/etc/flightctl/config.yaml` as well as a number of drop-in directories:
 
