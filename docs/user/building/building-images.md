@@ -47,7 +47,7 @@ When the Flight Control agent starts, it expects to find its configuration in `/
 
 * the Flight Control enrollment service to connect to (enrollment endpoint),
 * the X.509 client certificate and key to connect with (enrollment certificate),
-* optionally, any further agent configuration (see [Installing the Flight Control Agent](../installing/installing-agent.md)).
+* optionally, any further agent configuration (see [Installing and configuring the Flight Control Agent](../installing/installing-agent.md)).
 
 You can provision the enrollment endpoint and certificate to the device in the following ways:
 
