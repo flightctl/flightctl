@@ -44,10 +44,11 @@ The CI matrix includes a `cs9-regular` flavor that builds a package-mode QCOW2 i
 BUILD_TYPE=regular AGENT_OS_ID=cs9-regular make e2e-agent-images
 ```
 
-**GHA constraint:** Guest networking inside `virt-customize` is unavailable on
-GitHub-hosted runners (`libguestfs` `passt` requires user-namespace creation).
-`qcow2_regular.sh` downloads RPMs on the host via `sudo podman` and installs them
-offline with `virt-customize --no-network`.
+**Disk construction:** Uses a bootable CentOS GenericCloud qcow as the base, then
+installs packages on the host via `guestmount` + `dnf --installroot` (CentOS
+container). Guest `dnf` inside `virt-customize` is avoided — libguestfs guest
+networking is unreliable on GitHub-hosted runners. The OCI container image is not
+exported as the disk (no kernel/bootloader).
 
 **E2E suite activation** is deferred to EDM-4768 / PR #3323 (`./test/e2e/package_mode`).
 The current bootc e2e rows exclude `./test/e2e/package_mode` via `excluded_go_e2e_dirs`.

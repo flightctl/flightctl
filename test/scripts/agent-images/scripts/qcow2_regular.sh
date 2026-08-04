@@ -15,18 +15,20 @@ RPM_COPR_REPO="${RPM_COPR_REPO:-}"
 RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
 TMP_CLOUD_IMAGE_PATH=""
 RPM_SOURCE_DIR=""
+GUEST_MOUNT=""
 
-PKG_CACHE_DIR=""
 cleanup() {
+  if [ -n "${GUEST_MOUNT}" ] && mountpoint -q "${GUEST_MOUNT}" 2>/dev/null; then
+    sudo guestunmount "${GUEST_MOUNT}" || sudo umount -l "${GUEST_MOUNT}" || true
+  fi
+  if [ -n "${GUEST_MOUNT}" ] && [ -d "${GUEST_MOUNT}" ]; then
+    rmdir "${GUEST_MOUNT}" 2>/dev/null || true
+  fi
   if [ -n "${TMP_CLOUD_IMAGE_PATH}" ] && [ -f "${TMP_CLOUD_IMAGE_PATH}" ]; then
     rm -f "${TMP_CLOUD_IMAGE_PATH}"
   fi
-  if [ -n "${PKG_CACHE_DIR}" ] && [ -d "${PKG_CACHE_DIR}" ]; then
-    rm -rf "${PKG_CACHE_DIR}"
-  fi
 }
 
-# Fail early with a clear message when a required host-side tool is missing.
 require_command() {
   local command_name="$1"
   if ! command -v "${command_name}" >/dev/null 2>&1; then
@@ -35,7 +37,6 @@ require_command() {
   fi
 }
 
-# Accept only owner/project COPR references before embedding them in guest commands.
 validate_copr_repo() {
   local copr_repo="$1"
   if [[ ! "${copr_repo}" =~ ^@?[A-Za-z0-9._+-]+/[A-Za-z0-9._+-]+$ ]]; then
@@ -44,7 +45,6 @@ validate_copr_repo() {
   fi
 }
 
-# Accept only package-name characters before embedding them in guest commands.
 validate_copr_package() {
   local copr_package="$1"
   if [[ ! "${copr_package}" =~ ^[A-Za-z0-9._:+-]+$ ]]; then
@@ -53,7 +53,6 @@ validate_copr_package() {
   fi
 }
 
-# Keep local RPM lookups confined to a simple directory name beneath bin/.
 validate_rpm_dir() {
   local rpm_dir="$1"
   if [[ ! "${rpm_dir}" =~ ^[A-Za-z0-9._+-]+$ ]] || [[ "${rpm_dir}" == *"/"* ]] || [[ "${rpm_dir}" == *".."* ]]; then
@@ -62,7 +61,6 @@ validate_rpm_dir() {
   fi
 }
 
-# Resolve the caller-provided RPM directory under bin/ and reject path escape.
 resolve_rpm_source_dir() {
   local rpm_dir="$1"
   local bin_root="${ROOT_DIR}/bin"
@@ -82,7 +80,6 @@ resolve_rpm_source_dir() {
   RPM_SOURCE_DIR="${resolved_path}"
 }
 
-# Keep qcow output under bin/output even when callers override OUTPUT_DIR.
 resolve_output_dir() {
   local output_dir="$1"
   local output_root="${ROOT_DIR}/bin/output"
@@ -97,6 +94,75 @@ resolve_output_dir() {
   OUTPUT_DIR="${resolved_path}"
 }
 
+# Install packages into a mounted cloud-image root using CentOS Stream 9's dnf
+# (host runners are Ubuntu and have no native dnf). Networking stays on the
+# container/host — never inside a libguestfs appliance.
+install_into_root() {
+  local install_root="$1"
+  local container_cmd
+
+  container_cmd=$(cat <<'EOS'
+set -euo pipefail
+root=/installroot
+
+dnf --installroot="${root}" -y install epel-release epel-next-release
+dnf --installroot="${root}" -y install \
+  cloud-init \
+  dnf-plugins-core \
+  firewalld \
+  openssh-server \
+  podman \
+  podman-compose \
+  python-dotenv \
+  sudo
+
+if [ -n "${RPM_COPR_REPO}" ]; then
+  dnf --installroot="${root}" copr -y enable "${RPM_COPR_REPO}"
+  dnf --installroot="${root}" -y install "${RPM_COPR_PACKAGE}"
+else
+  dnf --installroot="${root}" -y install /rpms/flightctl-agent-*.rpm /rpms/flightctl-selinux-*.rpm
+fi
+
+systemctl --root="${root}" enable firewalld.service
+systemctl --root="${root}" enable podman.service
+systemctl --root="${root}" enable sshd.service
+systemctl --root="${root}" enable flightctl-agent.service
+
+if ! grep -q '^user:' "${root}/etc/passwd"; then
+  chroot "${root}" useradd -ms /bin/bash user
+fi
+echo 'user:user' | chroot "${root}" chpasswd
+if ! grep -q '^user ALL=(ALL) NOPASSWD: ALL' "${root}/etc/sudoers"; then
+  echo 'user ALL=(ALL) NOPASSWD: ALL' >> "${root}/etc/sudoers"
+fi
+
+mkdir -p "${root}/usr/lib/flightctl/custom-info.d"
+printf '#!/bin/bash\necho "my site"\n' > "${root}/usr/lib/flightctl/custom-info.d/siteName"
+printf '#!/bin/bash\necho ""\n' > "${root}/usr/lib/flightctl/custom-info.d/emptyValue"
+printf '#!/bin/bash\necho "no-show"\n' > "${root}/usr/lib/flightctl/custom-info.d/keyNotShown"
+chmod 755 "${root}/usr/lib/flightctl/custom-info.d" "${root}/usr/lib/flightctl/custom-info.d/"*
+
+dnf --installroot="${root}" clean all
+EOS
+)
+
+  local -a podman_args=(
+    run --rm
+    -e "RPM_COPR_REPO=${RPM_COPR_REPO}"
+    -e "RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE:-flightctl-agent}"
+    -v "${install_root}:/installroot:Z"
+  )
+
+  if [ -z "${RPM_COPR_REPO}" ]; then
+    podman_args+=(-v "${RPM_SOURCE_DIR}:/rpms:ro,Z")
+  fi
+
+  # Rootful podman matches the BIB path and avoids rootless crun issues on GHA.
+  sudo podman "${podman_args[@]}" \
+    quay.io/centos/centos:stream9 \
+    bash -c "${container_cmd}"
+}
+
 if [ "${OS_ID}" != "cs9-regular" ]; then
   echo "qcow2_regular.sh currently supports only cs9-regular, got ${OS_ID}" >&2
   exit 1
@@ -104,8 +170,11 @@ fi
 
 require_command curl
 require_command qemu-img
-require_command virt-customize
+require_command guestmount
+require_command guestunmount
 require_command podman
+require_command virt-customize
+require_command mountpoint
 
 resolve_output_dir "${OUTPUT_DIR}"
 OUTPUT_QCOW_DIR="${OUTPUT_DIR}/qcow2"
@@ -113,6 +182,14 @@ OUTPUT_QCOW_PATH="${OUTPUT_QCOW_DIR}/disk.qcow2"
 
 mkdir -p "${CLOUD_IMAGE_CACHE_DIR}" "${OUTPUT_QCOW_DIR}"
 trap cleanup EXIT
+
+if [ -n "${RPM_COPR_REPO}" ]; then
+  validate_copr_repo "${RPM_COPR_REPO}"
+  validate_copr_package "${RPM_COPR_PACKAGE:-flightctl-agent}"
+else
+  validate_rpm_dir "${RPM_DIR}"
+  resolve_rpm_source_dir "${RPM_DIR}"
+fi
 
 if [ ! -f "${BASE_CLOUD_IMAGE_PATH}" ]; then
   echo "Downloading CentOS Stream 9 cloud image from ${BASE_CLOUD_IMAGE_URL}"
@@ -126,75 +203,23 @@ echo "Preparing package-mode qcow2 at ${OUTPUT_QCOW_PATH}"
 qemu-img convert -O qcow2 "${BASE_CLOUD_IMAGE_PATH}" "${OUTPUT_QCOW_PATH}"
 qemu-img resize "${OUTPUT_QCOW_PATH}" +5G
 
-# Guest networking is unavailable on GitHub-hosted runners (libguestfs passt
-# requires user-namespace creation).  Download all required packages on the
-# host via a CentOS 9 container, then install them offline inside the guest.
-echo "Downloading required packages for offline guest installation"
-PKG_CACHE_DIR=$(mktemp -d)
+# Mount the bootable cloud disk on the host. guestmount uses a libguestfs
+# appliance for filesystem access only (no guest networking / guest dnf).
+GUEST_MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/cs9-regular-guest.XXXXXX")"
+echo "Mounting qcow2 at ${GUEST_MOUNT}"
+sudo env LIBGUESTFS_BACKEND=direct guestmount -a "${OUTPUT_QCOW_PATH}" -i --rw "${GUEST_MOUNT}"
 
-CONTAINER_CMD='
-  set -euo pipefail
-  dnf install -y epel-release epel-next-release dnf-plugins-core
-  dnf download --resolve --destdir=/output \
-    epel-release epel-next-release \
-    cloud-init dnf-plugins-core firewalld openssh-server \
-    podman podman-compose python-dotenv sudo
-'
+echo "Installing packages into qcow2 via host-side dnf --installroot"
+install_into_root "${GUEST_MOUNT}"
 
-if [ -n "${RPM_COPR_REPO}" ]; then
-  package_name="${RPM_COPR_PACKAGE:-flightctl-agent}"
-  validate_copr_repo "${RPM_COPR_REPO}"
-  validate_copr_package "${package_name}"
-  CONTAINER_CMD+="
-    dnf copr -y enable ${RPM_COPR_REPO}
-    dnf download --resolve --destdir=/output ${package_name}
-  "
-else
-  validate_rpm_dir "${RPM_DIR}"
-  resolve_rpm_source_dir "${RPM_DIR}"
-fi
+echo "Unmounting qcow2"
+sudo guestunmount "${GUEST_MOUNT}"
+rmdir "${GUEST_MOUNT}" 2>/dev/null || true
+GUEST_MOUNT=""
 
-sudo podman run --rm \
-  -v "${PKG_CACHE_DIR}:/output:Z" \
-  quay.io/centos/centos:stream9 \
-  bash -c "${CONTAINER_CMD}"
-sudo chown -R "${USER}:$(id -gn "${USER}")" "${PKG_CACHE_DIR}"
-
-if [ -z "${RPM_COPR_REPO}" ]; then
-  cp "${RPM_SOURCE_DIR}"/flightctl-agent-*.rpm "${RPM_SOURCE_DIR}"/flightctl-selinux-*.rpm \
-    "${PKG_CACHE_DIR}/"
-fi
-
-if ! ls "${PKG_CACHE_DIR}"/*.rpm >/dev/null 2>&1; then
-  echo "No RPMs found in package cache after download" >&2
-  exit 1
-fi
-
-VIRT_CUSTOMIZE_ARGS=(
-  -a "${OUTPUT_QCOW_PATH}"
-  --no-network
-  --mkdir /tmp/pkg-cache
-  --copy-in "${PKG_CACHE_DIR}:/tmp/pkg-cache"
-  --run-command "dnf install -y /tmp/pkg-cache/*.rpm"
-  --run-command "rm -rf /tmp/pkg-cache"
-  --run-command "systemctl enable firewalld.service"
-  --run-command "systemctl enable podman.service"
-  --run-command "systemctl enable sshd.service"
-  --run-command "id -u user >/dev/null 2>&1 || useradd -ms /bin/bash user"
-  --run-command "echo 'user:user' | chpasswd"
-  --run-command "echo 'user ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers"
-  --run-command "mkdir -p /usr/lib/flightctl/custom-info.d"
-  --run-command "printf '#!/bin/bash\necho \"my site\"\n' > /usr/lib/flightctl/custom-info.d/siteName"
-  --run-command "printf '#!/bin/bash\necho \"\"\n' > /usr/lib/flightctl/custom-info.d/emptyValue"
-  --run-command "printf '#!/bin/bash\necho \"no-show\"\n' > /usr/lib/flightctl/custom-info.d/keyNotShown"
-  --run-command "chmod 755 /usr/lib/flightctl/custom-info.d/*"
-  --run-command "systemctl enable flightctl-agent.service"
-  --run-command "dnf clean all"
-  --selinux-relabel
-)
-
-echo "Customizing regular package-mode qcow2"
-sudo env LIBGUESTFS_BACKEND=direct virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
+# Relabel without enabling appliance networking.
+echo "SELinux relabel"
+sudo env LIBGUESTFS_BACKEND=direct virt-customize -a "${OUTPUT_QCOW_PATH}" --no-network --selinux-relabel
 
 sudo chown "${USER}:$(id -gn "${USER}")" "${OUTPUT_QCOW_PATH}"
 

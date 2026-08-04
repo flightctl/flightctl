@@ -127,7 +127,7 @@ The `scripts/` directory contains modular build automation:
 - **`build_and_qcow2.sh`** - Orchestrates variant and QCOW2 builds; for `*-regular` it is QCOW2-only by default unless `SKIP_VARIANTS_BUILD=false` is set explicitly
 - **`bundle.sh`** - Creates tar bundles of built images for distribution
 - **`qcow2.sh`** - Generates bootable QCOW2 disk images using bootc-image-builder
-- **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from the configured cloud image using `virt-customize`
+- **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from a bootable cloud image via host-side `dnf --installroot`
 - **`upload-images.sh`** - Uploads image bundles to container registries
 
 Use `./scripts/build.sh --help` for detailed usage and options.
@@ -160,15 +160,19 @@ For `BUILD_TYPE=regular AGENT_OS_ID=cs9-regular`, `create_agent_images.sh` still
 
 That means the package-mode OCI base and package-mode qcow2 are parallel build paths:
 - `containerfiles/cs9-regular/Containerfile` is the source of truth for the OCI base image
-- `scripts/qcow2_regular.sh` is the source of truth for the package-mode qcow2 guest customization
+- `scripts/qcow2_regular.sh` is the source of truth for the package-mode qcow2 disk customization
 
-They are intentionally parallel because the qcow2 is built from a cloud image, not converted from the OCI base image.
-Agent config, certificates, and registry remapping are expected to be injected into the qcow2 after build via the existing e2e injection flow.
+They are intentionally parallel because the qcow2 must start from a **bootable** CentOS
+GenericCloud image (kernel/bootloader). The OCI image is a container rootfs and is not
+exported as the disk.
 
-> **CI constraint:** On GitHub-hosted runners, `libguestfs` guest networking is unavailable
-> (`passt` requires user-namespace creation). `qcow2_regular.sh` works around this by
-> downloading all RPMs on the host via `podman` and installing them offline inside the guest
-> with `virt-customize --no-network`.
+`qcow2_regular.sh` mounts that cloud disk on the host (`guestmount`) and installs the same
+package set via `dnf --installroot` inside a CentOS Stream 9 container (host networking).
+It does **not** run guest `dnf` inside a `virt-customize` appliance — libguestfs guest
+networking is unreliable on GitHub-hosted runners.
+
+Agent config, certificates, and registry remapping are expected to be injected into the
+qcow2 after build via the existing e2e injection flow.
 
 ### Local Usage and Registry Remapping
 
