@@ -33,34 +33,43 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 - **test/scripts/** – Environment setup, kind, certs (`create_e2e_certs.sh`), agent images, git-server, VM creation, redeploy. E2E certs/SSH under `bin/e2e-certs/`, `bin/.ssh/`.
 - **test/integration/** – Integration test packages (store, service, tasks, imagebuilder_worker, etc.); no kind; DB/KV/Alertmanager endpoints are resolved from **`podman port`** when integration containers exist (`test/util/testdb/integration_ports.go`, `test/util/integration_net.go` for Redis helpers).
 
-## Package-mode CI
+## Package-mode E2E
 
-The CI matrix includes a `cs9-regular` flavor that builds a package-mode QCOW2 image
-(RPM-based, non-bootc). This flavor is built by `build-agent-images-unified` with
-`build_type: regular` and `upload_bundle: false` (QCOW2 only, no OCI bundle).
+Package-mode E2E tests (`./test/e2e/package_mode`) verify device behavior when the agent
+runs on a traditional RPM-based OS (no bootc or rpm-ostree). The tests use a **testcontainer**
+running the `cs9-regular` OCI image with systemd as init, allowing nested Podman for
+application deployment.
+
+**CI integration:**
+
+- The `cs9-regular` flavor builds an OCI image (no QCOW2) via `build-agent-images-unified`
+  with `build_type: regular`, `upload_bundle: true`, and `skip_qcow_build: true`.
+- E2E jobs download and load the cs9-regular bundle into local Podman storage before
+  running tests.
+- Package-mode tests run alongside other e2e tests (no dedicated matrix row); the suite
+  starts a testcontainer instead of a VM.
 
 **Local build:**
 
 ```bash
-BUILD_TYPE=regular AGENT_OS_ID=cs9-regular make e2e-agent-images
+BUILD_TYPE=regular AGENT_OS_ID=cs9-regular SKIP_QCOW_BUILD=true make e2e-agent-images
 ```
 
-**Disk construction:** Uses a bootable CentOS GenericCloud qcow as the base, then
-installs packages via `guestmount` + `dnf --installroot` (CentOS container; flightctl
-RPMs with `tsflags=noscripts`). `virt-customize` then loads `flightctl_agent`, configures
-users/linger, and relabels — the build fails if the SELinux module is not loaded. Guest
-`dnf` inside `virt-customize` is avoided. The OCI container image is not exported as the
-disk (no kernel/bootloader).
+**Test architecture:**
 
-**E2E suite activation** is deferred to EDM-4768 / PR #3323 (`./test/e2e/package_mode`).
-The current bootc e2e rows exclude `./test/e2e/package_mode` via `excluded_go_e2e_dirs`.
+- `test/harness/e2e/package_mode_agent.go` provides `StartPackageModeAgent()` which:
+  - Starts a privileged testcontainer with `/sbin/init` (systemd)
+  - Mounts agent config and certs from the local harness
+  - Creates the `flightctl` user with linger for rootless Podman
+  - Waits for the `flightctl-agent` systemd service to be active
+- The container uses the `quay.io/flightctl/flightctl-device:base-cs9-regular` image
+- Tests verify osMode=package capability, config deployment, and podman application lifecycle
 
-**Reserved env vars for mixed-fleet runs** (staging inputs already in `run-e2e-tests.yaml`):
+**Mixed-fleet tests:**
 
-| Variable | Purpose |
-|----------|---------|
-| `E2E_PACKAGE_MODE_QCOW` | Path to the package-mode QCOW2 disk image |
-| `E2E_IMAGE_MODE_QCOW` | Path to the image-mode (bootc) QCOW2 for mixed-fleet tests |
+Mixed-fleet scenarios (package-mode + image-mode devices in the same fleet) are skipped
+pending VM infrastructure for image-mode devices. The testcontainer approach covers the
+primary package-mode scenarios without the overhead of VM-based tests.
 
 ## Conventions
 

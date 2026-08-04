@@ -247,8 +247,8 @@ build_variants_and_qcow2() {
         PUSH_ARG="--push"
     fi
 
-    local skip_qcow="false"
-    if qcow_is_up_to_date "${OS_ID}"; then
+    local skip_qcow="${SKIP_QCOW_BUILD:-false}"
+    if [ "${skip_qcow}" != "true" ] && qcow_is_up_to_date "${OS_ID}"; then
         echo -e "\033[32mqcow2 artifact for ${OS_ID} is up to date, skipping rebuild\033[m"
         skip_qcow="true"
     fi
@@ -283,7 +283,7 @@ build_variants_and_qcow2() {
 # resulting qcow into the shared output location and record its OS flavor.
 build_regular_qcow2() {
     echo "Building package-mode base and qcow2 for OS_ID=${OS_ID}"
-    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD=false "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
+    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD="${SKIP_QCOW_BUILD:-false}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
 
     sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
 

@@ -114,7 +114,8 @@ jobs:
           - os_id: cs9-regular
             rpm_suffix: centos-stream+epel-next-9-x86_64
             build_type: regular
-            upload_bundle: false
+            upload_bundle: true
+            skip_qcow_build: true
           - os_id: cs10-bootc
             rpm_suffix: epel-10-x86_64
             build_type: bootc
@@ -125,6 +126,7 @@ jobs:
       os_id: ${{ matrix.os_id }}
       build_type: ${{ matrix.build_type }}
       upload_bundle: ${{ matrix.upload_bundle }}
+      skip_qcow_build: ${{ matrix.skip_qcow_build || false }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   discover-e2e-tests:
@@ -138,16 +140,12 @@ jobs:
         include:
           - label_filter: 'sanity'
             go_e2e_dirs: './test/e2e/...'
-            excluded_go_e2e_dirs: './test/e2e/package_mode'
+            excluded_go_e2e_dirs: ''
             ginkgo_total_nodes: 10
           - label_filter: 'sanity && agent && !microshift'
             go_e2e_dirs: './test/e2e/...'
-            excluded_go_e2e_dirs: './test/e2e/package_mode'
-            ginkgo_total_nodes: 5
-          - label_filter: 'sanity'
-            go_e2e_dirs: './test/e2e/package_mode'
             excluded_go_e2e_dirs: ''
-            ginkgo_total_nodes: 1
+            ginkgo_total_nodes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -245,16 +243,13 @@ jobs:
       matrix:
         include:
           ## CS9: all sanity tests (LPT balances agent + non-agent + slow together)
+          ## Package-mode tests run as testcontainers alongside regular e2e tests
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity'
             go_e2e_dirs: './test/e2e/...'
-            excluded_go_e2e_dirs: './test/e2e/package_mode'
+            excluded_go_e2e_dirs: ''
             ginkgo_total_nodes: 10
-            package_mode_qcow_os_id: ''
-            image_mode_qcow_os_id: ''
-            package_mode_qcow_env_var: ''
-            image_mode_qcow_env_var: ''
           ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
           ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
           ## full microshift coverage via the v12 OKD SCOS variant.
@@ -262,22 +257,8 @@ jobs:
             backend_type: helm
             label_filter: 'sanity && agent && !microshift'
             go_e2e_dirs: './test/e2e/...'
-            excluded_go_e2e_dirs: './test/e2e/package_mode'
-            ginkgo_total_nodes: 5
-            package_mode_qcow_os_id: ''
-            image_mode_qcow_os_id: ''
-            package_mode_qcow_env_var: ''
-            image_mode_qcow_env_var: ''
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity'
-            go_e2e_dirs: './test/e2e/package_mode'
             excluded_go_e2e_dirs: ''
-            ginkgo_total_nodes: 1
-            package_mode_qcow_os_id: cs9-regular
-            image_mode_qcow_os_id: cs9-bootc
-            package_mode_qcow_env_var: 'E2E_PACKAGE_MODE_QCOW'
-            image_mode_qcow_env_var: 'E2E_IMAGE_MODE_QCOW'
+            ginkgo_total_nodes: 5
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
@@ -286,10 +267,6 @@ jobs:
       ginkgo_label_filter: ${{ matrix.label_filter }}
       go_e2e_dirs: ${{ matrix.go_e2e_dirs }}
       excluded_go_e2e_dirs: ${{ matrix.excluded_go_e2e_dirs }}
-      package_mode_qcow_os_id: ${{ matrix.package_mode_qcow_os_id }}
-      image_mode_qcow_os_id: ${{ matrix.image_mode_qcow_os_id }}
-      package_mode_qcow_env_var: ${{ matrix.package_mode_qcow_env_var }}
-      image_mode_qcow_env_var: ${{ matrix.image_mode_qcow_env_var }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   api-tests:

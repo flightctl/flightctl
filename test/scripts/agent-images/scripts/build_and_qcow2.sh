@@ -91,43 +91,46 @@ VARIANTS_PID=""
 if [ "${SKIP_VARIANTS_BUILD}" != "true" ]; then
   (
     set -euo pipefail
-    echo "Building variants and creating bundle for ${OS_ID}"
+    echo "Building variants for ${OS_ID}"
     sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
-
-    printf '%s\n' "----------" "Bundle variants" "----------"
-
-    sudo -E "${SCRIPT_DIR}/bundle.sh" \
-      --filter "label=io.flightctl.e2e.component" \
-      --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
-      --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
     sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
-
-    # Push images if requested
-    if [ "${DO_PUSH}" = "true" ]; then
-      BUNDLE_TAR="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
-      if [ -f "${BUNDLE_TAR}" ]; then
-        echo "Pushing images from bundle..."
-        "${SCRIPT_DIR}/upload-images.sh" "${BUNDLE_TAR}" 2>&1 | tee -a "${variants_log}"
-      else
-        echo "Warning: Bundle not found at ${BUNDLE_TAR}, skipping push"
-      fi
-    fi
   ) &
   VARIANTS_PID=$!
 else
-  echo "Skipping variants and bundle for ${OS_ID}"
+  echo "Skipping variants build for ${OS_ID}"
 fi
+
+# Bundle creation: always create a bundle from matching images (base + any variants).
+# This runs after variants complete (if applicable) in the wait block below.
+create_bundle() {
+  printf '%s\n' "----------" "Creating bundle" "----------"
+  sudo -E "${SCRIPT_DIR}/bundle.sh" \
+    --filter "label=io.flightctl.e2e.component" \
+    --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
+    --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+
+  if [ "${DO_PUSH}" = "true" ]; then
+    BUNDLE_TAR="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
+    if [ -f "${BUNDLE_TAR}" ]; then
+      echo "Pushing images from bundle..."
+      "${SCRIPT_DIR}/upload-images.sh" "${BUNDLE_TAR}" 2>&1 | tee -a "${variants_log}"
+    else
+      echo "Warning: Bundle not found at ${BUNDLE_TAR}, skipping push"
+    fi
+  fi
+}
 
 QCOW2_PID=""
 if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
+  if [[ "${OS_ID}" == *-regular ]]; then
+    echo "::error::QCOW2 build is not supported for ${OS_ID} (qcow2_regular.sh removed; set SKIP_QCOW_BUILD=true)"
+    exit 1
+  fi
   (
     set -euo pipefail
     echo "Building qcow2 for ${OS_ID}"
-    if [[ "${OS_ID}" == *-regular ]]; then
-      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2_regular.sh" 2>&1 | tee "${qcow2_log}"
-    else
-      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
-    fi
+    OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
     sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
     echo "endgroup"
   ) &
@@ -141,14 +144,18 @@ qcow2_exit=0
 if [ -n "${VARIANTS_PID}" ]; then
   wait "${VARIANTS_PID}" || variants_exit=$?
 fi
-if [ -n "${QCOW2_PID}" ]; then
-  wait "${QCOW2_PID}" || qcow2_exit=$?
-fi
 
 if [ "${variants_exit}" -ne 0 ]; then
-  echo "::error::Variants+bundle build failed with exit code ${variants_exit}"
+  echo "::error::Variants build failed with exit code ${variants_exit}"
   echo "The logs for the variants build are saved to ${variants_log}"
   exit "${variants_exit}"
+fi
+
+# Create the bundle after variants (if any) have completed successfully
+create_bundle
+
+if [ -n "${QCOW2_PID}" ]; then
+  wait "${QCOW2_PID}" || qcow2_exit=$?
 fi
 if [ -n "${QCOW2_PID}" ] && [ "${qcow2_exit}" -ne 0 ]; then
   echo "::error::QCOW2 build failed with exit code ${qcow2_exit}"
@@ -156,4 +163,4 @@ if [ -n "${QCOW2_PID}" ] && [ "${qcow2_exit}" -ne 0 ]; then
   exit "${qcow2_exit}"
 fi
 
-echo "Build and qcow2 for ${OS_ID} completed successfully."
+echo "Build for ${OS_ID} completed successfully."

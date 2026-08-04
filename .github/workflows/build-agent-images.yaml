@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: true
+      skip_qcow_build:
+        description: "Skip QCOW2 build (OCI images only)"
+        required: false
+        type: boolean
+        default: false
       tag:
         description: "Image tag"
         required: true
@@ -67,6 +72,7 @@ jobs:
           AGENT_IMAGE_OUTPUT: bundle
           AGENT_OS_ID: ${{ inputs.os_id }}
           BUILD_TYPE: ${{ inputs.build_type }}
+          SKIP_QCOW_BUILD: ${{ inputs.skip_qcow_build }}
         run: |
           mkdir -p bin/rpm
           # Validate that both agent and selinux RPMs are present from the download step
@@ -110,6 +116,7 @@ jobs:
           retention-days: 1
 
       - name: Upload qcow2 image (per flavor)
+        if: ${{ !inputs.skip_qcow_build }}
         uses: actions/upload-artifact@v4
         with:
           name: agent-qcow2-image-${{ inputs.os_id }}-${{ inputs.tag }}

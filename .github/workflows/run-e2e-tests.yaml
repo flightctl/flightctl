@@ -32,26 +32,6 @@ on:
         required: false
         type: string
         default: ""
-      package_mode_qcow_os_id:
-        description: "Optional OS flavor whose qcow should be staged as the primary package-mode qcow"
-        required: false
-        type: string
-        default: ""
-      image_mode_qcow_os_id:
-        description: "Optional OS flavor whose qcow should be injected for mixed-fleet package-mode tests"
-        required: false
-        type: string
-        default: ""
-      package_mode_qcow_env_var:
-        description: "Optional env var name that should point to the primary staged qcow"
-        required: false
-        type: string
-        default: ""
-      image_mode_qcow_env_var:
-        description: "Optional env var name that should point to the secondary staged qcow"
-        required: false
-        type: string
-        default: ""
       tag:
         description: "Image tag"
         required: true
@@ -133,25 +113,16 @@ jobs:
           path: test-artifacts
           merge-multiple: true
 
-      - name: Download image-mode qcow artifact
-        if: ${{ inputs.image_mode_qcow_os_id != '' }}
+      - name: Download cs9-regular bundle for package-mode testcontainers
+        if: ${{ inputs.os_id == 'cs9-bootc' }}
         uses: actions/download-artifact@v4
         with:
-          name: agent-qcow2-image-${{ inputs.image_mode_qcow_os_id }}-${{ inputs.tag }}
-          path: test-artifacts-image-mode
-
-      - name: Download package-mode qcow artifact
-        if: ${{ inputs.package_mode_qcow_os_id != '' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: agent-qcow2-image-${{ inputs.package_mode_qcow_os_id }}-${{ inputs.tag }}
-          path: test-artifacts-package-mode
+          name: agent-images-bundle-cs9-regular-${{ inputs.tag }}
+          path: test-artifacts-cs9-regular
 
       - name: Stage test artifacts
         env:
           OS_ID: ${{ inputs.os_id }}
-          PACKAGE_MODE_QCOW_OS_ID: ${{ inputs.package_mode_qcow_os_id }}
-          IMAGE_MODE_QCOW_OS_ID: ${{ inputs.image_mode_qcow_os_id }}
         run: |
           set -euo pipefail
           echo "Downloaded test artifacts:"
@@ -166,41 +137,42 @@ jobs:
           mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
           echo "Agent bundle: bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
 
-          # Stage the primary qcow2 used by prepare-e2e-qcow-config.
-          mkdir -p bin/output/qcow2
-          if [ -n "${PACKAGE_MODE_QCOW_OS_ID}" ]; then
-            if [ ! -f "test-artifacts-package-mode/disk.qcow2" ]; then
-              echo "ERROR: Package-mode QCOW2 image not found"
-              exit 1
-            fi
-            mv "test-artifacts-package-mode/disk.qcow2" bin/output/qcow2/disk.qcow2
-          else
-            if [ ! -f "test-artifacts/disk.qcow2" ]; then
-              echo "ERROR: QCOW2 image not found"
-              exit 1
-            fi
-            mv "test-artifacts/disk.qcow2" bin/output/qcow2/disk.qcow2
+          # Stage cs9-regular bundle for package-mode testcontainers if available
+          if [ -d "test-artifacts-cs9-regular" ] && [ -f "test-artifacts-cs9-regular/agent-images-bundle-cs9-regular.tar" ]; then
+            mv "test-artifacts-cs9-regular/agent-images-bundle-cs9-regular.tar" bin/agent-artifacts/
+            echo "✓ Package-mode image bundle: bin/agent-artifacts/agent-images-bundle-cs9-regular.tar"
+            rm -rf test-artifacts-cs9-regular
           fi
-          echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
-          if [ -n "${IMAGE_MODE_QCOW_OS_ID}" ]; then
-            if [ ! -f "test-artifacts-image-mode/disk.qcow2" ]; then
-              echo "ERROR: Image-mode QCOW2 image not found"
-              exit 1
-            fi
-            mkdir -p bin/output/qcow2-image-mode
-            mv "test-artifacts-image-mode/disk.qcow2" bin/output/qcow2-image-mode/
-            echo "✓ Image-mode QCOW2 image: bin/output/qcow2-image-mode/disk.qcow2"
+          # Stage the primary qcow2 used by prepare-e2e-qcow-config
+          mkdir -p bin/output/qcow2
+          if [ ! -f "test-artifacts/disk.qcow2" ]; then
+            echo "ERROR: QCOW2 image not found"
+            exit 1
           fi
+          mv "test-artifacts/disk.qcow2" bin/output/qcow2/disk.qcow2
+          echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
           # Cleanup
           rm -rf test-artifacts
-          rm -rf test-artifacts-package-mode
-          rm -rf test-artifacts-image-mode
 
           echo "Staged artifacts:"
           tree bin
           df -h
+
+      - name: Load cs9-regular images for package-mode testcontainers
+        if: ${{ inputs.os_id == 'cs9-bootc' }}
+        run: |
+          set -euo pipefail
+          BUNDLE="bin/agent-artifacts/agent-images-bundle-cs9-regular.tar"
+          if [ -f "${BUNDLE}" ]; then
+            echo "Loading cs9-regular images for package-mode testcontainers..."
+            podman load -i "${BUNDLE}"
+            echo "✓ cs9-regular images loaded into podman"
+            podman images | grep cs9-regular || true
+          else
+            echo "No cs9-regular bundle found; package-mode tests may be skipped"
+          fi
 
       # ========== PREP E2E ENV ==========
       - name: Wait for API readiness
@@ -219,21 +191,6 @@ jobs:
           #   - prepare-e2e-qcow-config -> bin/.e2e-agent-injected -> bin/.e2e-agent-certs
           # All dependencies are resolved automatically by Make
           make prepare-e2e-test
-
-      - name: Inject image-mode qcow for package-mode mixed-fleet tests
-        if: ${{ inputs.image_mode_qcow_os_id != '' }}
-        env:
-          IMAGE_MODE_QCOW: bin/output/qcow2-image-mode/disk.qcow2
-        run: |
-          set -euo pipefail
-          if [ ! -f "${IMAGE_MODE_QCOW}" ]; then
-            echo "ERROR: Secondary image-mode qcow not staged at ${IMAGE_MODE_QCOW}"
-            exit 1
-          fi
-
-          QCOW="${IMAGE_MODE_QCOW}" \
-          AGENT_DIR=bin/agent/etc/flightctl \
-          test/scripts/inject_agent_files_into_qcow.sh
 
       # ========== RUN E2E TESTS ==========
       - name: Restore Go cache
@@ -276,25 +233,6 @@ jobs:
       - name: Check disk space
         run: df -h
 
-      - name: Validate qcow inputs
-        env:
-          PACKAGE_MODE_QCOW_ENV_VAR: ${{ inputs.package_mode_qcow_env_var }}
-          IMAGE_MODE_QCOW_ENV_VAR: ${{ inputs.image_mode_qcow_env_var }}
-          PACKAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2/disk.qcow2
-          IMAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2-image-mode/disk.qcow2
-        run: |
-          set -euo pipefail
-
-          if [[ -n "${PACKAGE_MODE_QCOW_ENV_VAR}" && ! -f "${PACKAGE_MODE_QCOW_PATH}" ]]; then
-            echo "ERROR: ${PACKAGE_MODE_QCOW_ENV_VAR} requires qcow at ${PACKAGE_MODE_QCOW_PATH}"
-            exit 1
-          fi
-
-          if [[ -n "${IMAGE_MODE_QCOW_ENV_VAR}" && ! -f "${IMAGE_MODE_QCOW_PATH}" ]]; then
-            echo "ERROR: ${IMAGE_MODE_QCOW_ENV_VAR} requires qcow at ${IMAGE_MODE_QCOW_PATH}"
-            exit 1
-          fi
-
       - name: Run E2E Test Slice
         env:
           GO_E2E_DIRS: ${{ steps.resolve-go-e2e-dirs.outputs.resolved_go_e2e_dirs }}
@@ -303,10 +241,6 @@ jobs:
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
-          PACKAGE_MODE_QCOW_ENV_VAR: ${{ inputs.package_mode_qcow_env_var }}
-          IMAGE_MODE_QCOW_ENV_VAR: ${{ inputs.image_mode_qcow_env_var }}
-          PACKAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2/disk.qcow2
-          IMAGE_MODE_QCOW_PATH: ${{ github.workspace }}/bin/output/qcow2-image-mode/disk.qcow2
           RUNNER_DEBUG: ${{ runner.debug }}
         run: |
           set -euo pipefail
@@ -317,14 +251,6 @@ jobs:
             export VERBOSE=true
           else
             echo "Debug mode disabled"
-          fi
-
-          if [[ -n "${PACKAGE_MODE_QCOW_ENV_VAR}" ]]; then
-            export "${PACKAGE_MODE_QCOW_ENV_VAR}=${PACKAGE_MODE_QCOW_PATH}"
-          fi
-
-          if [[ -n "${IMAGE_MODE_QCOW_ENV_VAR}" ]]; then
-            export "${IMAGE_MODE_QCOW_ENV_VAR}=${IMAGE_MODE_QCOW_PATH}"
           fi
 
           make -e run-e2e-test

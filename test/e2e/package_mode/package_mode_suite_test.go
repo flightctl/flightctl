@@ -5,6 +5,7 @@ package packagemode_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -31,6 +32,12 @@ var _ = BeforeSuite(func() {
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
+
+	if !e2e.AgentConfigDirExists() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		Expect(e2e.PrepareAgentConfigForContainer(ctx)).To(Succeed())
+	}
 })
 
 var _ = AfterSuite(func() {
@@ -56,7 +63,6 @@ var _ = AfterEach(func() {
 	defer harness.SetTestContext(suiteCtx)
 
 	harness.PrintAgentLogsIfFailed()
-	printPackageModeCustomVMLogsIfFailed(harness.GetTestContext())
 	harness.CaptureDeploymentLogsIfFailed()
 
 	err := harness.CleanUpAllTestResources()
