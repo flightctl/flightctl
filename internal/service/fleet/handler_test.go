@@ -957,13 +957,14 @@ func TestGetFleetRepositoryRefs(t *testing.T) {
 	})
 }
 
-func makeCatalogItem(versions ...string) *domain.CatalogItem {
+func makeCatalogItem(itemType domain.CatalogItemType, versions ...string) *domain.CatalogItem {
 	var versionList []domain.CatalogItemVersion
 	for _, v := range versions {
 		versionList = append(versionList, domain.CatalogItemVersion{Version: v})
 	}
 	return &domain.CatalogItem{
 		Spec: domain.CatalogItemSpec{
+			Type:     itemType,
 			Versions: versionList,
 		},
 	}
@@ -1004,7 +1005,7 @@ func createFleetWithOSCatalogRef(name, catalog, item, version string) domain.Fle
 func TestCreateFleet_CatalogItemRefValidation(t *testing.T) {
 	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
 		h, _, catalog := newTestHandlerWithCatalog()
-		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0", "2.0.0")
+		catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0", "2.0.0")
 
 		fleet := createFleetWithOSCatalogRef("f1", "mycat", "myitem", "1.0.0")
 		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
@@ -1022,7 +1023,7 @@ func TestCreateFleet_CatalogItemRefValidation(t *testing.T) {
 
 	t.Run("When OS refs a nonexistent version it should return bad request", func(t *testing.T) {
 		h, _, catalog := newTestHandlerWithCatalog()
-		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
 
 		fleet := createFleetWithOSCatalogRef("f1", "mycat", "myitem", "9.9.9")
 		_, status := h.CreateFleet(context.Background(), uuid.New(), fleet)
@@ -1032,7 +1033,7 @@ func TestCreateFleet_CatalogItemRefValidation(t *testing.T) {
 
 	t.Run("When an application refs a valid catalog item version it should succeed", func(t *testing.T) {
 		h, _, catalog := newTestHandlerWithCatalog()
-		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeContainer, "1.0.0")
 
 		fleet := createTestFleet("f1", nil)
 		fleet.Spec.Template.Spec.Applications = &[]domain.ApplicationProviderSpec{
@@ -1074,7 +1075,7 @@ func TestCreateFleet_CatalogItemRefValidation(t *testing.T) {
 func TestReplaceFleet_CatalogItemRefValidation(t *testing.T) {
 	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
 		h, fakeStore, catalog := newTestHandlerWithCatalog()
-		catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
 
 		existing := createTestFleet("f1", nil)
 		fakeStore.fleets["f1"] = &existing

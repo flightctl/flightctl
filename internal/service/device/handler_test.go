@@ -1188,13 +1188,14 @@ func patchAddLabel(key, value string) domain.PatchRequest {
 	return domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/" + key, Value: &v}}
 }
 
-func makeCatalogItem(versions ...string) *domain.CatalogItem {
+func makeCatalogItem(itemType domain.CatalogItemType, versions ...string) *domain.CatalogItem {
 	var versionList []domain.CatalogItemVersion
 	for _, v := range versions {
 		versionList = append(versionList, domain.CatalogItemVersion{Version: v})
 	}
 	return &domain.CatalogItem{
 		Spec: domain.CatalogItemSpec{
+			Type:     itemType,
 			Versions: versionList,
 		},
 	}
@@ -1223,7 +1224,7 @@ func makeAppSpec(t *testing.T, catalog, item, version string) domain.Application
 func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
 	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0", "2.0.0")
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0", "2.0.0")
 		ctx := context.Background()
 		orgId := uuid.New()
 		device := domain.Device{
@@ -1265,7 +1266,7 @@ func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
 
 	t.Run("When OS refs a nonexistent version it should return bad request", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
 		ctx := context.Background()
 		orgId := uuid.New()
 		device := domain.Device{
@@ -1287,7 +1288,7 @@ func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
 
 	t.Run("When app refs a valid catalog item version it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myapp"] = makeCatalogItem("1.0.0")
+		st.catalog.items["mycat/myapp"] = makeCatalogItem(domain.CatalogItemTypeContainer, "1.0.0")
 		ctx := context.Background()
 		orgId := uuid.New()
 		app := makeAppSpec(t, "mycat", "myapp", "1.0.0")
@@ -1352,9 +1353,10 @@ func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
 	})
 }
 
-func makeCatalogItemWithSchema(version string, configSchema *map[string]interface{}) *domain.CatalogItem {
+func makeCatalogItemWithSchema(itemType domain.CatalogItemType, version string, configSchema *map[string]interface{}) *domain.CatalogItem {
 	return &domain.CatalogItem{
 		Spec: domain.CatalogItemSpec{
+			Type: itemType,
 			Versions: []domain.CatalogItemVersion{
 				{
 					Version:      version,
@@ -1399,7 +1401,7 @@ func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
 
 	t.Run("When app conforms to configSchema it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema("1.0.0", requireEnvVarsSchema)
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema(domain.CatalogItemTypeContainer, "1.0.0", requireEnvVarsSchema)
 		ctx := context.Background()
 		orgId := uuid.New()
 		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", &map[string]string{"KEY": "val"})
@@ -1413,7 +1415,7 @@ func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
 
 	t.Run("When app violates configSchema it should return bad request", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema("1.0.0", requireEnvVarsSchema)
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema(domain.CatalogItemTypeContainer, "1.0.0", requireEnvVarsSchema)
 		ctx := context.Background()
 		orgId := uuid.New()
 		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
@@ -1428,7 +1430,7 @@ func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
 
 	t.Run("When catalog item has no configSchema it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeContainer, "1.0.0")
 		ctx := context.Background()
 		orgId := uuid.New()
 		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
@@ -1444,7 +1446,7 @@ func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
 func TestReplaceDevice_CatalogItemRefValidation(t *testing.T) {
 	t.Run("When replacing with a valid catalog ref it should succeed", func(t *testing.T) {
 		st, _, svc := newTestHandler()
-		st.catalog.items["mycat/myitem"] = makeCatalogItem("1.0.0")
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
 		ctx := context.Background()
 		orgId := uuid.New()
 		device := domain.Device{

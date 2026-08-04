@@ -122,12 +122,12 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 
-	return customizeMigration(ctx, tx)
+	return customizeMigration(ctx, tx, log)
 }
 
 // customizeMigration applies one-off schema fixups that don't belong to any single resource's
 // own InitialMigration, ported verbatim from the former monolithic DataStore.customizeMigration.
-func customizeMigration(ctx context.Context, tx *gorm.DB) error {
+func customizeMigration(ctx context.Context, tx *gorm.DB, log logrus.FieldLogger) error {
 	db := tx.WithContext(ctx)
 
 	if db.Migrator().HasConstraint("fleet_repos", "fk_fleet_repos_repository") {
@@ -144,7 +144,10 @@ func customizeMigration(ctx context.Context, tx *gorm.DB) error {
 	if err := backfillDefaultCatalogs(ctx, tx); err != nil {
 		return err
 	}
-	return normalizeAuthProviderURLs(ctx, tx)
+	if err := normalizeAuthProviderURLs(ctx, tx); err != nil {
+		return err
+	}
+	return migrateCatalogItemLabels(ctx, tx, log)
 }
 
 // backfillDefaultCatalogs creates a default catalog for every organization that has no

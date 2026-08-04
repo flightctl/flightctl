@@ -284,6 +284,7 @@ func TestValidateCatalogItemRefs_ConfigSchema(t *testing.T) {
 			items: map[string]*domain.CatalogItem{
 				"mycat/myitem": {
 					Spec: domain.CatalogItemSpec{
+						Type: domain.CatalogItemTypeContainer,
 						Versions: []domain.CatalogItemVersion{
 							{Version: "1.0.0", ConfigSchema: requireSchema, Channels: []string{"stable"}, References: map[domain.CatalogItemArtifactType]string{}},
 						},
@@ -302,6 +303,7 @@ func TestValidateCatalogItemRefs_ConfigSchema(t *testing.T) {
 			items: map[string]*domain.CatalogItem{
 				"mycat/myitem": {
 					Spec: domain.CatalogItemSpec{
+						Type: domain.CatalogItemTypeContainer,
 						Versions: []domain.CatalogItemVersion{
 							{Version: "1.0.0", ConfigSchema: requireSchema, Channels: []string{"stable"}, References: map[domain.CatalogItemArtifactType]string{}},
 						},
@@ -321,6 +323,7 @@ func TestValidateCatalogItemRefs_ConfigSchema(t *testing.T) {
 			items: map[string]*domain.CatalogItem{
 				"mycat/myitem": {
 					Spec: domain.CatalogItemSpec{
+						Type: domain.CatalogItemTypeContainer,
 						Versions: []domain.CatalogItemVersion{
 							{Version: "1.0.0", Channels: []string{"stable"}, References: map[domain.CatalogItemArtifactType]string{}},
 						},
@@ -339,6 +342,7 @@ func TestValidateCatalogItemRefs_ConfigSchema(t *testing.T) {
 			items: map[string]*domain.CatalogItem{
 				"mycat/myitem": {
 					Spec: domain.CatalogItemSpec{
+						Type:     domain.CatalogItemTypeContainer,
 						Defaults: &domain.CatalogItemConfigurable{ConfigSchema: requireSchema},
 						Versions: []domain.CatalogItemVersion{
 							{Version: "1.0.0", Channels: []string{"stable"}, References: map[domain.CatalogItemArtifactType]string{}},
@@ -374,6 +378,225 @@ func TestValidateCatalogItemRefs_ConfigSchema(t *testing.T) {
 			items:  map[string]*domain.CatalogItem{},
 			spec:   &domain.DeviceSpec{},
 			wantOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCatalogStore{items: tt.items}
+			status := ValidateCatalogItemRefs(context.Background(), uuid.New(), store, tt.spec)
+			if tt.wantOK && status != domain.StatusOK() {
+				t.Errorf("expected OK but got: %+v", status)
+			}
+			if !tt.wantOK && status == domain.StatusOK() {
+				t.Error("expected error status but got OK")
+			}
+			if tt.wantSubstr != "" && status != domain.StatusOK() {
+				if !contains(status.Message, tt.wantSubstr) {
+					t.Errorf("expected message to contain %q, got %q", tt.wantSubstr, status.Message)
+				}
+			}
+		})
+	}
+}
+
+func makeCatalogRefAppWithType(appType domain.AppType, catalog, item, version string, name *string) domain.ApplicationProviderSpec {
+	ref := domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	}
+	var spec domain.ApplicationProviderSpec
+	switch appType {
+	case domain.AppTypeContainer:
+		a := domain.ContainerApplication{AppType: appType, Name: name}
+		_ = a.FromCatalogItemRefApplicationProviderSpec(ref)
+		_ = spec.FromContainerApplication(a)
+	case domain.AppTypeCompose:
+		a := domain.ComposeApplication{AppType: appType, Name: name}
+		_ = a.FromCatalogItemRefApplicationProviderSpec(ref)
+		_ = spec.FromComposeApplication(a)
+	case domain.AppTypeQuadlet:
+		a := domain.QuadletApplication{AppType: appType, Name: name}
+		_ = a.FromCatalogItemRefApplicationProviderSpec(ref)
+		_ = spec.FromQuadletApplication(a)
+	case domain.AppTypeHelm:
+		a := domain.HelmApplication{AppType: appType, Name: name}
+		_ = a.FromCatalogItemRefApplicationProviderSpec(ref)
+		_ = spec.FromHelmApplication(a)
+	}
+	return spec
+}
+
+func makeVolumeSpec(catalog, item, version string) domain.ApplicationVolume {
+	var vol domain.ApplicationVolume
+	vol.Name = "test-vol"
+	_ = vol.FromImageVolumeProviderSpec(domain.ImageVolumeProviderSpec{
+		Image: domain.ImageVolumeSource{
+			CatalogItemRef: &domain.CatalogItemRefSpec{
+				Catalog: catalog,
+				Item:    item,
+				Version: version,
+			},
+		},
+	})
+	return vol
+}
+
+func TestValidateCatalogItemRefs_TypeMismatch(t *testing.T) {
+	catalogItem := func(itemType domain.CatalogItemType) *domain.CatalogItem {
+		return &domain.CatalogItem{
+			Spec: domain.CatalogItemSpec{
+				Type: itemType,
+				Versions: []domain.CatalogItemVersion{
+					{Version: "1.0.0", References: map[domain.CatalogItemArtifactType]string{}},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		items      map[string]*domain.CatalogItem
+		spec       *domain.DeviceSpec
+		wantOK     bool
+		wantSubstr string
+	}{
+		{
+			name:  "When OS ref points to an OS catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeOS)},
+			spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "mycat", Item: "myitem", Version: "1.0.0"},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name:  "When OS ref points to a container catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeContainer)},
+			spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "mycat", Item: "myitem", Version: "1.0.0"},
+				},
+			},
+			wantSubstr: "expected os",
+		},
+		{
+			name:  "When container app ref points to a container catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeContainer)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeContainer, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name:  "When container app ref points to an OS catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeOS)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeContainer, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantSubstr: "expected container",
+		},
+		{
+			name:  "When compose app ref points to a compose catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeCompose)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeCompose, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name:  "When compose app ref points to a container catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeContainer)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeCompose, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantSubstr: "expected compose",
+		},
+		{
+			name:  "When quadlet app ref points to a quadlet catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeQuadlet)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeQuadlet, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name:  "When quadlet app ref points to a data catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeData)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeQuadlet, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantSubstr: "expected quadlet",
+		},
+		{
+			name:  "When helm app ref points to a helm catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeHelm)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeHelm, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantOK: true,
+		},
+		{
+			name:  "When helm app ref points to an OS catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeOS)},
+			spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{
+					makeCatalogRefAppWithType(domain.AppTypeHelm, "mycat", "myitem", "1.0.0", lo.ToPtr("myapp")),
+				},
+			},
+			wantSubstr: "expected helm",
+		},
+		{
+			name:  "When volume ref points to a data catalog item it should pass",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeData)},
+			spec: func() *domain.DeviceSpec {
+				vol := makeVolumeSpec("mycat", "myitem", "1.0.0")
+				container := domain.ContainerApplication{
+					AppType: domain.AppTypeContainer,
+					Name:    lo.ToPtr("myapp"),
+					Volumes: &[]domain.ApplicationVolume{vol},
+				}
+				_ = container.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test:latest"})
+				var appSpec domain.ApplicationProviderSpec
+				_ = appSpec.FromContainerApplication(container)
+				return &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{appSpec}}
+			}(),
+			wantOK: true,
+		},
+		{
+			name:  "When volume ref points to a container catalog item it should return bad request",
+			items: map[string]*domain.CatalogItem{"mycat/myitem": catalogItem(domain.CatalogItemTypeContainer)},
+			spec: func() *domain.DeviceSpec {
+				vol := makeVolumeSpec("mycat", "myitem", "1.0.0")
+				container := domain.ContainerApplication{
+					AppType: domain.AppTypeContainer,
+					Name:    lo.ToPtr("myapp"),
+					Volumes: &[]domain.ApplicationVolume{vol},
+				}
+				_ = container.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test:latest"})
+				var appSpec domain.ApplicationProviderSpec
+				_ = appSpec.FromContainerApplication(container)
+				return &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{appSpec}}
+			}(),
+			wantSubstr: "expected data",
 		},
 	}
 

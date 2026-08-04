@@ -205,48 +205,92 @@ func ValidateCatalogItemRefs(ctx context.Context, orgId uuid.UUID, store catalog
 		}
 	}
 
+	if spec.Os != nil && spec.Os.CatalogItemRef != nil {
+		ref := spec.Os.CatalogItemRef
+		key := itemKey{ref.Catalog, ref.Item}
+		catalogItem := fetched[key]
+		if catalogItem.Spec.Type != domain.CatalogItemTypeOS {
+			return domain.StatusBadRequest(fmt.Sprintf("catalog item %s/%s has type %s, expected %s", ref.Catalog, ref.Item, catalogItem.Spec.Type, domain.CatalogItemTypeOS))
+		}
+	}
+
 	if spec.Applications != nil {
 		for i, app := range *spec.Applications {
-			ref, appName := ExtractAppCatalogItemRef(&app)
-			if ref == nil {
-				continue
-			}
-
-			key := itemKey{ref.Catalog, ref.Item}
-			catalogItem := fetched[key]
-			version := catalogItem.Spec.FindVersion(ref.Version)
-
-			configSchema := getEffectiveConfigSchema(catalogItem, version)
-			if configSchema == nil {
-				continue
-			}
-
-			appBytes, err := json.Marshal(&app)
+			appType, err := app.GetAppType()
 			if err != nil {
-				return domain.StatusInternalServerError(fmt.Sprintf("failed to marshal application %d: %v", i, err))
+				continue
 			}
 
-			dec := json.NewDecoder(strings.NewReader(string(appBytes)))
-			dec.UseNumber()
-			var appData interface{}
-			if err := dec.Decode(&appData); err != nil {
-				return domain.StatusInternalServerError(fmt.Sprintf("failed to decode application %d: %v", i, err))
+			if ref, appName := ExtractAppCatalogItemRef(&app); ref != nil {
+				key := itemKey{ref.Catalog, ref.Item}
+				catalogItem := fetched[key]
+
+				expectedType := AppTypeToItemType(appType)
+				if expectedType != "" && catalogItem.Spec.Type != expectedType {
+					appIdentifier := fmt.Sprintf("application[%d]", i)
+					if appName != nil {
+						appIdentifier = fmt.Sprintf("application %q", *appName)
+					}
+					return domain.StatusBadRequest(fmt.Sprintf("%s references catalog item %s/%s with type %s, expected %s",
+						appIdentifier, ref.Catalog, ref.Item, catalogItem.Spec.Type, expectedType))
+				}
+
+				version := catalogItem.Spec.FindVersion(ref.Version)
+				configSchema := getEffectiveConfigSchema(catalogItem, version)
+				if configSchema != nil {
+					appBytes, err := json.Marshal(&app)
+					if err != nil {
+						return domain.StatusInternalServerError(fmt.Sprintf("failed to marshal application %d: %v", i, err))
+					}
+
+					dec := json.NewDecoder(strings.NewReader(string(appBytes)))
+					dec.UseNumber()
+					var appData interface{}
+					if err := dec.Decode(&appData); err != nil {
+						return domain.StatusInternalServerError(fmt.Sprintf("failed to decode application %d: %v", i, err))
+					}
+
+					appIdentifier := fmt.Sprintf("application[%d]", i)
+					if appName != nil {
+						appIdentifier = fmt.Sprintf("application %q", *appName)
+					}
+
+					if errs := validateDataAgainstConfigSchema(configSchema, appData); len(errs) > 0 {
+						return domain.StatusBadRequest(
+							fmt.Sprintf("%s does not conform to configSchema of catalog item %s/%s version %s: %v",
+								appIdentifier, ref.Catalog, ref.Item, ref.Version, errors.Join(errs...)))
+					}
+				}
 			}
 
-			appIdentifier := fmt.Sprintf("application[%d]", i)
-			if appName != nil {
-				appIdentifier = fmt.Sprintf("application %q", *appName)
-			}
-
-			if errs := validateDataAgainstConfigSchema(configSchema, appData); len(errs) > 0 {
-				return domain.StatusBadRequest(
-					fmt.Sprintf("%s does not conform to configSchema of catalog item %s/%s version %s: %v",
-						appIdentifier, ref.Catalog, ref.Item, ref.Version, errors.Join(errs...)))
+			volRefs, _ := ExtractVolumeCatalogItemRefs(&app)
+			for _, vRef := range volRefs {
+				key := itemKey{vRef.Catalog, vRef.Item}
+				catalogItem := fetched[key]
+				if catalogItem.Spec.Type != domain.CatalogItemTypeData {
+					return domain.StatusBadRequest(fmt.Sprintf("volume references catalog item %s/%s with type %s, expected %s",
+						vRef.Catalog, vRef.Item, catalogItem.Spec.Type, domain.CatalogItemTypeData))
+				}
 			}
 		}
 	}
 
 	return domain.StatusOK()
+}
+
+func AppTypeToItemType(appType domain.AppType) domain.CatalogItemType {
+	switch appType {
+	case domain.AppTypeContainer:
+		return domain.CatalogItemTypeContainer
+	case domain.AppTypeCompose:
+		return domain.CatalogItemTypeCompose
+	case domain.AppTypeQuadlet:
+		return domain.CatalogItemTypeQuadlet
+	case domain.AppTypeHelm:
+		return domain.CatalogItemTypeHelm
+	default:
+		return ""
+	}
 }
 
 func getEffectiveConfigSchema(item *domain.CatalogItem, version *domain.CatalogItemVersion) *map[string]interface{} {
