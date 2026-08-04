@@ -112,6 +112,9 @@ cleanup_mounts() {
 }
 trap cleanup_mounts EXIT
 
+# Minimal stream9 image has no mount/umount; util-linux provides them.
+dnf -y install util-linux
+
 # RPM %post (systemd-tmpfiles, semodule, useradd) needs a live-ish root.
 mkdir -p "${root}/proc" "${root}/sys" "${root}/dev"
 mount -t proc proc "${root}/proc"
