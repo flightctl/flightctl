@@ -25,7 +25,7 @@ The following table lists the fields supported for filtering for each resource k
 | Kind                            | Fields                                              |
 |---------------------------------|-----------------------------------------------------|
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`lastSeen`<br/>`status.lifecycle.status` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.capabilities.osMode`<br/>`lastSeen`<br/>`status.lifecycle.status` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
@@ -55,7 +55,14 @@ This command retrieves devices owned by `Fleet/pos-fleet`, located in the `us` r
 
 ```bash
 flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, status.updated.status in (Unknown, OutOfDate)' -l 'region=us'
+```
 
+#### Example 4: Filter by OS mode
+
+This command retrieves devices that report package-mode OS management:
+
+```bash
+flightctl get devices --field-selector 'status.capabilities.osMode=package'
 ```
 
 ### Fields Discovery

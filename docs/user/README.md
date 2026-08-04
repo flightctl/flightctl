@@ -65,6 +65,7 @@ Welcome to the Flight Control user documentation.
 * **[Managing Devices](using/managing-devices.md)** - How to manage individual devices.
   * [Enrolling Devices](using/managing-devices.md#enrolling-devices)
   * [Viewing the Device Inventory and Device Details](using/managing-devices.md#viewing-the-device-inventory-and-device-details)
+  * [OS mode](using/managing-devices.md#os-mode)
   * [Organizing Devices](using/managing-devices.md#organizing-devices)
   * [Updating the OS](using/managing-devices.md#updating-the-os)
   * [Managing OS Configuration](using/managing-devices.md#managing-os-configuration)
