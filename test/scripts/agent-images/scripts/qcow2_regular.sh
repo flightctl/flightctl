@@ -134,10 +134,11 @@ else
   dnf --installroot="${root}" -y install "${rpms[@]}"
 fi
 
-systemctl --root="${root}" enable firewalld.service
-systemctl --root="${root}" enable podman.service
-systemctl --root="${root}" enable sshd.service
-systemctl --root="${root}" enable flightctl-agent.service
+# centos:stream9 has no systemctl; enable units via the mounted root (has systemd).
+chroot "${root}" systemctl enable firewalld.service
+chroot "${root}" systemctl enable podman.service
+chroot "${root}" systemctl enable sshd.service
+chroot "${root}" systemctl enable flightctl-agent.service
 
 if ! grep -q '^user:' "${root}/etc/passwd"; then
   chroot "${root}" useradd -ms /bin/bash user
