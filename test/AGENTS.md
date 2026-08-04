@@ -60,7 +60,9 @@ BUILD_TYPE=regular AGENT_OS_ID=cs9-regular SKIP_QCOW_BUILD=true make e2e-agent-i
 - `test/harness/e2e/package_mode_agent.go` provides `StartPackageModeAgent()` which:
   - Starts a privileged testcontainer with `/sbin/init` (systemd)
   - Mounts agent config and certs from the local harness
-  - Creates the `flightctl` user with linger for rootless Podman
+  - Creates the `flightctl` user with linger/subuids for rootless Podman
+  - Configures e2e registry CA + insecure registries.conf (same role as qcow injection for VMs)
+  - Disables firewalld (interferes with nested Podman)
   - Waits for the `flightctl-agent` systemd service to be active
 - The container uses the `quay.io/flightctl/flightctl-device:base-cs9-regular` image
 - Tests verify osMode=package capability, config deployment, and podman application lifecycle

@@ -62,7 +62,12 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 
 			startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer startCancel()
-			packageModeAgent, err = e2e.StartPackageModeAgent(startCtx, agentConfigDir)
+			packageModeAgent, err = e2e.StartPackageModeAgent(
+				startCtx,
+				agentConfigDir,
+				packageModeAuxSvcs.Registry.Host,
+				packageModeAuxSvcs.Registry.Port,
+			)
 			Expect(err).ToNot(HaveOccurred())
 
 			inlineConfig, err := e2e.NewInlineConfigSpec("package-mode-inline", []v1beta1.FileSpec{{
@@ -98,13 +103,8 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 		})
 
 		AfterAll(func() {
-			if CurrentSpecReport().Failed() && packageModeAgent != nil {
-				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer logCancel()
-				logs, err := packageModeAgent.GetAgentLogs(logCtx)
-				if err == nil {
-					GinkgoWriter.Printf("=== flightctl-agent logs (normal context) ===\n%s\n", logs)
-				}
+			if CurrentSpecReport().Failed() {
+				dumpPackageModeFailureDiagnostics(harness, packageModeAgent, deviceID, "normal context")
 			}
 			if strings.TrimSpace(deviceID) != "" {
 				if err := harness.DeleteDeviceIgnoreNotFound(deviceID); err != nil {
@@ -146,8 +146,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				g.Expect(device.Spec.Os).To(BeNil())
 			}, packageModeEnrollTimeout, packageModePollInterval).Should(Succeed())
 
-			Expect(harness.WaitForApplicationStatus(deviceID, packageModeContainerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
-			Expect(harness.WaitForApplicationSummary(deviceID, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)).ToNot(HaveOccurred())
+			// Nested rootless podman + registry pull needs more than the default 1m TIMEOUT.
+			Expect(harness.WaitForApplicationStatus(deviceID, packageModeContainerAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+			Expect(harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)).ToNot(HaveOccurred())
 
 			Eventually(func(g Gomega) {
 				sshCtx, sshCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -207,7 +208,12 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 
 			startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer startCancel()
-			packageModeAgent, err = e2e.StartPackageModeAgent(startCtx, agentConfigDir)
+			packageModeAgent, err = e2e.StartPackageModeAgent(
+				startCtx,
+				agentConfigDir,
+				packageModeAuxSvcs.Registry.Host,
+				packageModeAuxSvcs.Registry.Port,
+			)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.CreateOrUpdateTestFleet(fleetName, selector, v1beta1.DeviceSpec{})
@@ -233,13 +239,8 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 		})
 
 		AfterAll(func() {
-			if CurrentSpecReport().Failed() && packageModeAgent != nil {
-				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer logCancel()
-				logs, err := packageModeAgent.GetAgentLogs(logCtx)
-				if err == nil {
-					GinkgoWriter.Printf("=== flightctl-agent logs (reject context) ===\n%s\n", logs)
-				}
+			if CurrentSpecReport().Failed() {
+				dumpPackageModeFailureDiagnostics(harness, packageModeAgent, deviceID, "reject context")
 			}
 			if strings.TrimSpace(deviceID) != "" {
 				if err := harness.DeleteDeviceIgnoreNotFound(deviceID); err != nil {
@@ -376,4 +377,32 @@ func deviceRejectsMixedFleetUpdate(device *v1beta1.Device, rejectText string) bo
 	}
 
 	return device.Status.Updated.Info != nil && strings.Contains(*device.Status.Updated.Info, rejectText)
+}
+
+func dumpPackageModeFailureDiagnostics(harness *e2e.Harness, agent *e2e.PackageModeAgent, deviceID, label string) {
+	GinkgoHelper()
+	if strings.TrimSpace(deviceID) != "" && harness != nil {
+		device, err := harness.GetDevice(deviceID)
+		if err != nil {
+			GinkgoWriter.Printf("=== device status (%s): get failed: %v ===\n", label, err)
+		} else if device != nil && device.Status != nil {
+			GinkgoWriter.Printf("=== device status (%s) updated=%s appsSummary=%v apps=%v ===\n",
+				label,
+				device.Status.Updated.Status,
+				device.Status.ApplicationsSummary,
+				device.Status.Applications,
+			)
+		}
+	}
+	if agent == nil {
+		return
+	}
+	logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer logCancel()
+	logs, err := agent.GetAgentLogs(logCtx)
+	if err != nil {
+		GinkgoWriter.Printf("=== flightctl-agent logs (%s): get failed: %v ===\n", label, err)
+		return
+	}
+	GinkgoWriter.Printf("=== flightctl-agent logs (%s) ===\n%s\n", label, logs)
 }

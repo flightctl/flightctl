@@ -246,6 +246,9 @@ jobs:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          # Continue remaining suites after the first failure so later-focused
+          # specs (e.g. package-mode 90148 on a shard that also runs hooks) still execute.
+          GINKGO_KEEP_GOING: "true"
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}
