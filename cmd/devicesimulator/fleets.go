@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
@@ -23,10 +25,10 @@ func scaleFleetNames(prefix string, count int) []string {
 func createScaleFleets(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, prefix string, count int) ([]string, error) {
 	names := scaleFleetNames(prefix, count)
 	for _, name := range names {
+		exists := false
 		response, err := serviceClient.GetFleetWithResponse(ctx, name, &v1beta1.GetFleetParams{})
 		if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == http.StatusOK {
-			log.Infof("Fleet %s already exists, skipping creation", name)
-			continue
+			exists = true
 		}
 
 		fleet, err := newScaleFleet(name)
@@ -37,6 +39,8 @@ func createScaleFleets(ctx context.Context, log *logrus.Logger, serviceClient *a
 		if err != nil {
 			return nil, fmt.Errorf("marshaling fleet %s: %w", name, err)
 		}
+		// Always replace so scale fleets pick up the current process uid/gid and a non-empty template
+		// (skipping left stale empty fleets from older host scripts).
 		createResponse, err := serviceClient.ReplaceFleetWithBodyWithResponse(ctx, name, "application/json", bytes.NewReader(fleetJSON))
 		if err != nil {
 			return nil, fmt.Errorf("creating fleet %s: %w", name, err)
@@ -44,13 +48,20 @@ func createScaleFleets(ctx context.Context, log *logrus.Logger, serviceClient *a
 		if createResponse.StatusCode() < http.StatusOK || createResponse.StatusCode() >= http.StatusMultipleChoices {
 			return nil, fmt.Errorf("creating fleet %s: status %d, body: %s", name, createResponse.StatusCode(), string(createResponse.Body))
 		}
-		log.Infof("Successfully created fleet: %s", name)
+		if exists {
+			log.Infof("Updated scale fleet template: %s", name)
+		} else {
+			log.Infof("Successfully created fleet: %s", name)
+		}
 	}
 	return names, nil
 }
 
 func newScaleFleet(name string) (*v1beta1.Fleet, error) {
 	mode := 0644
+	// FileSpec defaults omit user/group to root; non-root simulator agents cannot chown to 0.
+	uid := v1beta1.Username(strconv.Itoa(os.Getuid()))
+	gid := strconv.Itoa(os.Getgid())
 	content := fmt.Sprintf("This system is managed by flightctl (fleet %s).", name)
 	var configItem v1beta1.ConfigProviderSpec
 	if err := configItem.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
@@ -60,6 +71,8 @@ func newScaleFleet(name string) (*v1beta1.Fleet, error) {
 				Path:    "/etc/motd",
 				Content: content,
 				Mode:    &mode,
+				User:    uid,
+				Group:   gid,
 			},
 		},
 	}); err != nil {

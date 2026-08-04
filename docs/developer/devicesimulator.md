@@ -15,11 +15,116 @@ Copy the necessary setup files to run a `devicesimulator`.
     cp bin/agent/etc/flightctl/certs/* ~/.flightctl/certs/
     cp bin/agent/etc/flightctl/config.yaml ~/.flightctl/agent.yaml
 
-Changes to the configuration of all launched agents can be made in `~/.flightctl/agent.yaml`
+Changes to the configuration of all launched agents can be made in `~/.flightctl/agent.yaml`.
 Some key options available for tuning:
-- `status-update-interval` - How often the agent reports its status to the API. Higher intervals reduce server load.
+
+- `status-update-interval` — how often the agent reports status to the API (higher reduces server load)
+- `status-update-jitter` — random delay before the first status push (spreads mass-start herds)
+- `spec-fetch-error-base-delay` / `spec-fetch-error-max-delay` — exponential backoff on `/rendered` **errors** only
 
 See [Installing and configuring the Flight Control Agent](../user/installing/installing-agent.md) for all available options.
+
+Log in with the CLI first so the simulator can use your client config (including organization):
+
+```bash
+bin/flightctl login <server> --web --certificate-authority ~/.flightctl/certs/ca.crt
+# or: bin/flightctl login <server> -k -u <user> -p <password>
+```
+
+## Scale testing with `make simulate-devices`
+
+Preferred entrypoint: build and run via Make, passing flags through `ARGS`.
+
+```bash
+make simulate-devices ARGS='--count=100 --log-level=error --orchestrator-log-level=info'
+```
+
+Equivalent binary: `bin/devicesimulator` (same flags). Raise the process file-descriptor limit for large runs (`ulimit -n`).
+
+### Source IP setup and teardown (large scale)
+
+Above roughly tens of thousands of agents, a single client IP can exhaust ephemeral ports. Use multiple source IPs.
+
+**1. As root — create aliases** (standalone mode; exits after setup):
+
+```bash
+sudo make simulate-devices ARGS='--setup-source-ips \
+  --source-ip-iface=br-sim \
+  --source-ip-base=10.100.0.100 \
+  --source-ip-count=4 \
+  --source-ip-prefix=24'
+```
+
+If the interface does not exist yet, create a host-only bridge first (optional isolation):
+
+```bash
+sudo ip link add name br-sim type bridge
+sudo ip link set br-sim up
+```
+
+**2. As a normal user — run the simulator** with the same range (addresses must already exist; setup does not run as non-root):
+
+```bash
+make simulate-devices ARGS='--count=100000 \
+  --max-concurrency=200 \
+  --fleet-count=10 \
+  --fleet-prefix=scale-fleet \
+  --source-ip-base=10.100.0.100 \
+  --source-ip-count=4 \
+  --log-level=error \
+  --orchestrator-log-level=info'
+```
+
+You can pass an explicit list instead of a range: `--source-ips=10.100.0.100,10.100.0.101,...` (mutually exclusive with `--source-ip-base` / `--source-ip-count`).
+
+**3. As root — remove aliases** when finished:
+
+```bash
+sudo make simulate-devices ARGS='--teardown-source-ips \
+  --source-ip-iface=br-sim \
+  --source-ip-base=10.100.0.100 \
+  --source-ip-count=4 \
+  --source-ip-prefix=24'
+```
+
+Optional: remove the bridge entirely with `sudo ip link delete br-sim`.
+
+`--setup-source-ips` / `--teardown-source-ips` are mutually exclusive with each other and with a normal simulator run (including `--clean` / `--rollout`).
+
+### Fleets, clean, resume, rollout
+
+| Flag | Purpose |
+|------|---------|
+| `--fleet-count=N` | Create/replace `scale-fleet-00`…`NN-1` (prefix via `--fleet-prefix`) and round-robin label devices. Skips the default `simulator-disk-monitoring` fleet when `N > 0`. Inline `/etc/motd` sets `user`/`group` to the simulator process uid/gid (FileSpec omit defaults to root, which non-root agents cannot `chown`). |
+| `--clean` | Wipe local `data-dir` simulator state and delete simulator-created devices / related enrollment requests, then start |
+| `--clean-only` | Same wipe, then exit |
+| Resume (default) | Restarts agents from local state; skips re-approve when `agent.crt` already exists |
+| `--rollout` | Standalone: apply `--rollout-template` to all scale fleets, poll until UpToDate or `--rollout-timeout` |
+| `--skip-auto-approve` | Do not approve enrollment requests (agents wait for manual approval) |
+
+Clean enroll example:
+
+```bash
+make simulate-devices ARGS='--clean --count=100000 --fleet-count=10 \
+  --source-ip-base=10.100.0.100 --source-ip-count=4 \
+  --log-level=error --orchestrator-log-level=info'
+```
+
+Rollout example (agents must already be running in another process; use a different `--metrics` port if needed):
+
+```bash
+make simulate-devices ARGS='--rollout --fleet-count=10 \
+  --rollout-template=/path/to/fleet-template.yaml \
+  --rollout-timeout=6h \
+  --metrics=localhost:9094 \
+  --orchestrator-log-level=info'
+```
+
+The rollout template only needs a Fleet YAML whose `.spec.template` is copied onto every scale fleet. Avoid hard-coding a single `fleet:` label in `template.metadata.labels` if that would reassign all fleets. For inline files under a non-root simulator, set `user`/`group` to the simulator uid/gid (not omitted — omit means root per the API).
+
+### Metrics
+
+Default Prometheus scrape endpoint: `http://localhost:9093/metrics`. Override with `--metrics` when a second simulator process is already bound to that port.
 
 ## CLI Reference
 
@@ -29,16 +134,28 @@ The device simulator supports various command-line options organized into logica
 - `--count` (default: 1): Number of devices to simulate
 - `--initial-device-index` (default: 0): Starting index for device name suffix (e.g., device-00000 for 0, device-00200 for 200)
 - `--label`: Label applied to simulated devices in the format key=value (can be specified multiple times)
+- `--fleet-count` (default: 0): Number of scale fleets to create and distribute devices across (`0` disables)
+- `--fleet-prefix` (default: `scale-fleet`): Prefix for scale fleet names (`<prefix>-NN`)
 
 ### Concurrency Configuration
-- `--max-concurrency` (default: 100): Maximum number of agents that can be creating simultaneously
-- `--agent-startup-jitter` (default: -1s): Maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)
+- `--max-concurrency` (default: 200): Maximum number of concurrent agent create/enroll operations
+- `--agent-startup-jitter` (default: 0): Maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)
 
 ### Runtime Configuration
 - `--stop-after`: Stop the simulator after the specified duration (format: 1h30m, 5m, etc.)
-- `--log-level, -v` (default: debug): Logger verbosity level (fatal, error, warn, warning, info, debug)
+- `--log-level, -v` (default: error): Log level for simulated device agents
+- `--orchestrator-log-level` (default: info): Log level for cleanup, fleets, and enrollment progress
 - `--metrics` (default: localhost:9093): Address for the metrics endpoint
-- `--source-ips`: Comma-separated list of source IP addresses for device management HTTP connections
+- `--skip-auto-approve`: Do not auto-approve enrollment requests
+- `--clean` / `--clean-only`: Wipe local state and simulator-created API resources
+- `--rollout` / `--rollout-template` / `--rollout-timeout`: Standalone fleet template rollout mode
+
+### Source IP Configuration
+- `--source-ips`: Comma-separated list of existing source IPs (mutually exclusive with range flags)
+- `--setup-source-ips`: Root-capable standalone mode: add IP aliases on an interface, then exit
+- `--teardown-source-ips`: Root-capable standalone mode: remove those aliases, then exit
+- `--source-ip-iface`: Interface for setup/teardown
+- `--source-ip-base` / `--source-ip-count` / `--source-ip-prefix`: Consecutive IPv4 range (setup, teardown, or non-root run)
 
 ### File and Directory Configuration
 - `--config` (default: ~/.flightctl/agent.yaml): Path of the agent configuration template
@@ -121,16 +238,11 @@ Devices are named using the format `device-XXXXX` where XXXXX is a zero-padded 5
 
 The simulator uses configurable random jitter when starting agents to prevent thundering herd effects. The jitter behavior is controlled by the `--agent-startup-jitter` flag:
 
-- **Negative values (default: -1s)**: Use the agent's `status-update-interval` setting as the maximum jitter duration. This provides backward-compatible behavior with random delays between 0 and the status update interval (typically 60 seconds).
-- **Zero (0)**: No jitter - agents start immediately without any random delay. Useful for testing scenarios requiring precise timing.
-- **Positive values**: Use the specified duration as the maximum jitter. For example, `--agent-startup-jitter=30s` creates random delays between 0 and 30 seconds.
+- **Zero (default: 0)**: No startup jitter — agents start without an extra random delay (status-path herd spreading uses `status-update-jitter` in the agent template instead).
+- **Negative values**: Use the agent's `status-update-interval` as the maximum startup jitter.
+- **Positive values**: Use the specified duration as the maximum jitter (for example `--agent-startup-jitter=30s`).
 
-**Common Usage Patterns:**
-- **Default behavior**: Omit the flag or use `--agent-startup-jitter=-1s` for production-like load distribution
-- **Immediate startup**: Use `--agent-startup-jitter=0` for testing scenarios requiring synchronized agent launches
-- **Custom timing**: Use `--agent-startup-jitter=30s` or similar for specific load distribution needs
-
-For testing scenarios where you need precise timing or want to minimize startup delays, setting jitter to 0 or a small positive value can be beneficial. For production-like load testing, the default behavior usually provides good load distribution.
+For production-like load testing, prefer raising `status-update-interval` / `status-update-jitter` in `~/.flightctl/agent.yaml` and use `--agent-startup-jitter` only when you need extra desync at process start.
 
 Today the agent assumes a bootc host so the default disk alerts are based on /sysroot path.
 To avoid many errors in the logs as a result of being unable to read from `/sysroot` consider either:
@@ -172,55 +284,7 @@ It is possible to run 10k devices on a single instance running the flightctl ser
    bin/devicesimulator --max-concurrency=100
    ```
 
-6. **Source IP Distribution**: For very large-scale simulations (>30,000 devices), use multiple source IPs to overcome ephemeral port limitations:
-   ```bash
-   # Setup network aliases first (requires root)
-   sudo ip addr add 192.168.1.100/24 dev eth0
-   sudo ip addr add 192.168.1.101/24 dev eth0
-   sudo ip addr add 192.168.1.102/24 dev eth0
-   
-   # Run simulator with source IP distribution
-   bin/devicesimulator --count=50000 --source-ips=192.168.1.100,192.168.1.101,192.168.1.102 --max-concurrency=100
-   ```
-
-   **Note:** This method adds IP aliases to a physical interface, making them visible and accessible to other hosts on the same network. You must ensure the chosen IPs do not conflict with other devices on your LAN.
-
-   **Advanced: Using a Network Bridge for IP Isolation**
-
-   For a cleaner and more isolated setup, especially when adding a large number of IPs, you can create a virtual bridge interface. This avoids cluttering your main network interface and uses a dedicated, non-existent network range, preventing any potential IP conflicts on your LAN.
-
-   **Note:** This creates a *host-only* bridge. It is isolated within the host machine and is not connected to any physical network. This is the desired setup for the simulator as it prevents network conflicts and is simple to manage.
-
-   1.  **Create and activate a bridge:**
-       ```bash
-       # Create a new bridge named br-sim
-       sudo ip link add name br-sim type bridge
-
-       # Bring the bridge interface up
-       sudo ip link set br-sim up
-       ```
-
-   2.  **Assign a block of IP addresses to the bridge:**
-       This example assigns IPs in the `10.100.0.0/24` range. The host's kernel will handle routing traffic from this bridge to the flightctl service.
-       ```bash
-       # Assign multiple IPs to the bridge for the simulator to use
-       for i in {100..103}; do sudo ip addr add 10.100.0.$i/24 dev br-sim; done
-       ```
-
-   3.  **Run the simulator with the new IPs:**
-       ```bash
-       bin/devicesimulator \
-         --count=10000 \
-         --source-ips=10.100.0.100,10.100.0.101,10.100.0.102,10.100.0.103 \
-         --max-concurrency=100
-       ```
-
-   4.  **Cleanup (when finished):**
-       When you are done with the simulation, you can remove the bridge and all its associated IPs with a single command:
-       ```bash
-       sudo ip link delete br-sim
-       ```
-
+6. **Source IP Distribution**: For very large-scale simulations (typically >30,000 devices), use multiple source IPs to overcome ephemeral port limitations. Prefer the built-in setup/teardown flags documented in [Scale testing with `make simulate-devices`](#scale-testing-with-make-simulate-devices) (`--setup-source-ips` / `--teardown-source-ips` with `--source-ip-base` / `--source-ip-count`). Manual `ip addr add` on a physical NIC or a host-only bridge (`br-sim`) still works; avoid LAN conflicts if you alias a shared interface.
 ### System-level Connection Limits
 
 When simulating a large number of devices, each running agent establishes multiple HTTP connections to the flightctl server. This can exhaust system resources related to network connections. Understanding these limits is crucial for large-scale simulations.
@@ -246,22 +310,22 @@ When running the device simulator, you may need to tune these system parameters 
 
 #### Automatic Fleet Creation
 
-The device simulator automatically creates a fleet configuration named `simulator-disk-monitoring` if it doesn't already exist. This fleet:
+By default (when `--fleet-count=0`), the device simulator creates a fleet named `simulator-disk-monitoring` if it does not already exist. That fleet:
 - Eliminates disk usage errors that would occur with default monitoring configurations
-- Uses the selector `created_by: device-simulator` to automatically match all devices created by the simulator
+- Uses the selector `created_by: device-simulator` to match simulator devices
 - Loads configuration from `examples/fleet-disk-simulator.yaml`
-- Provides appropriate disk monitoring settings for simulated devices
 
-All devices created by the simulator are automatically labeled with `created_by: device-simulator`, ensuring they are matched by this fleet without manual intervention.
+With `--fleet-count > 0`, the simulator creates scale fleets instead and **skips** creating `simulator-disk-monitoring`. Devices still get `created_by=device-simulator` plus a round-robin `fleet=<prefix>-NN` label.
 
 #### Device Enrollment Process
 
 The simulator handles the complete device lifecycle:
 1. Creates agent instances with unique device names (format: device-XXXXX)
 2. Starts agent processes that initiate enrollment requests
-3. Automatically approves enrollment requests when they appear
-4. Applies configured labels to enrolled devices
-5. Manages concurrent device creation with configurable limits
+3. Automatically approves enrollment requests when they appear (unless `--skip-auto-approve`)
+4. On resume, skips approve when the agent certificate already exists
+5. Applies configured labels to enrolled devices
+6. Manages concurrent device creation with configurable limits
 
 ## Monitoring
 
